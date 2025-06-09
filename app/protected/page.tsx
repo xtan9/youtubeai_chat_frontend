@@ -5,7 +5,7 @@ import { YouTubeSummarizerApp } from "@/components/youtube-summarizer-app";
 export default async function ProtectedPage({
   searchParams,
 }: {
-  searchParams: { url?: string };
+  searchParams: Promise<{ url?: string }>;
 }) {
   const supabase = await createClient();
 
@@ -14,9 +14,11 @@ export default async function ProtectedPage({
     redirect("/auth/login");
   }
 
+  const params = await searchParams;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      <YouTubeSummarizerApp initialUrl={searchParams.url} user={data.user} />
+      <YouTubeSummarizerApp initialUrl={params.url} user={data.user} />
     </div>
   );
 }
