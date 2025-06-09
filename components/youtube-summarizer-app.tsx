@@ -73,6 +73,12 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   };
 
   const handleSignOut = async () => {
+    // For guest users, just refresh the page or redirect to home
+    if (user.id === "guest") {
+      window.location.reload();
+      return;
+    }
+    
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
@@ -376,6 +382,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
               <ProfileAvatar user={user} />
               <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-gray-300 hover:text-white hover:bg-white/10 rounded-full">
                 <LogOut size={16} />
+                <span className="ml-2 hidden sm:inline">
+                  {user.id === "guest" ? "Refresh" : "Sign Out"}
+                </span>
               </Button>
             </div>
           </div>
