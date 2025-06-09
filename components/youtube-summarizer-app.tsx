@@ -1,0 +1,360 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Brain,
+  Clock, 
+  FileText, 
+  LogOut,
+  RefreshCw,
+  ExternalLink,
+  Copy,
+  Check,
+  Sparkles,
+  TrendingUp,
+  Zap,
+  ArrowRight
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
+import { ProfileAvatar } from "./profile-avatar";
+
+interface User {
+  id: string;
+  email?: string;
+  user_metadata?: {
+    full_name?: string;
+    avatar_url?: string;
+  };
+}
+
+interface YouTubeSummarizerAppProps {
+  initialUrl?: string;
+  user: User;
+}
+
+interface SummaryResult {
+  title: string;
+  duration: string;
+  summary: string;
+  keyPoints: string[];
+  transcriptionTime: number;
+  summaryTime: number;
+}
+
+export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
+  const [url, setUrl] = useState(initialUrl || "");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SummaryResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const router = useRouter();
+
+  const isValidYouTubeUrl = (url: string) => {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
+    return youtubeRegex.test(url);
+  };
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/");
+  };
+
+
+
+  const handleAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!url.trim()) {
+      setError("Please enter a video URL");
+      return;
+    }
+
+    if (!isValidYouTubeUrl(url)) {
+      setError("Please enter a valid YouTube URL");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setSummary(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      setSummary({
+        title: data.title || "Video Analysis",
+        duration: data.duration || "Unknown",
+        summary: data.summary,
+        keyPoints: data.key_points || [],
+        transcriptionTime: data.transcription_time || 0,
+        summaryTime: data.summary_time || 0,
+      });
+
+    } catch (error) {
+      console.error("Error:", error);
+      setError("Failed to analyze video. Please make sure your backend is running and try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCopyAnalysis = async () => {
+    if (!summary) return;
+    
+    const textToCopy = `${summary.title}\n\n${summary.summary}\n\nKey Insights:\n${summary.keyPoints.map(point => `• ${point}`).join('\n')}`;
+    
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
+  const handleNewAnalysis = () => {
+    setUrl("");
+    setSummary(null);
+    setError(null);
+  };
+
+  useEffect(() => {
+    if (initialUrl && isValidYouTubeUrl(initialUrl)) {
+      handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
+    }
+  }, [initialUrl]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
+      {/* Animated background */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-cyan-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
+      </div>
+
+      {/* Header */}
+      <header className="relative z-50 border-b border-white/10 backdrop-blur-md bg-white/5">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
+                <Brain size={20} className="text-white" />
+              </div>
+              <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+                youtubeai.chat
+              </span>
+            </Link>
+            
+            <div className="flex items-center gap-4">
+              <ProfileAvatar user={user} />
+              <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-gray-300 hover:text-white hover:bg-white/10 rounded-full">
+                <LogOut size={16} />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="relative z-10 container mx-auto px-6 py-12 max-w-6xl">
+        {!summary ? (
+          /* Input Interface */
+          <div className="space-y-12">
+            <div className="text-center space-y-6">
+              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
+                <Sparkles size={16} className="text-purple-400" />
+                <span className="text-sm font-medium">AI Video Intelligence</span>
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
+                Analyze Your Video
+              </h1>
+              <p className="text-xl text-gray-300 max-w-2xl mx-auto">
+                Paste any YouTube URL below to unlock deep insights and intelligent analysis
+              </p>
+            </div>
+
+            <div className="relative group max-w-4xl mx-auto">
+              <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
+              <div className="relative bg-slate-900/90 backdrop-blur-xl border border-white/20 rounded-3xl p-8">
+                <form onSubmit={handleAnalyze} className="space-y-6">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
+                    <div className="relative bg-white/5 backdrop-blur-sm border border-white/20 rounded-2xl p-1">
+                      <div className="flex flex-col md:flex-row gap-3">
+                        <div className="flex-1 relative">
+                          <Input
+                            type="url"
+                            placeholder="Enter YouTube URL here..."
+                            value={url}
+                            onChange={(e) => {
+                              setUrl(e.target.value);
+                              setError(null);
+                            }}
+                            className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
+                          />
+                        </div>
+                        <Button 
+                          type="submit" 
+                          size="lg" 
+                          className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
+                          disabled={isLoading}
+                        >
+                          {isLoading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
+                              Analyzing...
+                            </>
+                          ) : (
+                            <>
+                              Analyze
+                              <ArrowRight className="ml-2 h-5 w-5" />
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {error && (
+                    <div className="text-center">
+                      <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block">
+                        {error}
+                      </p>
+                    </div>
+                  )}
+                </form>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Results Interface */
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+                  Video Analysis Complete
+                </h1>
+                <p className="text-gray-400 mt-2">AI-powered insights and key takeaways</p>
+              </div>
+              <div className="flex gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCopyAnalysis}
+                  className="bg-white/5 border-white/20 text-white hover:bg-white/10"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="mr-2 h-4 w-4 text-green-400" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy Analysis
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  onClick={handleNewAnalysis}
+                  className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  New Analysis
+                </Button>
+              </div>
+            </div>
+
+            {/* Video Info Card */}
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-3">
+                    <h2 className="text-xl font-semibold text-white">{summary.title}</h2>
+                    <div className="flex items-center gap-6 text-sm text-gray-400">
+                      <div className="flex items-center gap-2">
+                        <Clock size={16} className="text-purple-400" />
+                        Duration: {summary.duration}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Zap size={16} className="text-cyan-400" />
+                        Processed in {(summary.transcriptionTime + summary.summaryTime).toFixed(1)}s
+                      </div>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" asChild className="text-gray-400 hover:text-white">
+                    <a href={url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink size={16} />
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Analysis Content */}
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/30 to-purple-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white">AI Analysis</h3>
+                </div>
+                <div className="prose prose-invert max-w-none">
+                  <p className="text-gray-300 leading-relaxed whitespace-pre-wrap text-lg">
+                    {summary.summary}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Insights */}
+            {summary.keyPoints.length > 0 && (
+              <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-pink-500/30 to-purple-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+                <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-purple-500 rounded-xl flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">Key Insights</h3>
+                  </div>
+                  <div className="space-y-4">
+                    {summary.keyPoints.map((point, index) => (
+                      <div key={index} className="flex gap-4 items-start">
+                        <div className="w-6 h-6 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-1">
+                          {index + 1}
+                        </div>
+                        <p className="text-gray-300 text-lg leading-relaxed">{point}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+} 
