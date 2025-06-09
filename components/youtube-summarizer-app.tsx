@@ -59,8 +59,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [copied, setCopied] = useState(false);
-  const [useStreaming, setUseStreaming] = useState(true);
+  const [useStreaming, setUseStreaming] = useState(false);
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
+  const [streamingSummary, setStreamingSummary] = useState<string>("");
   const router = useRouter();
 
   const isValidYouTubeUrl = (url: string) => {
@@ -93,6 +94,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setError(null);
     setSummary(null);
     setStreamingStatus(null);
+    setStreamingSummary("");
 
     try {
       if (useStreaming) {
@@ -102,7 +104,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       }
     } catch (error) {
       console.error("Error:", error);
-      setError("Failed to analyze video. Please try again.");
+      setError(error instanceof Error ? error.message : "Failed to analyze video. Please try again.");
     } finally {
       setIsLoading(false);
       setStreamingStatus(null);
@@ -115,22 +117,31 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ youtube_url: url }),
     });
 
     if (!response.ok) {
-      throw new Error(`Server error: ${response.status}`);
+      // Try to get the error message from the response
+      let errorMessage = `Server error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch (e) {
+        // If we can't parse the error response, use the status
+      }
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
+    console.log("API Response:", data); // Debug log to see actual response structure
     
     setSummary({
-      title: data.title || "Video Analysis",
-      duration: data.duration || "Unknown",
-      summary: data.summary,
-      keyPoints: data.key_points || [],
-      transcriptionTime: data.transcription_time || 0,
-      summaryTime: data.summary_time || 0,
+      title: data.detected_category || "Video Analysis",
+      duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
+      summary: data.summary || "No summary available",
+      keyPoints: [], // Backend doesn't provide key points, we could extract from summary later
+      transcriptionTime: data.timing?.transcribe || 0,
+      summaryTime: data.timing?.summarize || 0,
     });
   };
 
@@ -140,11 +151,31 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ youtube_url: url }),
     });
 
     if (!response.ok) {
-      throw new Error(`Server error: ${response.status}`);
+      // Try to get the error message from the response
+      let errorMessage = `Server error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch (e) {
+        // If we can't parse the error response, use the status
+      }
+      
+      // If streaming fails, fallback to regular analysis
+      if (response.status === 422 || response.status === 404) {
+        console.warn("Streaming endpoint not available, falling back to regular analysis");
+        setStreamingStatus({ 
+          stage: 'downloading', 
+          message: 'Streaming unavailable, using standard analysis...' 
+        });
+        await handleRegularAnalysis();
+        return;
+      }
+      
+      throw new Error(errorMessage);
     }
 
     const reader = response.body?.getReader();
@@ -168,23 +199,51 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
           try {
             const data = JSON.parse(line.slice(6));
             
-            if (data.status) {
+            // Handle different event types from backend
+            if (data.type === 'status') {
               setStreamingStatus({
-                stage: data.status.stage,
-                progress: data.status.progress,
-                message: data.status.message
+                stage: 'downloading',
+                message: data.message
               });
-            }
-            
-            if (data.result) {
+            } else if (data.type === 'timing') {
+              let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
+              switch (data.stage) {
+                case 'download':
+                  stage = 'downloading';
+                  break;
+                case 'transcribe':
+                  stage = 'transcribing';
+                  break;
+                default:
+                  stage = 'summarizing';
+              }
+              setStreamingStatus({
+                stage,
+                message: `${data.stage} completed in ${data.time}s`
+              });
+            } else if (data.type === 'metadata') {
+              setStreamingStatus({
+                stage: 'summarizing',
+                message: `Generating summary for ${data.category} content...`
+              });
+            } else if (data.type === 'content') {
+              // Build up the streaming summary
+              setStreamingSummary(prev => prev + data.text);
+              setStreamingStatus({
+                stage: 'summarizing',
+                message: 'Generating summary...'
+              });
+            } else if (data.type === 'summary') {
+              // Final summary completion
               setSummary({
-                title: data.result.title || "Video Analysis",
-                duration: data.result.duration || "Unknown",
-                summary: data.result.summary,
-                keyPoints: data.result.key_points || [],
-                transcriptionTime: data.result.transcription_time || 0,
-                summaryTime: data.result.summary_time || 0,
+                title: data.category || "Video Analysis",
+                duration: `${data.total_time.toFixed(1)}s total`,
+                summary: streamingSummary,
+                keyPoints: [],
+                transcriptionTime: 0, // Will be filled from timing events
+                summaryTime: data.total_time || 0,
               });
+              setStreamingStatus({ stage: 'complete', message: 'Analysis complete!' });
             }
           } catch (e) {
             console.error("Failed to parse streaming data:", e);
@@ -213,6 +272,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setSummary(null);
     setError(null);
     setStreamingStatus(null);
+    setStreamingSummary("");
   };
 
   useEffect(() => {
@@ -312,7 +372,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                     </div>
                     
                     {/* Streaming Mode Toggle */}
-                    <div className="flex items-center justify-center gap-3 text-sm">
+                    <div className="flex flex-col items-center gap-2 text-sm">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -325,6 +385,12 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                         </div>
                         <span className="text-gray-300">Real-time progress</span>
                       </label>
+                      <p className="text-xs text-gray-500 text-center max-w-md">
+                        {useStreaming 
+                          ? "🚧 Streaming mode (under development - may have issues)"
+                          : "✅ Standard processing (recommended)"
+                        }
+                      </p>
                     </div>
 
                     {/* Streaming Progress */}
