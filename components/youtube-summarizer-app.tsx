@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +62,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   const [useStreaming, setUseStreaming] = useState(false);
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const [streamingSummary, setStreamingSummary] = useState<string>("");
+  const [currentRequestUrl, setCurrentRequestUrl] = useState<string>("");
+  const hasAutoStarted = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const router = useRouter();
 
   const isValidYouTubeUrl = (url: string) => {
@@ -80,6 +83,17 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Prevent duplicate calls if already loading or same URL
+    if (isLoading) {
+      console.log("Analysis already in progress, ignoring duplicate call");
+      return;
+    }
+    
+    if (currentRequestUrl === url.trim()) {
+      console.log("Same URL already being processed, ignoring duplicate call");
+      return;
+    }
+    
     if (!url.trim()) {
       setError("Please enter a video URL");
       return;
@@ -90,6 +104,17 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       return;
     }
 
+    console.log("Starting analysis for:", url);
+    
+    // Abort any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+    
+    setCurrentRequestUrl(url.trim());
     setIsLoading(true);
     setError(null);
     setSummary(null);
@@ -104,10 +129,19 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       }
     } catch (error) {
       console.error("Error:", error);
+      
+      // Don't show error if request was aborted
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.log("Request was aborted");
+        return;
+      }
+      
       setError(error instanceof Error ? error.message : "Failed to analyze video. Please try again.");
     } finally {
       setIsLoading(false);
       setStreamingStatus(null);
+      setCurrentRequestUrl(""); // Clear the current request URL when done
+      abortControllerRef.current = null; // Clear the abort controller
     }
   };
 
@@ -118,6 +152,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ youtube_url: url }),
+      signal: abortControllerRef.current?.signal,
     });
 
     if (!response.ok) {
@@ -152,6 +187,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ youtube_url: url }),
+      signal: abortControllerRef.current?.signal,
     });
 
     if (!response.ok) {
@@ -268,18 +304,52 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   };
 
   const handleNewAnalysis = () => {
+    // Abort any ongoing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
     setUrl("");
     setSummary(null);
     setError(null);
     setStreamingStatus(null);
     setStreamingSummary("");
+    setCurrentRequestUrl("");
+    setIsLoading(false);
   };
 
   useEffect(() => {
-    if (initialUrl && isValidYouTubeUrl(initialUrl)) {
-      handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
+    console.log("useEffect triggered", { 
+      initialUrl, 
+      isLoading, 
+      summary: !!summary, 
+      hasAutoStarted: hasAutoStarted.current 
+    });
+    
+    if (initialUrl && isValidYouTubeUrl(initialUrl) && !isLoading && !summary && !hasAutoStarted.current) {
+      console.log("useEffect: Auto-starting analysis for initialUrl:", initialUrl);
+      hasAutoStarted.current = true;
+      setUrl(initialUrl);
+      
+      // Use setTimeout to avoid race conditions with state updates
+      setTimeout(() => {
+        console.log("useEffect: Calling handleAnalyze via setTimeout");
+        handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
+      }, 100);
     }
   }, [initialUrl]);
+
+  // Cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      console.log("Component unmounting, aborting any ongoing requests");
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
