@@ -47,12 +47,20 @@ interface SummaryResult {
   summaryTime: number;
 }
 
+interface StreamingStatus {
+  stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
+  progress?: number;
+  message?: string;
+}
+
 export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [useStreaming, setUseStreaming] = useState(true);
+  const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const router = useRouter();
 
   const isValidYouTubeUrl = (url: string) => {
@@ -84,36 +92,105 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setIsLoading(true);
     setError(null);
     setSummary(null);
+    setStreamingStatus(null);
 
     try {
-      const response = await fetch("http://localhost:8000/summarize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+      if (useStreaming) {
+        await handleStreamingAnalysis();
+      } else {
+        await handleRegularAnalysis();
       }
-
-      const data = await response.json();
-      
-      setSummary({
-        title: data.title || "Video Analysis",
-        duration: data.duration || "Unknown",
-        summary: data.summary,
-        keyPoints: data.key_points || [],
-        transcriptionTime: data.transcription_time || 0,
-        summaryTime: data.summary_time || 0,
-      });
-
     } catch (error) {
       console.error("Error:", error);
-      setError("Failed to analyze video. Please make sure your backend is running and try again.");
+      setError("Failed to analyze video. Please try again.");
     } finally {
       setIsLoading(false);
+      setStreamingStatus(null);
+    }
+  };
+
+  const handleRegularAnalysis = async () => {
+    const response = await fetch("http://api.youtubeai.chat/summarize", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    setSummary({
+      title: data.title || "Video Analysis",
+      duration: data.duration || "Unknown",
+      summary: data.summary,
+      keyPoints: data.key_points || [],
+      transcriptionTime: data.transcription_time || 0,
+      summaryTime: data.summary_time || 0,
+    });
+  };
+
+  const handleStreamingAnalysis = async () => {
+    const response = await fetch("http://api.youtubeai.chat/summarize/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Failed to get response reader");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.trim() && line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.status) {
+              setStreamingStatus({
+                stage: data.status.stage,
+                progress: data.status.progress,
+                message: data.status.message
+              });
+            }
+            
+            if (data.result) {
+              setSummary({
+                title: data.result.title || "Video Analysis",
+                duration: data.result.duration || "Unknown",
+                summary: data.result.summary,
+                keyPoints: data.result.key_points || [],
+                transcriptionTime: data.result.transcription_time || 0,
+                summaryTime: data.result.summary_time || 0,
+              });
+            }
+          } catch (e) {
+            console.error("Failed to parse streaming data:", e);
+          }
+        }
+      }
     }
   };
 
@@ -135,6 +212,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setUrl("");
     setSummary(null);
     setError(null);
+    setStreamingStatus(null);
   };
 
   useEffect(() => {
@@ -221,7 +299,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                           {isLoading ? (
                             <>
                               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                              Analyzing...
+                              {streamingStatus ? streamingStatus.message || 'Analyzing...' : 'Analyzing...'}
                             </>
                           ) : (
                             <>
@@ -232,6 +310,49 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                         </Button>
                       </div>
                     </div>
+                    
+                    {/* Streaming Mode Toggle */}
+                    <div className="flex items-center justify-center gap-3 text-sm">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useStreaming}
+                          onChange={(e) => setUseStreaming(e.target.checked)}
+                          className="sr-only"
+                        />
+                        <div className={`relative w-11 h-6 rounded-full transition-colors ${useStreaming ? 'bg-gradient-to-r from-purple-500 to-cyan-500' : 'bg-gray-600'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${useStreaming ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                        </div>
+                        <span className="text-gray-300">Real-time progress</span>
+                      </label>
+                    </div>
+
+                    {/* Streaming Progress */}
+                    {streamingStatus && (
+                      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-white capitalize">
+                            {streamingStatus.stage.replace('_', ' ')}
+                          </span>
+                          {streamingStatus.progress && (
+                            <span className="text-sm text-gray-400">
+                              {Math.round(streamingStatus.progress)}%
+                            </span>
+                          )}
+                        </div>
+                        {streamingStatus.progress && (
+                          <div className="w-full bg-gray-700 rounded-full h-2">
+                            <div 
+                              className="bg-gradient-to-r from-purple-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${streamingStatus.progress}%` }}
+                            ></div>
+                          </div>
+                        )}
+                        {streamingStatus.message && (
+                          <p className="text-sm text-gray-400 mt-2">{streamingStatus.message}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                   
                   {error && (
