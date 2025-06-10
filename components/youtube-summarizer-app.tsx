@@ -551,8 +551,8 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                       </div>
                     </div>
                     
-                    {/* Streaming Mode Toggle */}
-                    <div className="flex flex-col items-center gap-2 text-sm">
+                    {/* Streaming Mode Toggle - Hidden for now */}
+                    {/* <div className="flex flex-col items-center gap-2 text-sm">
                       <label className={`flex items-center gap-2 ${user.id === "guest" ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
                         <input
                           type="checkbox"
@@ -574,7 +574,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                             : "✅ Standard processing (recommended)"
                         }
                       </p>
-                    </div>
+                    </div> */}
 
                     {/* Streaming Progress */}
                     {streamingStatus && (
