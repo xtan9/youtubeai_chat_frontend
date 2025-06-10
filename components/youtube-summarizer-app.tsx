@@ -22,6 +22,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ProfileAvatar } from "./profile-avatar";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 
 interface User {
@@ -281,7 +283,10 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
         for (const line of lines) {
           if (line.trim() && line.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr) continue; // Skip empty data lines
+              
+              const data = JSON.parse(jsonStr);
               
               // Handle different event types from backend
               if (data.type === 'status') {
@@ -672,22 +677,41 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
               <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
               <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
                 <div className="flex items-start justify-between">
-                  <div className="space-y-3">
-                    <h2 className="text-xl font-semibold text-white">{summary.title}</h2>
-                    <div className="flex items-center gap-6 text-sm text-gray-400">
-                      <div className="flex items-center gap-2">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-2xl font-bold text-white">{summary.title}</h2>
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500/20 to-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                        {summary.title.replace('Video Analysis', '').replace('Analysis', '').trim() || 'Content'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="flex items-center gap-2 bg-purple-500/10 rounded-lg p-3 border border-purple-500/20">
                         <Clock size={16} className="text-purple-400" />
-                        Duration: {summary.duration}
+                        <div>
+                          <div className="text-purple-400 font-medium">Total Duration</div>
+                          <div className="text-white">{summary.duration}</div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 bg-cyan-500/10 rounded-lg p-3 border border-cyan-500/20">
                         <Zap size={16} className="text-cyan-400" />
-                        Processed in {(summary.transcriptionTime + summary.summaryTime).toFixed(1)}s
+                        <div>
+                          <div className="text-cyan-400 font-medium">Processing</div>
+                          <div className="text-white">{(summary.transcriptionTime + summary.summaryTime).toFixed(1)}s</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 bg-green-500/10 rounded-lg p-3 border border-green-500/20">
+                        <Sparkles size={16} className="text-green-400" />
+                        <div>
+                          <div className="text-green-400 font-medium">AI Model</div>
+                          <div className="text-white">qwen2.5:14b</div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" asChild className="text-gray-400 hover:text-white">
-                    <a href={url} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink size={16} />
+                  <Button variant="ghost" size="sm" asChild className="text-gray-400 hover:text-white hover:bg-white/10 rounded-lg p-2">
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                      <ExternalLink size={18} />
+                      <span className="hidden sm:inline">View Video</span>
                     </a>
                   </Button>
                 </div>
@@ -697,17 +721,70 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             {/* Analysis Content */}
             <div className="relative group">
               <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/30 to-purple-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
-              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-white" />
+              <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-8">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
+                    <Brain className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-xl font-semibold text-white">AI Analysis</h3>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">AI Summary</h3>
+                    <p className="text-sm text-gray-400">Intelligent analysis and key insights</p>
+                  </div>
                 </div>
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-gray-300 leading-relaxed whitespace-pre-wrap text-lg">
-                    {summary.summary}
-                  </p>
+                
+                <div className="space-y-6">
+                  {/* Render summary with ReactMarkdown */}
+                  <div className="bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-white/10">
+                    <div className="prose prose-lg prose-invert max-w-none">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                        h1: ({children}) => <h1 className="text-2xl font-bold text-white border-b border-cyan-400/30 pb-2 mb-4">{children}</h1>,
+                        h2: ({children}) => <h2 className="text-xl font-semibold text-cyan-400 mt-6 mb-3">{children}</h2>,
+                        h3: ({children}) => <h3 className="text-lg font-medium text-purple-400 mt-4 mb-2">{children}</h3>,
+                        p: ({children}) => <p className="text-gray-200 leading-relaxed mb-4 text-lg">{children}</p>,
+                        ul: ({children}) => <ul className="list-disc list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ul>,
+                        ol: ({children}) => <ol className="list-decimal list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ol>,
+                        li: ({children}) => <li className="text-gray-200 leading-relaxed">{children}</li>,
+                        strong: ({children}) => <strong className="font-semibold text-white">{children}</strong>,
+                        em: ({children}) => <em className="italic text-cyan-300">{children}</em>,
+                        blockquote: ({children}) => (
+                          <blockquote className="border-l-4 border-purple-400 pl-4 italic text-gray-300 bg-purple-500/5 py-2 rounded-r-lg">
+                            {children}
+                          </blockquote>
+                        ),
+                        code: ({children}) => (
+                          <code className="bg-slate-700 text-cyan-300 px-2 py-1 rounded text-sm font-mono">
+                            {children}
+                          </code>
+                        ),
+                        pre: ({children}) => (
+                          <pre className="bg-slate-900 text-gray-200 p-4 rounded-lg overflow-x-auto border border-slate-600">
+                            {children}
+                          </pre>
+                        ),
+                      }}
+                                            >
+                          {summary.summary}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6 border-t border-white/10">
+                    <div className="text-center p-4 bg-gradient-to-r from-purple-500/10 to-purple-600/10 rounded-lg border border-purple-500/20">
+                      <div className="text-2xl font-bold text-purple-400">{summary.summary.split(' ').length}</div>
+                      <div className="text-sm text-gray-400">Words in Summary</div>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-r from-cyan-500/10 to-cyan-600/10 rounded-lg border border-cyan-500/20">
+                      <div className="text-2xl font-bold text-cyan-400">{summary.transcriptionTime.toFixed(1)}s</div>
+                      <div className="text-sm text-gray-400">Transcription</div>
+                    </div>
+                    <div className="text-center p-4 bg-gradient-to-r from-green-500/10 to-green-600/10 rounded-lg border border-green-500/20">
+                      <div className="text-2xl font-bold text-green-400">{summary.summaryTime.toFixed(1)}s</div>
+                      <div className="text-sm text-gray-400">AI Processing</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
