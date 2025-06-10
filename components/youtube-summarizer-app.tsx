@@ -3,8 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { 
   Brain,
   Clock, 
@@ -17,12 +15,14 @@ import {
   Sparkles,
   TrendingUp,
   Zap,
-  ArrowRight
+  ArrowRight,
+  AlertCircle
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ProfileAvatar } from "./profile-avatar";
+import { apiClient } from "@/lib/api/client";
 
 interface User {
   id: string;
@@ -53,6 +53,16 @@ interface StreamingStatus {
   message?: string;
 }
 
+interface SummarizeApiResponse {
+  detected_category?: string;
+  summary?: string;
+  timing?: {
+    transcribe?: number;
+    summarize?: number;
+    total?: number;
+  };
+}
+
 export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
   const [isLoading, setIsLoading] = useState(false);
@@ -63,31 +73,47 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const [streamingSummary, setStreamingSummary] = useState<string>("");
   const [currentRequestUrl, setCurrentRequestUrl] = useState<string>("");
+  const [authError, setAuthError] = useState<string | null>(null);
   const hasAutoStarted = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const router = useRouter();
+  const supabase = createClient();
 
   const isValidYouTubeUrl = (url: string) => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
     return youtubeRegex.test(url);
   };
 
-  const handleSignOut = async () => {
-    // For guest users, just refresh the page or redirect to home
-    if (user.id === "guest") {
-      window.location.reload();
-      return;
+  const handleAuthError = (status: number, message: string) => {
+    if (status === 401) {
+      setAuthError("Authentication failed. Please sign in again.");
+      // For authenticated users, redirect to sign in
+      if (user.id !== "guest") {
+        setTimeout(() => {
+          router.push("/auth");
+        }, 3000);
+      }
+    } else if (status === 429) {
+      setAuthError("Rate limit exceeded. Please wait before trying again.");
+    } else {
+      setAuthError(message);
     }
-    
-    const supabase = createClient();
+  };
+
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push("/");
   };
 
-
-
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check authentication first
+    if (user.id === "guest") {
+      console.log("Unauthenticated user attempted analysis, redirecting to auth");
+      router.push("/auth/login");
+      return;
+    }
     
     // Prevent duplicate calls if already loading or same URL
     if (isLoading) {
@@ -123,6 +149,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setCurrentRequestUrl(url.trim());
     setIsLoading(true);
     setError(null);
+    setAuthError(null);
     setSummary(null);
     setStreamingStatus(null);
     setStreamingSummary("");
@@ -152,146 +179,137 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   };
 
   const handleRegularAnalysis = async () => {
-    const response = await fetch("http://api.youtubeai.chat/summarize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ youtube_url: url }),
-      signal: abortControllerRef.current?.signal,
-    });
+    try {
+      console.log(`Making authenticated request for user: ${user.id}`);
+      
+      const data = await apiClient.post<SummarizeApiResponse>('/summarize', 
+        { youtube_url: url },
+        { 
+          requireAuth: true,
+          signal: abortControllerRef.current?.signal 
+        }
+      );
 
-    if (!response.ok) {
-      // Try to get the error message from the response
-      let errorMessage = `Server error: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.detail || errorData.message || errorMessage;
-      } catch (e) {
-        // If we can't parse the error response, use the status
+      console.log("API Response:", data);
+      
+      setSummary({
+        title: data.detected_category || "Video Analysis",
+        duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
+        summary: data.summary || "No summary available",
+        keyPoints: [],
+        transcriptionTime: data.timing?.transcribe || 0,
+        summaryTime: data.timing?.summarize || 0,
+      });
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
+        const apiError = error as { status: number; message: string };
+        if (apiError.status === 401 || apiError.status === 429) {
+          handleAuthError(apiError.status, apiError.message);
+        }
       }
-      throw new Error(errorMessage);
+      throw error;
     }
-
-    const data = await response.json();
-    console.log("API Response:", data); // Debug log to see actual response structure
-    
-    setSummary({
-      title: data.detected_category || "Video Analysis",
-      duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
-      summary: data.summary || "No summary available",
-      keyPoints: [], // Backend doesn't provide key points, we could extract from summary later
-      transcriptionTime: data.timing?.transcribe || 0,
-      summaryTime: data.timing?.summarize || 0,
-    });
   };
 
   const handleStreamingAnalysis = async () => {
-    const response = await fetch("http://api.youtubeai.chat/summarize/stream", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ youtube_url: url }),
-      signal: abortControllerRef.current?.signal,
-    });
+    try {
+      const reader = await apiClient.stream('/summarize/stream',
+        { youtube_url: url },
+        { 
+          requireAuth: true,
+          signal: abortControllerRef.current?.signal 
+        }
+      );
 
-    if (!response.ok) {
-      // Try to get the error message from the response
-      let errorMessage = `Server error: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.detail || errorData.message || errorMessage;
-      } catch (e) {
-        // If we can't parse the error response, use the status
-      }
-      
-      // If streaming fails, fallback to regular analysis
-      if (response.status === 422 || response.status === 404) {
-        console.warn("Streaming endpoint not available, falling back to regular analysis");
-        setStreamingStatus({ 
-          stage: 'downloading', 
-          message: 'Streaming unavailable, using standard analysis...' 
-        });
-        await handleRegularAnalysis();
-        return;
-      }
-      
-      throw new Error(errorMessage);
-    }
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("Failed to get response reader");
-    }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    const decoder = new TextDecoder();
-    let buffer = "";
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim() && line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            
-            // Handle different event types from backend
-            if (data.type === 'status') {
-              setStreamingStatus({
-                stage: 'downloading',
-                message: data.message
-              });
-            } else if (data.type === 'timing') {
-              let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
-              switch (data.stage) {
-                case 'download':
-                  stage = 'downloading';
-                  break;
-                case 'transcribe':
-                  stage = 'transcribing';
-                  break;
-                default:
-                  stage = 'summarizing';
+        for (const line of lines) {
+          if (line.trim() && line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              // Handle different event types from backend
+              if (data.type === 'status') {
+                setStreamingStatus({
+                  stage: 'downloading',
+                  message: data.message
+                });
+              } else if (data.type === 'timing') {
+                let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
+                switch (data.stage) {
+                  case 'download':
+                    stage = 'downloading';
+                    break;
+                  case 'transcribe':
+                    stage = 'transcribing';
+                    break;
+                  default:
+                    stage = 'summarizing';
+                }
+                setStreamingStatus({
+                  stage,
+                  message: `${data.stage} completed in ${data.time}s`
+                });
+              } else if (data.type === 'metadata') {
+                setStreamingStatus({
+                  stage: 'summarizing',
+                  message: `Generating summary for ${data.category} content...`
+                });
+              } else if (data.type === 'content') {
+                // Build up the streaming summary
+                setStreamingSummary(prev => prev + data.text);
+                setStreamingStatus({
+                  stage: 'summarizing',
+                  message: 'Generating summary...'
+                });
+              } else if (data.type === 'summary') {
+                // Final summary completion
+                setSummary({
+                  title: data.category || "Video Analysis",
+                  duration: `${data.total_time.toFixed(1)}s total`,
+                  summary: streamingSummary,
+                  keyPoints: [],
+                  transcriptionTime: 0,
+                  summaryTime: data.total_time || 0,
+                });
+                setStreamingStatus({ stage: 'complete', message: 'Analysis complete!' });
               }
-              setStreamingStatus({
-                stage,
-                message: `${data.stage} completed in ${data.time}s`
-              });
-            } else if (data.type === 'metadata') {
-              setStreamingStatus({
-                stage: 'summarizing',
-                message: `Generating summary for ${data.category} content...`
-              });
-            } else if (data.type === 'content') {
-              // Build up the streaming summary
-              setStreamingSummary(prev => prev + data.text);
-              setStreamingStatus({
-                stage: 'summarizing',
-                message: 'Generating summary...'
-              });
-            } else if (data.type === 'summary') {
-              // Final summary completion
-              setSummary({
-                title: data.category || "Video Analysis",
-                duration: `${data.total_time.toFixed(1)}s total`,
-                summary: streamingSummary,
-                keyPoints: [],
-                transcriptionTime: 0, // Will be filled from timing events
-                summaryTime: data.total_time || 0,
-              });
-              setStreamingStatus({ stage: 'complete', message: 'Analysis complete!' });
+            } catch (e) {
+              console.error("Failed to parse streaming data:", e);
             }
-          } catch (e) {
-            console.error("Failed to parse streaming data:", e);
           }
         }
       }
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
+        const apiError = error as { status: number; message: string };
+        if (apiError.status === 401 || apiError.status === 429) {
+          handleAuthError(apiError.status, apiError.message);
+          throw error;
+        }
+        
+        // If streaming fails, fallback to regular analysis
+        if (apiError.status === 422 || apiError.status === 404) {
+          console.warn("Streaming endpoint not available, falling back to regular analysis");
+          setStreamingStatus({ 
+            stage: 'downloading', 
+            message: 'Streaming unavailable, using standard analysis...' 
+          });
+          await handleRegularAnalysis();
+          return;
+        }
+      }
+      
+      throw error;
     }
   };
 
@@ -319,6 +337,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setUrl("");
     setSummary(null);
     setError(null);
+    setAuthError(null);
     setStreamingStatus(null);
     setStreamingSummary("");
     setCurrentRequestUrl("");
@@ -379,13 +398,33 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             </Link>
             
             <div className="flex items-center gap-4">
-              <ProfileAvatar user={user} />
-              <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-gray-300 hover:text-white hover:bg-white/10 rounded-full">
-                <LogOut size={16} />
-                <span className="ml-2 hidden sm:inline">
-                  {user.id === "guest" ? "Refresh" : "Sign Out"}
-                </span>
-              </Button>
+              {/* Authentication Status and Actions */}
+              {user.id === "guest" ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                    <span className="text-gray-300">Not authenticated</span>
+                  </div>
+                  <Button 
+                    onClick={() => router.push("/auth/login")}
+                    className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white rounded-full px-6"
+                  >
+                    Sign In
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-gray-300">Authenticated</span>
+                  </div>
+                  <ProfileAvatar user={user} />
+                  <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-gray-300 hover:text-white hover:bg-white/10 rounded-full">
+                    <LogOut size={16} />
+                    <span className="ml-2 hidden sm:inline">Sign Out</span>
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -393,6 +432,22 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
 
       {/* Main Content */}
       <div className="relative z-10 container mx-auto px-6 py-12 max-w-6xl">
+        {/* Authentication Error Banner */}
+        {authError && (
+          <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-red-400 font-medium">Authentication Error</p>
+                <p className="text-red-300 text-sm mt-1">{authError}</p>
+                {user.id !== "guest" && (
+                  <p className="text-red-300 text-xs mt-2">Redirecting to sign in page in 3 seconds...</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {!summary ? (
           /* Input Interface */
           <div className="space-y-12">
@@ -400,12 +455,20 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
               <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
                 <Sparkles size={16} className="text-purple-400" />
                 <span className="text-sm font-medium">AI Video Intelligence</span>
+                {user.id !== "guest" && (
+                  <span className="text-xs text-green-400">• Authenticated</span>
+                )}
               </div>
               <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
                 Analyze Your Video
               </h1>
               <p className="text-xl text-gray-300 max-w-2xl mx-auto">
                 Paste any YouTube URL below to unlock deep insights and intelligent analysis
+                {user.id === "guest" && (
+                  <span className="block text-sm text-yellow-400 mt-2">
+                    🔐 Sign in required to analyze videos
+                  </span>
+                )}
               </p>
             </div>
 
@@ -425,6 +488,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                             onChange={(e) => {
                               setUrl(e.target.value);
                               setError(null);
+                              setAuthError(null);
                             }}
                             className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
                           />
@@ -433,12 +497,17 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                           type="submit" 
                           size="lg" 
                           className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
-                          disabled={isLoading}
+                          disabled={isLoading || !!authError}
                         >
                           {isLoading ? (
                             <>
                               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
                               {streamingStatus ? streamingStatus.message || 'Analyzing...' : 'Analyzing...'}
+                            </>
+                          ) : user.id === "guest" ? (
+                            <>
+                              Sign In to Analyze
+                              <ArrowRight className="ml-2 h-5 w-5" />
                             </>
                           ) : (
                             <>
@@ -452,22 +521,25 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                     
                     {/* Streaming Mode Toggle */}
                     <div className="flex flex-col items-center gap-2 text-sm">
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label className={`flex items-center gap-2 ${user.id === "guest" ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
                         <input
                           type="checkbox"
                           checked={useStreaming}
                           onChange={(e) => setUseStreaming(e.target.checked)}
+                          disabled={user.id === "guest"}
                           className="sr-only"
                         />
-                        <div className={`relative w-11 h-6 rounded-full transition-colors ${useStreaming ? 'bg-gradient-to-r from-purple-500 to-cyan-500' : 'bg-gray-600'}`}>
-                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${useStreaming ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                        <div className={`relative w-11 h-6 rounded-full transition-colors ${useStreaming && user.id !== "guest" ? 'bg-gradient-to-r from-purple-500 to-cyan-500' : 'bg-gray-600'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${useStreaming && user.id !== "guest" ? 'translate-x-5' : 'translate-x-0'}`}></div>
                         </div>
                         <span className="text-gray-300">Real-time progress</span>
                       </label>
                       <p className="text-xs text-gray-500 text-center max-w-md">
-                        {useStreaming 
-                          ? "🚧 Streaming mode (under development - may have issues)"
-                          : "✅ Standard processing (recommended)"
+                        {user.id === "guest" 
+                          ? "🔐 Sign in required for streaming mode"
+                          : useStreaming 
+                            ? "🚧 Streaming mode (under development - may have issues)"
+                            : "✅ Standard processing (recommended)"
                         }
                       </p>
                     </div>
