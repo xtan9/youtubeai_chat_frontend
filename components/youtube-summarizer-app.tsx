@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { 
   Brain,
   Clock, 
-  FileText, 
   LogOut,
   RefreshCw,
   ExternalLink,
@@ -55,15 +54,7 @@ interface StreamingStatus {
   message?: string;
 }
 
-interface SummarizeApiResponse {
-  detected_category?: string;
-  summary?: string;
-  timing?: {
-    transcribe?: number;
-    summarize?: number;
-    total?: number;
-  };
-}
+// Removed unused interface - using direct response data
 
 export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
@@ -203,7 +194,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       try {
         const errorData = await response.json();
         errorMessage = errorData.detail || errorData.message || errorMessage;
-      } catch (e) {
+      } catch {
         // If we can't parse the error response, use the status
       }
       throw new Error(errorMessage);
@@ -245,7 +236,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       try {
         const errorData = await response.json();
         errorMessage = errorData.detail || errorData.message || errorMessage;
-      } catch (e) {
+      } catch {
         // If we can't parse the error response, use the status
       }
       
@@ -334,8 +325,8 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                 });
                 setStreamingStatus({ stage: 'complete', message: 'Analysis complete!' });
               }
-            } catch (e) {
-              console.error("Failed to parse streaming data:", e);
+            } catch (parseError) {
+              console.error("Failed to parse streaming data:", parseError);
             }
           }
         }
@@ -396,21 +387,12 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   };
 
   useEffect(() => {
-    console.log("useEffect triggered", { 
-      initialUrl, 
-      isLoading, 
-      summary: !!summary, 
-      hasAutoStarted: hasAutoStarted.current 
-    });
-    
-    if (initialUrl && isValidYouTubeUrl(initialUrl) && !isLoading && !summary && !hasAutoStarted.current) {
-      console.log("useEffect: Auto-starting analysis for initialUrl:", initialUrl);
+    if (initialUrl && isValidYouTubeUrl(initialUrl) && !hasAutoStarted.current) {
       hasAutoStarted.current = true;
       setUrl(initialUrl);
       
       // Use setTimeout to avoid race conditions with state updates
       setTimeout(() => {
-        console.log("useEffect: Calling handleAnalyze via setTimeout");
         handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
       }, 100);
     }
@@ -419,7 +401,6 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   // Cleanup effect for component unmount
   useEffect(() => {
     return () => {
-      console.log("Component unmounting, aborting any ongoing requests");
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;

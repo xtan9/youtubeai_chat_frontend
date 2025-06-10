@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Session } from '@supabase/supabase-js';
 
@@ -46,7 +46,7 @@ export function useAuth() {
     return headers;
   };
 
-  const refreshSession = async () => {
+  const refreshSession = useCallback(async () => {
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
       
@@ -62,7 +62,7 @@ export function useAuth() {
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
-  };
+  }, [supabase.auth]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -82,7 +82,7 @@ export function useAuth() {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [refreshSession]);
 
   return {
     ...authState,
