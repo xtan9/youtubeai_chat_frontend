@@ -178,7 +178,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       throw new Error("Authentication required. Please log in.");
     }
 
-    const response = await fetch("http://api.youtubeai.chat/summarize", {
+    const response = await fetch("https://api.youtubeai.chat/summarize", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -220,7 +220,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       throw new Error("Authentication required. Please log in.");
     }
 
-    const response = await fetch("http://api.youtubeai.chat/summarize/stream", {
+    const response = await fetch("https://api.youtubeai.chat/summarize/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
