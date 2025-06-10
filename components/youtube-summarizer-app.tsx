@@ -22,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ProfileAvatar } from "./profile-avatar";
-import { apiClient } from "@/lib/api/client";
+
 
 interface User {
   id: string;
@@ -179,48 +179,94 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   };
 
   const handleRegularAnalysis = async () => {
-    try {
-      console.log(`Making authenticated request for user: ${user.id}`);
-      
-      const data = await apiClient.post<SummarizeApiResponse>('/summarize', 
-        { youtube_url: url },
-        { 
-          requireAuth: true,
-          signal: abortControllerRef.current?.signal 
-        }
-      );
-
-      console.log("API Response:", data);
-      
-      setSummary({
-        title: data.detected_category || "Video Analysis",
-        duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
-        summary: data.summary || "No summary available",
-        keyPoints: [],
-        transcriptionTime: data.timing?.transcribe || 0,
-        summaryTime: data.timing?.summarize || 0,
-      });
-    } catch (error: unknown) {
-      if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
-        const apiError = error as { status: number; message: string };
-        if (apiError.status === 401 || apiError.status === 429) {
-          handleAuthError(apiError.status, apiError.message);
-        }
-      }
-      throw error;
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      throw new Error("Authentication required. Please log in.");
     }
+
+    const response = await fetch("http://api.youtubeai.chat/summarize", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ youtube_url: url }),
+      signal: abortControllerRef.current?.signal,
+    });
+
+    if (!response.ok) {
+      // Try to get the error message from the response
+      let errorMessage = `Server error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch (e) {
+        // If we can't parse the error response, use the status
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log("API Response:", data);
+    
+    setSummary({
+      title: data.detected_category || "Video Analysis",
+      duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
+      summary: data.summary || "No summary available",
+      keyPoints: [],
+      transcriptionTime: data.timing?.transcribe || 0,
+      summaryTime: data.timing?.summarize || 0,
+    });
   };
 
   const handleStreamingAnalysis = async () => {
-    try {
-      const reader = await apiClient.stream('/summarize/stream',
-        { youtube_url: url },
-        { 
-          requireAuth: true,
-          signal: abortControllerRef.current?.signal 
-        }
-      );
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      throw new Error("Authentication required. Please log in.");
+    }
 
+    const response = await fetch("http://api.youtubeai.chat/summarize/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ youtube_url: url }),
+      signal: abortControllerRef.current?.signal,
+    });
+
+    if (!response.ok) {
+      // Try to get the error message from the response
+      let errorMessage = `Server error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch (e) {
+        // If we can't parse the error response, use the status
+      }
+      
+      // If streaming fails, fallback to regular analysis
+      if (response.status === 422 || response.status === 404) {
+        console.warn("Streaming endpoint not available, falling back to regular analysis");
+        setStreamingStatus({ 
+          stage: 'downloading', 
+          message: 'Streaming unavailable, using standard analysis...' 
+        });
+        await handleRegularAnalysis();
+        return;
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Failed to get response reader");
+    }
+
+    try {
       const decoder = new TextDecoder();
       let buffer = "";
 
