@@ -17,8 +17,6 @@ export default async function ProtectedPage({
   const params = await searchParams;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      <YouTubeSummarizerApp initialUrl={params.url} user={data.user} />
-    </div>
+    <YouTubeSummarizerApp initialUrl={params.url} user={data.user} />
   );
 }
