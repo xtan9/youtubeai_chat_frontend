@@ -1,5 +1,7 @@
-import { Clock, FileText, Zap } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Brain } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "./types";
 
 interface SummaryContentProps {
@@ -8,73 +10,60 @@ interface SummaryContentProps {
 
 export function SummaryContent({ summary }: SummaryContentProps) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Main Summary */}
-      <div className="lg:col-span-2">
-        <Card className="bg-white/5 border-white/20 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <FileText className="h-5 w-5 text-purple-400" />
-              Summary
-            </CardTitle>
+    <div className="relative group">
+      <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/30 to-purple-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+      <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-8">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
+            <Brain className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-2xl font-bold text-white">AI Summary</h3>
             <p className="text-sm text-gray-400">Intelligent summary and key insights</p>
-          </CardHeader>
-          <CardContent>
-            <div className="prose prose-invert max-w-none">
-              <p className="text-gray-300 leading-relaxed whitespace-pre-wrap">
+          </div>
+        </div>
+        
+        <div className="space-y-6">
+          {/* Render summary with ReactMarkdown */}
+          <div className="bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-white/10">
+            <div className="prose prose-lg prose-invert max-w-none">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({children}) => <h1 className="text-2xl font-bold text-white border-b border-cyan-400/30 pb-2 mb-4">{children}</h1>,
+                  h2: ({children}) => <h2 className="text-xl font-semibold text-cyan-400 mt-6 mb-3">{children}</h2>,
+                  h3: ({children}) => <h3 className="text-lg font-medium text-purple-400 mt-4 mb-2">{children}</h3>,
+                  p: ({children}) => <p className="text-gray-200 leading-relaxed mb-4 text-lg">{children}</p>,
+                  ul: ({children}) => <ul className="list-disc list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ul>,
+                  ol: ({children}) => <ol className="list-decimal list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ol>,
+                  li: ({children}) => <li className="text-gray-200 leading-relaxed">{children}</li>,
+                  strong: ({children}) => <strong className="font-semibold text-white">{children}</strong>,
+                  em: ({children}) => <em className="italic text-cyan-300">{children}</em>,
+                  blockquote: ({children}) => (
+                    <blockquote className="border-l-4 border-purple-400 pl-4 italic text-gray-300 bg-purple-500/5 py-2 rounded-r-lg">
+                      {children}
+                    </blockquote>
+                  ),
+                  code: ({children}) => (
+                    <code className="bg-slate-700 text-cyan-300 px-2 py-1 rounded text-sm font-mono">
+                      {children}
+                    </code>
+                  ),
+                  pre: ({children}) => (
+                    <pre className="bg-slate-900 text-gray-200 p-4 rounded-lg overflow-x-auto border border-slate-600">
+                      {children}
+                    </pre>
+                  ),
+                }}
+              >
                 {summary.summary}
-              </p>
+              </ReactMarkdown>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
 
-      {/* Processing Stats */}
-      <div className="space-y-4">
-        <Card className="bg-white/5 border-white/20 backdrop-blur-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Zap className="h-4 w-4 text-cyan-400" />
-              Processing Time
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Transcription</span>
-              <span className="text-sm text-white font-medium">
-                {summary.transcriptionTime.toFixed(1)}s
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Summarization</span>
-              <span className="text-sm text-white font-medium">
-                {summary.summaryTime.toFixed(1)}s
-              </span>
-            </div>
-            <div className="border-t border-white/10 pt-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400">Total</span>
-                <span className="text-sm text-cyan-400 font-semibold">
-                  {summary.duration}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/5 border-white/20 backdrop-blur-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Clock className="h-4 w-4 text-green-400" />
-              Content Type
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-white font-medium">
-              {summary.title.replace('Video Summary', '').replace('Summary', '').trim() || 'General Content'}
-            </p>
-          </CardContent>
-        </Card>
+          {/* Summary Stats */}
+          <SummaryStats summary={summary} />
+        </div>
       </div>
     </div>
   );
