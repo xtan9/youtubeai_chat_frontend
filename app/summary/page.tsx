@@ -1,0 +1,21 @@
+import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
+import { createClient } from "@/lib/supabase/server";
+
+export default async function SummaryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ url?: string }>;
+}) {
+  const params = await searchParams;
+  
+  // Get the authenticated user
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  // Use authenticated user if available, otherwise create a simple guest user
+  const currentUser = user || { id: "guest" };
+
+  return (
+    <YouTubeSummarizerApp initialUrl={params.url} user={currentUser} />
+  );
+} 

@@ -1,5 +1,4 @@
-import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 export default async function Home({
   searchParams,
@@ -8,14 +7,10 @@ export default async function Home({
 }) {
   const params = await searchParams;
   
-  // Get the authenticated user
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  // Use authenticated user if available, otherwise create a simple guest user
-  const currentUser = user || { id: "guest" };
-
-  return (
-    <YouTubeSummarizerApp initialUrl={params.url} user={currentUser} />
-  );
+  // If there's a URL parameter, redirect to /summary with it
+  if (params.url) {
+    redirect(`/summary?url=${encodeURIComponent(params.url)}`);
+  } else {
+    redirect("/summary");
+  }
 }
