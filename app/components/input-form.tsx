@@ -16,6 +16,7 @@ interface InputFormProps {
   useStreaming: boolean;
   setUseStreaming: (streaming: boolean) => void;
   streamingStatus: StreamingStatus | null;
+  streamingSummary: string;
   user: User;
 }
 
@@ -31,6 +32,7 @@ export function InputForm({
   useStreaming,
   setUseStreaming,
   streamingStatus,
+  streamingSummary,
   user
 }: InputFormProps) {
   return (
@@ -130,6 +132,22 @@ export function InputForm({
 
               {/* Streaming Progress */}
               <StreamingProgress streamingStatus={streamingStatus} />
+              
+              {/* Real-time Streaming Content */}
+              {streamingSummary && streamingStatus && streamingStatus.stage === 'summarizing' && (
+                <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-medium text-white">Live Summary</span>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10 max-h-40 overflow-y-auto">
+                    <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
+                      {streamingSummary}
+                      <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1"></span>
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             
             {error && (

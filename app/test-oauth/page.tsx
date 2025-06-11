@@ -24,7 +24,7 @@ export default function TestOAuth() {
       if (error) {
         setError(error.message);
       } else {
-        console.log("Google OAuth initiated:", data);
+
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");

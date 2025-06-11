@@ -33,7 +33,7 @@ class APIClient {
 
       if (session?.access_token) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
-        console.log('Added JWT token to request headers');
+
       }
     } catch (error) {
       console.error('Error getting auth token:', error);
@@ -72,16 +72,8 @@ class APIClient {
       };
 
       if (body) {
-        const jsonBody = JSON.stringify(body);
-        console.log('Request body being sent:', {
-          original: body,
-          stringified: jsonBody,
-          headers: headers
-        });
-        requestOptions.body = jsonBody;
+        requestOptions.body = JSON.stringify(body);
       }
-
-      console.log(`Making ${method} request to ${url}`, { headers: Object.keys(headers) });
 
       const response = await fetch(url, requestOptions);
 
@@ -93,13 +85,7 @@ class APIClient {
           errorData = { message: `HTTP ${response.status}` };
         }
 
-        // Debug logging
-        console.error('API Request failed:', {
-          url: `${API_BASE_URL}${endpoint}`,
-          status: response.status,
-          statusText: response.statusText,
-          errorData: errorData
-        });
+
 
         // Extract error message with better handling
         let errorMessage = `Request failed with status ${response.status}`;
@@ -141,11 +127,9 @@ class APIClient {
 
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request was aborted');
         throw error;
       }
 
-      console.error(`API request failed for ${endpoint}:`, error);
       throw error;
     }
   }

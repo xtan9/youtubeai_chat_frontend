@@ -33,7 +33,7 @@ export function useAuth() {
 
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`;
-        console.log("Added JWT token to request headers");
+  
       } else {
         console.warn("No access token available in session");
         setAuthState(prev => ({ ...prev, error: "No valid authentication token found" }));
@@ -76,7 +76,6 @@ export function useAuth() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('Auth state changed:', event, session);
         setAuthState({ session, isLoading: false, error: null });
       }
     );

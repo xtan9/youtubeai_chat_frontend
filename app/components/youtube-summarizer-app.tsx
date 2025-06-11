@@ -21,6 +21,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     summary,
     useStreaming,
     streamingStatus,
+    streamingSummary,
     authError,
     setError,
     setAuthError,
@@ -102,6 +103,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             useStreaming={useStreaming}
             setUseStreaming={setUseStreaming}
             streamingStatus={streamingStatus}
+            streamingSummary={streamingSummary}
             user={user}
           />
         ) : (
