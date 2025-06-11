@@ -84,12 +84,17 @@ export function useYouTubeSummarizer({ user }: UseYouTubeSummarizerProps) {
 
     // First test if the API is reachable
     try {
-      const healthResponse = await fetch("https://api.youtubeai.chat/health", {
+      const response = await fetch("https://api.youtubeai.chat/health", {
         method: "GET",
         signal: AbortSignal.timeout(10000)
       });
-    } catch (healthError) {
-      throw new Error("API server is not reachable. Please check your internet connection.");
+      
+      if (!response.ok) {
+        throw new Error(`API health check failed with status ${response.status}`);
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      throw new Error(`API server is not reachable: ${errorMessage}`);
     }
 
     // Add timeout to the fetch request
@@ -145,11 +150,6 @@ export function useYouTubeSummarizer({ user }: UseYouTubeSummarizerProps) {
       throw new Error("Failed to get response reader");
     }
 
-
-    let chunkCount = 0;
-    let totalBytesReceived = 0;
-    const readStartTime = Date.now();
-    
     try {
       const decoder = new TextDecoder();
       let buffer = "";
@@ -158,178 +158,176 @@ export function useYouTubeSummarizer({ user }: UseYouTubeSummarizerProps) {
       while (true) {
         const { done, value } = await reader.read();
         
-        if (value) {
-          chunkCount++;
-          totalBytesReceived += value.length;
-        }
-        
         if (done) {
           break;
         }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || "";
-        
-        for (const line of lines) {
-          if (line.trim() && line.startsWith('data: ')) {
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr) continue;
-            
-            try {
-              hasReceivedData = true;
-              const data = JSON.parse(jsonStr);
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || "";
+          
+          for (const line of lines) {
+            if (line.trim() && line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr) continue;
               
-              if (data.type === 'status') {
-                // Determine stage and progress based on message content
-                let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete' = 'downloading';
-                let progress = 10;
+              try {
+                hasReceivedData = true;
+                const data = JSON.parse(jsonStr);
                 
-                if (data.message?.includes('Downloading')) {
-                  stage = 'downloading';
-                  progress = 10;
-                } else if (data.message?.includes('Transcribing')) {
-                  stage = 'transcribing';
-                  progress = 30;
-                } else if (data.message?.includes('summary') || data.message?.includes('Generating')) {
-                  stage = 'summarizing';
-                  progress = 60;
-                }
-                
-                setStreamingStatus({
-                  stage,
-                  message: data.message,
-                  progress
-                });
-              } else if (data.type === 'cached') {
-                // Handle cached results - show rapid progress then complete
-                setStreamingStatus({
-                  stage: 'downloading',
-                  message: 'Found cached result...',
-                  progress: 25
-                });
-                setTimeout(() => {
+                if (data.type === 'status') {
+                  // Determine stage and progress based on message content
+                  let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete' = 'downloading';
+                  let progress = 10;
+                  
+                  if (data.message?.includes('Downloading')) {
+                    stage = 'downloading';
+                    progress = 10;
+                  } else if (data.message?.includes('Transcribing')) {
+                    stage = 'transcribing';
+                    progress = 30;
+                  } else if (data.message?.includes('summary') || data.message?.includes('Generating')) {
+                    stage = 'summarizing';
+                    progress = 60;
+                  }
+                  
+                  setStreamingStatus({
+                    stage,
+                    message: data.message,
+                    progress
+                  });
+                } else if (data.type === 'cached') {
+                  // Handle cached results - show rapid progress then complete
+                  setStreamingStatus({
+                    stage: 'downloading',
+                    message: 'Found cached result...',
+                    progress: 25
+                  });
+                  setTimeout(() => {
+                    setStreamingStatus({
+                      stage: 'complete',
+                      message: 'Retrieved cached summary!',
+                      progress: 100
+                    });
+                    if (data.summary) {
+                      setSummary({
+                        title: data.category || data.title || "Video Summary",
+                        duration: `${data.total_time?.toFixed(1) || 0}s total`,
+                        summary: data.summary,
+                        keyPoints: data.key_points || [],
+                        transcriptionTime: 0,
+                        summaryTime: data.total_time || 0,
+                      });
+                    }
+                  }, 500);
+                } else if (data.type === 'timing') {
+                  let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
+                  let progress = 0;
+                  switch (data.stage) {
+                    case 'download':
+                      stage = 'downloading';
+                      progress = 25;
+                      break;
+                    case 'transcribe':
+                      stage = 'transcribing';
+                      progress = 50;
+                      break;
+                    case 'cache':
+                      stage = 'complete';
+                      progress = 100;
+                      break;
+                    case 'total':
+                      stage = 'complete';
+                      progress = 100;
+                      break;
+                    default:
+                      stage = 'summarizing';
+                      progress = 75;
+                  }
+                  setStreamingStatus({
+                    stage,
+                    message: data.message || `${data.stage} completed in ${data.time}s`,
+                    progress
+                  });
+                } else if (data.type === 'metadata') {
+                  const isCached = data.cached === true;
+                  setStreamingStatus({
+                    stage: isCached ? 'complete' : 'summarizing',
+                    message: isCached 
+                      ? `Found cached ${data.category} summary!`
+                      : `Generating summary for ${data.category} content...`,
+                    progress: isCached ? 100 : 70
+                  });
+                } else if (data.type === 'progress') {
+                  // Handle real-time progress updates from backend
+                  let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete' = 'downloading';
+                  if (data.stage === 'download') {
+                    stage = 'downloading';
+                  } else if (data.stage === 'transcribe') {
+                    stage = 'transcribing';
+                  }
+                  
+                  setStreamingStatus({
+                    stage,
+                    message: data.message,
+                    progress: data.progress || Math.min(95, 20 + (data.elapsed || 0) * 2)
+                  });
+                } else if (data.type === 'transcript') {
+                  setStreamingStatus({
+                    stage: 'transcribing',
+                    message: 'Transcription completed, starting summary...',
+                    progress: 60
+                  });
+                } else if (data.type === 'content') {
+                  streamingSummaryRef.current += data.text;
+                  setStreamingSummary(streamingSummaryRef.current);
+                  setStreamingStatus({
+                    stage: 'summarizing',
+                    message: 'Generating summary...',
+                    progress: Math.min(95, 80 + (streamingSummaryRef.current.length / 10))
+                  });
+                } else if (data.type === 'summary') {
+                  // Handle final summary - could be from streaming or cached
+                  const finalSummary = streamingSummaryRef.current || '';
+                  
+                  setSummary({
+                    title: data.category || "Video Summary",
+                    duration: `${data.total_time?.toFixed(1) || 0}s total`,
+                    summary: finalSummary,
+                    keyPoints: [], // Backend doesn't send key_points in streaming
+                    transcriptionTime: data.transcribe_time || 0,
+                    summaryTime: data.summarize_time || 0,
+                  });
+                  
+                  setStreamingStatus({ stage: 'complete', message: 'Summary complete!', progress: 100 });
+                } else if (data.type === 'complete' || (data.summary && !data.type)) {
+                  // Handle immediate complete results (likely cached)
                   setStreamingStatus({
                     stage: 'complete',
-                    message: 'Retrieved cached summary!',
+                    message: 'Summary retrieved!',
                     progress: 100
                   });
-                  if (data.summary) {
-                    setSummary({
-                      title: data.category || data.title || "Video Summary",
-                      duration: `${data.total_time?.toFixed(1) || 0}s total`,
-                      summary: data.summary,
-                      keyPoints: data.key_points || [],
-                      transcriptionTime: 0,
-                      summaryTime: data.total_time || 0,
-                    });
-                  }
-                }, 500);
-              } else if (data.type === 'timing') {
-                let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
-                let progress = 0;
-                switch (data.stage) {
-                  case 'download':
-                    stage = 'downloading';
-                    progress = 25;
-                    break;
-                  case 'transcribe':
-                    stage = 'transcribing';
-                    progress = 50;
-                    break;
-                  case 'cache':
-                    stage = 'complete';
-                    progress = 100;
-                    break;
-                  case 'total':
-                    stage = 'complete';
-                    progress = 100;
-                    break;
-                  default:
-                    stage = 'summarizing';
-                    progress = 75;
+                  setSummary({
+                    title: data.category || data.title || "Video Summary",
+                    duration: `${data.total_time?.toFixed(1) || 0}s total`,
+                    summary: data.summary,
+                    keyPoints: data.key_points || [],
+                    transcriptionTime: data.transcription_time || 0,
+                    summaryTime: data.total_time || 0,
+                  });
+                } else if (data.type === 'test') {
+                  // Handle test messages
+                  setStreamingStatus({
+                    stage: 'downloading',
+                    message: data.message,
+                    progress: 5
+                  });
                 }
-                setStreamingStatus({
-                  stage,
-                  message: data.message || `${data.stage} completed in ${data.time}s`,
-                  progress
-                });
-              } else if (data.type === 'metadata') {
-                const isCached = data.cached === true;
-                setStreamingStatus({
-                  stage: isCached ? 'complete' : 'summarizing',
-                  message: isCached 
-                    ? `Found cached ${data.category} summary!`
-                    : `Generating summary for ${data.category} content...`,
-                  progress: isCached ? 100 : 70
-                });
-              } else if (data.type === 'progress') {
-                // Handle real-time progress updates from backend
-                let stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete' = 'downloading';
-                if (data.stage === 'download') {
-                  stage = 'downloading';
-                } else if (data.stage === 'transcribe') {
-                  stage = 'transcribing';
-                }
-                
-                setStreamingStatus({
-                  stage,
-                  message: data.message,
-                  progress: data.progress || Math.min(95, 20 + (data.elapsed || 0) * 2)
-                });
-              } else if (data.type === 'transcript') {
-                setStreamingStatus({
-                  stage: 'transcribing',
-                  message: 'Transcription completed, starting summary...',
-                  progress: 60
-                });
-              } else if (data.type === 'content') {
-                streamingSummaryRef.current += data.text;
-                setStreamingSummary(streamingSummaryRef.current);
-                setStreamingStatus({
-                  stage: 'summarizing',
-                  message: 'Generating summary...',
-                  progress: Math.min(95, 80 + (streamingSummaryRef.current.length / 10))
-                });
-              } else if (data.type === 'summary') {
-                // Handle final summary - could be from streaming or cached
-                const finalSummary = streamingSummaryRef.current || '';
-                
-                setSummary({
-                  title: data.category || "Video Summary",
-                  duration: `${data.total_time?.toFixed(1) || 0}s total`,
-                  summary: finalSummary,
-                  keyPoints: [], // Backend doesn't send key_points in streaming
-                  transcriptionTime: data.transcribe_time || 0,
-                  summaryTime: data.summarize_time || 0,
-                });
-                
-                setStreamingStatus({ stage: 'complete', message: 'Summary complete!', progress: 100 });
-              } else if (data.type === 'complete' || (data.summary && !data.type)) {
-                // Handle immediate complete results (likely cached)
-                setStreamingStatus({
-                  stage: 'complete',
-                  message: 'Summary retrieved!',
-                  progress: 100
-                });
-                setSummary({
-                  title: data.category || data.title || "Video Summary",
-                  duration: `${data.total_time?.toFixed(1) || 0}s total`,
-                  summary: data.summary,
-                  keyPoints: data.key_points || [],
-                  transcriptionTime: data.transcription_time || 0,
-                  summaryTime: data.total_time || 0,
-                });
-              } else if (data.type === 'test') {
-                // Handle test messages
-                setStreamingStatus({
-                  stage: 'downloading',
-                  message: data.message,
-                  progress: 5
-                });
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                console.warn("Failed to parse streaming response:", errorMessage);
               }
-            } catch (parseError) {
-              // Silently handle parse errors
             }
           }
         }
