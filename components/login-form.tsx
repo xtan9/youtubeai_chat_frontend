@@ -60,7 +60,13 @@ export function LoginForm({
           redirectTo: `${window.location.origin}/protected`,
         },
       });
-      if (error) throw error;
+      if (error) {
+        // Better error message for OAuth configuration issues
+        if (error.message.includes("provider") || error.message.includes("OAuth")) {
+          throw new Error("Google sign-in is not configured. Please contact support or use email login.");
+        }
+        throw error;
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
       setIsLoading(false);
