@@ -82,7 +82,7 @@ export function useAuth() {
     );
 
     return () => subscription.unsubscribe();
-  }, [refreshSession]);
+  }, [refreshSession, supabase.auth]);
 
   return {
     ...authState,

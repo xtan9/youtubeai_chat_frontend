@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "./header";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { InputForm } from "./input-form";
 import { ResultsDisplay } from "./results-display";
-import type { User, SummaryResult, StreamingStatus, YouTubeSummarizerAppProps } from "./types";
+import type { SummaryResult, StreamingStatus, YouTubeSummarizerAppProps } from "./types";
 
 export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
@@ -30,7 +30,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     return youtubeRegex.test(url);
   };
 
-  const handleAuthError = (status: number, message: string) => {
+  const handleAuthError = useCallback((status: number, message: string) => {
     if (status === 401) {
       setAuthError("Authentication failed. Please sign in again.");
       // For authenticated users, redirect to sign in
@@ -44,11 +44,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     } else {
       setAuthError(message);
     }
-  };
+  }, [user.id, router]);
 
-
-
-  const handleAnalyze = async (e: React.FormEvent) => {
+  const handleAnalyze = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Check authentication first
@@ -119,9 +117,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       setCurrentRequestUrl(""); // Clear the current request URL when done
       abortControllerRef.current = null; // Clear the abort controller
     }
-  };
+  }, [user.id, router, isLoading, currentRequestUrl, url, useStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRegularAnalysis = async () => {
+  const handleRegularAnalysis = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -161,9 +159,9 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       transcriptionTime: data.timing?.transcribe || 0,
       summaryTime: data.timing?.summarize || 0,
     });
-  };
+  }, [url, supabase.auth]);
 
-  const handleStreamingAnalysis = async () => {
+  const handleStreamingAnalysis = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -303,7 +301,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       
       throw error;
     }
-  };
+  }, [url, supabase.auth, streamingSummary, handleAuthError, handleRegularAnalysis]);
 
   const handleCopyAnalysis = async () => {
     if (!summary) return;
@@ -346,7 +344,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
         handleAnalyze({ preventDefault: () => {} } as React.FormEvent);
       }, 100);
     }
-  }, [initialUrl]);
+  }, [initialUrl, handleAnalyze]);
 
   // Cleanup effect for component unmount
   useEffect(() => {
