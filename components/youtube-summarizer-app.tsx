@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
@@ -62,7 +62,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [copied, setCopied] = useState(false);
-  const [useStreaming] = useState(false); // Removed setUseStreaming since it's not used
+  const [useStreaming, setUseStreaming] = useState(false);
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const [streamingSummary, setStreamingSummary] = useState<string>("");
   const [currentRequestUrl, setCurrentRequestUrl] = useState<string>("");
@@ -98,7 +98,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     router.push("/");
   };
 
-  const handleAnalyze = useCallback(async (e: React.FormEvent) => {
+  const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Check authentication first
@@ -169,7 +169,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       setCurrentRequestUrl(""); // Clear the current request URL when done
       abortControllerRef.current = null; // Clear the abort controller
     }
-  }, [user.id, router, isLoading, currentRequestUrl, url, useStreaming]);
+  };
 
   const handleRegularAnalysis = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -551,8 +551,8 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                       </div>
                     </div>
                     
-                    {/* Streaming Mode Toggle - Hidden for now */}
-                    {/* <div className="flex flex-col items-center gap-2 text-sm">
+                    {/* Streaming Mode Toggle */}
+                    <div className="flex flex-col items-center gap-2 text-sm">
                       <label className={`flex items-center gap-2 ${user.id === "guest" ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
                         <input
                           type="checkbox"
@@ -574,7 +574,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
                             : "✅ Standard processing (recommended)"
                         }
                       </p>
-                    </div> */}
+                    </div>
 
                     {/* Streaming Progress */}
                     {streamingStatus && (
