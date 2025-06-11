@@ -4,11 +4,11 @@ import { createClient } from '@/lib/supabase/client';
 import { getAuthErrorInfo } from '@/lib/utils/youtube';
 import type { SummaryResult, StreamingStatus } from '@/app/components/types';
 
-interface UseYouTubeAnalysisProps {
+interface UseYouTubeSummarizerProps {
   user: { id: string };
 }
 
-export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
+export function useYouTubeSummarizer({ user }: UseYouTubeSummarizerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
@@ -33,7 +33,7 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
     }
   }, [user.id, router]);
 
-  const handleRegularAnalysis = useCallback(async (url: string) => {
+  const handleRegularSummarization = useCallback(async (url: string) => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -65,7 +65,7 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
     console.log("API Response:", data);
     
     setSummary({
-      title: data.detected_category || "Video Analysis",
+      title: data.detected_category || "Video Summary",
       duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
       summary: data.summary || "No summary available",
       keyPoints: [],
@@ -74,7 +74,7 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
     });
   }, [supabase.auth]);
 
-  const handleStreamingAnalysis = useCallback(async (url: string) => {
+  const handleStreamingSummarization = useCallback(async (url: string) => {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
@@ -100,14 +100,14 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
         // If we can't parse the error response, use the status
       }
       
-      // If streaming fails, fallback to regular analysis
+      // If streaming fails, fallback to regular summarization
       if (response.status === 422 || response.status === 404) {
-        console.warn("Streaming endpoint not available, falling back to regular analysis");
+        console.warn("Streaming endpoint not available, falling back to regular summarization");
         setStreamingStatus({ 
           stage: 'downloading', 
-          message: 'Streaming unavailable, using standard analysis...' 
+          message: 'Streaming unavailable, using standard summarization...' 
         });
-        await handleRegularAnalysis(url);
+        await handleRegularSummarization(url);
         return;
       }
       
@@ -173,14 +173,14 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
                 });
               } else if (data.type === 'summary') {
                 setSummary({
-                  title: data.category || "Video Analysis",
+                  title: data.category || "Video Summary",
                   duration: `${data.total_time.toFixed(1)}s total`,
                   summary: streamingSummary,
                   keyPoints: [],
                   transcriptionTime: 0,
                   summaryTime: data.total_time || 0,
                 });
-                setStreamingStatus({ stage: 'complete', message: 'Analysis complete!' });
+                setStreamingStatus({ stage: 'complete', message: 'Summary complete!' });
               }
             } catch (parseError) {
               console.error("Failed to parse streaming data:", parseError);
@@ -197,31 +197,31 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
         }
         
         if (apiError.status === 422 || apiError.status === 404) {
-          console.warn("Streaming endpoint not available, falling back to regular analysis");
+          console.warn("Streaming endpoint not available, falling back to regular summarization");
           setStreamingStatus({ 
             stage: 'downloading', 
-            message: 'Streaming unavailable, using standard analysis...' 
+            message: 'Streaming unavailable, using standard summarization...' 
           });
-          await handleRegularAnalysis(url);
+          await handleRegularSummarization(url);
           return;
         }
       }
       
       throw error;
     }
-  }, [supabase.auth, streamingSummary, handleAuthError, handleRegularAnalysis]);
+  }, [supabase.auth, streamingSummary, handleAuthError, handleRegularSummarization]);
 
-  const analyzeVideo = useCallback(async (url: string) => {
+  const summarizeVideo = useCallback(async (url: string) => {
     // Check authentication first
     if (user.id === "guest") {
-      console.log("Unauthenticated user attempted analysis, redirecting to auth");
+      console.log("Unauthenticated user attempted summarization, redirecting to auth");
       router.push("/auth/login");
       return;
     }
     
     // Prevent duplicate calls if already loading or same URL
     if (isLoading) {
-      console.log("Analysis already in progress, ignoring duplicate call");
+      console.log("Summarization already in progress, ignoring duplicate call");
       return;
     }
     
@@ -230,7 +230,7 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
       return;
     }
 
-    console.log("Starting analysis for:", url);
+    console.log("Starting summarization for:", url);
     
     // Abort any existing request
     if (abortControllerRef.current) {
@@ -250,9 +250,9 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
 
     try {
       if (useStreaming) {
-        await handleStreamingAnalysis(url);
+        await handleStreamingSummarization(url);
       } else {
-        await handleRegularAnalysis(url);
+        await handleRegularSummarization(url);
       }
     } catch (error) {
       console.error("Error:", error);
@@ -263,16 +263,16 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
         return;
       }
       
-      setError(error instanceof Error ? error.message : "Failed to analyze video. Please try again.");
+      setError(error instanceof Error ? error.message : "Failed to summarize video. Please try again.");
     } finally {
       setIsLoading(false);
       setStreamingStatus(null);
       setCurrentRequestUrl("");
       abortControllerRef.current = null;
     }
-  }, [user.id, router, isLoading, currentRequestUrl, useStreaming, handleStreamingAnalysis, handleRegularAnalysis]);
+  }, [user.id, router, isLoading, currentRequestUrl, useStreaming, handleStreamingSummarization, handleRegularSummarization]);
 
-  const resetAnalysis = useCallback(() => {
+  const resetSummarization = useCallback(() => {
     // Abort any ongoing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -303,7 +303,7 @@ export function useYouTubeAnalysis({ user }: UseYouTubeAnalysisProps) {
     setUseStreaming,
     
     // Actions
-    analyzeVideo,
-    resetAnalysis
+    summarizeVideo,
+    resetSummarization
   };
 } 

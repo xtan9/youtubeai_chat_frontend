@@ -5,7 +5,7 @@ import { Header } from "./header";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { InputForm } from "./input-form";
 import { ResultsDisplay } from "./results-display";
-import { useYouTubeAnalysis } from "@/lib/hooks/useYouTubeAnalysis";
+import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import type { YouTubeSummarizerAppProps } from "./types";
@@ -25,13 +25,13 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     setError,
     setAuthError,
     setUseStreaming,
-    analyzeVideo,
-    resetAnalysis
-  } = useYouTubeAnalysis({ user });
+    summarizeVideo,
+    resetSummarization
+  } = useYouTubeSummarizer({ user });
 
   const { copied, copyToClipboard } = useClipboard();
 
-  const handleAnalyze = async (e: React.FormEvent) => {
+  const handleSummarize = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!url.trim()) {
@@ -44,22 +44,22 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       return;
     }
 
-    await analyzeVideo(url);
+    await summarizeVideo(url);
   };
 
-  const handleCopyAnalysis = async () => {
+  const handleCopySummary = async () => {
     if (!summary) return;
     
     const textToCopy = `${summary.title}\n\n${summary.summary}\n\nKey Insights:\n${summary.keyPoints.map(point => `• ${point}`).join('\n')}`;
     await copyToClipboard(textToCopy);
   };
 
-  const handleNewAnalysis = () => {
+  const handleNewSummary = () => {
     setUrl("");
-    resetAnalysis();
+    resetSummarization();
   };
 
-  // Auto-start analysis if initial URL is provided
+  // Auto-start summarization if initial URL is provided
   useEffect(() => {
     if (initialUrl && isValidYouTubeUrl(initialUrl) && !hasAutoStarted.current) {
       hasAutoStarted.current = true;
@@ -67,10 +67,10 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
       
       // Use setTimeout to avoid race conditions with state updates
       setTimeout(() => {
-        analyzeVideo(initialUrl);
+        summarizeVideo(initialUrl);
       }, 100);
     }
-  }, [initialUrl, analyzeVideo]);
+  }, [initialUrl, summarizeVideo]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
@@ -93,7 +93,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
           <InputForm
             url={url}
             setUrl={setUrl}
-            onAnalyze={handleAnalyze}
+            onSummarize={handleSummarize}
             isLoading={isLoading}
             error={error}
             authError={authError}
@@ -110,8 +110,8 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             summary={summary}
             url={url}
             copied={copied}
-            onCopyAnalysis={handleCopyAnalysis}
-            onNewAnalysis={handleNewAnalysis}
+            onCopySummary={handleCopySummary}
+            onNewSummary={handleNewSummary}
           />
         )}
       </div>

@@ -17,7 +17,7 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-bold text-white">{summary.title}</h2>
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500/20 to-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                {summary.title.replace('Video Analysis', '').replace('Analysis', '').trim() || 'Content'}
+                {summary.title.replace('Video Summary', '').replace('Summary', '').trim() || 'Content'}
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
