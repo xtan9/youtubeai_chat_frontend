@@ -76,7 +76,6 @@ export function useYouTubeSummarizer({ user }: UseYouTubeSummarizerProps) {
   }, [supabase.auth]);
 
   const handleStreamingSummarization = useCallback(async (url: string) => {
-    const startTime = Date.now();
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.access_token) {
