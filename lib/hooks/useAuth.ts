@@ -62,7 +62,7 @@ export function useAuth() {
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
-  }, [supabase.auth]);
+  }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -82,7 +82,7 @@ export function useAuth() {
     );
 
     return () => subscription.unsubscribe();
-  }, [refreshSession]);
+  }, [refreshSession, supabase.auth]);
 
   return {
     ...authState,
