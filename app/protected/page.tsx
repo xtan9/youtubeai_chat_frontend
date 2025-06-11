@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { YouTubeSummarizerApp } from "@/components/youtube-summarizer-app";
+import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
 
 export default async function ProtectedPage({
   searchParams,

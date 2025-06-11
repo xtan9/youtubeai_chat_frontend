@@ -20,7 +20,7 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import { ProfileAvatar } from "./profile-avatar";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
