@@ -1,18 +1,31 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Header } from "./header";
-import { AuthErrorBanner } from "./auth-error-banner";
-import { InputForm } from "./input-form";
-import { ResultsDisplay } from "./results-display";
-import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
-import { useClipboard } from "@/lib/hooks/useClipboard";
-import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import type { YouTubeSummarizerAppProps } from "./types";
+import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useYouTubeSummarizer } from '@/lib/hooks/useYouTubeSummarizer';
+import { useClipboard } from '@/lib/hooks/useClipboard';
+import { isValidYouTubeUrl } from '@/lib/utils/youtube';
+import { Header } from './header';
+import { AuthErrorBanner } from './auth-error-banner';
+import { InputForm } from './input-form';
+import { ResultsDisplay } from './results-display';
 
-export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppProps) {
+interface YouTubeSummarizerAppProps {
+  initialUrl: string | undefined;
+  user: { id: string };
+  showInputOnly?: boolean;
+  showResultsOnly?: boolean;
+}
+
+export function YouTubeSummarizerApp({ 
+  initialUrl, 
+  user,
+  showInputOnly = false,
+  showResultsOnly = false 
+}: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
   const hasAutoStarted = useRef(false);
+  const router = useRouter();
 
   // Use custom hooks for complex logic
   const {
@@ -46,6 +59,11 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     }
 
     await summarizeVideo(url);
+    
+    // After successful summarization, redirect to summary page
+    if (!showResultsOnly) {
+      router.push(`/summary?url=${encodeURIComponent(url)}`);
+    }
   };
 
   const handleCopySummary = async () => {
@@ -60,36 +78,23 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
     resetSummarization();
   };
 
-  // Auto-start summarization if initial URL is provided
+  // Auto-start summarization if URL is provided
   useEffect(() => {
-    if (initialUrl && isValidYouTubeUrl(initialUrl) && !hasAutoStarted.current) {
+    if (initialUrl && !hasAutoStarted.current) {
       hasAutoStarted.current = true;
-      setUrl(initialUrl);
-      
-      // Use setTimeout to avoid race conditions with state updates
-      setTimeout(() => {
-        summarizeVideo(initialUrl);
-      }, 100);
+      summarizeVideo(initialUrl);
     }
   }, [initialUrl, summarizeVideo]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-cyan-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
-      </div>
-
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
       <Header user={user} />
-
-      {/* Main Content */}
+      
       <div className="relative z-10 container mx-auto px-6 py-12 max-w-6xl">
         {/* Authentication Error Banner */}
         <AuthErrorBanner authError={authError} user={user} />
 
-        {!summary ? (
+        {(!showResultsOnly && !summary) || (showInputOnly && !summary) ? (
           /* Input Interface */
           <InputForm
             url={url}
@@ -106,7 +111,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             streamingSummary={streamingSummary}
             user={user}
           />
-        ) : (
+        ) : (!showInputOnly && summary) || (showResultsOnly && summary) ? (
           /* Results Interface */
           <ResultsDisplay
             summary={summary}
@@ -115,7 +120,7 @@ export function YouTubeSummarizerApp({ initialUrl, user }: YouTubeSummarizerAppP
             onCopySummary={handleCopySummary}
             onNewSummary={handleNewSummary}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
