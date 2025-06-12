@@ -1,8 +1,8 @@
 import { Brain } from "lucide-react";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
-import type { SummaryResult } from "./types";
+import type { SummaryResult } from "../../lib/types";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -19,37 +19,73 @@ export function SummaryContent({ summary }: SummaryContentProps) {
           </div>
           <div>
             <h3 className="text-2xl font-bold text-white">AI Summary</h3>
-            <p className="text-sm text-gray-400">Intelligent summary and key insights</p>
+            <p className="text-sm text-gray-400">
+              Intelligent summary and key insights
+            </p>
           </div>
         </div>
-        
+
         <div className="space-y-6">
           {/* Render summary with ReactMarkdown */}
           <div className="bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-white/10">
             <div className="prose prose-lg prose-invert max-w-none">
-              <ReactMarkdown 
+              <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  h1: ({children}) => <h1 className="text-2xl font-bold text-white border-b border-cyan-400/30 pb-2 mb-4">{children}</h1>,
-                  h2: ({children}) => <h2 className="text-xl font-semibold text-cyan-400 mt-6 mb-3">{children}</h2>,
-                  h3: ({children}) => <h3 className="text-lg font-medium text-purple-400 mt-4 mb-2">{children}</h3>,
-                  p: ({children}) => <p className="text-gray-200 leading-relaxed mb-4 text-lg">{children}</p>,
-                  ul: ({children}) => <ul className="list-disc list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ul>,
-                  ol: ({children}) => <ol className="list-decimal list-inside space-y-2 text-gray-200 mb-4 ml-4">{children}</ol>,
-                  li: ({children}) => <li className="text-gray-200 leading-relaxed">{children}</li>,
-                  strong: ({children}) => <strong className="font-semibold text-white">{children}</strong>,
-                  em: ({children}) => <em className="italic text-cyan-300">{children}</em>,
-                  blockquote: ({children}) => (
+                  h1: ({ children }) => (
+                    <h1 className="text-2xl font-bold text-white border-b border-cyan-400/30 pb-2 mb-4">
+                      {children}
+                    </h1>
+                  ),
+                  h2: ({ children }) => (
+                    <h2 className="text-xl font-semibold text-cyan-400 mt-6 mb-3">
+                      {children}
+                    </h2>
+                  ),
+                  h3: ({ children }) => (
+                    <h3 className="text-lg font-medium text-purple-400 mt-4 mb-2">
+                      {children}
+                    </h3>
+                  ),
+                  p: ({ children }) => (
+                    <p className="text-gray-200 leading-relaxed mb-4 text-lg">
+                      {children}
+                    </p>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="list-disc list-inside space-y-2 text-gray-200 mb-4 ml-4">
+                      {children}
+                    </ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol className="list-decimal list-inside space-y-2 text-gray-200 mb-4 ml-4">
+                      {children}
+                    </ol>
+                  ),
+                  li: ({ children }) => (
+                    <li className="text-gray-200 leading-relaxed">
+                      {children}
+                    </li>
+                  ),
+                  strong: ({ children }) => (
+                    <strong className="font-semibold text-white">
+                      {children}
+                    </strong>
+                  ),
+                  em: ({ children }) => (
+                    <em className="italic text-cyan-300">{children}</em>
+                  ),
+                  blockquote: ({ children }) => (
                     <blockquote className="border-l-4 border-purple-400 pl-4 italic text-gray-300 bg-purple-500/5 py-2 rounded-r-lg">
                       {children}
                     </blockquote>
                   ),
-                  code: ({children}) => (
+                  code: ({ children }) => (
                     <code className="bg-slate-700 text-cyan-300 px-2 py-1 rounded text-sm font-mono">
                       {children}
                     </code>
                   ),
-                  pre: ({children}) => (
+                  pre: ({ children }) => (
                     <pre className="bg-slate-900 text-gray-200 p-4 rounded-lg overflow-x-auto border border-slate-600">
                       {children}
                     </pre>
@@ -67,4 +103,4 @@ export function SummaryContent({ summary }: SummaryContentProps) {
       </div>
     </div>
   );
-} 
+}

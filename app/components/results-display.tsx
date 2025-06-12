@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { VideoInfoCard } from "./video-info-card";
 import { SummaryContent } from "./summary-content";
 import { KeyInsights } from "./key-insights";
-import type { SummaryResult } from "./types";
+import type { SummaryResult } from "../../lib/types";
 
 interface ResultsDisplayProps {
   summary: SummaryResult;
@@ -18,7 +18,7 @@ export function ResultsDisplay({
   url,
   copied,
   onCopySummary,
-  onNewSummary
+  onNewSummary,
 }: ResultsDisplayProps) {
   return (
     <div className="space-y-8">
@@ -27,11 +27,13 @@ export function ResultsDisplay({
           <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
             Video Summary Complete
           </h1>
-          <p className="text-gray-400 mt-2">AI-powered insights and key takeaways</p>
+          <p className="text-gray-400 mt-2">
+            AI-powered insights and key takeaways
+          </p>
         </div>
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={onCopySummary}
             className="bg-white/5 border-white/20 text-white hover:bg-white/10"
           >
@@ -47,7 +49,7 @@ export function ResultsDisplay({
               </>
             )}
           </Button>
-          <Button 
+          <Button
             onClick={onNewSummary}
             className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
           >
@@ -67,4 +69,4 @@ export function ResultsDisplay({
       <KeyInsights keyPoints={summary.keyPoints} />
     </div>
   );
-} 
+}

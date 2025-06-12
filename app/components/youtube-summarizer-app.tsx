@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useYouTubeSummarizer } from '@/lib/hooks/useYouTubeSummarizer';
-import { useClipboard } from '@/lib/hooks/useClipboard';
-import { isValidYouTubeUrl } from '@/lib/utils/youtube';
-import { Header } from './header';
-import { AuthErrorBanner } from './auth-error-banner';
-import { InputForm } from './input-form';
-import { ResultsDisplay } from './results-display';
+import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
+import { useClipboard } from "@/lib/hooks/useClipboard";
+import { isValidYouTubeUrl } from "@/lib/utils/youtube";
+import { Header } from "./header";
+import { AuthErrorBanner } from "./auth-error-banner";
+import { InputForm } from "./input-form";
+import { ResultsDisplay } from "./results-display";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -17,11 +17,11 @@ interface YouTubeSummarizerAppProps {
   showResultsOnly?: boolean;
 }
 
-export function YouTubeSummarizerApp({ 
-  initialUrl, 
+export function YouTubeSummarizerApp({
+  initialUrl,
   user,
   showInputOnly = false,
-  showResultsOnly = false 
+  showResultsOnly = false,
 }: YouTubeSummarizerAppProps) {
   const [url, setUrl] = useState(initialUrl || "");
   const hasAutoStarted = useRef(false);
@@ -40,14 +40,14 @@ export function YouTubeSummarizerApp({
     setAuthError,
     setUseStreaming,
     summarizeVideo,
-    resetSummarization
+    resetSummarization,
   } = useYouTubeSummarizer({ user });
 
   const { copied, copyToClipboard } = useClipboard();
 
   const handleSummarize = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!url.trim()) {
       setError("Please enter a video URL");
       return;
@@ -59,7 +59,7 @@ export function YouTubeSummarizerApp({
     }
 
     await summarizeVideo(url);
-    
+
     // After successful summarization, redirect to summary page
     if (!showResultsOnly) {
       router.push(`/summary?url=${encodeURIComponent(url)}`);
@@ -68,8 +68,12 @@ export function YouTubeSummarizerApp({
 
   const handleCopySummary = async () => {
     if (!summary) return;
-    
-    const textToCopy = `${summary.title}\n\n${summary.summary}\n\nKey Insights:\n${summary.keyPoints.map(point => `• ${point}`).join('\n')}`;
+
+    const textToCopy = `${summary.title}\n\n${
+      summary.summary
+    }\n\nKey Insights:\n${summary.keyPoints
+      .map((point) => `• ${point}`)
+      .join("\n")}`;
     await copyToClipboard(textToCopy);
   };
 
@@ -87,41 +91,37 @@ export function YouTubeSummarizerApp({
   }, [initialUrl, summarizeVideo]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
-      <Header user={user} />
-      
-      <div className="relative z-10 container mx-auto px-6 py-12 max-w-6xl">
-        {/* Authentication Error Banner */}
-        <AuthErrorBanner authError={authError} user={user} />
+    <>
+      {/* Authentication Error Banner */}
+      <AuthErrorBanner authError={authError} user={user} />
 
-        {(!showResultsOnly && !summary) || (showInputOnly && !summary) ? (
-          /* Input Interface */
-          <InputForm
-            url={url}
-            setUrl={setUrl}
-            onSummarize={handleSummarize}
-            isLoading={isLoading}
-            error={error}
-            authError={authError}
-            setError={setError}
-            setAuthError={setAuthError}
-            useStreaming={useStreaming}
-            setUseStreaming={setUseStreaming}
-            streamingStatus={streamingStatus}
-            streamingSummary={streamingSummary}
-            user={user}
-          />
-        ) : (!showInputOnly && summary) || (showResultsOnly && summary) ? (
-          /* Results Interface */
-          <ResultsDisplay
-            summary={summary}
-            url={url}
-            copied={copied}
-            onCopySummary={handleCopySummary}
-            onNewSummary={handleNewSummary}
-          />
-        ) : null}
-      </div>
-    </div>
+      {(!showResultsOnly && !summary) || (showInputOnly && !summary) ? (
+        /* Input Interface */
+        <InputForm
+          url={url}
+          setUrl={setUrl}
+          onSummarize={handleSummarize}
+          isLoading={isLoading}
+          error={error}
+          authError={authError}
+          setError={setError}
+          setAuthError={setAuthError}
+          useStreaming={useStreaming}
+          setUseStreaming={setUseStreaming}
+          streamingStatus={streamingStatus}
+          streamingSummary={streamingSummary}
+          user={user}
+        />
+      ) : (!showInputOnly && summary) || (showResultsOnly && summary) ? (
+        /* Results Interface */
+        <ResultsDisplay
+          summary={summary}
+          url={url}
+          copied={copied}
+          onCopySummary={handleCopySummary}
+          onNewSummary={handleNewSummary}
+        />
+      ) : null}
+    </>
   );
-} 
+}

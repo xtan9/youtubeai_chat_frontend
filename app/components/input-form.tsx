@@ -2,7 +2,7 @@ import { Sparkles, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StreamingProgress } from "./streaming-progress";
-import type { User, StreamingStatus } from "./types";
+import type { User, StreamingStatus } from "../../lib/types";
 
 interface InputFormProps {
   url: string;
@@ -33,7 +33,7 @@ export function InputForm({
   setUseStreaming,
   streamingStatus,
   streamingSummary,
-  user
+  user,
 }: InputFormProps) {
   return (
     <div className="space-y-12">
@@ -49,7 +49,8 @@ export function InputForm({
           Summarize Your Video
         </h1>
         <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-          Paste any YouTube URL below to unlock deep insights and intelligent summaries
+          Paste any YouTube URL below to unlock deep insights and intelligent
+          summaries
           {user.id === "guest" && (
             <span className="block text-sm text-yellow-400 mt-2">
               🔐 Sign in required to summarize videos
@@ -79,16 +80,18 @@ export function InputForm({
                       className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
                     />
                   </div>
-                  <Button 
-                    type="submit" 
-                    size="lg" 
+                  <Button
+                    type="submit"
+                    size="lg"
                     className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
                     disabled={isLoading || !!authError}
                   >
                     {isLoading ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                        {streamingStatus ? streamingStatus.message || 'Summarizing...' : 'Summarizing...'}
+                        {streamingStatus
+                          ? streamingStatus.message || "Summarizing..."
+                          : "Summarizing..."}
                       </>
                     ) : user.id === "guest" ? (
                       <>
@@ -104,10 +107,16 @@ export function InputForm({
                   </Button>
                 </div>
               </div>
-              
+
               {/* Streaming Mode Toggle */}
               <div className="flex flex-col items-center gap-2 text-sm">
-                <label className={`flex items-center gap-2 ${user.id === "guest" ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
+                <label
+                  className={`flex items-center gap-2 ${
+                    user.id === "guest"
+                      ? "cursor-not-allowed opacity-50"
+                      : "cursor-pointer"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={useStreaming}
@@ -115,41 +124,56 @@ export function InputForm({
                     disabled={user.id === "guest"}
                     className="sr-only"
                   />
-                  <div className={`relative w-11 h-6 rounded-full transition-colors ${useStreaming && user.id !== "guest" ? 'bg-gradient-to-r from-purple-500 to-cyan-500' : 'bg-gray-600'}`}>
-                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${useStreaming && user.id !== "guest" ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                  <div
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      useStreaming && user.id !== "guest"
+                        ? "bg-gradient-to-r from-purple-500 to-cyan-500"
+                        : "bg-gray-600"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                        useStreaming && user.id !== "guest"
+                          ? "translate-x-5"
+                          : "translate-x-0"
+                      }`}
+                    ></div>
                   </div>
                   <span className="text-gray-300">Real-time progress</span>
                 </label>
                 <p className="text-xs text-gray-500 text-center max-w-md">
-                  {user.id === "guest" 
+                  {user.id === "guest"
                     ? "🔐 Sign in required for streaming mode"
-                    : useStreaming 
-                      ? "🚧 Streaming mode (under development - may have issues)"
-                      : "✅ Standard processing (recommended)"
-                  }
+                    : useStreaming
+                    ? "🚧 Streaming mode (under development - may have issues)"
+                    : "✅ Standard processing (recommended)"}
                 </p>
               </div>
 
               {/* Streaming Progress */}
               <StreamingProgress streamingStatus={streamingStatus} />
-              
+
               {/* Real-time Streaming Content */}
-              {streamingSummary && streamingStatus && streamingStatus.stage === 'summarizing' && (
-                <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 mt-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-white">Live Summary</span>
+              {streamingSummary &&
+                streamingStatus &&
+                streamingStatus.stage === "summarizing" && (
+                  <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 mt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium text-white">
+                        Live Summary
+                      </span>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10 max-h-40 overflow-y-auto">
+                      <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
+                        {streamingSummary}
+                        <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1"></span>
+                      </p>
+                    </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10 max-h-40 overflow-y-auto">
-                    <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
-                      {streamingSummary}
-                      <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1"></span>
-                    </p>
-                  </div>
-                </div>
-              )}
+                )}
             </div>
-            
+
             {error && (
               <div className="text-center">
                 <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block">
@@ -162,4 +186,4 @@ export function InputForm({
       </div>
     </div>
   );
-} 
+}

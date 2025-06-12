@@ -1,5 +1,5 @@
 import { AlertCircle } from "lucide-react";
-import type { User } from "./types";
+import type { User } from "../../lib/types";
 
 interface AuthErrorBannerProps {
   authError: string | null;
@@ -17,10 +17,12 @@ export function AuthErrorBanner({ authError, user }: AuthErrorBannerProps) {
           <p className="text-red-400 font-medium">Authentication Error</p>
           <p className="text-red-300 text-sm mt-1">{authError}</p>
           {user.id !== "guest" && (
-            <p className="text-red-300 text-xs mt-2">Redirecting to sign in page in 3 seconds...</p>
+            <p className="text-red-300 text-xs mt-2">
+              Redirecting to sign in page in 3 seconds...
+            </p>
           )}
         </div>
       </div>
     </div>
   );
-} 
+}
