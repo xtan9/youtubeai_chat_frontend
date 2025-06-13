@@ -1,11 +1,20 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ url?: string }>;
-}) {
-  const params = await searchParams;
+import { useState, useRef, useEffect } from "react";
 
-  return <div>Hello World</div>;
+import { isValidYouTubeUrl } from "@/lib/utils/youtube";
+import { InputForm } from "./components/input-form";
+import { useRouter } from "next/navigation";
+
+export default function Home() {
+  const [summary, setSummary] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (summary) {
+      router.push("/summary");
+    }
+  }, [summary]);
+
+  return <InputForm setSummary={setSummary} />;
 }

@@ -1,13 +1,13 @@
 import { AlertCircle } from "lucide-react";
-import type { User } from "../../lib/types";
+import { useUser } from "@/lib/contexts/user-context";
 
 interface AuthErrorBannerProps {
-  authError: string | null;
-  user: User;
+  authError: string | undefined;
 }
 
-export function AuthErrorBanner({ authError, user }: AuthErrorBannerProps) {
+export function AuthErrorBanner({ authError }: AuthErrorBannerProps) {
   if (!authError) return null;
+  const { user } = useUser();
 
   return (
     <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
@@ -16,7 +16,7 @@ export function AuthErrorBanner({ authError, user }: AuthErrorBannerProps) {
         <div>
           <p className="text-red-400 font-medium">Authentication Error</p>
           <p className="text-red-300 text-sm mt-1">{authError}</p>
-          {user.id !== "guest" && (
+          {user && (
             <p className="text-red-300 text-xs mt-2">
               Redirecting to sign in page in 3 seconds...
             </p>

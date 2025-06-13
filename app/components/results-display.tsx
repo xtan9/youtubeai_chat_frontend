@@ -6,7 +6,7 @@ import { KeyInsights } from "./key-insights";
 import type { SummaryResult } from "../../lib/types";
 
 interface ResultsDisplayProps {
-  summary: SummaryResult;
+  data: SummaryResult | SummaryResult[];
   url: string;
   copied: boolean;
   onCopySummary: () => void;
@@ -14,59 +14,62 @@ interface ResultsDisplayProps {
 }
 
 export function ResultsDisplay({
-  summary,
+  data,
   url,
   copied,
   onCopySummary,
   onNewSummary,
 }: ResultsDisplayProps) {
+  console.log(data);
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
-            Video Summary Complete
-          </h1>
-          <p className="text-gray-400 mt-2">
-            AI-powered insights and key takeaways
-          </p>
+    data && (
+      <div className="space-y-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+              Video Summary Complete
+            </h1>
+            <p className="text-gray-400 mt-2">
+              AI-powered insights and key takeaways
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={onCopySummary}
+              className="bg-white/5 border-white/20 text-white hover:bg-white/10"
+            >
+              {copied ? (
+                <>
+                  <Check className="mr-2 h-4 w-4 text-green-400" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy Summary
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={onNewSummary}
+              className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              New Summary
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            onClick={onCopySummary}
-            className="bg-white/5 border-white/20 text-white hover:bg-white/10"
-          >
-            {copied ? (
-              <>
-                <Check className="mr-2 h-4 w-4 text-green-400" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="mr-2 h-4 w-4" />
-                Copy Summary
-              </>
-            )}
-          </Button>
-          <Button
-            onClick={onNewSummary}
-            className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            New Summary
-          </Button>
-        </div>
+
+        {/* Video Info Card */}
+        <VideoInfoCard summary={data} url={url} />
+
+        {/* Summary Content */}
+        <SummaryContent summary={data} />
+
+        {/* Key Insights */}
+        <KeyInsights keyPoints={data.keyPoints} />
       </div>
-
-      {/* Video Info Card */}
-      <VideoInfoCard summary={summary} url={url} />
-
-      {/* Summary Content */}
-      <SummaryContent summary={summary} />
-
-      {/* Key Insights */}
-      <KeyInsights keyPoints={summary.keyPoints} />
-    </div>
+    )
   );
 }

@@ -17,12 +17,7 @@ export interface SummaryResult {
 }
 
 export interface StreamingStatus {
-  stage: 'downloading' | 'transcribing' | 'summarizing' | 'complete';
+  stage: "downloading" | "transcribing" | "summarizing" | "complete";
   progress?: number;
   message?: string;
 }
-
-export interface YouTubeSummarizerAppProps {
-  initialUrl?: string;
-  user: User;
-} 

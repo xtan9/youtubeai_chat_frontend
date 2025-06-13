@@ -1,47 +1,59 @@
-import { Sparkles, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StreamingProgress } from "./streaming-progress";
-import type { User, StreamingStatus } from "../../lib/types";
+import { useUser } from "@/lib/contexts/user-context";
+import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
+import { isValidYouTubeUrl } from "@/lib/utils/youtube";
+import { ArrowRight, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-interface InputFormProps {
-  url: string;
-  setUrl: (url: string) => void;
-  onSummarize: (e: React.FormEvent) => void;
-  isLoading: boolean;
-  error: string | null;
-  authError: string | null;
-  setError: (error: string | null) => void;
-  setAuthError: (error: string | null) => void;
-  useStreaming: boolean;
-  setUseStreaming: (streaming: boolean) => void;
-  streamingStatus: StreamingStatus | null;
-  streamingSummary: string;
-  user: User;
-}
+export function InputForm() {
+  const { user } = useUser();
+  const [url, setUrl] = useState<string>("");
+  const [useStreaming, setUseStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const { streamingSummarizationQuery, summarizationQuery } =
+    useYouTubeSummarizer(url);
+  const currentQuery = useStreaming
+    ? streamingSummarizationQuery
+    : summarizationQuery;
+  const { isLoading, error: queryError } = currentQuery;
 
-export function InputForm({
-  url,
-  setUrl,
-  onSummarize,
-  isLoading,
-  error,
-  authError,
-  setError,
-  setAuthError,
-  useStreaming,
-  setUseStreaming,
-  streamingStatus,
-  streamingSummary,
-  user,
-}: InputFormProps) {
+  useEffect(() => {
+    if (queryError) {
+      console.log("Query error:", queryError);
+    }
+  }, [queryError]);
+
+  const onSummarize = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const formUrl = formData.get("url") as string;
+    console.log(formUrl);
+    if (!formUrl?.trim()) {
+      setError("Please enter a video URL");
+      return;
+    }
+    if (!isValidYouTubeUrl(formUrl)) {
+      setError("Please enter a valid YouTube URL");
+      return;
+    }
+    setError(null);
+    setUrl(formUrl);
+    currentQuery.refetch();
+    router.push(
+      `/summary?url=${encodeURIComponent(formUrl)}&streaming=${useStreaming}`
+    );
+  };
+
   return (
     <div className="space-y-12">
       <div className="text-center space-y-6">
         <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
           <Sparkles size={16} className="text-purple-400" />
           <span className="text-sm font-medium">AI Video Intelligence</span>
-          {user.id !== "guest" && (
+          {user && (
             <span className="text-xs text-green-400">• Authenticated</span>
           )}
         </div>
@@ -51,7 +63,7 @@ export function InputForm({
         <p className="text-xl text-gray-300 max-w-2xl mx-auto">
           Paste any YouTube URL below to unlock deep insights and intelligent
           summaries
-          {user.id === "guest" && (
+          {!user && (
             <span className="block text-sm text-yellow-400 mt-2">
               🔐 Sign in required to summarize videos
             </span>
@@ -70,12 +82,11 @@ export function InputForm({
                   <div className="flex-1 relative">
                     <Input
                       type="url"
+                      name="url"
                       placeholder="Enter YouTube URL here..."
                       value={url}
                       onChange={(e) => {
                         setUrl(e.target.value);
-                        setError(null);
-                        setAuthError(null);
                       }}
                       className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
                     />
@@ -84,16 +95,16 @@ export function InputForm({
                     type="submit"
                     size="lg"
                     className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
-                    disabled={isLoading || !!authError}
+                    disabled={isLoading}
                   >
                     {isLoading ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                        {streamingStatus
+                        {/* {streamingStatus
                           ? streamingStatus.message || "Summarizing..."
-                          : "Summarizing..."}
+                          : "Summarizing..."} */}
                       </>
-                    ) : user.id === "guest" ? (
+                    ) : !user ? (
                       <>
                         Sign In to Summarize
                         <ArrowRight className="ml-2 h-5 w-5" />
@@ -109,40 +120,38 @@ export function InputForm({
               </div>
 
               {/* Streaming Mode Toggle */}
-              <div className="flex flex-col items-center gap-2 text-sm">
+              <div className="flex flex-col items-center gap-2 text-sm mt-4">
                 <label
                   className={`flex items-center gap-2 ${
-                    user.id === "guest"
-                      ? "cursor-not-allowed opacity-50"
-                      : "cursor-pointer"
+                    true ? "cursor-not-allowed opacity-50" : "cursor-pointer"
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={useStreaming}
                     onChange={(e) => setUseStreaming(e.target.checked)}
-                    disabled={user.id === "guest"}
+                    disabled={true}
                     className="sr-only"
                   />
                   <div
                     className={`relative w-11 h-6 rounded-full transition-colors ${
-                      useStreaming && user.id !== "guest"
+                      useStreaming && user
                         ? "bg-gradient-to-r from-purple-500 to-cyan-500"
                         : "bg-gray-600"
                     }`}
                   >
                     <div
                       className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                        useStreaming && user.id !== "guest"
-                          ? "translate-x-5"
-                          : "translate-x-0"
+                        useStreaming && user ? "translate-x-5" : "translate-x-0"
                       }`}
                     ></div>
                   </div>
-                  <span className="text-gray-300">Real-time progress</span>
+                  <span className="text-gray-300">
+                    Real-time progress (coming soon)
+                  </span>
                 </label>
                 <p className="text-xs text-gray-500 text-center max-w-md">
-                  {user.id === "guest"
+                  {!user
                     ? "🔐 Sign in required for streaming mode"
                     : useStreaming
                     ? "🚧 Streaming mode (under development - may have issues)"
@@ -151,10 +160,10 @@ export function InputForm({
               </div>
 
               {/* Streaming Progress */}
-              <StreamingProgress streamingStatus={streamingStatus} />
+              {/* <StreamingProgress streamingStatus={streamingStatus} /> */}
 
               {/* Real-time Streaming Content */}
-              {streamingSummary &&
+              {/* {streamingSummary &&
                 streamingStatus &&
                 streamingStatus.stage === "summarizing" && (
                   <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 mt-4">
@@ -171,7 +180,7 @@ export function InputForm({
                       </p>
                     </div>
                   </div>
-                )}
+                )} */}
             </div>
 
             {error && (

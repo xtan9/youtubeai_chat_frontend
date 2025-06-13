@@ -1,61 +1,67 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
+import { Session, User } from "@supabase/supabase-js";
 import {
   createContext,
   ReactNode,
   useContext,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 
-interface UserContextType {
+type UserContextType = {
   user: User | null;
+  session: Session | null;
   isLoading: boolean;
-}
+  error: Error | null;
+};
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-export function UserContextProvider({ children }: { children: ReactNode }) {
+export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const supabase = createClient();
 
   useEffect(() => {
-    const supabase = createClient();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_, session) => {
+    // Get initial session and user
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        setError(error);
+      } else {
+        setSession(session);
         setUser(session?.user ?? null);
-        setIsLoading(false);
       }
-    );
-
-    const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setUser(user);
       setIsLoading(false);
-    };
+    });
 
-    fetchUser();
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+    });
 
     return () => {
-      authListener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
-  const value = useMemo(() => ({ user, isLoading }), [user, isLoading]);
-
-  return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
+  return (
+    <UserContext.Provider value={{ user, session, isLoading, error }}>
+      {children}
+    </UserContext.Provider>
+  );
 }
 
 export function useUser() {
   const context = useContext(UserContext);
-  if (!context) {
-    throw new Error("useUser must be used within a UserContextProvider");
+  if (context === undefined) {
+    throw new Error("useUser must be used within a UserProvider");
   }
   return context;
 }
