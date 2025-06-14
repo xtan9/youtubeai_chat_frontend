@@ -63,11 +63,6 @@ export function InputForm() {
         <p className="text-xl text-gray-300 max-w-2xl mx-auto">
           Paste any YouTube URL below to unlock deep insights and intelligent
           summaries
-          {!user && (
-            <span className="block text-sm text-yellow-400 mt-2">
-              🔐 Sign in required to summarize videos
-            </span>
-          )}
         </p>
       </div>
 
@@ -103,11 +98,6 @@ export function InputForm() {
                         {/* {streamingStatus
                           ? streamingStatus.message || "Summarizing..."
                           : "Summarizing..."} */}
-                      </>
-                    ) : !user ? (
-                      <>
-                        Sign In to Summarize
-                        <ArrowRight className="ml-2 h-5 w-5" />
                       </>
                     ) : (
                       <>
