@@ -28,7 +28,7 @@ export function InputForm() {
   const currentQuery = useStreaming
     ? streamingSummarizationQuery
     : summarizationQuery;
-  const { isLoading, error: queryError } = currentQuery;
+  const { isLoading } = currentQuery;
 
   // Restore URL and streaming preference after hydration
   useEffect(() => {

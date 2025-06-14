@@ -16,7 +16,5 @@ export default async function ProtectedPage({
 
   const params = await searchParams;
 
-  return (
-    <YouTubeSummarizerApp initialUrl={params.url} user={data.user} />
-  );
+  return <YouTubeSummarizerApp initialUrl={params.url} />;
 }

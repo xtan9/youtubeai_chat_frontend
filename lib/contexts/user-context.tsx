@@ -49,7 +49,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase.auth]);
 
   return (
     <UserContext.Provider value={{ user, session, isLoading, error }}>

@@ -6,8 +6,8 @@ interface AuthErrorBannerProps {
 }
 
 export function AuthErrorBanner({ authError }: AuthErrorBannerProps) {
-  if (!authError) return null;
   const { user } = useUser();
+  if (!authError) return null;
 
   return (
     <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4">

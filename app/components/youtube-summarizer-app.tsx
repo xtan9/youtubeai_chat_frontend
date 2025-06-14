@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
@@ -26,7 +26,7 @@ export function YouTubeSummarizerApp({
   const currentQuery = useStreaming
     ? streamingSummarizationQuery
     : summarizationQuery;
-  const { data: rawData, isLoading, error: queryError } = currentQuery;
+  const { data: rawData, error: queryError } = currentQuery;
 
   // Handle streaming data (array) vs regular data (single object)
   const data =
@@ -38,7 +38,7 @@ export function YouTubeSummarizerApp({
 
   useEffect(() => {
     currentQuery.refetch();
-  }, []);
+  }, [currentQuery]);
 
   const handleCopySummary = async () => {
     if (!data) return;
