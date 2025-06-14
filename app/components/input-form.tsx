@@ -145,16 +145,11 @@ export function InputForm() {
 
               {/* Streaming Mode Toggle */}
               <div className="flex flex-col items-center gap-2 text-sm mt-4">
-                <label
-                  className={`flex items-center gap-2 ${
-                    true ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-                  }`}
-                >
+                <label className={`flex items-center gap-2`}>
                   <input
                     type="checkbox"
                     checked={useStreaming}
                     onChange={(e) => setUseStreaming(e.target.checked)}
-                    disabled={true}
                     className="sr-only"
                   />
                   <div

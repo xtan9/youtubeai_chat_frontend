@@ -103,14 +103,20 @@ export function useYouTubeSummarizer(url: string) {
     }
 
     const decoder = new TextDecoder();
+    let accumulatedData = "";
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
       const chunk = decoder.decode(value, { stream: true });
+      accumulatedData += chunk;
+
+      // Yield raw accumulated data - let consumer parse it
       yield {
         title: "Streaming Summary",
         duration: "Streaming in progress",
-        summary: chunk,
+        summary: accumulatedData,
         keyPoints: [],
         transcriptionTime: 0,
         summaryTime: 0,
@@ -118,12 +124,11 @@ export function useYouTubeSummarizer(url: string) {
     }
   };
 
-  // Streaming summarization mutation
+  // Streaming summarization query - with refetchMode to accumulate streaming results
   const streamingSummarizationQuery = useQuery({
     queryKey: ["youtube-summary-stream", url],
     queryFn: streamedQuery({
       queryFn: fetchStreamingSummary,
-      refetchMode: "append",
     }),
     enabled: false,
   });

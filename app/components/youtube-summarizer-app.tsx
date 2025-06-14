@@ -6,6 +6,7 @@ import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
+import type { SummaryResult } from "@/lib/types";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -18,7 +19,6 @@ export function YouTubeSummarizerApp({
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
-  const [summary, setSummary] = useState(null);
 
   // Use custom hooks for complex logic
   const { streamingSummarizationQuery, summarizationQuery } =
@@ -26,7 +26,13 @@ export function YouTubeSummarizerApp({
   const currentQuery = useStreaming
     ? streamingSummarizationQuery
     : summarizationQuery;
-  const { data, isLoading, error: queryError } = currentQuery;
+  const { data: rawData, isLoading, error: queryError } = currentQuery;
+
+  // Handle streaming data (array) vs regular data (single object)
+  const data =
+    useStreaming && Array.isArray(rawData)
+      ? rawData[rawData.length - 1] // Get the latest result from streaming array
+      : (rawData as SummaryResult | undefined);
 
   const { copied, copyToClipboard } = useClipboard();
 
@@ -35,14 +41,14 @@ export function YouTubeSummarizerApp({
   }, []);
 
   const handleCopySummary = async () => {
-    // if (!summary) return;
+    if (!data) return;
 
-    // const textToCopy = `${data?.title}\n\n${
-    //   data?.summary
-    // }\n\nKey Insights:\n${data?.keyPoints
-    //   .map((point) => `• ${point}`)
-    //   .join("\n")}`;
-    // await copyToClipboard(textToCopy);
+    const textToCopy = `${data?.title}\n\n${
+      data?.summary
+    }\n\nKey Insights:\n${data?.keyPoints
+      .map((point: string) => `• ${point}`)
+      .join("\n")}`;
+    await copyToClipboard(textToCopy);
     console.log("copy");
   };
 

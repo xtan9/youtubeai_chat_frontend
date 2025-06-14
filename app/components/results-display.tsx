@@ -6,7 +6,7 @@ import { KeyInsights } from "./key-insights";
 import type { SummaryResult } from "../../lib/types";
 
 interface ResultsDisplayProps {
-  data: SummaryResult | SummaryResult[];
+  data: SummaryResult;
   url: string;
   copied: boolean;
   onCopySummary: () => void;
