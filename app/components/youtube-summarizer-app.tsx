@@ -36,9 +36,10 @@ export function YouTubeSummarizerApp({
 
   const { copied, copyToClipboard } = useClipboard();
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     currentQuery.refetch();
-  }, [currentQuery]);
+  }, []);
 
   const handleCopySummary = async () => {
     if (!data) return;
