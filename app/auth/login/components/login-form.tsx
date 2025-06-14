@@ -39,8 +39,8 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
-      // Update this route to redirect to an authenticated route. The user already has an active session.
-      router.push("/protected");
+      // Redirect to home page where persisted URL will be restored
+      router.push("/");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -62,8 +62,13 @@ export function LoginForm({
       });
       if (error) {
         // Better error message for OAuth configuration issues
-        if (error.message.includes("provider") || error.message.includes("OAuth")) {
-          throw new Error("Google sign-in is not configured. Please contact support or use email login.");
+        if (
+          error.message.includes("provider") ||
+          error.message.includes("OAuth")
+        ) {
+          throw new Error(
+            "Google sign-in is not configured. Please contact support or use email login."
+          );
         }
         throw error;
       }

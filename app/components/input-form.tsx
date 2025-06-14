@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/lib/contexts/user-context";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
+import { usePersistedUrl } from "@/lib/hooks/usePersistedUrl";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -13,12 +14,37 @@ export function InputForm() {
   const [useStreaming, setUseStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  const {
+    pendingUrl,
+    pendingStreaming,
+    savePendingUrl,
+    clearPendingUrl,
+    isHydrated,
+  } = usePersistedUrl();
+
   const { streamingSummarizationQuery, summarizationQuery } =
     useYouTubeSummarizer(url);
   const currentQuery = useStreaming
     ? streamingSummarizationQuery
     : summarizationQuery;
   const { isLoading, error: queryError } = currentQuery;
+
+  // Restore URL and streaming preference after hydration
+  useEffect(() => {
+    console.log("Hydration check:", {
+      isHydrated,
+      pendingUrl,
+      pendingStreaming,
+    });
+    if (isHydrated && pendingUrl) {
+      console.log("Restoring URL:", pendingUrl, "Streaming:", pendingStreaming);
+      setUrl(pendingUrl);
+      setUseStreaming(pendingStreaming);
+      // Don't clear immediately - let user see the restored URL
+      // We'll clear it when they actually submit the form
+    }
+  }, [isHydrated, pendingUrl, pendingStreaming]);
 
   useEffect(() => {
     if (queryError) {
@@ -30,7 +56,7 @@ export function InputForm() {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const formUrl = formData.get("url") as string;
-    console.log(formUrl);
+
     if (!formUrl?.trim()) {
       setError("Please enter a video URL");
       return;
@@ -40,6 +66,13 @@ export function InputForm() {
       return;
     }
     setError(null);
+
+    // Clear any existing pending URL since we're now processing this one
+    clearPendingUrl();
+
+    // Save URL and streaming preference before potential redirect
+    savePendingUrl(formUrl, useStreaming);
+
     setUrl(formUrl);
     currentQuery.refetch();
     router.push(
@@ -85,6 +118,19 @@ export function InputForm() {
                       }}
                       className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
                     />
+                    {/* Show clear button if URL was restored from localStorage */}
+                    {isHydrated && pendingUrl && url === pendingUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrl("");
+                          clearPendingUrl();
+                        }}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white text-sm"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                   <Button
                     type="submit"

@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { User } from "../../lib/types";
-import { useState, useEffect } from "react";
 import { useUser } from "@/lib/contexts/user-context";
 
 export function Header() {

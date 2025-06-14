@@ -1,5 +1,4 @@
 import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
-import { createClient } from "@/lib/supabase/server";
 
 export default async function SummaryPage({
   searchParams,

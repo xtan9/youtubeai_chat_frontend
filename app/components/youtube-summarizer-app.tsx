@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
-import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
 
