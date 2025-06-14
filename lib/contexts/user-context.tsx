@@ -26,7 +26,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
   const supabase = createClient();
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // Get initial session and user
     supabase.auth.getSession().then(({ data: { session }, error }) => {
@@ -50,6 +49,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

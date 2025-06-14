@@ -118,7 +118,7 @@ function parseStreamingData(rawData: string): {
         }
       } catch (e) {
         // Skip invalid JSON lines
-        console.warn("Failed to parse streaming data:", line);
+        console.warn("Failed to parse streaming data:", e);
       }
     }
   }
