@@ -14,10 +14,8 @@ export function usePersistedUrl() {
     // Only run on client side after hydration
     try {
       const stored = localStorage.getItem("pending-youtube-data");
-      console.log("Reading from localStorage:", stored);
       if (stored) {
         const data: PersistedUrlData = JSON.parse(stored);
-        console.log("Parsed data:", data);
         setPendingUrl(data.url);
         setPendingStreaming(data.useStreaming || false);
       }
@@ -29,13 +27,11 @@ export function usePersistedUrl() {
 
   const savePendingUrl = (url: string, useStreaming: boolean = false) => {
     const data: PersistedUrlData = { url, useStreaming };
-    console.log("Saving to localStorage:", data);
     setPendingUrl(url);
     setPendingStreaming(useStreaming);
 
     try {
       localStorage.setItem("pending-youtube-data", JSON.stringify(data));
-      console.log("Successfully saved to localStorage");
     } catch (error) {
       console.error("Error saving to localStorage:", error);
     }

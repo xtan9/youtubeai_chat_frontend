@@ -47,7 +47,6 @@ export function useYouTubeSummarizer(url: string) {
     });
 
     const data = await response.json();
-    console.log(data);
     return {
       title: data.detected_category || "Video Summary",
       duration: `${data.timing?.total?.toFixed(1) || 0}s total`,

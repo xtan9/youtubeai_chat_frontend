@@ -16,8 +16,6 @@ export function YouTubeSummarizerApp({
   initialUrl,
   useStreaming,
 }: YouTubeSummarizerAppProps) {
-  console.log(useStreaming);
-  console.log(typeof useStreaming);
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
   const [summary, setSummary] = useState(null);
@@ -33,7 +31,6 @@ export function YouTubeSummarizerApp({
   const { copied, copyToClipboard } = useClipboard();
 
   useEffect(() => {
-    console.log("refetching");
     currentQuery.refetch();
   }, []);
 
@@ -53,9 +50,6 @@ export function YouTubeSummarizerApp({
     setUrl("");
     router.push("/");
   };
-
-  console.log(typeof data);
-  console.log(data);
 
   return (
     data && (

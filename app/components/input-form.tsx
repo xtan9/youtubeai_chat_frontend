@@ -32,25 +32,13 @@ export function InputForm() {
 
   // Restore URL and streaming preference after hydration
   useEffect(() => {
-    console.log("Hydration check:", {
-      isHydrated,
-      pendingUrl,
-      pendingStreaming,
-    });
     if (isHydrated && pendingUrl) {
-      console.log("Restoring URL:", pendingUrl, "Streaming:", pendingStreaming);
       setUrl(pendingUrl);
       setUseStreaming(pendingStreaming);
       // Don't clear immediately - let user see the restored URL
       // We'll clear it when they actually submit the form
     }
   }, [isHydrated, pendingUrl, pendingStreaming]);
-
-  useEffect(() => {
-    if (queryError) {
-      console.log("Query error:", queryError);
-    }
-  }, [queryError]);
 
   const onSummarize = async (e: React.FormEvent) => {
     e.preventDefault();

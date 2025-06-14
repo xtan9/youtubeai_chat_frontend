@@ -20,7 +20,6 @@ export function ResultsDisplay({
   onCopySummary,
   onNewSummary,
 }: ResultsDisplayProps) {
-  console.log(data);
   return (
     data && (
       <div className="space-y-8">
