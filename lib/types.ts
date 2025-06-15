@@ -14,6 +14,7 @@ export interface SummaryResult {
   keyPoints: string[];
   transcriptionTime: number;
   summaryTime: number;
+  transcriptSource?: string; // 'manual_subtitles', 'auto_generated', or 'whisper_transcription'
 }
 
 export interface StreamingStatus {

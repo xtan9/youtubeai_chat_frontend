@@ -31,6 +31,7 @@ function parseStreamingData(rawData: string): {
   let duration = "Streaming in progress";
   let transcriptionTime = 0;
   let summaryTime = 0;
+  let transcriptSource = "";
   let currentProgress: StreamingProgress | null = null;
 
   // Parse Server-Sent Events format
@@ -47,10 +48,20 @@ function parseStreamingData(rawData: string): {
             title = data.category
               ? `${data.category} Summary`
               : "Video Summary";
+            transcriptSource = data.transcript_source || "";
             break;
 
           case "status":
-            if (data.message?.toLowerCase().includes("download")) {
+            if (
+              data.message?.toLowerCase().includes("caption") ||
+              data.message?.toLowerCase().includes("subtitle")
+            ) {
+              currentProgress = {
+                stage: "transcribing",
+                message: data.message,
+                progress: 30,
+              };
+            } else if (data.message?.toLowerCase().includes("download")) {
               currentProgress = {
                 stage: "downloading",
                 message: data.message,
@@ -98,7 +109,7 @@ function parseStreamingData(rawData: string): {
               duration = `${data.total_time?.toFixed(1) || 0}s total`;
               currentProgress = {
                 stage: "complete",
-                message: "Summary complete!",
+                message: data.performance || "Summary complete!",
                 progress: 100,
               };
             }
@@ -109,9 +120,10 @@ function parseStreamingData(rawData: string): {
             duration = `${data.total_time?.toFixed(1) || 0}s total`;
             transcriptionTime = data.transcribe_time || 0;
             summaryTime = data.summarize_time || 0;
+            transcriptSource = data.transcript_source || "";
             currentProgress = {
               stage: "complete",
-              message: "Summary complete!",
+              message: data.performance || "Summary complete!",
               progress: 100,
             };
             break;
@@ -131,6 +143,7 @@ function parseStreamingData(rawData: string): {
       keyPoints: [],
       transcriptionTime,
       summaryTime,
+      transcriptSource,
     },
     progress: currentProgress,
   };

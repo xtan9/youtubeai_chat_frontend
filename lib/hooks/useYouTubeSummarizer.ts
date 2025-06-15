@@ -42,7 +42,10 @@ export function useYouTubeSummarizer(url: string) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ youtube_url: queryKey[1] }),
+      body: JSON.stringify({
+        youtube_url: queryKey[1],
+        enable_thinking: true,
+      }),
       signal,
     });
 
