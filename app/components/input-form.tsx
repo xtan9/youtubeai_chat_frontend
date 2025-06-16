@@ -13,7 +13,7 @@ export function InputForm() {
   const { user } = useUser();
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [enableReasoning, setEnableReasoning] = useState(false);
+  const [enableReasoning, setEnableReasoning] = useState(true);
   const router = useRouter();
 
   const { summarizationQuery } = useYouTubeSummarizer(url);
