@@ -11,7 +11,10 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-export function useYouTubeSummarizer(url: string) {
+export function useYouTubeSummarizer(
+  url: string,
+  enableReasoning: boolean = false
+) {
   const { user, session } = useUser();
   const router = useRouter();
 
@@ -32,9 +35,12 @@ export function useYouTubeSummarizer(url: string) {
     queryKey,
     signal,
   }: QueryFunctionContext<
-    ["youtube-summary-stream", string]
+    ["youtube-summary-stream", string, boolean]
   >): AsyncIterable<SummaryResult> {
-    console.log("Fetching streaming summary for URL:", queryKey[1]);
+    console.log("Fetching streaming summary:", {
+      url: queryKey[1],
+      enableReasoning: queryKey[2],
+    });
 
     if (!session?.access_token) {
       throw new Error("Authentication required. Please log in.");
@@ -48,7 +54,10 @@ export function useYouTubeSummarizer(url: string) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ youtube_url: queryKey[1] }),
+        body: JSON.stringify({
+          youtube_url: queryKey[1],
+          enable_thinking: queryKey[2] || false,
+        }),
         signal,
       }
     );
@@ -105,9 +114,9 @@ export function useYouTubeSummarizer(url: string) {
     SummaryResult[],
     Error,
     SummaryResult[],
-    ["youtube-summary-stream", string]
+    ["youtube-summary-stream", string, boolean]
   > = {
-    queryKey: ["youtube-summary-stream", url],
+    queryKey: ["youtube-summary-stream", url, enableReasoning],
     queryFn: streamedQuery({
       queryFn: fetchStreamingSummary,
     }),

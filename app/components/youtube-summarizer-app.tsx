@@ -11,6 +11,7 @@ import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
+  enableReasoning?: boolean;
 }
 
 interface StreamingProgress {
@@ -35,6 +36,9 @@ function parseStreamingData(rawData: string): {
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
   console.log("Raw streaming data lines:", lines);
+
+  // Track thinking content separately
+  let thinkingContent = "";
 
   for (const line of lines) {
     if (line.startsWith("data: ")) {
@@ -116,6 +120,15 @@ function parseStreamingData(rawData: string): {
             }
             break;
 
+          case "thinking":
+            // Log and accumulate thinking content
+            console.log("Thinking content received:", data);
+            if (data.text) {
+              thinkingContent += data.text;
+              console.log("Accumulated thinking content:", thinkingContent);
+            }
+            break;
+
           case "timing":
             if (data.stage === "total" || data.total_time) {
               duration = `${data.total_time?.toFixed(1) || 0}s total`;
@@ -159,6 +172,7 @@ function parseStreamingData(rawData: string): {
     title,
     duration,
     summary: accumulatedSummary,
+    thinkingContent,
     progress: currentProgress,
   });
 
@@ -167,7 +181,7 @@ function parseStreamingData(rawData: string): {
       title,
       duration,
       summary: accumulatedSummary,
-      keyPoints: [],
+      keyPoints: thinkingContent ? [thinkingContent] : [],
       transcriptionTime,
       summaryTime,
     },
@@ -240,13 +254,14 @@ function StreamingProgressIndicator({
 
 export function YouTubeSummarizerApp({
   initialUrl,
+  enableReasoning = false,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Use custom hooks for complex logic
-  const { summarizationQuery } = useYouTubeSummarizer(url);
+  const { summarizationQuery } = useYouTubeSummarizer(url, enableReasoning);
   const {
     data: rawData,
     error: queryError,

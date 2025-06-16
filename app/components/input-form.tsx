@@ -4,7 +4,7 @@ import { useUser } from "@/lib/contexts/user-context";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { usePersistedUrl } from "@/lib/hooks/usePersistedUrl";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, Brain } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
@@ -12,6 +12,7 @@ export function InputForm() {
   const { user } = useUser();
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [enableReasoning, setEnableReasoning] = useState(false);
   const router = useRouter();
 
   const { pendingUrl, savePendingUrl, clearPendingUrl, isHydrated } =
@@ -53,7 +54,9 @@ export function InputForm() {
     setUrl(formUrl);
 
     // Now navigate to summary page - we'll trigger the fetch there
-    router.push(`/summary?url=${encodeURIComponent(formUrl)}`);
+    router.push(
+      `/summary?url=${encodeURIComponent(formUrl)}&reasoning=${enableReasoning}`
+    );
   };
 
   return (
@@ -126,6 +129,40 @@ export function InputForm() {
                     )}
                   </Button>
                 </div>
+              </div>
+
+              {/* Reasoning Toggle */}
+              <div className="flex flex-col items-center gap-2 text-sm mt-4">
+                <label className={`flex items-center gap-2`}>
+                  <input
+                    type="checkbox"
+                    checked={enableReasoning}
+                    onChange={(e) => setEnableReasoning(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      enableReasoning
+                        ? "bg-gradient-to-r from-purple-500 to-cyan-500"
+                        : "bg-gray-600"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                        enableReasoning ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    ></div>
+                  </div>
+                  <span className="text-gray-300 flex items-center gap-2">
+                    <Brain size={16} className="text-gray-400" />
+                    Enable Reasoning
+                  </span>
+                </label>
+                <p className="text-xs text-gray-500 text-center max-w-md">
+                  {enableReasoning
+                    ? "🧠 Reasoning mode will provide deeper insights and explanations"
+                    : "✅ Standard summary (recommended)"}
+                </p>
               </div>
 
               {error && (
