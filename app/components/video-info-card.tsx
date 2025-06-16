@@ -1,12 +1,4 @@
-import {
-  Clock,
-  Zap,
-  Sparkles,
-  ExternalLink,
-  Crown,
-  Bot,
-  Mic,
-} from "lucide-react";
+import { Clock, Zap, Sparkles, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SummaryResult } from "../../lib/types";
 
@@ -16,51 +8,6 @@ interface VideoInfoCardProps {
 }
 
 export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
-  // Determine transcript source display info
-  const getTranscriptSourceInfo = (source?: string) => {
-    switch (source) {
-      case "manual_subtitles":
-        return {
-          icon: Crown,
-          color: "text-yellow-400",
-          bgColor: "bg-yellow-500/10",
-          borderColor: "border-yellow-500/20",
-          label: "Manual Subtitles",
-          description: "High Quality",
-        };
-      case "auto_generated":
-        return {
-          icon: Bot,
-          color: "text-blue-400",
-          bgColor: "bg-blue-500/10",
-          borderColor: "border-blue-500/20",
-          label: "Auto Captions",
-          description: "YouTube Generated",
-        };
-      case "whisper_transcription":
-        return {
-          icon: Mic,
-          color: "text-orange-400",
-          bgColor: "bg-orange-500/10",
-          borderColor: "border-orange-500/20",
-          label: "AI Transcription",
-          description: "Whisper Model",
-        };
-      default:
-        return {
-          icon: Sparkles,
-          color: "text-gray-400",
-          bgColor: "bg-gray-500/10",
-          borderColor: "border-gray-500/20",
-          label: "Transcript",
-          description: "Unknown Source",
-        };
-    }
-  };
-
-  const transcriptInfo = getTranscriptSourceInfo(summary.transcriptSource);
-  const TranscriptIcon = transcriptInfo.icon;
-
   return (
     <div className="relative group">
       <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
@@ -98,17 +45,6 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
                   </div>
                 </div>
               </div>
-              {/* <div
-                className={`flex items-center gap-2 ${transcriptInfo.bgColor} rounded-lg p-3 border ${transcriptInfo.borderColor}`}
-              >
-                <TranscriptIcon size={16} className={transcriptInfo.color} />
-                <div>
-                  <div className={`${transcriptInfo.color} font-medium`}>
-                    {transcriptInfo.label}
-                  </div>
-                  <div className="text-white">{transcriptInfo.description}</div>
-                </div>
-              </div> */}
               <div className="flex items-center gap-2 bg-green-500/10 rounded-lg p-3 border border-green-500/20">
                 <Sparkles size={16} className="text-green-400" />
                 <div>
