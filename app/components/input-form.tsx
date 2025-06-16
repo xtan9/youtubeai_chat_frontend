@@ -1,11 +1,12 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/lib/contexts/user-context";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
-import { usePersistedUrl } from "@/lib/hooks/usePersistedUrl";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, Sparkles, Brain } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function InputForm() {
@@ -15,20 +16,8 @@ export function InputForm() {
   const [enableReasoning, setEnableReasoning] = useState(false);
   const router = useRouter();
 
-  const { pendingUrl, savePendingUrl, clearPendingUrl, isHydrated } =
-    usePersistedUrl();
-
   const { summarizationQuery } = useYouTubeSummarizer(url);
   const { isLoading } = summarizationQuery;
-
-  // Restore URL after hydration
-  useEffect(() => {
-    if (isHydrated && pendingUrl) {
-      setUrl(pendingUrl);
-      // Don't clear immediately - let user see the restored URL
-      // We'll clear it when they actually submit the form
-    }
-  }, [isHydrated, pendingUrl]);
 
   const onSummarize = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,12 +33,6 @@ export function InputForm() {
       return;
     }
     setError(null);
-
-    // Clear any existing pending URL since we're now processing this one
-    clearPendingUrl();
-
-    // Save URL for persistence
-    savePendingUrl(formUrl);
 
     setUrl(formUrl);
 
@@ -97,19 +80,15 @@ export function InputForm() {
                       }}
                       className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
                     />
-                    {/* Show clear button if URL was restored from localStorage */}
-                    {isHydrated && pendingUrl && url === pendingUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUrl("");
-                          clearPendingUrl();
-                        }}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white text-sm"
-                      >
-                        ✕
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUrl("");
+                      }}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white text-sm"
+                    >
+                      ✕
+                    </button>
                   </div>
                   <Button
                     type="submit"
