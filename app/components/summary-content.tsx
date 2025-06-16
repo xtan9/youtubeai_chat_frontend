@@ -19,9 +19,7 @@ export function SummaryContent({ summary }: SummaryContentProps) {
           </div>
           <div>
             <h3 className="text-2xl font-bold text-white">AI Summary</h3>
-            <p className="text-sm text-gray-400">
-              Intelligent summary and key insights
-            </p>
+            <p className="text-sm text-gray-400">Intelligent summary</p>
           </div>
         </div>
 

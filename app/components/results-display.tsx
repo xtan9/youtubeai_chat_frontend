@@ -79,9 +79,6 @@ export function ResultsDisplay({
 
         {/* Summary Content */}
         <SummaryContent summary={data} />
-
-        {/* Key Insights */}
-        <KeyInsights keyPoints={data.keyPoints} />
       </div>
     )
   );
