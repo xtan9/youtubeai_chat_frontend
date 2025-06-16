@@ -11,7 +11,6 @@ import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
-  useStreaming?: boolean;
 }
 
 interface StreamingProgress {
@@ -36,14 +35,63 @@ function parseStreamingData(rawData: string): {
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
+  console.log("Raw streaming data lines:", lines);
+
   for (const line of lines) {
     if (line.startsWith("data: ")) {
       try {
-        const jsonStr = line.slice(6); // Remove 'data: ' prefix
+        const jsonStr = line.slice(6).trim(); // Remove 'data: ' prefix and trim whitespace
+        if (!jsonStr) continue; // Skip empty lines
+
         const data = JSON.parse(jsonStr);
+        console.log("Parsed streaming data:", data);
+
+        // Normalize data type to handle variations
+        const type = (data.type || "").toLowerCase();
+
+        // Determine progress based on multiple possible indicators
+        const determineProgress = () => {
+          const message = (data.message || "").toLowerCase();
+          const stage = data.stage || "";
+
+          if (message.includes("download") || stage === "download") {
+            return {
+              stage: "downloading" as const,
+              message: data.message || "Downloading video...",
+              progress: Math.min(30, 10 + (data.elapsed || 0) * 2),
+              elapsed: data.elapsed,
+            };
+          }
+
+          if (message.includes("caption") || message.includes("subtitle")) {
+            return {
+              stage: "transcribing" as const,
+              message: data.message || "Processing captions...",
+              progress: 30,
+            };
+          }
+
+          if (message.includes("transcrib") || stage === "transcribe") {
+            return {
+              stage: "transcribing" as const,
+              message: data.message || "Transcribing audio...",
+              progress: 40,
+            };
+          }
+
+          if (message.includes("summar") || stage === "summarize") {
+            return {
+              stage: "summarizing" as const,
+              message: data.message || "Generating summary...",
+              progress: 70,
+            };
+          }
+
+          return null;
+        };
 
         // Handle different types of streaming data
-        switch (data.type) {
+        switch (type) {
           case "metadata":
             title = data.category
               ? `${data.category} Summary`
@@ -52,44 +100,10 @@ function parseStreamingData(rawData: string): {
             break;
 
           case "status":
-            if (
-              data.message?.toLowerCase().includes("caption") ||
-              data.message?.toLowerCase().includes("subtitle")
-            ) {
-              currentProgress = {
-                stage: "transcribing",
-                message: data.message,
-                progress: 30,
-              };
-            } else if (data.message?.toLowerCase().includes("download")) {
-              currentProgress = {
-                stage: "downloading",
-                message: data.message,
-                progress: 10,
-              };
-            } else if (data.message?.toLowerCase().includes("transcrib")) {
-              currentProgress = {
-                stage: "transcribing",
-                message: data.message,
-                progress: 40,
-              };
-            } else if (data.message?.toLowerCase().includes("summar")) {
-              currentProgress = {
-                stage: "summarizing",
-                message: data.message,
-                progress: 70,
-              };
-            }
-            break;
-
           case "progress":
-            if (data.stage === "download") {
-              currentProgress = {
-                stage: "downloading",
-                message: data.message || "Downloading video...",
-                progress: Math.min(30, 10 + (data.elapsed || 0) * 2),
-                elapsed: data.elapsed,
-              };
+            const progressUpdate = determineProgress();
+            if (progressUpdate) {
+              currentProgress = progressUpdate;
             }
             break;
 
@@ -134,6 +148,22 @@ function parseStreamingData(rawData: string): {
       }
     }
   }
+
+  // Fallback progress if no progress was determined
+  if (!currentProgress) {
+    currentProgress = {
+      stage: "downloading",
+      message: "Processing video...",
+      progress: 10,
+    };
+  }
+
+  console.log("Final parsed result:", {
+    title,
+    duration,
+    summary: accumulatedSummary,
+    progress: currentProgress,
+  });
 
   return {
     result: {
@@ -214,26 +244,48 @@ function StreamingProgressIndicator({
 
 export function YouTubeSummarizerApp({
   initialUrl,
-  useStreaming,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Use custom hooks for complex logic
-  const { streamingSummarizationQuery, summarizationQuery } =
-    useYouTubeSummarizer(url);
-  const currentQuery = useStreaming
-    ? streamingSummarizationQuery
-    : summarizationQuery;
-  const { data: rawData, error: queryError } = currentQuery;
+  const { summarizationQuery } = useYouTubeSummarizer(url);
+  const {
+    data: rawData,
+    error: queryError,
+    isLoading,
+    isFetching,
+  } = summarizationQuery;
 
-  // Handle streaming data (array) vs regular data (single object)
+  // Handle streaming data (array)
   const { data, streamingProgress } = useMemo(() => {
-    if (useStreaming && Array.isArray(rawData) && rawData.length > 0) {
+    console.log("Raw data received:", rawData);
+    console.log("Is loading:", isLoading);
+    console.log("Is fetching:", isFetching);
+
+    // Show processing state when loading
+    if ((isLoading || isFetching) && !rawData) {
+      setIsProcessing(true);
+      return {
+        data: undefined,
+        streamingProgress: {
+          stage: "downloading",
+          message: "Initializing summary process...",
+          progress: 5,
+        } as StreamingProgress,
+      };
+    }
+
+    if (Array.isArray(rawData) && rawData.length > 0) {
       const latestRawData = rawData[rawData.length - 1];
+      console.log("Latest raw data:", latestRawData);
+
       if (latestRawData?.summary) {
+        setIsProcessing(false);
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
+        console.log("Parsed result:", parsed);
         return {
           data: parsed.result,
           streamingProgress: parsed.progress,
@@ -244,18 +296,22 @@ export function YouTubeSummarizerApp({
         streamingProgress: null,
       };
     }
+
     return {
       data: rawData as SummaryResult | undefined,
       streamingProgress: null,
     };
-  }, [useStreaming, rawData]);
+  }, [rawData, isLoading, isFetching]);
 
   const { copied, copyToClipboard } = useClipboard();
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Fetch summary when component mounts
   useEffect(() => {
-    currentQuery.refetch();
-  }, []);
+    if (url) {
+      summarizationQuery.refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
 
   const handleCopySummary = async () => {
     if (!data) return;
@@ -266,7 +322,6 @@ export function YouTubeSummarizerApp({
       .map((point: string) => `• ${point}`)
       .join("\n")}`;
     await copyToClipboard(textToCopy);
-    console.log("copy");
   };
 
   const handleNewSummary = () => {
@@ -277,8 +332,16 @@ export function YouTubeSummarizerApp({
   return (
     <>
       <AuthErrorBanner authError={queryError?.message} />
-      {useStreaming && streamingProgress && (
-        <StreamingProgressIndicator progress={streamingProgress} />
+      {(streamingProgress || isProcessing) && (
+        <StreamingProgressIndicator
+          progress={
+            streamingProgress || {
+              stage: "downloading",
+              message: "Starting summary process...",
+              progress: 5,
+            }
+          }
+        />
       )}
       {data && (
         <ResultsDisplay

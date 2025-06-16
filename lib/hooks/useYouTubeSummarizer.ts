@@ -6,6 +6,7 @@ import {
   QueryFunctionContext,
   useQuery,
   experimental_streamedQuery as streamedQuery,
+  UseQueryOptions,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
@@ -27,52 +28,14 @@ export function useYouTubeSummarizer(url: string) {
     [user, router]
   );
 
-  const fetchRegularSummary = async ({
-    queryKey,
-    signal,
-  }: QueryFunctionContext<
-    ["youtube-summary", string]
-  >): Promise<SummaryResult> => {
-    if (!session?.access_token) {
-      throw new Error("Authentication required. Please log in.");
-    }
-    const response = await fetch("https://api.youtubeai.chat/summarize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        youtube_url: queryKey[1],
-        enable_thinking: true,
-      }),
-      signal,
-    });
-
-    const data = await response.json();
-    return {
-      title: data.detected_category || "Video Summary",
-      duration: `${data.timing?.total?.toFixed(1) || 0}s total`,
-      summary: data.summary || "No summary available",
-      keyPoints: [],
-      transcriptionTime: data.timing?.transcribe || 0,
-      summaryTime: data.timing?.summarize || 0,
-    };
-  };
-
-  // Regular summarization query
-  const summarizationQuery = useQuery({
-    queryKey: ["youtube-summary", url],
-    queryFn: fetchRegularSummary,
-    enabled: false,
-  });
-
   const fetchStreamingSummary = async function* ({
     queryKey,
     signal,
   }: QueryFunctionContext<
     ["youtube-summary-stream", string]
   >): AsyncIterable<SummaryResult> {
+    console.log("Fetching streaming summary for URL:", queryKey[1]);
+
     if (!session?.access_token) {
       throw new Error("Authentication required. Please log in.");
     }
@@ -90,8 +53,11 @@ export function useYouTubeSummarizer(url: string) {
       }
     );
 
+    console.log("Response status:", response.status);
+
     if (!response.ok) {
       const errorData = await response.json();
+      console.error("Error response:", errorData);
       if (response.status === 401 || response.status === 403) {
         handleAuthError(response.status, errorData.message);
       }
@@ -107,13 +73,20 @@ export function useYouTubeSummarizer(url: string) {
 
     const decoder = new TextDecoder();
     let accumulatedData = "";
+    let chunkCount = 0;
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        console.log("Streaming finished. Total chunks:", chunkCount);
+        break;
+      }
 
       const chunk = decoder.decode(value, { stream: true });
       accumulatedData += chunk;
+      chunkCount++;
+
+      console.log(`Chunk ${chunkCount}:`, chunk);
 
       // Yield raw accumulated data - let consumer parse it
       yield {
@@ -128,16 +101,23 @@ export function useYouTubeSummarizer(url: string) {
   };
 
   // Streaming summarization query - with refetchMode to accumulate streaming results
-  const streamingSummarizationQuery = useQuery({
+  const queryOptions: UseQueryOptions<
+    SummaryResult[],
+    Error,
+    SummaryResult[],
+    ["youtube-summary-stream", string]
+  > = {
     queryKey: ["youtube-summary-stream", url],
     queryFn: streamedQuery({
       queryFn: fetchStreamingSummary,
     }),
     enabled: false,
-  });
+    retry: 1,
+  };
+
+  const streamingSummarizationQuery = useQuery(queryOptions);
 
   return {
-    streamingSummarizationQuery,
-    summarizationQuery,
+    summarizationQuery: streamingSummarizationQuery,
   };
 }

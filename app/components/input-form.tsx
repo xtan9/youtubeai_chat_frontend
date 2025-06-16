@@ -11,34 +11,23 @@ import { useRouter } from "next/navigation";
 export function InputForm() {
   const { user } = useUser();
   const [url, setUrl] = useState<string>("");
-  const [useStreaming, setUseStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const {
-    pendingUrl,
-    pendingStreaming,
-    savePendingUrl,
-    clearPendingUrl,
-    isHydrated,
-  } = usePersistedUrl();
+  const { pendingUrl, savePendingUrl, clearPendingUrl, isHydrated } =
+    usePersistedUrl();
 
-  const { streamingSummarizationQuery, summarizationQuery } =
-    useYouTubeSummarizer(url);
-  const currentQuery = useStreaming
-    ? streamingSummarizationQuery
-    : summarizationQuery;
-  const { isLoading } = currentQuery;
+  const { summarizationQuery } = useYouTubeSummarizer(url);
+  const { isLoading } = summarizationQuery;
 
-  // Restore URL and streaming preference after hydration
+  // Restore URL after hydration
   useEffect(() => {
     if (isHydrated && pendingUrl) {
       setUrl(pendingUrl);
-      setUseStreaming(pendingStreaming);
       // Don't clear immediately - let user see the restored URL
       // We'll clear it when they actually submit the form
     }
-  }, [isHydrated, pendingUrl, pendingStreaming]);
+  }, [isHydrated, pendingUrl]);
 
   const onSummarize = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,14 +47,13 @@ export function InputForm() {
     // Clear any existing pending URL since we're now processing this one
     clearPendingUrl();
 
-    // Save URL and streaming preference before potential redirect
-    savePendingUrl(formUrl, useStreaming);
+    // Save URL for persistence
+    savePendingUrl(formUrl);
 
     setUrl(formUrl);
-    currentQuery.refetch();
-    router.push(
-      `/summary?url=${encodeURIComponent(formUrl)}&streaming=${useStreaming}`
-    );
+
+    // Now navigate to summary page - we'll trigger the fetch there
+    router.push(`/summary?url=${encodeURIComponent(formUrl)}`);
   };
 
   return (
@@ -129,9 +117,6 @@ export function InputForm() {
                     {isLoading ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                        {/* {streamingStatus
-                          ? streamingStatus.message || "Summarizing..."
-                          : "Summarizing..."} */}
                       </>
                     ) : (
                       <>
@@ -143,72 +128,14 @@ export function InputForm() {
                 </div>
               </div>
 
-              {/* Streaming Mode Toggle */}
-              <div className="flex flex-col items-center gap-2 text-sm mt-4">
-                <label className={`flex items-center gap-2`}>
-                  <input
-                    type="checkbox"
-                    checked={useStreaming}
-                    onChange={(e) => setUseStreaming(e.target.checked)}
-                    className="sr-only"
-                  />
-                  <div
-                    className={`relative w-11 h-6 rounded-full transition-colors ${
-                      useStreaming && user
-                        ? "bg-gradient-to-r from-purple-500 to-cyan-500"
-                        : "bg-gray-600"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                        useStreaming && user ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    ></div>
-                  </div>
-                  <span className="text-gray-300">
-                    Real-time progress (coming soon)
-                  </span>
-                </label>
-                <p className="text-xs text-gray-500 text-center max-w-md">
-                  {!user
-                    ? "🔐 Sign in required for streaming mode"
-                    : useStreaming
-                    ? "🚧 Streaming mode (under development - may have issues)"
-                    : "✅ Standard processing (recommended)"}
-                </p>
-              </div>
-
-              {/* Streaming Progress */}
-              {/* <StreamingProgress streamingStatus={streamingStatus} /> */}
-
-              {/* Real-time Streaming Content */}
-              {/* {streamingSummary &&
-                streamingStatus &&
-                streamingStatus.stage === "summarizing" && (
-                  <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4 mt-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-3 h-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium text-white">
-                        Live Summary
-                      </span>
-                    </div>
-                    <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10 max-h-40 overflow-y-auto">
-                      <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
-                        {streamingSummary}
-                        <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1"></span>
-                      </p>
-                    </div>
-                  </div>
-                )} */}
+              {error && (
+                <div className="text-center mt-4">
+                  <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block">
+                    {error}
+                  </p>
+                </div>
+              )}
             </div>
-
-            {error && (
-              <div className="text-center">
-                <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block">
-                  {error}
-                </p>
-              </div>
-            )}
           </form>
         </div>
       </div>
