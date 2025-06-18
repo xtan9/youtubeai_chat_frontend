@@ -1,0 +1,36 @@
+# https://youtubeai.chat robots.txt
+
+# Allow all crawlers
+User-agent: *
+
+# Prevent crawling of authentication and protected pages
+Disallow: /auth/login
+Disallow: /auth/sign-up
+Disallow: /auth/forgot-password
+Disallow: /auth/callback
+Disallow: /auth/confirm
+Disallow: /auth/error
+Disallow: /auth/update-password
+Disallow: /protected
+
+# Allow crawling of public pages
+Allow: /
+Allow: /summary
+
+# Prevent crawling of API routes
+Disallow: /api/
+
+# Add longer crawl delay for GPTBot to prevent OpenAI from overloading your server
+User-agent: GPTBot
+Crawl-delay: 10
+
+# Add longer crawl delay for CCBot
+User-agent: CCBot
+Crawl-delay: 10
+
+# Specify sitemap location
+Sitemap: https://youtubeai.chat/sitemap.xml
+
+# Rate limiting for other bots
+User-agent: *
+Crawl-delay: 1 
