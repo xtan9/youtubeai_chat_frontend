@@ -1,7 +1,6 @@
 import { UserProvider } from "@/lib/contexts/user-context";
 import { TanstackQueryProvider } from "@/lib/providers/tanstack-query-provider";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { ThemeProvider } from "next-themes";
 import { Geist } from "next/font/google";
 import { Header } from "./components/header";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -92,22 +91,15 @@ export default function RootLayout({
         <meta name="theme-color" content="#000000" />
       </head>
       <body className={geist.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TanstackQueryProvider>
-            <UserProvider>
-              <Header />
-              <StructuredData />
-              {children}
-              <Sonner />
-              <ReactQueryDevtools initialIsOpen={false} />
-            </UserProvider>
-          </TanstackQueryProvider>
-        </ThemeProvider>
+        <TanstackQueryProvider>
+          <UserProvider>
+            <Header />
+            <StructuredData />
+            {children}
+            <Sonner />
+            <ReactQueryDevtools initialIsOpen={false} />
+          </UserProvider>
+        </TanstackQueryProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}
