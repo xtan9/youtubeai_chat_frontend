@@ -28,7 +28,7 @@ export function Header() {
               <Brain size={20} className="text-white" />
             </div>
             <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
-              youtubeai.chat
+              www.youtubeai.chat
             </span>
           </Link>
 

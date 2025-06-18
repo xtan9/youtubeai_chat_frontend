@@ -1,4 +1,4 @@
-# https://youtubeai.chat robots.txt
+# https://www.youtubeai.chat robots.txt
 
 # Allow all crawlers
 User-agent: *
@@ -22,8 +22,26 @@ User-agent: CCBot
 Crawl-delay: 10
 
 # Specify sitemap location
-Sitemap: https://youtubeai.chat/sitemap.xml
+Sitemap: https://www.youtubeai.chat/sitemap.xml
 
 # Rate limiting for other bots
 User-agent: *
-Crawl-delay: 1 
+Crawl-delay: 1
+
+# Allow all bots to access CSS, JS, and image files
+Allow: /*.css$
+Allow: /*.js$
+Allow: /*.jpg$
+Allow: /*.jpeg$
+Allow: /*.gif$
+Allow: /*.png$
+Allow: /*.svg$
+Allow: /*.webp$
+Allow: /*.ico$
+
+# Disallow specific paths
+Disallow: /_next/
+Disallow: /static/
+Disallow: /auth/error/
+Disallow: /auth/callback/
+Disallow: /auth/confirm/ 

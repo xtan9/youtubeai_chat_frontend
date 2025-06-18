@@ -10,7 +10,7 @@ export default function StructuredData() {
       "Transform any YouTube video into a concise summary instantly using AI technology.",
     operatingSystem: "All",
     browserRequirements: "Requires JavaScript. Requires HTML5.",
-    url: "https://youtubeai.chat",
+    url: "https://www.youtubeai.chat",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -32,6 +32,7 @@ export default function StructuredData() {
       "AI-powered service that creates concise summaries of YouTube videos, extracting key points and main ideas.",
     serviceType: "Content Summarization",
     areaServed: "Worldwide",
+    url: "https://www.youtubeai.chat",
   };
 
   return (

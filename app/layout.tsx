@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://youtubeai.chat"),
+  metadataBase: new URL("https://www.youtubeai.chat"),
   title: "AI YouTube Video Summarizer - Get Quick Video Summaries for Free",
   description:
     "Transform any YouTube video into a concise summary instantly. Get key points, main ideas, and quick insights from videos using AI - 100% free tool for faster video comprehension.",
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     title: "AI YouTube Video Summarizer - Get Quick Video Summaries for Free",
     description:
       "Transform any YouTube video into a concise summary instantly. Get key points, main ideas, and quick insights from videos using AI - 100% free tool for faster video comprehension.",
-    url: "https://youtubeai.chat",
+    url: "https://www.youtubeai.chat",
     siteName: "YouTubeAI Summary",
     type: "website",
     locale: "en_US",
@@ -47,9 +47,6 @@ export const metadata: Metadata = {
     "max-snippet": -1,
     "max-video-preview": -1,
     googleBot: "index, follow",
-  },
-  alternates: {
-    canonical: "https://youtubeai.chat",
   },
   applicationName: "YouTubeAI Summary",
   appleWebApp: {
