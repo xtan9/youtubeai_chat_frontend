@@ -2,22 +2,15 @@
 
 # Allow all crawlers
 User-agent: *
+Allow: /
+Allow: /sitemap.xml
+Allow: /manifest.json
 
-# Prevent crawling of authentication and protected pages
-Disallow: /auth/login
-Disallow: /auth/sign-up
-Disallow: /auth/forgot-password
+# Block auth and protected routes
 Disallow: /auth/callback
 Disallow: /auth/confirm
 Disallow: /auth/error
-Disallow: /auth/update-password
-Disallow: /protected
-
-# Allow crawling of public pages
-Allow: /
-Allow: /summary
-
-# Prevent crawling of API routes
+Disallow: /protected/
 Disallow: /api/
 
 # Add longer crawl delay for GPTBot to prevent OpenAI from overloading your server

@@ -1,44 +1,51 @@
+import Script from "next/script";
+
 export default function StructuredData() {
-  const structuredData = {
+  const webAppSchema = {
     "@context": "https://schema.org",
     "@type": "WebApplication",
     name: "YouTubeAI Summary",
     applicationCategory: "UtilityApplication",
-    operatingSystem: "Any",
+    description:
+      "Transform any YouTube video into a concise summary instantly using AI technology.",
+    operatingSystem: "All",
+    browserRequirements: "Requires JavaScript. Requires HTML5.",
+    url: "https://youtubeai.chat",
     offers: {
       "@type": "Offer",
       price: "0",
       priceCurrency: "USD",
     },
-    description:
-      "Transform any YouTube video into a concise summary instantly. Get key points, main ideas, and quick insights from videos using AI - 100% free tool for faster video comprehension.",
     featureList: [
-      "Instant YouTube video summarization",
-      "Key points extraction",
-      "Main ideas identification",
-      "Free to use",
+      "Instant video summarization",
       "AI-powered analysis",
-      "Quick video insights",
-      "Transcript generation",
+      "Key points extraction",
+      "Free to use",
     ],
-    browserRequirements: "Requires JavaScript. Requires HTML5.",
-    permissions: "YouTube video URL required",
-    softwareVersion: "1.0",
-    potentialAction: {
-      "@type": "UseAction",
-      target: {
-        "@type": "EntryPoint",
-        urlTemplate: "https://youtubeai.chat",
-        description:
-          "Enter a YouTube video URL to get an instant AI-powered summary",
-      },
-    },
+  };
+
+  const serviceSchema = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: "YouTube Video Summarization",
+    description:
+      "AI-powered service that creates concise summaries of YouTube videos, extracting key points and main ideas.",
+    serviceType: "Content Summarization",
+    areaServed: "Worldwide",
   };
 
   return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-    />
+    <>
+      <Script
+        id="structured-data-webapp"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(webAppSchema) }}
+      />
+      <Script
+        id="structured-data-service"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }}
+      />
+    </>
   );
 }

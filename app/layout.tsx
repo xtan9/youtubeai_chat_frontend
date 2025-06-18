@@ -61,9 +61,6 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     capable: true,
   },
-  verification: {
-    google: "YOUR_VERIFICATION_CODE", // Add your Google Search Console verification code
-  },
   icons: {
     icon: [
       { url: "/favicon.ico", type: "image/x-icon" },
@@ -85,52 +82,41 @@ export const metadata: Metadata = {
   },
 };
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  display: "swap",
+const geist = Geist({
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist({
-  variable: "--font-geist-mono",
-  display: "swap",
-  subsets: ["latin"],
-});
-
-export default async function RootLayout({
+export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <StructuredData />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#000000" />
       </head>
-      <body
-        className={`${geistSans.className} ${geistMono.className} antialiased`}
-      >
+      <body className={geist.className}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
-          <UserProvider>
-            <TanstackQueryProvider>
-              <ReactQueryDevtools initialIsOpen={false} />
-              <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
-                <Header />
-                <div className="relative z-10 container mx-auto px-6 py-12 max-w-6xl">
-                  {children}
-                </div>
-              </div>
+          <TanstackQueryProvider>
+            <UserProvider>
+              <Header />
+              <StructuredData />
+              {children}
               <Sonner />
-            </TanstackQueryProvider>
-          </UserProvider>
+              <ReactQueryDevtools initialIsOpen={false} />
+            </UserProvider>
+          </TanstackQueryProvider>
         </ThemeProvider>
-        {process.env.NODE_ENV === "production" && (
-          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID || ""} />
+        {process.env.NEXT_PUBLIC_GA_ID && (
+          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}
       </body>
     </html>
