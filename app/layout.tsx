@@ -10,10 +10,6 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import type { Viewport, Metadata } from "next";
 import "./globals.css";
 
-const defaultUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : "http://localhost:3000";
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
