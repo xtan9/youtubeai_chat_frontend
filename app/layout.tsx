@@ -3,6 +3,7 @@ import { TanstackQueryProvider } from "@/lib/providers/tanstack-query-provider";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Geist } from "next/font/google";
 import { Header } from "./components/header";
+import { Footer } from "@/components/footer";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import StructuredData from "@/components/seo/structured-data";
 import { GoogleAnalytics } from "@next/third-parties/google";
@@ -90,12 +91,13 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#000000" />
       </head>
-      <body className={geist.className}>
+      <body className={`${geist.className} flex min-h-screen flex-col`}>
         <TanstackQueryProvider>
           <UserProvider>
             <Header />
             <StructuredData />
-            {children}
+            <main className="flex-1">{children}</main>
+            <Footer />
             <Sonner />
             <ReactQueryDevtools initialIsOpen={false} />
           </UserProvider>
