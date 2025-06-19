@@ -34,12 +34,8 @@ export function Header() {
 
           <div className="flex items-center gap-4">
             {/* Authentication Status and Actions */}
-            {!user ? (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                  <span className="text-gray-300">Not authenticated</span>
-                </div>
+            {!user || user.is_anonymous ? (
+              <div className="flex items-center">
                 <Button
                   onClick={() => router.push("/auth/login")}
                   className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white rounded-full px-6"
@@ -49,10 +45,6 @@ export function Header() {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-gray-300">Authenticated</span>
-                </div>
                 <ProfileAvatar user={user} />
                 <Button
                   variant="ghost"

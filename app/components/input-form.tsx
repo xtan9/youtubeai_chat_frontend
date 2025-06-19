@@ -41,16 +41,13 @@ export function InputForm() {
       `/summary?url=${encodeURIComponent(formUrl)}&reasoning=${enableReasoning}`
     );
   };
-
+  console.log(user);
   return (
     <div className="space-y-12">
       <div className="text-center space-y-6">
-        <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
+        <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 mt-5">
           <Sparkles size={16} className="text-purple-400" />
           <span className="text-sm font-medium">AI Video Intelligence</span>
-          {user && (
-            <span className="text-xs text-green-400">• Authenticated</span>
-          )}
         </div>
         <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
           Summarize Your Video
