@@ -3,7 +3,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/lib/contexts/user-context";
-import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, Sparkles, Brain } from "lucide-react";
 import { useState } from "react";
@@ -15,33 +14,31 @@ export function InputForm() {
   const [error, setError] = useState<string | null>(null);
   const [enableReasoning, setEnableReasoning] = useState(true);
   const router = useRouter();
-
-  const { summarizationQuery } = useYouTubeSummarizer(url);
-  const { isLoading } = summarizationQuery;
+  const [isLoading, setIsLoading] = useState(false);
 
   const onSummarize = async (e: React.FormEvent) => {
+    setIsLoading(true);
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const formUrl = formData.get("url") as string;
 
     if (!formUrl?.trim()) {
       setError("Please enter a video URL");
+      setIsLoading(false);
       return;
     }
     if (!isValidYouTubeUrl(formUrl)) {
       setError("Please enter a valid YouTube URL");
+      setIsLoading(false);
       return;
     }
     setError(null);
-
     setUrl(formUrl);
-
-    // Now navigate to summary page - we'll trigger the fetch there
     router.push(
       `/summary?url=${encodeURIComponent(formUrl)}&reasoning=${enableReasoning}`
     );
   };
-  console.log(user);
+
   return (
     <div className="space-y-12">
       <div className="text-center space-y-6">
