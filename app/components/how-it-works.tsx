@@ -11,7 +11,7 @@ export function HowItWorks() {
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">How to Summarize YouTube Video</h2>
+        <h2 className="text-4xl font-bold">Your Video Insights in 4 Steps</h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -21,10 +21,13 @@ export function HowItWorks() {
               1
             </Badge>
             <div>
-              <h3 className="text-xl font-semibold mb-2">Enter YouTube URL</h3>
+              <h3 className="text-xl font-semibold mb-2">
+                Drop Your Video Link
+              </h3>
               <p className="text-gray-300">
-                Find a video on YouTube that you would like to summarize and
-                paste the URL into the input field.
+                Find any YouTube video you want to analyze and copy the URL. Our
+                system works with any public video regardless of length or
+                complexity.
               </p>
             </div>
           </div>
@@ -35,10 +38,12 @@ export function HowItWorks() {
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
-                Click &quot;Summarize&quot;
+                Activate AI Analysis
               </h3>
               <p className="text-gray-300">
-                Click the button to start the AI-powered summarization process.
+                Hit the summarize button and watch our advanced AI engine spring
+                into action. No configuration needed—we've optimized the
+                settings for you.
               </p>
             </div>
           </div>
@@ -49,11 +54,12 @@ export function HowItWorks() {
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
-                Wait for Processing
+                Smart Processing Begins
               </h3>
               <p className="text-gray-300">
-                Our AI will download the video, transcribe it, and generate a
-                comprehensive summary.
+                Our system downloads the video, extracts the audio, transcribes
+                the content, and applies natural language processing to identify
+                key themes and insights.
               </p>
             </div>
           </div>
@@ -63,10 +69,13 @@ export function HowItWorks() {
               4
             </Badge>
             <div>
-              <h3 className="text-xl font-semibold mb-2">Get Your Summary</h3>
+              <h3 className="text-xl font-semibold mb-2">
+                Explore Your Results
+              </h3>
               <p className="text-gray-300">
-                View the AI-generated summary, key points, and insights. You can
-                copy the text or share it with others.
+                Receive a comprehensive breakdown with key points, timestamps,
+                and thematic analysis. Share, save, or export your results in
+                multiple formats.
               </p>
             </div>
           </div>
@@ -109,7 +118,7 @@ export function HowItWorks() {
                     </AvatarFallback>
                   </Avatar>
                   <span className="text-sm font-medium">
-                    How to Use YouTube AI Summary
+                    See Our AI Summarizer in Action
                   </span>
                 </div>
                 <Badge

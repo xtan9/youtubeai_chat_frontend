@@ -13,7 +13,7 @@ export function Benefits() {
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Benefits</h2>
+        <h2 className="text-4xl font-bold">Why Choose Our AI Video Analysis</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -27,12 +27,12 @@ export function Benefits() {
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Time-Saving:
+                  Rapid Knowledge Extraction
                 </CardTitle>
                 <CardDescription className="text-gray-300">
-                  YouTube summary with AI provides concise summaries, letting
-                  you understand video content in a fraction of the original
-                  video length.
+                  Extract core insights from lengthy videos in minutes, not
+                  hours. Our AI distills hours of content into concise,
+                  actionable summaries.
                 </CardDescription>
               </div>
             </div>
@@ -49,11 +49,12 @@ export function Benefits() {
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Convenience:
+                  Watch Smarter, Not Longer
                 </CardTitle>
                 <CardDescription className="text-gray-300">
-                  Get accurate summaries without having to watch entire videos,
-                  ideal for viewers with limited time.
+                  Skip the fluff and focus on what matters. Perfect for
+                  researchers, students, and professionals who need information
+                  without the time investment.
                 </CardDescription>
               </div>
             </div>
@@ -70,11 +71,12 @@ export function Benefits() {
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Improved Content Understanding:
+                  Deep Insight Extraction
                 </CardTitle>
                 <CardDescription className="text-gray-300">
-                  By highlighting key points, the tool enhances your
-                  comprehension of the video content.
+                  Our advanced AI doesn't just transcribe—it analyzes context,
+                  identifies key arguments, and structures information for
+                  maximum comprehension.
                 </CardDescription>
               </div>
             </div>
@@ -91,11 +93,12 @@ export function Benefits() {
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  User-Friendly:
+                  Effortless Experience
                 </CardTitle>
                 <CardDescription className="text-gray-300">
-                  Our tool is easy to use - just paste the YouTube URL, and the
-                  summary is generated in seconds.
+                  No complicated setup or learning curve. Paste a URL, click
+                  once, and receive your comprehensive summary in seconds—all
+                  with our intuitive interface.
                 </CardDescription>
               </div>
             </div>
@@ -118,10 +121,11 @@ export function Benefits() {
               </Avatar>
             </div>
             <CardTitle className="text-xl font-semibold mb-2">
-              Enhance Productivity
+              Supercharge Your Workflow
             </CardTitle>
             <CardDescription className="text-gray-300">
-              Make a big impact with bite-size summaries
+              Transform how you consume video content with AI-powered efficiency
+              tools
             </CardDescription>
           </CardContent>
         </Card>
@@ -137,10 +141,11 @@ export function Benefits() {
               </Avatar>
             </div>
             <CardTitle className="text-xl font-semibold mb-2">
-              Save Time
+              Reclaim Your Hours
             </CardTitle>
             <CardDescription className="text-gray-300">
-              Take in more information in a fraction of the time
+              Process 10x more content in the same amount of time with smart
+              summarization
             </CardDescription>
           </CardContent>
         </Card>
@@ -159,10 +164,11 @@ export function Benefits() {
               </Avatar>
             </div>
             <CardTitle className="text-xl font-semibold mb-2">
-              Retain Knowledge
+              Optimize Learning
             </CardTitle>
             <CardDescription className="text-gray-300">
-              Convert videos into text and unlock your true learning potential
+              Boost information retention with structured summaries and key
+              point extraction
             </CardDescription>
           </CardContent>
         </Card>

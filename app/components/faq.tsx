@@ -13,42 +13,40 @@ export function FAQ() {
   const faqItems = [
     {
       value: "item-1",
-      question: "What is YouTube Summary with AI?",
+      question: "What makes our YouTube AI Summarizer unique?",
       answer:
-        "YouTube Summary with AI is a free online tool that uses artificial intelligence to analyze YouTube videos and generate concise, accurate summaries of their content. It extracts key points and insights, allowing you to understand the main ideas without watching the entire video.",
+        "Our platform combines advanced natural language processing with specialized video content analysis to deliver more than just transcripts. We extract meaningful insights, identify key themes, and structure information in a way that maximizes comprehension and retention—all with unmatched accuracy and speed.",
     },
     {
       value: "item-2",
-      question:
-        "Can YouTube Summary with AI provide video transcripts in multiple languages?",
+      question: "Does our tool support multiple languages for video analysis?",
       answer:
-        "Yes, our AI can generate transcripts and summaries in multiple languages. You can select your preferred language from the dropdown menu before generating the summary.",
+        "Absolutely! Our AI system can process videos in over 30 languages with high accuracy. You can also choose to receive your summary in a different language than the original video, making it perfect for international research and learning.",
     },
     {
       value: "item-3",
-      question:
-        "Is it possible for YouTube Summary to process videos in languages other than English?",
+      question: "How does our AI handle technical or specialized content?",
       answer:
-        "Yes, our AI can understand and summarize videos in many languages. The quality may vary depending on the language, but we're continuously improving our multilingual capabilities.",
+        "We've trained our models on diverse datasets across academic, technical, business, and entertainment domains. This allows our system to recognize specialized terminology, understand complex concepts, and accurately summarize even highly technical videos with proper context.",
     },
     {
       value: "item-4",
-      question: "Can I save the transcripts of YouTube Summary with AI?",
+      question: "What formats can I export my video summaries in?",
       answer:
-        "Yes, you can easily copy and save the generated transcripts and summaries. Simply click the 'Copy' button next to the content you want to save, and then paste it into your preferred document or note-taking app.",
+        "We offer multiple export options to fit your workflow. Copy text directly to your clipboard, download as PDF or markdown, save to your account library, or share via direct link. Premium users can also access additional formats like structured JSON data and presentation-ready slides.",
     },
     {
       value: "item-5",
-      question: "Is YouTube Summary with AI a free service?",
+      question: "Are there usage limits on the free version?",
       answer:
-        "Yes, our basic YouTube summary service is completely free to use. We also offer premium features for users who need advanced capabilities or higher usage limits.",
+        "Our free tier provides access to our core summarization features with reasonable daily usage limits. We offer this to ensure everyone can benefit from our technology. For power users, content creators, researchers, or businesses with higher volume needs, our premium plans provide expanded capabilities and priority processing.",
     },
   ];
 
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Frequently Asked Questions</h2>
+        <h2 className="text-4xl font-bold">Common Questions</h2>
       </div>
 
       <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
@@ -78,14 +76,14 @@ export function FAQ() {
       </div>
 
       <div className="text-center mt-12">
-        <p className="text-gray-400 mb-6">Still have questions?</p>
+        <p className="text-gray-400 mb-6">Need more information?</p>
         <Button
           asChild
           className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
         >
           <a href="mailto:support@youtubeai.chat">
             <MailIcon className="mr-2 h-4 w-4" />
-            Contact Support
+            Reach Our Support Team
           </a>
         </Button>
       </div>

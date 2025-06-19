@@ -7,37 +7,37 @@ export function Testimonials() {
   const testimonials = [
     {
       id: 1,
-      name: "Jessica Miller",
-      handle: "@MillerWorld",
-      avatar: "/avatars/jessica.jpg",
+      name: "Alex Rivera",
+      handle: "@AlexTeaches",
+      avatar: "/avatars/alex.jpg",
       rating: 5,
-      text: "I personally use this YouTube summarizer every day and it has drastically increased my productivity. I highly recommend that everyone give it a try. If you have any feedback or requests for new features, please let the team know by leaving a comment so they can continue to improve the product.",
-      date: "Mar 5, 2023",
+      text: "As a university professor, I've integrated this tool into my teaching workflow. It helps me quickly digest research videos and create more effective lecture materials. My students love that I can recommend specific video segments rather than entire lectures.",
+      date: "May 12, 2023",
     },
     {
       id: 2,
-      name: "Michael Chen",
-      handle: "@TechWithMike",
-      avatar: "/avatars/michael.jpg",
+      name: "Sophia Chen",
+      handle: "@SophiaTechLead",
+      avatar: "/avatars/sophia.jpg",
       rating: 5,
-      text: "As a tech educator, I need to stay on top of hundreds of videos. This AI summarizer has been a game changer for my workflow. I can quickly decide which videos are worth watching in full and which ones I can just get the key points from.",
-      date: "Apr 12, 2023",
+      text: "Game-changer for my engineering team. We process dozens of technical talks weekly to stay current with industry developments. This tool cuts our research time by 70% and helps us identify the most relevant information for our projects.",
+      date: "June 8, 2023",
     },
     {
       id: 3,
-      name: "Sarah Johnson",
-      handle: "@SarahStudies",
-      avatar: "/avatars/sarah.jpg",
-      rating: 4,
-      text: "This tool has been invaluable for my research. It helps me extract the most important information from lengthy lectures and tutorials without having to watch them entirely. Saves me hours every week!",
-      date: "May 20, 2023",
+      name: "Marcus Johnson",
+      handle: "@ContentWithMarcus",
+      avatar: "/avatars/marcus.jpg",
+      rating: 5,
+      text: "As a content creator, I need to stay on top of trends without spending hours watching videos. This summarizer gives me the perfect balance of depth and efficiency. The key points extraction is surprisingly insightful—it catches nuances that other tools miss.",
+      date: "July 15, 2023",
     },
   ];
 
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">What They Say About Us?</h2>
+        <h2 className="text-4xl font-bold">Success Stories</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
