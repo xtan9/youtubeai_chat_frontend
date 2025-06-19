@@ -132,7 +132,7 @@ export function InputForm() {
                 <p className="text-xs text-gray-500 text-center max-w-md">
                   {enableReasoning
                     ? "🧠 Reasoning mode will provide deeper insights and explanations"
-                    : "✅ Standard summary (recommended)"}
+                    : "✅ Standard summary (Faster response time)"}
                 </p>
               </div>
 

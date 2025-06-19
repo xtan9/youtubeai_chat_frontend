@@ -45,13 +45,6 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-green-500/10 rounded-lg p-3 border border-green-500/20">
-                <Sparkles size={16} className="text-green-400" />
-                <div>
-                  <div className="text-green-400 font-medium">AI Model</div>
-                  <div className="text-white">qwen2.5:14b</div>
-                </div>
-              </div>
             </div>
           </div>
           <Button

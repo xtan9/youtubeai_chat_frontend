@@ -124,7 +124,7 @@ export function YouTubeSummarizerApp({
           )}
         </div>
       </div>
-      <div className="sticky top-36">
+      <div className="sticky top-[138px]">
         <YoutubeVideo url={url} width={600} />
       </div>
     </div>
