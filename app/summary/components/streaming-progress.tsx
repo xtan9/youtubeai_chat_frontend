@@ -1,5 +1,5 @@
 import { Download, FileText, Brain, CheckCircle, Zap } from "lucide-react";
-import type { StreamingStatus } from "../../lib/types";
+import type { StreamingStatus } from "../../../lib/types";
 
 interface StreamingProgressProps {
   streamingStatus: StreamingStatus | null;

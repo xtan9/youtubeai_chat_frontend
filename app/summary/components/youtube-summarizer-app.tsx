@@ -35,7 +35,6 @@ function parseStreamingData(rawData: string): {
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
-  console.log("Raw streaming data lines:", lines);
 
   // Track thinking content separately
   let thinkingContent = "";
@@ -47,7 +46,6 @@ function parseStreamingData(rawData: string): {
         if (!jsonStr) continue; // Skip empty lines
 
         const data = JSON.parse(jsonStr);
-        console.log("Parsed streaming data:", data);
 
         // Normalize data type to handle variations
         const type = (data.type || "").toLowerCase();
@@ -121,11 +119,8 @@ function parseStreamingData(rawData: string): {
             break;
 
           case "thinking":
-            // Log and accumulate thinking content
-            console.log("Thinking content received:", data);
             if (data.text) {
               thinkingContent += data.text;
-              console.log("Accumulated thinking content:", thinkingContent);
             }
             break;
 
@@ -167,14 +162,6 @@ function parseStreamingData(rawData: string): {
       progress: 10,
     };
   }
-
-  console.log("Final parsed result:", {
-    title,
-    duration,
-    summary: accumulatedSummary,
-    thinkingContent,
-    progress: currentProgress,
-  });
 
   return {
     result: {
@@ -271,11 +258,6 @@ export function YouTubeSummarizerApp({
 
   // Handle streaming data (array)
   const { data, streamingProgress } = useMemo(() => {
-    console.log("Raw data received:", rawData);
-    console.log("Is loading:", isLoading);
-    console.log("Is fetching:", isFetching);
-
-    // Show processing state when loading
     if ((isLoading || isFetching) && !rawData) {
       setIsProcessing(true);
       return {
@@ -290,13 +272,11 @@ export function YouTubeSummarizerApp({
 
     if (Array.isArray(rawData) && rawData.length > 0) {
       const latestRawData = rawData[rawData.length - 1];
-      console.log("Latest raw data:", latestRawData);
 
       if (latestRawData?.summary) {
         setIsProcessing(false);
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
-        console.log("Parsed result:", parsed);
         return {
           data: parsed.result,
           streamingProgress: parsed.progress,

@@ -1,6 +1,6 @@
 import { Clock, Zap, Sparkles, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { SummaryResult } from "../../lib/types";
+import type { SummaryResult } from "../../../lib/types";
 
 interface VideoInfoCardProps {
   summary: SummaryResult;

@@ -1,4 +1,4 @@
-import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
+import { YouTubeSummarizerApp } from "@/app/summary/components/youtube-summarizer-app";
 import { Metadata } from "next";
 
 export async function generateMetadata(): Promise<Metadata> {

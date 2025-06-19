@@ -2,7 +2,7 @@ import { Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoInfoCard } from "./video-info-card";
 import { SummaryContent } from "./summary-content";
-import type { SummaryResult } from "../../lib/types";
+import type { SummaryResult } from "../../../lib/types";
 
 interface ResultsDisplayProps {
   data: SummaryResult;
