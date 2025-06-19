@@ -9,6 +9,7 @@ import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import type { SummaryResult } from "@/lib/types";
 import { parseStreamingData, type StreamingProgress } from "../utils";
+import YoutubeVideo from "./youtube-video";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -97,28 +98,35 @@ export function YouTubeSummarizerApp({
   };
 
   return (
-    <>
-      <AuthErrorBanner authError={queryError?.message} />
-      {(streamingProgress || isProcessing) && (
-        <StreamingProgressIndicator
-          progress={
-            streamingProgress || {
-              stage: "downloading",
-              message: "Starting summary process...",
-              progress: 5,
-            }
-          }
-        />
-      )}
-      {data && (
-        <ResultsDisplay
-          data={data}
-          url={url}
-          copied={copied}
-          onCopySummary={handleCopySummary}
-          onNewSummary={handleNewSummary}
-        />
-      )}
-    </>
+    <div className="flex items-start justify-between m-16 gap-16">
+      <div className="flex flex-col items-center justify-center">
+        <div className="w-full max-w-5xl">
+          <AuthErrorBanner authError={queryError?.message} />
+          {(streamingProgress || isProcessing) && (
+            <StreamingProgressIndicator
+              progress={
+                streamingProgress || {
+                  stage: "downloading",
+                  message: "Starting summary process...",
+                  progress: 5,
+                }
+              }
+            />
+          )}
+          {data && (
+            <ResultsDisplay
+              data={data}
+              url={url}
+              copied={copied}
+              onCopySummary={handleCopySummary}
+              onNewSummary={handleNewSummary}
+            />
+          )}
+        </div>
+      </div>
+      <div className="sticky top-36">
+        <YoutubeVideo url={url} width={600} />
+      </div>
+    </div>
   );
 }
