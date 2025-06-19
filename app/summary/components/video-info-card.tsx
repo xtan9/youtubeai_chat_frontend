@@ -1,4 +1,4 @@
-import { Clock, Zap, Sparkles, ExternalLink } from "lucide-react";
+import { Clock, Zap, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SummaryResult } from "../../../lib/types";
 
