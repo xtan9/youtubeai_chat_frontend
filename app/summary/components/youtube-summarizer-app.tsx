@@ -99,7 +99,7 @@ export function YouTubeSummarizerApp({
 
   return (
     <div className="flex items-start justify-between m-16 gap-16">
-      <div className="flex flex-col items-center justify-center">
+      <div className="flex flex-col items-center justify-center flex-1">
         <div className="w-full max-w-5xl">
           <AuthErrorBanner authError={queryError?.message} />
           {(streamingProgress || isProcessing) && (
