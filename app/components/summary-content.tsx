@@ -18,8 +18,12 @@ export function SummaryContent({ summary }: SummaryContentProps) {
             <Brain className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-white">AI Summary</h3>
-            <p className="text-sm text-gray-400">Intelligent summary</p>
+            <h2 className="text-2xl font-bold text-white">
+              AI-Generated Video Summary
+            </h2>
+            <p className="text-sm text-gray-400">
+              Key points and insights extracted by AI
+            </p>
           </div>
         </div>
 
