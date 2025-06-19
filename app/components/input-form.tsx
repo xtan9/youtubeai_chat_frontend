@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useUser } from "@/lib/contexts/user-context";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, Sparkles, Brain } from "lucide-react";
 import { useState } from "react";

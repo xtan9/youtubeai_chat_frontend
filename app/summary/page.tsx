@@ -1,11 +1,7 @@
 import { YouTubeSummarizerApp } from "@/app/components/youtube-summarizer-app";
 import { Metadata } from "next";
 
-export async function generateMetadata({
-  searchParams,
-}: {
-  searchParams: { url?: string };
-}): Promise<Metadata> {
+export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "YouTube Video Summary - AI-Generated Key Points & Insights",
     description:
