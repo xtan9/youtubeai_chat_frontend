@@ -9,7 +9,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function InputForm() {
-  const { user } = useUser();
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [enableReasoning, setEnableReasoning] = useState(true);

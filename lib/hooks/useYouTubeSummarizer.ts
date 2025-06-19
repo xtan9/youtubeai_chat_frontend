@@ -66,7 +66,7 @@ export function useYouTubeSummarizer(
 
       if (errorInfo.shouldRedirect && user) {
         setTimeout(() => {
-          // router.push("/auth");
+          router.push("/auth/login");
         }, errorInfo.redirectDelay);
       }
     },

@@ -6,8 +6,6 @@ export async function generateMetadata({
 }: {
   searchParams: { url?: string };
 }): Promise<Metadata> {
-  const videoUrl = searchParams.url || "";
-
   return {
     title: "YouTube Video Summary - AI-Generated Key Points & Insights",
     description:
