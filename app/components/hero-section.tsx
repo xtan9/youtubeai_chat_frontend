@@ -1,8 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { ArrowRight, Brain, Sparkles, Clock } from "lucide-react";
-import Link from "next/link";
+import { Brain, Sparkles, Clock } from "lucide-react";
 
 export function HeroSection() {
   return (
@@ -20,7 +18,9 @@ export function HeroSection() {
         <div className="relative z-10">
           <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20 mb-6">
             <Sparkles size={16} className="text-purple-400" />
-            <span className="text-sm font-medium">Powered by Advanced AI</span>
+            <span className="text-sm font-medium">
+              100% Free Forever • No Paywall
+            </span>
           </div>
 
           <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent mb-6">
@@ -33,8 +33,8 @@ export function HeroSection() {
 
           <p className="text-xl text-gray-300 mb-8 max-w-3xl mx-auto">
             Our AI instantly transforms lengthy videos into comprehensive
-            summaries, key points, and actionable insights—so you can learn more
-            in less time.
+            summaries, key points, and actionable insights—completely free, with
+            no restrictions or hidden costs.
           </p>
 
           <div className="flex flex-wrap justify-center gap-4 mb-12">
@@ -48,7 +48,7 @@ export function HeroSection() {
             </div>
             <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-white/10">
               <Sparkles className="w-5 h-5 text-pink-400" />
-              <span className="text-sm">Extract Key Insights</span>
+              <span className="text-sm">No Paywall or Limits</span>
             </div>
           </div>
         </div>

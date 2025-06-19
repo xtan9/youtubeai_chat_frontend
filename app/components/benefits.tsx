@@ -74,9 +74,9 @@ export function Benefits() {
                   Deep Insight Extraction
                 </CardTitle>
                 <CardDescription className="text-gray-300">
-                  Our advanced AI doesn't just transcribe—it analyzes context,
-                  identifies key arguments, and structures information for
-                  maximum comprehension.
+                  Our advanced AI doesn&apos;t just transcribe—it analyzes
+                  context, identifies key arguments, and structures information
+                  for maximum comprehension.
                 </CardDescription>
               </div>
             </div>

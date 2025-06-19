@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import { ArrowRight, Sparkles, Brain } from "lucide-react";
+import { ArrowRight, Brain } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -116,8 +116,8 @@ export function InputForm() {
               </label>
               <p className="text-xs text-gray-500 text-center max-w-md">
                 {enableReasoning
-                  ? "🧠 Reasoning mode will provide deeper insights and explanations"
-                  : "✅ Standard summary (Faster response time)"}
+                  ? "🧠 Reasoning mode will provide deeper insights and explanations (Free)"
+                  : "✅ Standard summary (Free, Faster response time)"}
               </p>
             </div>
 

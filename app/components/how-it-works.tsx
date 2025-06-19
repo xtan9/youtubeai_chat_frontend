@@ -42,7 +42,7 @@ export function HowItWorks() {
               </h3>
               <p className="text-gray-300">
                 Hit the summarize button and watch our advanced AI engine spring
-                into action. No configuration needed—we've optimized the
+                into action. No configuration needed—we&apos;ve optimized the
                 settings for you.
               </p>
             </div>

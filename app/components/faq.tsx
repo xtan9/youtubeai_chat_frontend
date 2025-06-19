@@ -33,13 +33,13 @@ export function FAQ() {
       value: "item-4",
       question: "What formats can I export my video summaries in?",
       answer:
-        "We offer multiple export options to fit your workflow. Copy text directly to your clipboard, download as PDF or markdown, save to your account library, or share via direct link. Premium users can also access additional formats like structured JSON data and presentation-ready slides.",
+        "We offer multiple export options to fit your workflow. You can copy text directly to your clipboard, download as PDF or markdown, save to your account library, or share via direct link. All these features are available completely free of charge.",
     },
     {
       value: "item-5",
-      question: "Are there usage limits on the free version?",
+      question: "Is this service really 100% free?",
       answer:
-        "Our free tier provides access to our core summarization features with reasonable daily usage limits. We offer this to ensure everyone can benefit from our technology. For power users, content creators, researchers, or businesses with higher volume needs, our premium plans provide expanded capabilities and priority processing.",
+        "Yes! Our service is completely free with no hidden costs or premium tiers. We believe in making AI-powered video analysis accessible to everyone. You get full access to all features without any paywalls or usage restrictions.",
     },
   ];
 
