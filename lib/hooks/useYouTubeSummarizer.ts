@@ -1,4 +1,5 @@
 import { useUser } from "@/lib/contexts/user-context";
+import { createClient } from "@/lib/supabase/client";
 
 import type { SummaryResult } from "@/lib/types";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
@@ -9,7 +10,7 @@ import {
   UseQueryOptions,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState, useEffect } from "react";
 
 export function useYouTubeSummarizer(
   url: string,
@@ -17,6 +18,47 @@ export function useYouTubeSummarizer(
 ) {
   const { user, session } = useUser();
   const router = useRouter();
+  const [anonSession, setAnonSession] = useState<{
+    access_token: string;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Get an anonymous session if user is not logged in
+  useEffect(() => {
+    async function getAnonymousSession() {
+      if (!session && !anonSession && !isLoading) {
+        setIsLoading(true);
+        try {
+          const supabase = createClient();
+
+          // Check if we already have an anonymous session
+          const { data: sessionData } = await supabase.auth.getSession();
+
+          if (sessionData?.session) {
+            console.log("Using existing anonymous session");
+            setAnonSession(sessionData.session);
+          } else {
+            // Sign in anonymously
+            console.log("Signing in anonymously");
+            const { data, error } = await supabase.auth.signInAnonymously();
+
+            if (error) {
+              console.error("Anonymous sign-in error:", error);
+            } else if (data?.session) {
+              console.log("Anonymous sign-in successful");
+              setAnonSession(data.session);
+            }
+          }
+        } catch (error) {
+          console.error("Error during anonymous authentication:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    getAnonymousSession();
+  }, [session, anonSession, isLoading]);
 
   const handleAuthError = useCallback(
     (status: number, message: string) => {
@@ -24,7 +66,7 @@ export function useYouTubeSummarizer(
 
       if (errorInfo.shouldRedirect && user) {
         setTimeout(() => {
-          router.push("/auth");
+          // router.push("/auth");
         }, errorInfo.redirectDelay);
       }
     },
@@ -42,8 +84,13 @@ export function useYouTubeSummarizer(
       enableReasoning: queryKey[2],
     });
 
-    if (!session?.access_token) {
-      throw new Error("Authentication required. Please log in.");
+    // Get access token - either from user session or anonymous session
+    const accessToken = session?.access_token || anonSession?.access_token;
+
+    if (!accessToken) {
+      throw new Error(
+        "No authentication available. Please wait a moment while we set up anonymous access."
+      );
     }
 
     const response = await fetch(
@@ -52,7 +99,7 @@ export function useYouTubeSummarizer(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           youtube_url: queryKey[1],
@@ -128,5 +175,7 @@ export function useYouTubeSummarizer(
 
   return {
     summarizationQuery: streamingSummarizationQuery,
+    isAnonymous: !session && !!anonSession,
+    isAuthLoading: isLoading,
   };
 }
