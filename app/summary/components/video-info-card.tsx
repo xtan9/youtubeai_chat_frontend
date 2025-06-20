@@ -10,13 +10,13 @@ interface VideoInfoCardProps {
 export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
   return (
     <div className="relative group">
-      <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+      <div className="absolute -inset-1 bg-linear-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
       <div className="relative bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
         <div className="flex items-start justify-between">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-bold text-white">{summary.title}</h2>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-purple-500/20 to-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-linear-to-r from-purple-500/20 to-cyan-500/20 text-cyan-400 border border-cyan-500/30">
                 {summary.title
                   .replace("Video Summary", "")
                   .replace("Summary", "")

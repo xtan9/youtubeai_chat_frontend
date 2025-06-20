@@ -33,7 +33,7 @@ export function StreamingProgressIndicator({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div
-            className={`w-10 h-10 rounded-full bg-gradient-to-r ${colorGradient} flex items-center justify-center`}
+            className={`w-10 h-10 rounded-full bg-linear-to-r ${colorGradient} flex items-center justify-center`}
           >
             <Icon className="w-5 h-5 text-white" />
           </div>
@@ -56,7 +56,7 @@ export function StreamingProgressIndicator({
 
       <div className="w-full bg-gray-700/50 rounded-full h-3 mb-3 overflow-hidden">
         <div
-          className={`bg-gradient-to-r ${colorGradient} h-3 rounded-full transition-all duration-500 ease-out relative`}
+          className={`bg-linear-to-r ${colorGradient} h-3 rounded-full transition-all duration-500 ease-out relative`}
           style={{ width: `${progress.progress}%` }}
         >
           <div className="absolute inset-0 bg-white/20 rounded-full animate-pulse"></div>

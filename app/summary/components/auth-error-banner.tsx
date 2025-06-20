@@ -12,7 +12,7 @@ export function AuthErrorBanner({ authError }: AuthErrorBannerProps) {
   return (
     <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
       <div className="flex items-center gap-3">
-        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
         <div>
           <p className="text-red-400 font-medium">Authentication Error</p>
           <p className="text-red-300 text-sm mt-1">{authError}</p>

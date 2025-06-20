@@ -7,7 +7,7 @@ export function HeroSection() {
     <section className="w-full max-w-6xl mx-auto py-16 text-center">
       <div className="relative">
         {/* Animated gradient background */}
-        <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-to-br from-purple-500/30 via-cyan-500/20 to-pink-500/30 rounded-full blur-3xl opacity-50 animate-pulse"></div>
+        <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-linear-to-br from-purple-500/30 via-cyan-500/20 to-pink-500/30 rounded-full blur-3xl opacity-50 animate-pulse"></div>
 
         {/* Small decorative elements */}
         <div className="absolute top-10 left-10 w-8 h-8 bg-purple-500/30 rounded-full blur-lg animate-float"></div>
@@ -23,7 +23,7 @@ export function HeroSection() {
             </span>
           </div>
 
-          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent mb-6">
+          <h1 className="text-4xl md:text-6xl font-bold bg-linear-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent mb-6">
             Understand YouTube Videos
             <br />
             <span className="text-3xl md:text-5xl">

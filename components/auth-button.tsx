@@ -17,7 +17,7 @@ export async function AuthButton() {
       <Button asChild size="sm" variant={"outline"} className="border-white/20 text-white hover:bg-white/10">
         <Link href="/auth/login">Sign in</Link>
       </Button>
-      <Button asChild size="sm" variant={"default"} className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600">
+      <Button asChild size="sm" variant={"default"} className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600">
         <Link href="/auth/sign-up">Sign up</Link>
       </Button>
     </div>

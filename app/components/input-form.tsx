@@ -39,11 +39,11 @@ export function InputForm() {
 
   return (
     <div className="relative group  mx-auto">
-      <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
+      <div className="absolute -inset-1 bg-linear-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
       <div className="relative bg-slate-900/90 backdrop-blur-xl border border-white/20 rounded-3xl p-8">
         <form onSubmit={onSummarize} className="space-y-6">
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
+            <div className="absolute inset-0 bg-linear-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
             <div className="relative bg-white/5 backdrop-blur-sm border border-white/20 rounded-2xl p-1">
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
@@ -70,7 +70,7 @@ export function InputForm() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
+                  className="h-16 px-8 bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
                   disabled={isLoading}
                 >
                   {isLoading ? (
@@ -99,7 +99,7 @@ export function InputForm() {
                 <div
                   className={`relative w-11 h-6 rounded-full transition-colors ${
                     enableReasoning
-                      ? "bg-gradient-to-r from-purple-500 to-cyan-500"
+                      ? "bg-linear-to-r from-purple-500 to-cyan-500"
                       : "bg-gray-600"
                   }`}
                 >

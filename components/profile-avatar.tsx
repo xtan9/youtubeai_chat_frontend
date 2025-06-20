@@ -42,7 +42,7 @@ export function ProfileAvatar({ user }: ProfileAvatarProps) {
           alt={getDisplayName()}
           className="object-cover"
         />
-        <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white text-sm font-medium">
+        <AvatarFallback className="bg-linear-to-r from-purple-500 to-cyan-500 text-white text-sm font-medium">
           {getInitials(user.email || 'User')}
         </AvatarFallback>
       </Avatar>

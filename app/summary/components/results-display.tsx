@@ -30,15 +30,17 @@ export function ResultsDisplay({
                 AI Reasoning
               </span>
             </div>
-            <p className="text-base text-gray-300 leading-relaxed">
-              {data.keyPoints[0]}
-            </p>
+            <div className="max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-500 scrollbar-track-transparent">
+              <p className="text-base text-gray-300 leading-relaxed">
+                {data.keyPoints[0]}
+              </p>
+            </div>
           </div>
         )}
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold bg-linear-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
               Video Summary Complete
             </h1>
             <p className="text-gray-400 mt-2">
@@ -65,7 +67,7 @@ export function ResultsDisplay({
             </Button>
             <Button
               onClick={onNewSummary}
-              className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+              className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               New Summary

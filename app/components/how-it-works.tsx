@@ -17,7 +17,7 @@ export function HowItWorks() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="space-y-8">
           <div className="flex gap-4">
-            <Badge className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
               1
             </Badge>
             <div>
@@ -33,7 +33,7 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
               2
             </Badge>
             <div>
@@ -49,7 +49,7 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
               3
             </Badge>
             <div>
@@ -65,7 +65,7 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
               4
             </Badge>
             <div>
@@ -86,7 +86,7 @@ export function HowItWorks() {
             <div className="relative">
               <AspectRatio
                 ratio={16 / 9}
-                className="bg-gradient-to-br from-purple-500/20 to-cyan-500/20 rounded-lg overflow-hidden"
+                className="bg-linear-to-br from-purple-500/20 to-cyan-500/20 rounded-lg overflow-hidden"
               >
                 <Image
                   src="/youtube-summary-demo.png"
@@ -112,7 +112,7 @@ export function HowItWorks() {
               </AspectRatio>
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Avatar className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600">
+                  <Avatar className="w-8 h-8 bg-linear-to-r from-red-500 to-red-600">
                     <AvatarFallback className="text-xs text-white font-bold">
                       YT
                     </AvatarFallback>

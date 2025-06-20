@@ -53,7 +53,7 @@ export function Testimonials() {
                     src={testimonial.avatar}
                     alt={testimonial.name}
                   />
-                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500">
+                  <AvatarFallback className="bg-linear-to-r from-purple-500 to-cyan-500">
                     {testimonial.name.substring(0, 2)}
                   </AvatarFallback>
                 </Avatar>
