@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Brain, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
@@ -33,6 +34,8 @@ export function Header() {
           </Link>
 
           <div className="flex items-center gap-4">
+            <ThemeSwitcher />
+
             {/* Authentication Status and Actions */}
             {!user || user.is_anonymous ? (
               <div className="flex items-center">
