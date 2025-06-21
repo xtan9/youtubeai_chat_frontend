@@ -21,14 +21,14 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 w-full z-50 border-b border-white/10 backdrop-blur-md bg-linear-to-r from-gray-900/95 to-black/95">
+    <header className="sticky top-0 w-full z-50 border-b border-border backdrop-blur-md bg-background/95 dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-linear-to-r from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
+            <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
               <Brain size={20} className="text-white" />
             </div>
-            <h2 className="text-xl font-bold bg-linear-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+            <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
               YouTube AI Summarizer
             </h2>
           </Link>
@@ -41,7 +41,7 @@ export function Header() {
               <div className="flex items-center">
                 <Button
                   onClick={() => router.push("/auth/login")}
-                  className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white rounded-full px-6"
+                  className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white rounded-full px-6"
                 >
                   Sign In
                 </Button>
@@ -53,7 +53,7 @@ export function Header() {
                   variant="ghost"
                   size="sm"
                   onClick={handleSignOut}
-                  className="text-gray-300 hover:text-white hover:bg-white/10 rounded-full"
+                  className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full"
                 >
                   <LogOut size={16} />
                   <span className="ml-2 hidden sm:inline">Sign Out</span>

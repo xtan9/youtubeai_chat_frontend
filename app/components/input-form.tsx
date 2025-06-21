@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import { ArrowRight, Brain } from "lucide-react";
+import { ArrowRight, Brain, X } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -38,13 +38,13 @@ export function InputForm() {
   };
 
   return (
-    <div className="relative group  mx-auto">
-      <div className="absolute -inset-1 bg-linear-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
-      <div className="relative bg-slate-900/90 backdrop-blur-xl border border-white/20 rounded-3xl p-8">
+    <div className="relative group mx-auto">
+      <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
+      <div className="relative bg-card dark:bg-slate-900/90 backdrop-blur-xl border border-border rounded-3xl p-8">
         <form onSubmit={onSummarize} className="space-y-6">
           <div className="relative">
-            <div className="absolute inset-0 bg-linear-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
-            <div className="relative bg-white/5 backdrop-blur-sm border border-white/20 rounded-2xl p-1">
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-cyan-500/10 dark:from-purple-500/20 dark:to-cyan-500/20 rounded-2xl blur-xl"></div>
+            <div className="relative bg-background/50 dark:bg-white/5 backdrop-blur-sm border border-border dark:border-white/20 rounded-2xl p-1">
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
                   <Input
@@ -55,22 +55,24 @@ export function InputForm() {
                     onChange={(e) => {
                       setUrl(e.target.value);
                     }}
-                    className="h-16 text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus:ring-0 focus:outline-none"
+                    className="h-16 text-lg bg-transparent border-0 text-foreground placeholder:text-muted-foreground focus:ring-0 focus:outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUrl("");
-                    }}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white text-sm"
-                  >
-                    ✕
-                  </button>
+                  {url && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUrl("");
+                      }}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                 </div>
                 <Button
                   type="submit"
                   size="lg"
-                  className="h-16 px-8 bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
+                  className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
                   disabled={isLoading}
                 >
                   {isLoading ? (
@@ -99,8 +101,8 @@ export function InputForm() {
                 <div
                   className={`relative w-11 h-6 rounded-full transition-colors ${
                     enableReasoning
-                      ? "bg-linear-to-r from-purple-500 to-cyan-500"
-                      : "bg-gray-600"
+                      ? "bg-gradient-to-r from-purple-500 to-cyan-500"
+                      : "bg-muted"
                   }`}
                 >
                   <div
@@ -109,12 +111,12 @@ export function InputForm() {
                     }`}
                   ></div>
                 </div>
-                <span className="text-gray-300 flex items-center gap-2">
-                  <Brain size={16} className="text-gray-400" />
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Brain size={16} className="text-muted-foreground" />
                   Enable Reasoning
                 </span>
               </label>
-              <p className="text-xs text-gray-500 text-center max-w-md">
+              <p className="text-xs text-muted-foreground text-center max-w-md">
                 {enableReasoning
                   ? "🧠 Reasoning mode will provide deeper insights and explanations (Free)"
                   : "✅ Standard summary (Free, Faster response time)"}
