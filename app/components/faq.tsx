@@ -8,8 +8,29 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { MailIcon } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 export function FAQ() {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Mount after hydration to prevent mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Safe theme detection
+  const isDarkMode = mounted && resolvedTheme === "dark";
+
+  // Theme-specific styles
+  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
+  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
+  const answerText = isDarkMode ? "text-gray-300" : "text-gray-700";
+  const supportText = isDarkMode ? "text-gray-400" : "text-gray-600";
+  const hoverBg = isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50";
+  const itemBorder = isDarkMode ? "border-white/10" : "border-gray-200";
+
   const faqItems = [
     {
       value: "item-1",
@@ -49,7 +70,9 @@ export function FAQ() {
         <h2 className="text-4xl font-bold">Common Questions</h2>
       </div>
 
-      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
+      <div
+        className={`${cardBg} backdrop-blur-sm border ${cardBorder} rounded-xl overflow-hidden shadow-sm`}
+      >
         <Accordion
           type="single"
           collapsible
@@ -60,15 +83,17 @@ export function FAQ() {
             <AccordionItem
               key={item.value}
               value={item.value}
-              className="border-white/10"
+              className={itemBorder}
             >
-              <AccordionTrigger className="py-6 px-6 hover:no-underline hover:bg-white/5">
+              <AccordionTrigger
+                className={`py-6 px-6 hover:no-underline ${hoverBg}`}
+              >
                 <h3 className="text-lg font-medium text-left">
                   {item.question}
                 </h3>
               </AccordionTrigger>
               <AccordionContent className="px-6 pb-6 pt-2">
-                <p className="text-gray-300">{item.answer}</p>
+                <p className={`${answerText} font-medium`}>{item.answer}</p>
               </AccordionContent>
             </AccordionItem>
           ))}
@@ -76,10 +101,10 @@ export function FAQ() {
       </div>
 
       <div className="text-center mt-12">
-        <p className="text-gray-400 mb-6">Need more information?</p>
+        <p className={supportText + " mb-6"}>Need more information?</p>
         <Button
           asChild
-          className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+          className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
         >
           <a href="mailto:support@youtubeai.chat">
             <MailIcon className="mr-2 h-4 w-4" />

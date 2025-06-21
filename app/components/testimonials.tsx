@@ -2,8 +2,29 @@
 
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 export function Testimonials() {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Mount after hydration to prevent mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Safe theme detection
+  const isDarkMode = mounted && resolvedTheme === "dark";
+
+  // Theme-specific styles
+  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
+  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
+  const testimonialText = isDarkMode ? "text-gray-300" : "text-gray-700";
+  const dateText = isDarkMode ? "text-gray-400" : "text-gray-500";
+  const handleText = isDarkMode ? "text-gray-400" : "text-gray-500";
+  const footerBorder = isDarkMode ? "border-white/10" : "border-gray-100";
+
   const testimonials = [
     {
       id: 1,
@@ -44,7 +65,7 @@ export function Testimonials() {
         {testimonials.map((testimonial) => (
           <Card
             key={testimonial.id}
-            className="bg-white/5 backdrop-blur-sm border-white/10 hover:border-purple-500/30 transition-colors"
+            className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-purple-500/30 transition-colors shadow-sm`}
           >
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-4">
@@ -53,13 +74,13 @@ export function Testimonials() {
                     src={testimonial.avatar}
                     alt={testimonial.name}
                   />
-                  <AvatarFallback className="bg-linear-to-r from-purple-500 to-cyan-500">
+                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500">
                     {testimonial.name.substring(0, 2)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <div className="font-semibold">{testimonial.name}</div>
-                  <div className="text-sm text-gray-400">
+                  <div className={`text-sm ${handleText}`}>
                     {testimonial.handle}
                   </div>
                 </div>
@@ -82,10 +103,12 @@ export function Testimonials() {
                 ))}
               </div>
 
-              <p className="text-gray-300 mb-4">{testimonial.text}</p>
+              <p className={`${testimonialText} font-medium mb-4`}>
+                {testimonial.text}
+              </p>
             </CardContent>
-            <CardFooter className="px-6 py-3 border-t border-white/10">
-              <div className="text-xs text-gray-400">{testimonial.date}</div>
+            <CardFooter className={`px-6 py-3 border-t ${footerBorder}`}>
+              <div className={`text-xs ${dateText}`}>{testimonial.date}</div>
             </CardFooter>
           </Card>
         ))}

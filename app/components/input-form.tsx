@@ -32,12 +32,12 @@ export function InputForm() {
     ? "bg-white/5 border-white/20"
     : "bg-gray-50/80 border-gray-200";
 
-  const textColors = isDarkMode ? "text-white" : "text-gray-800";
+  const textColors = isDarkMode ? "text-white" : "text-gray-900";
   const placeholderColors = isDarkMode
     ? "placeholder:text-gray-400"
     : "placeholder:text-gray-500";
-  const secondaryTextColors = isDarkMode ? "text-gray-300" : "text-gray-600";
-  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-500";
+  const secondaryTextColors = isDarkMode ? "text-gray-300" : "text-gray-800";
+  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +113,7 @@ export function InputForm() {
                       onClick={handleClearUrl}
                       aria-label="Clear input"
                       className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${tertiaryTextColors} hover:${
-                        isDarkMode ? "text-white" : "text-gray-800"
+                        isDarkMode ? "text-white" : "text-gray-900"
                       }`}
                     >
                       <X size={16} />
@@ -170,7 +170,7 @@ export function InputForm() {
                   ></div>
                 </div>
                 <span
-                  className={`flex items-center gap-2 ${secondaryTextColors}`}
+                  className={`flex items-center gap-2 ${secondaryTextColors} font-medium`}
                 >
                   <Brain
                     size={16}
@@ -181,7 +181,7 @@ export function InputForm() {
                 </span>
               </label>
               <p
-                className={`text-xs text-center max-w-md ${tertiaryTextColors}`}
+                className={`text-xs text-center max-w-md font-medium ${tertiaryTextColors}`}
               >
                 {enableReasoning
                   ? "🧠 Reasoning mode will provide deeper insights and explanations (Free)"

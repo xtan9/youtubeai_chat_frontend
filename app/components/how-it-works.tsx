@@ -6,8 +6,27 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PlayCircle } from "lucide-react";
 import Image from "next/image";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 export function HowItWorks() {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Mount after hydration to prevent mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Safe theme detection
+  const isDarkMode = mounted && resolvedTheme === "dark";
+
+  // Theme-specific styles
+  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
+  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
+  const descriptionText = isDarkMode ? "text-gray-300" : "text-gray-700";
+  const badgeGradient = "bg-gradient-to-r from-purple-500 to-cyan-500";
+
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
@@ -17,14 +36,16 @@ export function HowItWorks() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="space-y-8">
           <div className="flex gap-4">
-            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge
+              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
+            >
               1
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 Drop Your Video Link
               </h3>
-              <p className="text-gray-300">
+              <p className={`${descriptionText} font-medium`}>
                 Find any YouTube video you want to analyze and copy the URL. Our
                 system works with any public video regardless of length or
                 complexity.
@@ -33,14 +54,16 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge
+              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
+            >
               2
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 Activate AI Analysis
               </h3>
-              <p className="text-gray-300">
+              <p className={`${descriptionText} font-medium`}>
                 Hit the summarize button and watch our advanced AI engine spring
                 into action. No configuration needed—we&apos;ve optimized the
                 settings for you.
@@ -49,14 +72,16 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge
+              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
+            >
               3
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 Smart Processing Begins
               </h3>
-              <p className="text-gray-300">
+              <p className={`${descriptionText} font-medium`}>
                 Our system downloads the video, extracts the audio, transcribes
                 the content, and applies natural language processing to identify
                 key themes and insights.
@@ -65,14 +90,16 @@ export function HowItWorks() {
           </div>
 
           <div className="flex gap-4">
-            <Badge className="shrink-0 w-10 h-10 rounded-full bg-linear-to-r from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold p-0">
+            <Badge
+              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
+            >
               4
             </Badge>
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 Explore Your Results
               </h3>
-              <p className="text-gray-300">
+              <p className={`${descriptionText} font-medium`}>
                 Receive a comprehensive breakdown with key points, timestamps,
                 and thematic analysis. Share, save, or export your results in
                 multiple formats.
@@ -81,12 +108,14 @@ export function HowItWorks() {
           </div>
         </div>
 
-        <Card className="bg-white/5 backdrop-blur-sm border-white/10 overflow-hidden">
+        <Card
+          className={`${cardBg} backdrop-blur-sm ${cardBorder} overflow-hidden shadow-sm`}
+        >
           <CardContent className="p-4">
             <div className="relative">
               <AspectRatio
                 ratio={16 / 9}
-                className="bg-linear-to-br from-purple-500/20 to-cyan-500/20 rounded-lg overflow-hidden"
+                className="bg-gradient-to-br from-purple-500/20 to-cyan-500/20 rounded-lg overflow-hidden"
               >
                 <Image
                   src="/youtube-summary-demo.png"
@@ -112,7 +141,7 @@ export function HowItWorks() {
               </AspectRatio>
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Avatar className="w-8 h-8 bg-linear-to-r from-red-500 to-red-600">
+                  <Avatar className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600">
                     <AvatarFallback className="text-xs text-white font-bold">
                       YT
                     </AvatarFallback>
