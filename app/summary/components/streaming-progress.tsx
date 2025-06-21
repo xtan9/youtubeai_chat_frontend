@@ -2,6 +2,7 @@
 
 import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 import { StreamingProgress } from "../utils";
+import { useTheme } from "next-themes";
 
 /**
  * Progress indicator component that shows the current stage of the streaming process
@@ -11,6 +12,9 @@ export function StreamingProgressIndicator({
 }: {
   progress: StreamingProgress;
 }) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
   const stageIcons = {
     downloading: Download,
     transcribing: FileText,
@@ -29,7 +33,13 @@ export function StreamingProgressIndicator({
   const colorGradient = stageColors[progress.stage];
 
   return (
-    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 mb-6">
+    <div
+      className={`${
+        isDark
+          ? "bg-slate-800/80 border-slate-600/50"
+          : "bg-white border-slate-300"
+      } backdrop-blur-sm border rounded-xl p-6 mb-6 shadow-inner`}
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div
@@ -38,23 +48,39 @@ export function StreamingProgressIndicator({
             <Icon className="w-5 h-5 text-white" />
           </div>
           <div>
-            <span className="text-lg font-semibold text-white capitalize">
+            <span
+              className={`text-lg font-semibold ${
+                isDark ? "text-white" : "text-slate-900"
+              } capitalize`}
+            >
               {progress.stage.replace("_", " ")}
             </span>
             {progress.elapsed && (
-              <div className="flex items-center gap-1 text-sm text-gray-400">
+              <div
+                className={`flex items-center gap-1 text-sm ${
+                  isDark ? "text-gray-200" : "text-slate-600"
+                }`}
+              >
                 <Clock className="w-3 h-3" />
                 {progress.elapsed.toFixed(1)}s elapsed
               </div>
             )}
           </div>
         </div>
-        <span className="text-lg font-mono text-white">
+        <span
+          className={`text-lg font-mono ${
+            isDark ? "text-white" : "text-slate-900"
+          }`}
+        >
           {Math.round(progress.progress)}%
         </span>
       </div>
 
-      <div className="w-full bg-gray-700/50 rounded-full h-3 mb-3 overflow-hidden">
+      <div
+        className={`w-full ${
+          isDark ? "bg-slate-700/70" : "bg-slate-200"
+        } rounded-full h-3 mb-3 overflow-hidden`}
+      >
         <div
           className={`bg-linear-to-r ${colorGradient} h-3 rounded-full transition-all duration-500 ease-out relative`}
           style={{ width: `${progress.progress}%` }}
@@ -63,7 +89,13 @@ export function StreamingProgressIndicator({
         </div>
       </div>
 
-      <p className="text-sm text-gray-300 text-center">{progress.message}</p>
+      <p
+        className={`text-sm ${
+          isDark ? "text-white" : "text-slate-800"
+        } text-center`}
+      >
+        {progress.message}
+      </p>
     </div>
   );
 }
