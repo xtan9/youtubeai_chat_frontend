@@ -24,6 +24,7 @@ export function parseStreamingData(rawData: string): {
   let transcriptionTime = 0;
   let summaryTime = 0;
   let currentProgress: StreamingProgress | null = null;
+  let transcript = "";
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
@@ -116,6 +117,12 @@ export function parseStreamingData(rawData: string): {
             }
             break;
 
+          case "full_transcript":
+            if (data.text) {
+              transcript = data.text;
+            }
+            break;
+
           case "timing":
             if (data.stage === "total" || data.total_time) {
               duration = `${data.total_time?.toFixed(1) || 0}s total`;
@@ -163,6 +170,7 @@ export function parseStreamingData(rawData: string): {
       keyPoints: thinkingContent ? [thinkingContent] : [],
       transcriptionTime,
       summaryTime,
+      transcript,
     },
     progress: currentProgress,
   };

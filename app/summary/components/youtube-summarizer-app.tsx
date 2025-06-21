@@ -25,7 +25,11 @@ export function YouTubeSummarizerApp({
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Use custom hooks for complex logic
-  const { summarizationQuery } = useYouTubeSummarizer(url, enableReasoning);
+  const { summarizationQuery } = useYouTubeSummarizer(
+    url,
+    enableReasoning,
+    true
+  );
   const {
     data: rawData,
     error: queryError,
@@ -125,7 +129,7 @@ export function YouTubeSummarizerApp({
         </div>
       </div>
       <div className="sticky top-[138px]">
-        <YoutubeVideo url={url} width={600} />
+        <YoutubeVideo url={url} width={600} transcript={data?.transcript} />
       </div>
     </div>
   );

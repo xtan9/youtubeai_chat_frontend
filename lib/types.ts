@@ -14,6 +14,7 @@ export interface SummaryResult {
   keyPoints: string[];
   transcriptionTime: number;
   summaryTime: number;
+  transcript?: string;
 }
 
 export interface StreamingStatus {
