@@ -4,19 +4,47 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, Brain, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [enableReasoning, setEnableReasoning] = useState(true);
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const router = useRouter();
+  const { resolvedTheme } = useTheme();
 
-  const onSummarize = async (e: React.FormEvent) => {
-    setIsLoading(true);
+  // Mount after hydration to prevent mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Safe theme detection
+  const isDarkMode = mounted && resolvedTheme === "dark";
+
+  // Theme-specific style variables for better readability
+  const containerBg = isDarkMode
+    ? "bg-slate-900/90"
+    : "bg-gradient-to-r from-purple-600/70 via-fuchsia-600/70 to-cyan-600/70";
+
+  const inputAreaBg = isDarkMode
+    ? "bg-white/5 border-white/20"
+    : "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/30 to-cyan-500/30 border-white/10";
+
+  const textColors = "text-white";
+  const placeholderColors = isDarkMode
+    ? "placeholder:text-gray-400"
+    : "placeholder:text-gray-300";
+  const secondaryTextColors = "text-gray-300";
+  const tertiaryTextColors = "text-gray-400";
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
+
     const formData = new FormData(e.target as HTMLFormElement);
     const formUrl = formData.get("url") as string;
 
@@ -25,11 +53,13 @@ export function InputForm() {
       setIsLoading(false);
       return;
     }
+
     if (!isValidYouTubeUrl(formUrl)) {
       setError("Please enter a valid YouTube URL");
       setIsLoading(false);
       return;
     }
+
     setError(null);
     setUrl(formUrl);
     router.push(
@@ -37,14 +67,26 @@ export function InputForm() {
     );
   };
 
+  const handleClearUrl = () => setUrl("");
+
   return (
     <div className="relative group mx-auto">
+      {/* Animated gradient border */}
       <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
-      <div className="relative bg-card dark:bg-slate-900/90 backdrop-blur-xl border border-border rounded-3xl p-8">
-        <form onSubmit={onSummarize} className="space-y-6">
+
+      {/* Main container */}
+      <div
+        className={`relative backdrop-blur-xl border border-border rounded-3xl p-8 ${containerBg}`}
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-cyan-500/10 dark:from-purple-500/20 dark:to-cyan-500/20 rounded-2xl blur-xl"></div>
-            <div className="relative bg-background/50 dark:bg-white/5 backdrop-blur-sm border border-border dark:border-white/20 rounded-2xl p-1">
+            {/* Background blur effect */}
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
+
+            {/* Input area */}
+            <div
+              className={`relative backdrop-blur-sm border rounded-2xl p-1 ${inputAreaBg}`}
+            >
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
                   <Input
@@ -52,37 +94,39 @@ export function InputForm() {
                     name="url"
                     placeholder="Enter YouTube URL here..."
                     value={url}
-                    onChange={(e) => {
-                      setUrl(e.target.value);
-                    }}
-                    className="h-16 text-lg bg-transparent border-0 text-foreground placeholder:text-muted-foreground focus:ring-0 focus:outline-none"
+                    onChange={(e) => setUrl(e.target.value)}
+                    aria-label="YouTube URL"
+                    className={`h-16 text-lg bg-transparent border-0 focus:ring-0 focus:outline-none ${textColors} ${placeholderColors}`}
                   />
+
                   {url && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setUrl("");
-                      }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
+                      onClick={handleClearUrl}
+                      aria-label="Clear input"
+                      className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${tertiaryTextColors} hover:${textColors}`}
                     >
                       <X size={16} />
                     </button>
                   )}
                 </div>
+
                 <Button
                   type="submit"
                   size="lg"
-                  className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
                   disabled={isLoading}
+                  aria-label="Summarize video"
+                  className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300"
                 >
                   {isLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-                    </>
+                    <div
+                      className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"
+                      aria-hidden="true"
+                    ></div>
                   ) : (
                     <>
                       Summarize
-                      <ArrowRight className="ml-2 h-5 w-5" />
+                      <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
                     </>
                   )}
                 </Button>
@@ -91,7 +135,7 @@ export function InputForm() {
 
             {/* Reasoning Toggle */}
             <div className="flex flex-col items-center gap-2 text-sm mt-4">
-              <label className={`flex items-center gap-2`}>
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={enableReasoning}
@@ -102,8 +146,10 @@ export function InputForm() {
                   className={`relative w-11 h-6 rounded-full transition-colors ${
                     enableReasoning
                       ? "bg-gradient-to-r from-purple-500 to-cyan-500"
-                      : "bg-muted"
+                      : "bg-gray-600"
                   }`}
+                  role="switch"
+                  aria-checked={enableReasoning}
                 >
                   <div
                     className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
@@ -111,21 +157,33 @@ export function InputForm() {
                     }`}
                   ></div>
                 </div>
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Brain size={16} className="text-muted-foreground" />
+                <span
+                  className={`flex items-center gap-2 ${secondaryTextColors}`}
+                >
+                  <Brain
+                    size={16}
+                    className={tertiaryTextColors}
+                    aria-hidden="true"
+                  />
                   Enable Reasoning
                 </span>
               </label>
-              <p className="text-xs text-muted-foreground text-center max-w-md">
+              <p
+                className={`text-xs text-center max-w-md ${tertiaryTextColors}`}
+              >
                 {enableReasoning
                   ? "🧠 Reasoning mode will provide deeper insights and explanations (Free)"
                   : "✅ Standard summary (Free, Faster response time)"}
               </p>
             </div>
 
+            {/* Error message */}
             {error && (
               <div className="text-center mt-4">
-                <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block">
+                <p
+                  role="alert"
+                  className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block"
+                >
                   {error}
                 </p>
               </div>
