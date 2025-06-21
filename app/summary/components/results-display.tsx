@@ -91,7 +91,7 @@ export function ResultsDisplay({
             </Button>
             <Button
               onClick={onNewSummary}
-              className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+              className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white"
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               New Summary
