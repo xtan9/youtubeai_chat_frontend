@@ -26,20 +26,18 @@ export function InputForm() {
   const isDarkMode = mounted && resolvedTheme === "dark";
 
   // Theme-specific style variables for better readability
-  const containerBg = isDarkMode
-    ? "bg-slate-900/90"
-    : "bg-gradient-to-r from-purple-600/70 via-fuchsia-600/70 to-cyan-600/70";
+  const containerBg = isDarkMode ? "bg-slate-900/90" : "bg-white/80 shadow-lg";
 
   const inputAreaBg = isDarkMode
     ? "bg-white/5 border-white/20"
-    : "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/30 to-cyan-500/30 border-white/10";
+    : "bg-gray-50/80 border-gray-200";
 
-  const textColors = "text-white";
+  const textColors = isDarkMode ? "text-white" : "text-gray-800";
   const placeholderColors = isDarkMode
     ? "placeholder:text-gray-400"
-    : "placeholder:text-gray-300";
-  const secondaryTextColors = "text-gray-300";
-  const tertiaryTextColors = "text-gray-400";
+    : "placeholder:text-gray-500";
+  const secondaryTextColors = isDarkMode ? "text-gray-300" : "text-gray-600";
+  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-500";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,17 +69,27 @@ export function InputForm() {
 
   return (
     <div className="relative group mx-auto">
-      {/* Animated gradient border */}
-      <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"></div>
+      {/* Animated gradient border - only visible in dark mode */}
+      <div
+        className={`absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse ${
+          isDarkMode ? "block" : "hidden"
+        }`}
+      ></div>
 
       {/* Main container */}
       <div
-        className={`relative backdrop-blur-xl border border-border rounded-3xl p-8 ${containerBg}`}
+        className={`relative backdrop-blur-xl border ${
+          isDarkMode ? "border-border" : "border-gray-200"
+        } rounded-3xl p-8 ${containerBg}`}
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="relative">
-            {/* Background blur effect */}
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl"></div>
+            {/* Background blur effect - only in dark mode */}
+            <div
+              className={`absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl ${
+                isDarkMode ? "block" : "hidden"
+              }`}
+            ></div>
 
             {/* Input area */}
             <div
@@ -104,7 +112,9 @@ export function InputForm() {
                       type="button"
                       onClick={handleClearUrl}
                       aria-label="Clear input"
-                      className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${tertiaryTextColors} hover:${textColors}`}
+                      className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${tertiaryTextColors} hover:${
+                        isDarkMode ? "text-white" : "text-gray-800"
+                      }`}
                     >
                       <X size={16} />
                     </button>
@@ -146,7 +156,9 @@ export function InputForm() {
                   className={`relative w-11 h-6 rounded-full transition-colors ${
                     enableReasoning
                       ? "bg-gradient-to-r from-purple-500 to-cyan-500"
-                      : "bg-gray-600"
+                      : isDarkMode
+                      ? "bg-gray-600"
+                      : "bg-gray-300"
                   }`}
                   role="switch"
                   aria-checked={enableReasoning}
