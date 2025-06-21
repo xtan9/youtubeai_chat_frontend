@@ -1,5 +1,6 @@
 import type { SummaryResult } from "../../../lib/types";
 import { useTheme } from "next-themes";
+import { countWords } from "../utils";
 
 interface SummaryStatsProps {
   summary: SummaryResult;
@@ -27,7 +28,7 @@ export function SummaryStats({ summary }: SummaryStatsProps) {
             isDark ? "text-purple-300" : "text-purple-700"
           }`}
         >
-          {summary.summary.split(" ").length}
+          {countWords(summary.summary)}
         </div>
         <div
           className={`text-sm ${isDark ? "text-gray-200" : "text-slate-700"}`}

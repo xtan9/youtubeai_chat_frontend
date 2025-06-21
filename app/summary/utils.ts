@@ -8,13 +8,6 @@ export interface StreamingProgress {
   elapsed?: number;
 }
 
-export function getYoutubeVideoId(url: string) {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-  const match = url.match(regExp);
-
-  return match && match[2].length === 11 ? match[2] : null;
-}
-
 /**
  * Parse raw streaming data from the API and extract structured content and progress information
  *
@@ -173,4 +166,77 @@ export function parseStreamingData(rawData: string): {
     },
     progress: currentProgress,
   };
+}
+
+/**
+ * Extracts the YouTube video ID from a YouTube URL.
+ *
+ * This function uses a regular expression to parse various YouTube URL formats
+ * and extract the unique 11-character video identifier. It supports multiple
+ * YouTube URL formats including:
+ * - youtube.com/watch?v=VIDEO_ID
+ * - youtu.be/VIDEO_ID
+ * - youtube.com/embed/VIDEO_ID
+ * - youtube.com/v/VIDEO_ID
+ *
+ * @param url - The YouTube URL to extract the video ID from
+ * @returns The 11-character YouTube video ID, or null if no valid ID is found
+ *
+ * @example
+ * ```typescript
+ * getYoutubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+ * // Returns: "dQw4w9WgXcQ"
+ *
+ * getYoutubeVideoId("https://youtu.be/dQw4w9WgXcQ")
+ * // Returns: "dQw4w9WgXcQ"
+ *
+ * getYoutubeVideoId("https://www.youtube.com/embed/dQw4w9WgXcQ")
+ * // Returns: "dQw4w9WgXcQ"
+ *
+ * getYoutubeVideoId("invalid-url")
+ * // Returns: null
+ * ```
+ */
+
+export function getYoutubeVideoId(url: string) {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+
+  return match && match[2].length === 11 ? match[2] : null;
+}
+
+/**
+ * Counts the number of words in a given text string.
+ *
+ * This function cleans the input text by trimming whitespace and normalizing
+ * multiple consecutive whitespace characters into single spaces, then splits
+ * the text on spaces to count individual words.
+ *
+ * @param text - The text string to count words in
+ * @returns The number of words in the text, or 0 if the text is empty or contains only whitespace
+ *
+ * @example
+ * ```typescript
+ * countWords("Hello world")           // Returns: 2
+ * countWords("  Multiple   spaces  ") // Returns: 2
+ * countWords("")                      // Returns: 0
+ * countWords("   ")                   // Returns: 0
+ * ```
+ */
+export function countWords(text: string): number {
+  const cleanText = text.trim().replace(/\s+/g, " ");
+  if (!cleanText) return 0;
+
+  // Handle Chinese characters (no spaces between characters)
+  const chineseRegex = /[\u4e00-\u9fff]/g;
+  const chineseChars = cleanText.match(chineseRegex);
+  const chineseCount = chineseChars ? chineseChars.length : 0;
+
+  // Handle non-Chinese text (split by spaces)
+  const nonChineseText = cleanText.replace(chineseRegex, "");
+  const nonChineseWords = nonChineseText.trim()
+    ? nonChineseText.trim().split(/\s+/).length
+    : 0;
+
+  return chineseCount + nonChineseWords;
 }
