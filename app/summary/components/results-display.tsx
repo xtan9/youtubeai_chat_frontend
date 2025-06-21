@@ -1,8 +1,7 @@
 import { Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { VideoInfoCard } from "./video-info-card";
 import { SummaryContent } from "./summary-content";
-import type { SummaryResult } from "../../../lib/types";
+import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
 
 interface ResultsDisplayProps {
@@ -15,7 +14,6 @@ interface ResultsDisplayProps {
 
 export function ResultsDisplay({
   data,
-  url,
   copied,
   onCopySummary,
   onNewSummary,
@@ -98,11 +96,6 @@ export function ResultsDisplay({
             </Button>
           </div>
         </div>
-
-        {/* Video Info Card */}
-        <VideoInfoCard summary={data} url={url} />
-
-        {/* Summary Content */}
         <SummaryContent summary={data} />
       </div>
     )

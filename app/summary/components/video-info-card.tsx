@@ -1,6 +1,7 @@
+// Not used
 import { Clock, Zap, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { SummaryResult } from "../../../lib/types";
+import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
 
 interface VideoInfoCardProps {

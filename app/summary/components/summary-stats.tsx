@@ -1,4 +1,4 @@
-import type { SummaryResult } from "../../../lib/types";
+import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
 import { countWords } from "../utils";
 

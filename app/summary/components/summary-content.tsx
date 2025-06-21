@@ -2,7 +2,7 @@ import { Brain } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
-import type { SummaryResult } from "../../../lib/types";
+import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
 
 interface SummaryContentProps {
