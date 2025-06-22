@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
@@ -23,13 +23,38 @@ export function YouTubeSummarizerApp({
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Define the scroll function
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (resultsContainerRef.current) {
+        resultsContainerRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "end",
+        });
+      } else {
+        // Fallback if ref is not available
+        window.scrollTo({
+          top: document.body.scrollHeight,
+          behavior: "smooth",
+        });
+      }
+    });
+  }, []);
 
   // Use custom hooks for complex logic
-  const { summarizationQuery } = useYouTubeSummarizer(
+  const { summarizationQuery, registerScrollFunction } = useYouTubeSummarizer(
     url,
     enableReasoning,
     true
   );
+
+  // Register the scroll function with the hook
+  useEffect(() => {
+    registerScrollFunction(scrollToBottom);
+  }, [registerScrollFunction, scrollToBottom]);
+
   const {
     data: rawData,
     error: queryError,
@@ -75,6 +100,13 @@ export function YouTubeSummarizerApp({
     };
   }, [rawData, isLoading, isFetching]);
 
+  // Also scroll when new data or progress updates arrive
+  useEffect(() => {
+    if (streamingProgress || data) {
+      scrollToBottom();
+    }
+  }, [streamingProgress, data, scrollToBottom]);
+
   const { copied, copyToClipboard } = useClipboard();
 
   // Fetch summary when component mounts
@@ -104,7 +136,7 @@ export function YouTubeSummarizerApp({
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2" ref={resultsContainerRef}>
           <AuthErrorBanner authError={queryError?.message} />
           {(streamingProgress || isProcessing) && (
             <StreamingProgressIndicator
