@@ -102,9 +102,9 @@ export function YouTubeSummarizerApp({
   };
 
   return (
-    <div className="flex items-start justify-between m-16 gap-14">
-      <div className="flex flex-col items-center justify-center flex-1">
-        <div className="w-full max-w-5xl">
+    <div className="container mx-auto px-4 py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
           <AuthErrorBanner authError={queryError?.message} />
           {(streamingProgress || isProcessing) && (
             <StreamingProgressIndicator
@@ -127,9 +127,9 @@ export function YouTubeSummarizerApp({
             />
           )}
         </div>
-      </div>
-      <div className="sticky top-[138px]">
-        <YoutubeVideo url={url} width={600} transcript={data?.transcript} />
+        <div className="sticky top-[138px] w-full">
+          <YoutubeVideo url={url} width={600} transcript={data?.transcript} />
+        </div>
       </div>
     </div>
   );
