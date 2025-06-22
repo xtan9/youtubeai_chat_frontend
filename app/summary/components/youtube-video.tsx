@@ -69,7 +69,7 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
           <div className="flex justify-between items-center mb-2">
             <h3
               className={`text-sm font-semibold ${
-                isDark ? "text-slate-300" : "text-slate-600"
+                isDark ? "text-cyan-300/80" : "text-cyan-700/80"
               }`}
             >
               Video Transcript
