@@ -63,7 +63,7 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
           className={`p-4 w-full ${
             isDark
               ? "bg-slate-800/80 border-slate-700"
-              : "bg-slate-50 border-slate-200"
+              : "bg-white border-slate-200"
           }`}
         >
           <div className="flex justify-between items-center mb-2">
