@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
+import { useEffect, useRef } from "react";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -12,6 +13,15 @@ interface SummaryContentProps {
 export function SummaryContent({ summary }: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const summaryContentRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when content changes
+  useEffect(() => {
+    if (summaryContentRef.current && summary.summary) {
+      summaryContentRef.current.scrollTop =
+        summaryContentRef.current.scrollHeight;
+    }
+  }, [summary.summary]);
 
   return (
     <div className="relative group">
@@ -48,11 +58,12 @@ export function SummaryContent({ summary }: SummaryContentProps) {
         <div className="space-y-6">
           {/* Render summary with ReactMarkdown */}
           <div
+            ref={summaryContentRef}
             className={`${
               isDark
                 ? "bg-slate-800/80 border-slate-600/50"
                 : "bg-white border-slate-300"
-            } rounded-xl p-6 border shadow-inner`}
+            } rounded-xl p-6 border shadow-inner overflow-auto max-h-[calc(100vh-300px)]`}
           >
             <div className="prose prose-lg max-w-none dark:prose-invert">
               <ReactMarkdown

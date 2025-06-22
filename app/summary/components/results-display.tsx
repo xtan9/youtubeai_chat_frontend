@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SummaryContent } from "./summary-content";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
+import { useEffect, useRef } from "react";
 
 interface ResultsDisplayProps {
   data: SummaryResult;
@@ -20,6 +21,14 @@ export function ResultsDisplay({
 }: ResultsDisplayProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const aiReasoningRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when content changes
+  useEffect(() => {
+    if (aiReasoningRef.current && data.keyPoints && data.keyPoints.length > 0) {
+      aiReasoningRef.current.scrollTop = aiReasoningRef.current.scrollHeight;
+    }
+  }, [data.keyPoints]);
 
   return (
     data && (
@@ -42,7 +51,10 @@ export function ResultsDisplay({
                 AI Reasoning
               </span>
             </div>
-            <div className="max-h-[150px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-500 scrollbar-track-transparent">
+            <div
+              ref={aiReasoningRef}
+              className="max-h-[150px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-500 scrollbar-track-transparent"
+            >
               <p
                 className={`text-sm ${
                   isDark ? "text-gray-300" : "text-slate-600"

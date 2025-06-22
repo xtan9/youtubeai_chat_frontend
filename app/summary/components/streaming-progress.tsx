@@ -3,6 +3,7 @@
 import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 import { StreamingProgress } from "../utils";
 import { useTheme } from "next-themes";
+import { useEffect, useRef } from "react";
 
 /**
  * Progress indicator component that shows the current stage of the streaming process
@@ -14,6 +15,14 @@ export function StreamingProgressIndicator({
 }) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const messageRef = useRef<HTMLParagraphElement>(null);
+
+  // Auto-scroll to bottom when message changes
+  useEffect(() => {
+    if (messageRef.current) {
+      messageRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [progress.message]);
 
   const stageIcons = {
     downloading: Download,
@@ -90,6 +99,7 @@ export function StreamingProgressIndicator({
       </div>
 
       <p
+        ref={messageRef}
         className={`text-sm ${
           isDark ? "text-white" : "text-slate-800"
         } text-center`}
