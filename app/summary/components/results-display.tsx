@@ -35,17 +35,17 @@ export function ResultsDisplay({
           >
             <div className="flex items-center gap-3 mb-3">
               <span
-                className={`text-sm font-semibold ${
-                  isDark ? "text-cyan-300" : "text-cyan-700"
+                className={`text-xs font-semibold ${
+                  isDark ? "text-cyan-300/80" : "text-cyan-700/80"
                 } uppercase tracking-wider`}
               >
                 AI Reasoning
               </span>
             </div>
-            <div className="max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-500 scrollbar-track-transparent">
+            <div className="max-h-[150px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-500 scrollbar-track-transparent">
               <p
-                className={`text-base ${
-                  isDark ? "text-white" : "text-slate-800"
+                className={`text-sm ${
+                  isDark ? "text-gray-300" : "text-slate-600"
                 } leading-relaxed`}
               >
                 {data.keyPoints[0]}

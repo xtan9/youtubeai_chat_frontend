@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { useTheme } from "next-themes";
 
 interface YoutubeVideoProps {
   url: string;
@@ -14,6 +15,8 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   // Calculate aspect ratio (16:9)
   const height = Math.floor((containerWidth / 16) * 9);
@@ -56,31 +59,49 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
       />
 
       {transcript && (
-        <Card className="p-4 w-full">
+        <Card
+          className={`p-4 w-full ${
+            isDark
+              ? "bg-slate-800/80 border-slate-700"
+              : "bg-slate-50 border-slate-200"
+          }`}
+        >
           <div className="flex justify-between items-center mb-2">
-            <h3 className="text-lg font-semibold">Video Transcript</h3>
+            <h3
+              className={`text-sm font-semibold ${
+                isDark ? "text-slate-300" : "text-slate-600"
+              }`}
+            >
+              Video Transcript
+            </h3>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
-              className="flex items-center gap-1"
+              className={`flex items-center gap-1 text-xs ${
+                isDark
+                  ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+              }`}
             >
               {isTranscriptExpanded ? (
                 <>
-                  <ChevronUp size={16} />
+                  <ChevronUp size={14} />
                   Show less
                 </>
               ) : (
                 <>
-                  <ChevronDown size={16} />
+                  <ChevronDown size={14} />
                   Show more
                 </>
               )}
             </Button>
           </div>
           <div
-            className={`overflow-y-auto whitespace-pre-line ${
-              isTranscriptExpanded ? "max-h-[600px]" : "max-h-[150px]"
+            className={`overflow-y-auto whitespace-pre-line text-sm ${
+              isDark ? "text-slate-300" : "text-slate-600"
+            } ${
+              isTranscriptExpanded ? "max-h-[600px]" : "max-h-[300px]"
             } transition-all duration-300`}
           >
             {transcript}
