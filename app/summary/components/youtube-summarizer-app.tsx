@@ -23,7 +23,9 @@ export function YouTubeSummarizerApp({
   const router = useRouter();
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [streamingComplete, setStreamingComplete] = useState(false);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
+  const summaryContentRef = useRef<HTMLDivElement>(null);
 
   // Define the scroll function
   const scrollToBottom = useCallback(() => {
@@ -40,6 +42,31 @@ export function YouTubeSummarizerApp({
           behavior: "smooth",
         });
       }
+    });
+  }, []);
+
+  // Define function to scroll to top
+  const scrollToTop = useCallback(() => {
+    requestAnimationFrame(() => {
+      // Scroll page to top
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+
+      // Also reset scroll position of any scrollable containers
+      if (summaryContentRef.current) {
+        summaryContentRef.current.scrollTop = 0;
+      }
+
+      // Find and reset any other scrollable elements
+      document
+        .querySelectorAll(".overflow-auto, .overflow-y-auto")
+        .forEach((el) => {
+          if (el instanceof HTMLElement) {
+            el.scrollTop = 0;
+          }
+        });
     });
   }, []);
 
@@ -66,6 +93,7 @@ export function YouTubeSummarizerApp({
   const { data, streamingProgress } = useMemo(() => {
     if ((isLoading || isFetching) && !rawData) {
       setIsProcessing(true);
+      setStreamingComplete(false);
       return {
         data: undefined,
         streamingProgress: {
@@ -83,6 +111,15 @@ export function YouTubeSummarizerApp({
         setIsProcessing(false);
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
+
+        // Check if streaming is complete
+        if (
+          parsed.progress?.stage === "complete" &&
+          parsed.progress.progress === 100
+        ) {
+          setStreamingComplete(true);
+        }
+
         return {
           data: parsed.result,
           streamingProgress: parsed.progress,
@@ -100,12 +137,24 @@ export function YouTubeSummarizerApp({
     };
   }, [rawData, isLoading, isFetching]);
 
-  // Also scroll when new data or progress updates arrive
+  // Scroll when new data or progress updates arrive during streaming
   useEffect(() => {
-    if (streamingProgress || data) {
+    if ((streamingProgress || data) && !streamingComplete) {
       scrollToBottom();
     }
-  }, [streamingProgress, data, scrollToBottom]);
+  }, [streamingProgress, data, scrollToBottom, streamingComplete]);
+
+  // Scroll to top when streaming completes
+  useEffect(() => {
+    if (streamingComplete && streamingProgress?.stage === "complete") {
+      // Add a small delay to ensure all content is rendered
+      const timeoutId = setTimeout(() => {
+        scrollToTop();
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [streamingComplete, streamingProgress?.stage, scrollToTop]);
 
   const { copied, copyToClipboard } = useClipboard();
 
@@ -156,11 +205,17 @@ export function YouTubeSummarizerApp({
               copied={copied}
               onCopySummary={handleCopySummary}
               onNewSummary={handleNewSummary}
+              summaryContentRef={summaryContentRef}
             />
           )}
         </div>
         <div className="sticky top-[138px] w-full">
-          <YoutubeVideo url={url} width={600} transcript={data?.transcript} />
+          <YoutubeVideo
+            url={url}
+            width={600}
+            transcript={data?.transcript}
+            streamingComplete={streamingComplete}
+          />
         </div>
       </div>
     </div>

@@ -9,12 +9,19 @@ interface YoutubeVideoProps {
   url: string;
   width: number; // This becomes the maximum width
   transcript?: string;
+  streamingComplete?: boolean;
 }
 
-const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
+const YoutubeVideo = ({
+  url,
+  width,
+  transcript,
+  streamingComplete = false,
+}: YoutubeVideoProps) => {
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -41,6 +48,13 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
     // Clean up
     return () => window.removeEventListener("resize", updateWidth);
   }, [width]);
+
+  // Reset transcript scroll position when streaming completes
+  useEffect(() => {
+    if (streamingComplete && transcriptRef.current) {
+      transcriptRef.current.scrollTop = 0;
+    }
+  }, [streamingComplete]);
 
   if (!url) {
     return null;
@@ -98,6 +112,7 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
             </Button>
           </div>
           <div
+            ref={transcriptRef}
             className={`overflow-y-auto whitespace-pre-line text-sm ${
               isDark ? "text-slate-300" : "text-slate-600"
             } ${

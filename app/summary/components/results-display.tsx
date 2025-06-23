@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SummaryContent } from "./summary-content";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, RefObject } from "react";
 
 interface ResultsDisplayProps {
   data: SummaryResult;
@@ -11,6 +11,7 @@ interface ResultsDisplayProps {
   copied: boolean;
   onCopySummary: () => void;
   onNewSummary: () => void;
+  summaryContentRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function ResultsDisplay({
@@ -18,6 +19,7 @@ export function ResultsDisplay({
   copied,
   onCopySummary,
   onNewSummary,
+  summaryContentRef,
 }: ResultsDisplayProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -108,7 +110,7 @@ export function ResultsDisplay({
             </Button>
           </div>
         </div>
-        <SummaryContent summary={data} />
+        <SummaryContent summary={data} contentRef={summaryContentRef} />
       </div>
     )
   );

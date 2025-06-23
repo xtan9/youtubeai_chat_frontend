@@ -4,16 +4,20 @@ import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, RefObject } from "react";
 
 interface SummaryContentProps {
   summary: SummaryResult;
+  contentRef?: RefObject<HTMLDivElement | null>;
 }
 
-export function SummaryContent({ summary }: SummaryContentProps) {
+export function SummaryContent({ summary, contentRef }: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
-  const summaryContentRef = useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+
+  // Use provided ref or internal ref
+  const summaryContentRef = contentRef || internalRef;
 
   // Auto-scroll to bottom when content changes
   useEffect(() => {
@@ -21,7 +25,7 @@ export function SummaryContent({ summary }: SummaryContentProps) {
       summaryContentRef.current.scrollTop =
         summaryContentRef.current.scrollHeight;
     }
-  }, [summary.summary]);
+  }, [summary.summary, summaryContentRef]);
 
   return (
     <div className="relative group">

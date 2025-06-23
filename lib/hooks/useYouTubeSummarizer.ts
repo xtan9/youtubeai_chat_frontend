@@ -23,7 +23,6 @@ export function useYouTubeSummarizer(
     access_token: string;
   } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const previousDataLength = useRef<number>(0);
   const scrollToBottomRef = useRef<() => void>(() => {});
 
   // Get an anonymous session if user is not logged in
