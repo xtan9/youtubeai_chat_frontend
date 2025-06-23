@@ -54,49 +54,12 @@ export function ResultsDisplay({
           </div>
         )}
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-linear-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
-              Video Summary Complete
-            </h1>
-            <p
-              className={`${isDark ? "text-gray-200" : "text-slate-700"} mt-2`}
-            >
-              AI-powered insights and key takeaways
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              onClick={onCopySummary}
-              className={`${
-                isDark
-                  ? "bg-white/5 border-white/20 text-white hover:bg-white/10"
-                  : "bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200"
-              }`}
-            >
-              {copied ? (
-                <>
-                  <Check className="mr-2 h-4 w-4 text-green-500" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copy Summary
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={onNewSummary}
-              className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              New Summary
-            </Button>
-          </div>
-        </div>
-        <SummaryContent summary={data} />
+        <SummaryContent
+          summary={data}
+          copied={copied}
+          onCopySummary={onCopySummary}
+          onNewSummary={onNewSummary}
+        />
       </div>
     )
   );
