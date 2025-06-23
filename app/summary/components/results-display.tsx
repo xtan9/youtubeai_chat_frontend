@@ -1,5 +1,3 @@
-import { Copy, Check, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { SummaryContent } from "./summary-content";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
