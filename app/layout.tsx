@@ -90,6 +90,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
+        <link rel="canonical" href="https://www.youtubeai.chat" />
         <meta name="theme-color" content="#000000" />
       </head>
       <body className={`${geist.className} flex min-h-screen flex-col`}>

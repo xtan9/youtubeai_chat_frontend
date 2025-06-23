@@ -13,6 +13,11 @@ Disallow: /auth/error
 Disallow: /protected/
 Disallow: /api/
 
+# Block non-html resources from being indexed
+Disallow: /favicon.ico
+Disallow: /*.ico$
+Disallow: /_next/
+
 # Add longer crawl delay for GPTBot to prevent OpenAI from overloading your server
 User-agent: GPTBot
 Crawl-delay: 10
@@ -37,7 +42,6 @@ Allow: /*.gif$
 Allow: /*.png$
 Allow: /*.svg$
 Allow: /*.webp$
-Allow: /*.ico$
 
 # Disallow specific paths
 Disallow: /_next/
