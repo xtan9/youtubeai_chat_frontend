@@ -4,33 +4,16 @@ import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, RefObject } from "react";
+import { RefObject } from "react";
 
 interface SummaryContentProps {
   summary: SummaryResult;
   contentRef?: RefObject<HTMLDivElement | null>;
-  isCachedResult?: boolean;
 }
 
-export function SummaryContent({
-  summary,
-  contentRef,
-  isCachedResult = false,
-}: SummaryContentProps) {
+export function SummaryContent({ summary }: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
-  const internalRef = useRef<HTMLDivElement>(null);
-
-  // Use provided ref or internal ref
-  const summaryContentRef = contentRef || internalRef;
-
-  // Auto-scroll to bottom when content changes, but not for cached results
-  useEffect(() => {
-    if (!isCachedResult && summaryContentRef.current && summary.summary) {
-      summaryContentRef.current.scrollTop =
-        summaryContentRef.current.scrollHeight;
-    }
-  }, [summary.summary, summaryContentRef, isCachedResult]);
 
   return (
     <div className="relative group">
@@ -67,7 +50,6 @@ export function SummaryContent({
         <div className="space-y-6">
           {/* Render summary with ReactMarkdown */}
           <div
-            ref={summaryContentRef}
             className={`${
               isDark
                 ? "bg-slate-800/80 border-slate-600/50"

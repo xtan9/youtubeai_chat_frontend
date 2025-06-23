@@ -10,7 +10,7 @@ import {
   UseQueryOptions,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect } from "react";
 
 export function useYouTubeSummarizer(
   url: string,
@@ -23,7 +23,6 @@ export function useYouTubeSummarizer(
     access_token: string;
   } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const scrollToBottomRef = useRef<() => void>(() => {});
 
   // Get an anonymous session if user is not logged in
   useEffect(() => {
@@ -157,9 +156,6 @@ export function useYouTubeSummarizer(
         transcriptionTime: 0,
         summaryTime: 0,
       };
-
-      // Scroll to bottom as new content arrives
-      scrollToBottomRef.current?.();
     }
   };
 
@@ -185,15 +181,9 @@ export function useYouTubeSummarizer(
 
   const streamingSummarizationQuery = useQuery(queryOptions);
 
-  // Store a reference to the scroll function
-  const registerScrollFunction = useCallback((scrollFn: () => void) => {
-    scrollToBottomRef.current = scrollFn;
-  }, []);
-
   return {
     summarizationQuery: streamingSummarizationQuery,
     isAnonymous: !session && !!anonSession,
     isAuthLoading: isLoading,
-    registerScrollFunction,
   };
 }
