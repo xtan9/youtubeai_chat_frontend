@@ -24,11 +24,16 @@ export function YouTubeSummarizerApp({
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
+  const [isCachedResult, setIsCachedResult] = useState(false);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
   const summaryContentRef = useRef<HTMLDivElement>(null);
+  const firstRenderRef = useRef(true);
 
   // Define the scroll function
   const scrollToBottom = useCallback(() => {
+    // Don't scroll for cached results
+    if (isCachedResult) return;
+
     requestAnimationFrame(() => {
       if (resultsContainerRef.current) {
         resultsContainerRef.current.scrollIntoView({
@@ -43,10 +48,13 @@ export function YouTubeSummarizerApp({
         });
       }
     });
-  }, []);
+  }, [isCachedResult]);
 
   // Define function to scroll to top
   const scrollToTop = useCallback(() => {
+    // Don't scroll for cached results
+    if (isCachedResult) return;
+
     requestAnimationFrame(() => {
       // Scroll page to top
       window.scrollTo({
@@ -68,7 +76,7 @@ export function YouTubeSummarizerApp({
           }
         });
     });
-  }, []);
+  }, [isCachedResult]);
 
   // Use custom hooks for complex logic
   const { summarizationQuery, registerScrollFunction } = useYouTubeSummarizer(
@@ -87,10 +95,11 @@ export function YouTubeSummarizerApp({
     error: queryError,
     isLoading,
     isFetching,
+    fetchStatus,
   } = summarizationQuery;
 
   // Handle streaming data (array)
-  const { data, streamingProgress } = useMemo(() => {
+  const { data, streamingProgress, isCached } = useMemo(() => {
     if ((isLoading || isFetching) && !rawData) {
       setIsProcessing(true);
       setStreamingComplete(false);
@@ -101,6 +110,7 @@ export function YouTubeSummarizerApp({
           message: "Initializing summary process...",
           progress: 5,
         } as StreamingProgress,
+        isCached: false,
       };
     }
 
@@ -111,6 +121,11 @@ export function YouTubeSummarizerApp({
         setIsProcessing(false);
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
+
+        // Set cached status from the parsed data
+        if (parsed.isCached) {
+          setIsCachedResult(true);
+        }
 
         // Check if streaming is complete
         if (
@@ -123,30 +138,69 @@ export function YouTubeSummarizerApp({
         return {
           data: parsed.result,
           streamingProgress: parsed.progress,
+          isCached: parsed.isCached,
         };
       }
       return {
         data: latestRawData,
         streamingProgress: null,
+        isCached: false,
       };
     }
 
     return {
       data: rawData as SummaryResult | undefined,
       streamingProgress: null,
+      isCached: false,
     };
   }, [rawData, isLoading, isFetching]);
 
+  // Detect if this is a cached result from query status
+  useEffect(() => {
+    // If we already detected it's cached from metadata, don't change it
+    if (isCached) {
+      setIsCachedResult(true);
+      setStreamingComplete(true);
+      return;
+    }
+
+    // Otherwise check the query status
+    if (rawData && !isLoading && !isFetching && fetchStatus === "idle") {
+      setIsCachedResult(true);
+      setStreamingComplete(true);
+    }
+  }, [rawData, isLoading, isFetching, fetchStatus, isCached]);
+
+  // Handle first render with cached results
+  useEffect(() => {
+    if (isCached && firstRenderRef.current) {
+      firstRenderRef.current = false;
+      // For cached results on first render, we don't want any scroll animations
+      setIsCachedResult(true);
+      setStreamingComplete(true);
+    }
+  }, [isCached]);
+
   // Scroll when new data or progress updates arrive during streaming
   useEffect(() => {
-    if ((streamingProgress || data) && !streamingComplete) {
+    if ((streamingProgress || data) && !streamingComplete && !isCachedResult) {
       scrollToBottom();
     }
-  }, [streamingProgress, data, scrollToBottom, streamingComplete]);
+  }, [
+    streamingProgress,
+    data,
+    scrollToBottom,
+    streamingComplete,
+    isCachedResult,
+  ]);
 
   // Scroll to top when streaming completes
   useEffect(() => {
-    if (streamingComplete && streamingProgress?.stage === "complete") {
+    if (
+      streamingComplete &&
+      streamingProgress?.stage === "complete" &&
+      !isCachedResult
+    ) {
       // Add a small delay to ensure all content is rendered
       const timeoutId = setTimeout(() => {
         scrollToTop();
@@ -154,13 +208,19 @@ export function YouTubeSummarizerApp({
 
       return () => clearTimeout(timeoutId);
     }
-  }, [streamingComplete, streamingProgress?.stage, scrollToTop]);
+  }, [
+    streamingComplete,
+    streamingProgress?.stage,
+    scrollToTop,
+    isCachedResult,
+  ]);
 
   const { copied, copyToClipboard } = useClipboard();
 
   // Fetch summary when component mounts
   useEffect(() => {
     if (url) {
+      firstRenderRef.current = true;
       summarizationQuery.refetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,7 +247,7 @@ export function YouTubeSummarizerApp({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2" ref={resultsContainerRef}>
           <AuthErrorBanner authError={queryError?.message} />
-          {(streamingProgress || isProcessing) && (
+          {(streamingProgress || isProcessing) && !isCachedResult && (
             <StreamingProgressIndicator
               progress={
                 streamingProgress || {
@@ -206,6 +266,7 @@ export function YouTubeSummarizerApp({
               onCopySummary={handleCopySummary}
               onNewSummary={handleNewSummary}
               summaryContentRef={summaryContentRef}
+              isCachedResult={isCachedResult}
             />
           )}
         </div>
@@ -215,6 +276,7 @@ export function YouTubeSummarizerApp({
             width={600}
             transcript={data?.transcript}
             streamingComplete={streamingComplete}
+            isCachedResult={isCachedResult}
           />
         </div>
       </div>

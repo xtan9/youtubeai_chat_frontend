@@ -10,6 +10,7 @@ interface YoutubeVideoProps {
   width: number; // This becomes the maximum width
   transcript?: string;
   streamingComplete?: boolean;
+  isCachedResult?: boolean;
 }
 
 const YoutubeVideo = ({
@@ -17,6 +18,7 @@ const YoutubeVideo = ({
   width,
   transcript,
   streamingComplete = false,
+  isCachedResult = false,
 }: YoutubeVideoProps) => {
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [containerWidth, setContainerWidth] = useState(width);
@@ -49,12 +51,12 @@ const YoutubeVideo = ({
     return () => window.removeEventListener("resize", updateWidth);
   }, [width]);
 
-  // Reset transcript scroll position when streaming completes
+  // Reset transcript scroll position when streaming completes, but not for cached results
   useEffect(() => {
-    if (streamingComplete && transcriptRef.current) {
+    if (streamingComplete && !isCachedResult && transcriptRef.current) {
       transcriptRef.current.scrollTop = 0;
     }
-  }, [streamingComplete]);
+  }, [streamingComplete, isCachedResult]);
 
   if (!url) {
     return null;

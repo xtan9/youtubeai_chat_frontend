@@ -17,6 +17,7 @@ export interface StreamingProgress {
 export function parseStreamingData(rawData: string): {
   result: SummaryResult;
   progress: StreamingProgress | null;
+  isCached: boolean;
 } {
   let accumulatedSummary = "";
   let title = "Streaming Summary";
@@ -25,6 +26,7 @@ export function parseStreamingData(rawData: string): {
   let summaryTime = 0;
   let currentProgress: StreamingProgress | null = null;
   let transcript = "";
+  let isCached = false;
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
@@ -42,6 +44,11 @@ export function parseStreamingData(rawData: string): {
 
         // Normalize data type to handle variations
         const type = (data.type || "").toLowerCase();
+
+        // Check for cached flag in metadata
+        if (type === "metadata" && data.cached === true) {
+          isCached = true;
+        }
 
         // Determine progress based on multiple possible indicators
         const determineProgress = () => {
@@ -173,6 +180,7 @@ export function parseStreamingData(rawData: string): {
       transcript,
     },
     progress: currentProgress,
+    isCached,
   };
 }
 

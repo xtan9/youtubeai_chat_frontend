@@ -9,9 +9,14 @@ import { useEffect, useRef, RefObject } from "react";
 interface SummaryContentProps {
   summary: SummaryResult;
   contentRef?: RefObject<HTMLDivElement | null>;
+  isCachedResult?: boolean;
 }
 
-export function SummaryContent({ summary, contentRef }: SummaryContentProps) {
+export function SummaryContent({
+  summary,
+  contentRef,
+  isCachedResult = false,
+}: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const internalRef = useRef<HTMLDivElement>(null);
@@ -19,13 +24,13 @@ export function SummaryContent({ summary, contentRef }: SummaryContentProps) {
   // Use provided ref or internal ref
   const summaryContentRef = contentRef || internalRef;
 
-  // Auto-scroll to bottom when content changes
+  // Auto-scroll to bottom when content changes, but not for cached results
   useEffect(() => {
-    if (summaryContentRef.current && summary.summary) {
+    if (!isCachedResult && summaryContentRef.current && summary.summary) {
       summaryContentRef.current.scrollTop =
         summaryContentRef.current.scrollHeight;
     }
-  }, [summary.summary, summaryContentRef]);
+  }, [summary.summary, summaryContentRef, isCachedResult]);
 
   return (
     <div className="relative group">

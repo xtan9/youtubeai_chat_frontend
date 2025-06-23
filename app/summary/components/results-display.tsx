@@ -12,6 +12,7 @@ interface ResultsDisplayProps {
   onCopySummary: () => void;
   onNewSummary: () => void;
   summaryContentRef?: RefObject<HTMLDivElement | null>;
+  isCachedResult?: boolean;
 }
 
 export function ResultsDisplay({
@@ -20,17 +21,23 @@ export function ResultsDisplay({
   onCopySummary,
   onNewSummary,
   summaryContentRef,
+  isCachedResult = false,
 }: ResultsDisplayProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const aiReasoningRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when content changes
+  // Auto-scroll to bottom when content changes, but not for cached results
   useEffect(() => {
-    if (aiReasoningRef.current && data.keyPoints && data.keyPoints.length > 0) {
+    if (
+      !isCachedResult &&
+      aiReasoningRef.current &&
+      data.keyPoints &&
+      data.keyPoints.length > 0
+    ) {
       aiReasoningRef.current.scrollTop = aiReasoningRef.current.scrollHeight;
     }
-  }, [data.keyPoints]);
+  }, [data.keyPoints, isCachedResult]);
 
   return (
     data && (
@@ -110,7 +117,11 @@ export function ResultsDisplay({
             </Button>
           </div>
         </div>
-        <SummaryContent summary={data} contentRef={summaryContentRef} />
+        <SummaryContent
+          summary={data}
+          contentRef={summaryContentRef}
+          isCachedResult={isCachedResult}
+        />
       </div>
     )
   );
