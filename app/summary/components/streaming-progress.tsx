@@ -47,12 +47,12 @@ export function StreamingProgressIndicator({
         isDark
           ? "bg-slate-800/80 border-slate-600/50"
           : "bg-white border-slate-300"
-      } backdrop-blur-sm border rounded-xl p-6 mb-6 shadow-inner`}
+      } backdrop-blur-sm border rounded-xl px-5 py-3 mb-5 shadow-inner`}
     >
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <div
-            className={`w-10 h-10 rounded-full bg-linear-to-r ${colorGradient} flex items-center justify-center`}
+            className={`w-10 h-10 rounded-full bg-linear-to-r ${colorGradient} flex items-center justify-center shadow-sm`}
           >
             <Icon className="w-5 h-5 text-white" />
           </div>
@@ -88,7 +88,7 @@ export function StreamingProgressIndicator({
       <div
         className={`w-full ${
           isDark ? "bg-slate-700/70" : "bg-slate-200"
-        } rounded-full h-3 mb-3 overflow-hidden`}
+        } rounded-full h-3 overflow-hidden my-3`}
       >
         <div
           className={`bg-linear-to-r ${colorGradient} h-3 rounded-full transition-all duration-500 ease-out relative`}
@@ -97,15 +97,6 @@ export function StreamingProgressIndicator({
           <div className="absolute inset-0 bg-white/20 rounded-full animate-pulse"></div>
         </div>
       </div>
-
-      <p
-        ref={messageRef}
-        className={`text-sm ${
-          isDark ? "text-white" : "text-slate-800"
-        } text-center`}
-      >
-        {progress.message}
-      </p>
     </div>
   );
 }
