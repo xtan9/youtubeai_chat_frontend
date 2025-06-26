@@ -7,6 +7,7 @@ import { ArrowRight, Brain, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { usePostHog } from "posthog-js/react";
 
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
@@ -16,6 +17,7 @@ export function InputForm() {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { resolvedTheme } = useTheme();
+  const posthog = usePostHog();
 
   // Mount after hydration to prevent mismatch
   useEffect(() => {
@@ -57,6 +59,12 @@ export function InputForm() {
       setIsLoading(false);
       return;
     }
+
+    // Track the summary button click with PostHog
+    posthog?.capture("summary_button_clicked", {
+      youtube_url: formUrl,
+      reasoning_enabled: enableReasoning,
+    });
 
     setError(null);
     setUrl(formUrl);

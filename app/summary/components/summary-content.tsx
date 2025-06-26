@@ -4,8 +4,9 @@ import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
 import { useTheme } from "next-themes";
-import { RefObject } from "react";
+import { RefObject, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { usePostHog } from "posthog-js/react";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -23,6 +24,18 @@ export function SummaryContent({
 }: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const posthog = usePostHog();
+
+  // Wrap the onNewSummary callback to include PostHog tracking
+  const handleNewSummary = useCallback(() => {
+    // Track the "New Summary" button click
+    posthog?.capture("new_summary_button_clicked", {
+      summary_title: summary.title,
+    });
+
+    // Call the original onNewSummary callback
+    onNewSummary?.();
+  }, [onNewSummary, posthog, summary.title]);
 
   return (
     <div className="relative group">
@@ -81,7 +94,7 @@ export function SummaryContent({
                 )}
               </Button>
               <Button
-                onClick={onNewSummary}
+                onClick={handleNewSummary}
                 className="bg-linear-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white"
               >
                 <RefreshCw className="mr-2 h-4 w-4" />

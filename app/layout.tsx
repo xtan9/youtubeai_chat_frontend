@@ -1,6 +1,8 @@
 import { UserProvider } from "@/lib/contexts/user-context";
 import { TanstackQueryProvider } from "@/lib/providers/tanstack-query-provider";
 import { ThemeProvider } from "@/lib/providers/theme-provider";
+import { PostHogProvider } from "@/lib/providers/posthog-provider";
+import { PostHogUserIdentifier } from "@/components/posthog-user-identifier";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Geist } from "next/font/google";
 import { Header } from "./components/header";
@@ -94,21 +96,24 @@ export default function RootLayout({
         <meta name="theme-color" content="#000000" />
       </head>
       <body className={`${geist.className} flex min-h-screen flex-col`}>
-        <ThemeProvider>
-          <TanstackQueryProvider>
-            <UserProvider>
-              <Header />
-              <StructuredData />
-              <main className="flex-1">{children}</main>
-              <Footer />
-              <Sonner />
-              <ReactQueryDevtools initialIsOpen={false} />
-            </UserProvider>
-          </TanstackQueryProvider>
-        </ThemeProvider>
-        {process.env.NEXT_PUBLIC_GA_ID && (
-          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
-        )}
+        <PostHogProvider>
+          <ThemeProvider>
+            <TanstackQueryProvider>
+              <UserProvider>
+                <PostHogUserIdentifier />
+                <Header />
+                <StructuredData />
+                <main className="flex-1">{children}</main>
+                <Footer />
+                <Sonner />
+                <ReactQueryDevtools initialIsOpen={false} />
+              </UserProvider>
+            </TanstackQueryProvider>
+          </ThemeProvider>
+          {process.env.NEXT_PUBLIC_GA_ID && (
+            <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+          )}
+        </PostHogProvider>
       </body>
     </html>
   );
