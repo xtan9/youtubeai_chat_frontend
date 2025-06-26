@@ -110,9 +110,10 @@ export default function RootLayout({
               </UserProvider>
             </TanstackQueryProvider>
           </ThemeProvider>
-          {process.env.NEXT_PUBLIC_GA_ID && (
-            <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
-          )}
+          {process.env.NEXT_PUBLIC_GA_ID &&
+            process.env.NODE_ENV === "production" && (
+              <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+            )}
         </PostHogProvider>
       </body>
     </html>
