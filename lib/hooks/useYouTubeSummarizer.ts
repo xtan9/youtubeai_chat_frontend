@@ -1,5 +1,6 @@
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { API_ENDPOINTS } from "@/lib/config/api";
 
 import type { SummaryResult } from "@/lib/types";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
@@ -96,7 +97,7 @@ export function useYouTubeSummarizer(
     }
 
     const response = await fetch(
-      "https://api.youtubeai.chat/summarize/stream",
+      API_ENDPOINTS.SUMMARIZE_STREAM,
       {
         method: "POST",
         headers: {
