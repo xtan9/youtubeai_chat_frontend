@@ -8,33 +8,25 @@ import {
   type TranscriptResult,
   type TranscriptSegment,
 } from "youtube-transcript-plus";
-import type { Language, TranscriptSource } from "./summarize-cache";
+import type { PromptLocale, TranscriptSource } from "./summarize-cache";
+import { extractVideoId } from "./youtube-url";
+
+export { extractVideoId };
+
+export type CaptionSource = Extract<
+  TranscriptSource,
+  "manual_captions" | "auto_captions"
+>;
 
 export interface CaptionResult {
   readonly transcript: string;
-  readonly source: Extract<TranscriptSource, "auto_captions">;
-  readonly language: Language;
+  readonly source: CaptionSource;
+  readonly language: PromptLocale;
   readonly title: string;
   readonly channelName: string;
 }
 
-const VIDEO_ID_PATTERNS: readonly RegExp[] = [
-  /(?:youtube\.com\/watch\?v=)([^#&?]{11})/,
-  /(?:youtu\.be\/)([^#&?]{11})/,
-  /(?:youtube\.com\/embed\/)([^#&?]{11})/,
-  /(?:youtube\.com\/v\/)([^#&?]{11})/,
-];
-
-export function extractVideoId(url: string): string | null {
-  for (const pattern of VIDEO_ID_PATTERNS) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-// These errors mean "this video has no usable captions" — a normal fallback
-// signal, not something to shout about.
+// Errors that mean "no usable captions" — a normal fallback, not an alert.
 const EXPECTED_NO_CAPTIONS_ERRORS = [
   YoutubeTranscriptDisabledError,
   YoutubeTranscriptNotAvailableError,
@@ -47,17 +39,35 @@ function isExpectedNoCaptions(err: unknown): boolean {
   return EXPECTED_NO_CAPTIONS_ERRORS.some((cls) => err instanceof cls);
 }
 
-function pickLanguage(segments: readonly TranscriptSegment[]): Language {
+function pickLocale(segments: readonly TranscriptSegment[]): PromptLocale {
   const lang = segments[0]?.lang ?? "";
   return lang.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
-/**
- * Fetch YouTube captions and video metadata in a single Innertube call.
- * Returns null when the video has no usable captions (expected — falls through
- * to the Whisper path). Unexpected failures are logged with context; every
- * silent fallback costs a paid transcription so visibility matters.
- */
+// youtube-transcript-plus doesn't publish a typed "isGenerated" flag on each
+// segment, but most responses expose a `kind` (e.g. "asr") on either the
+// segment or the containing track. We look for any of the known indicators
+// and fall back to "auto_captions" — the conservative default that matches
+// YouTube's default caption behavior for uploader-less videos.
+function classifySource(
+  segments: readonly TranscriptSegment[],
+  result: TranscriptResult
+): CaptionSource {
+  const maybeAuto =
+    (segments[0] as { kind?: string; isGenerated?: boolean })?.kind === "asr" ||
+    (segments[0] as { isGenerated?: boolean })?.isGenerated === true ||
+    (result as unknown as { trackKind?: string })?.trackKind === "asr";
+  const maybeManual =
+    (segments[0] as { kind?: string; isGenerated?: boolean })?.kind ===
+      "standard" ||
+    (segments[0] as { isGenerated?: boolean })?.isGenerated === false;
+  if (maybeAuto) return "auto_captions";
+  if (maybeManual) return "manual_captions";
+  return "auto_captions";
+}
+
+// Every silent fallback here costs a paid transcription, so unexpected errors
+// are logged with context.
 export async function extractCaptions(
   youtubeUrl: string
 ): Promise<CaptionResult | null> {
@@ -92,8 +102,8 @@ export async function extractCaptions(
 
   return {
     transcript,
-    source: "auto_captions",
-    language: pickLanguage(segments),
+    source: classifySource(segments, result),
+    language: pickLocale(segments),
     title: videoDetails?.title ?? "",
     channelName: videoDetails?.author ?? "",
   };

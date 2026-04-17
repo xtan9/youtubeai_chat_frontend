@@ -103,10 +103,6 @@ function getChinesePrompt(transcript: string): string {
 ${transcript}`;
 }
 
-/**
- * Build a language-aware summarization prompt.
- * Truncates transcript to TRANSCRIPT_MAX_LENGTH characters.
- */
 export function buildSummarizationPrompt(
   transcript: string,
   language: "en" | "zh"

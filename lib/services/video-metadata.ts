@@ -14,12 +14,6 @@ export interface VideoMetadataBasic {
 
 const EMPTY: VideoMetadataBasic = { title: "", channelName: "" };
 
-/**
- * Fetch title + channel for a YouTube URL via YouTube's public oEmbed endpoint.
- * Used when the caption-extractor path didn't fire (Whisper fallback) so the
- * cache still gets meaningful metadata. Fails quietly — an oembed outage
- * shouldn't break summarization.
- */
 export async function fetchVideoMetadata(
   youtubeUrl: string,
   signal?: AbortSignal

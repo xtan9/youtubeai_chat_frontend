@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS videos (
     url_hash TEXT NOT NULL UNIQUE,
     title TEXT,
     channel_name TEXT,
-    language TEXT DEFAULT 'en',
+    language TEXT DEFAULT 'en' CHECK (language IN ('en', 'zh')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
@@ -16,12 +16,18 @@ CREATE TABLE IF NOT EXISTS summaries (
     transcript TEXT,
     summary TEXT NOT NULL,
     thinking TEXT,
-    transcript_source TEXT NOT NULL DEFAULT 'auto_captions',
+    transcript_source TEXT NOT NULL DEFAULT 'auto_captions'
+        CHECK (transcript_source IN ('manual_captions', 'auto_captions', 'whisper')),
     enable_thinking BOOLEAN NOT NULL DEFAULT FALSE,
     model TEXT,
     processing_time_seconds NUMERIC(10, 2),
+    transcribe_time_seconds NUMERIC(10, 2),
+    summarize_time_seconds NUMERIC(10, 2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-    UNIQUE(video_id, enable_thinking)
+    UNIQUE(video_id, enable_thinking),
+    -- Mirror the in-memory ThinkingState discriminated union at the DB layer.
+    CONSTRAINT summaries_thinking_consistent
+        CHECK (enable_thinking = TRUE OR thinking IS NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_summaries_video_id ON summaries(video_id);
@@ -48,7 +54,7 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_user_window ON rate_limits(user_id, window_start);
 
--- RLS policies
+-- RLS
 ALTER TABLE videos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE summaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_video_history ENABLE ROW LEVEL SECURITY;
@@ -72,6 +78,6 @@ CREATE POLICY "history_select" ON user_video_history FOR SELECT TO authenticated
 DROP POLICY IF EXISTS "history_insert" ON user_video_history;
 CREATE POLICY "history_insert" ON user_video_history FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
--- Rate limits: service role only (accessed via server-side Supabase client)
-DROP POLICY IF EXISTS "rate_limits_all" ON rate_limits;
-CREATE POLICY "rate_limits_all" ON rate_limits FOR ALL TO service_role USING (true);
+-- Rate limits: deny all non-service-role access. service_role bypasses RLS,
+-- so no ALLOW policy is needed; the REVOKEs below make the denial explicit.
+REVOKE ALL ON rate_limits FROM anon, authenticated;

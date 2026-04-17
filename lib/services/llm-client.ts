@@ -1,18 +1,12 @@
-/**
- * Typed event stream produced by `streamLlmSummary`. The orchestration route
- * forwards these to the client as SSE via `formatSseEvent` and can also inspect
- * the structured data (e.g., accumulate content for cache writes) without
- * re-parsing strings.
- */
 export type LlmEvent =
   | { readonly type: "status"; readonly message: string; readonly stage: string }
   | { readonly type: "thinking"; readonly text: string }
   | { readonly type: "content"; readonly text: string }
   | {
       readonly type: "timing";
-      readonly total_time: number;
-      readonly summarize_time: number;
-      readonly transcribe_time: number;
+      readonly totalSeconds: number;
+      readonly summarizeSeconds: number;
+      readonly transcribeSeconds: number;
     };
 
 export function formatSseEvent(data: Record<string, unknown>): string {
@@ -25,16 +19,11 @@ export interface LlmStreamOptions {
   readonly signal?: AbortSignal;
 }
 
-// Log malformed chunks at most once per stream so a gateway misbehavior is
-// visible without spamming logs.
 const MAX_MALFORMED_WARNINGS = 1;
 
 /**
- * Stream a chat completion from llm-gateway. Yields typed events the caller
- * can both forward to the client and inspect (e.g., for cache accumulation).
- *
- * Throws on: HTTP error, missing config, no response body, or a completed
- * stream that produced zero content (prevents caching empty summaries).
+ * Throws on: HTTP error, missing config, no response body, empty completion
+ * (prevents caching empty summaries), or mid-stream reader failure.
  */
 export async function* streamLlmSummary(
   options: LlmStreamOptions
@@ -83,59 +72,80 @@ export async function* streamLlmSummary(
   let malformedWarnings = 0;
   let anyContentSeen = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const jsonStr = line.slice(6).trim();
-      if (!jsonStr || jsonStr === "[DONE]") continue;
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr || jsonStr === "[DONE]") continue;
 
-      let chunk: { choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown } }> };
-      try {
-        chunk = JSON.parse(jsonStr);
-      } catch {
-        if (malformedWarnings < MAX_MALFORMED_WARNINGS) {
-          console.warn("[llm-client] malformed SSE chunk (suppressing further)", {
-            preview: jsonStr.slice(0, 120),
-          });
-          malformedWarnings++;
+        let chunk: {
+          choices?: Array<{
+            delta?: { content?: unknown; reasoning_content?: unknown };
+          }>;
+        };
+        try {
+          chunk = JSON.parse(jsonStr);
+        } catch {
+          if (malformedWarnings < MAX_MALFORMED_WARNINGS) {
+            console.warn(
+              "[llm-client] malformed SSE chunk (suppressing further)",
+              { preview: jsonStr.slice(0, 120) }
+            );
+            malformedWarnings++;
+          }
+          continue;
         }
-        continue;
-      }
 
-      const delta = chunk.choices?.[0]?.delta;
-      if (!delta) continue;
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
 
-      if (
-        typeof delta.reasoning_content === "string" &&
-        delta.reasoning_content.length > 0 &&
-        options.enableThinking
-      ) {
-        yield { type: "thinking", text: delta.reasoning_content };
-      }
+        if (
+          typeof delta.reasoning_content === "string" &&
+          delta.reasoning_content.length > 0 &&
+          options.enableThinking
+        ) {
+          yield { type: "thinking", text: delta.reasoning_content };
+        }
 
-      if (typeof delta.content === "string" && delta.content.length > 0) {
-        anyContentSeen = true;
-        yield { type: "content", text: delta.content };
+        if (typeof delta.content === "string" && delta.content.length > 0) {
+          anyContentSeen = true;
+          yield { type: "content", text: delta.content };
+        }
       }
     }
+  } catch (err) {
+    if (anyContentSeen) {
+      throw new Error(
+        `LLM gateway stream dropped after partial content: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+    throw err;
   }
 
   if (!anyContentSeen) {
+    if (malformedWarnings > 0) {
+      throw new Error(
+        "LLM gateway produced only malformed SSE chunks (no content)"
+      );
+    }
     throw new Error("LLM gateway closed the stream without producing content");
   }
 
   const durationSeconds = (Date.now() - startTime) / 1000;
   yield {
     type: "timing",
-    total_time: durationSeconds,
-    summarize_time: durationSeconds,
-    transcribe_time: 0,
+    totalSeconds: durationSeconds,
+    summarizeSeconds: durationSeconds,
+    transcribeSeconds: 0,
   };
 }

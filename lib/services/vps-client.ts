@@ -8,14 +8,13 @@ const TranscribeResponseSchema = z.object({
 
 export type TranscribeResult = z.infer<typeof TranscribeResponseSchema>;
 
+// Vercel's route budget is 300s; leave headroom for caption fetch + LLM.
+const DEFAULT_VPS_TIMEOUT_MS = 240_000;
+
 export function buildTranscribeUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/transcribe`;
 }
 
-/**
- * Call the VPS transcription service for videos without captions.
- * Throws on failure; caller emits a user-visible error event.
- */
 export async function transcribeViaVps(
   youtubeUrl: string,
   signal?: AbortSignal
@@ -27,6 +26,12 @@ export async function transcribeViaVps(
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
 
+  const timeoutMs = Number(process.env.VPS_TIMEOUT_MS) || DEFAULT_VPS_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
   const response = await fetch(buildTranscribeUrl(vpsBaseUrl), {
     method: "POST",
     headers: {
@@ -34,7 +39,7 @@ export async function transcribeViaVps(
       Authorization: `Bearer ${vpsApiKey}`,
     },
     body: JSON.stringify({ youtube_url: youtubeUrl }),
-    signal,
+    signal: combinedSignal,
   });
 
   if (!response.ok) {

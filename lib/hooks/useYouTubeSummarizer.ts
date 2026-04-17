@@ -12,6 +12,9 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useState, useEffect } from "react";
 
+const debugLog: (...args: unknown[]) => void =
+  process.env.NODE_ENV === "production" ? () => {} : console.log;
+
 export function useYouTubeSummarizer(
   url: string,
   enableReasoning: boolean = false,
@@ -36,17 +39,16 @@ export function useYouTubeSummarizer(
           const { data: sessionData } = await supabase.auth.getSession();
 
           if (sessionData?.session) {
-            console.log("Using existing anonymous session");
+            debugLog("Using existing anonymous session");
             setAnonSession(sessionData.session);
           } else {
-            // Sign in anonymously
-            console.log("Signing in anonymously");
+            debugLog("Signing in anonymously");
             const { data, error } = await supabase.auth.signInAnonymously();
 
             if (error) {
               console.error("Anonymous sign-in error:", error);
             } else if (data?.session) {
-              console.log("Anonymous sign-in successful");
+              debugLog("Anonymous sign-in successful");
               setAnonSession(data.session);
             }
           }
@@ -80,7 +82,7 @@ export function useYouTubeSummarizer(
   }: QueryFunctionContext<
     ["youtube-summary-stream", string, boolean, boolean]
   >): AsyncIterable<SummaryResult> {
-    console.log("Fetching streaming summary:", {
+    debugLog("Fetching streaming summary:", {
       url: queryKey[1],
       enableReasoning: queryKey[2],
       includeTranscript: queryKey[3],
@@ -112,7 +114,7 @@ export function useYouTubeSummarizer(
       }
     );
 
-    console.log("Response status:", response.status);
+    debugLog("Response status:", response.status);
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -137,7 +139,7 @@ export function useYouTubeSummarizer(
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
-        console.log("Streaming finished. Total chunks:", chunkCount);
+        debugLog("Streaming finished. Total chunks:", chunkCount);
         break;
       }
 
@@ -145,7 +147,7 @@ export function useYouTubeSummarizer(
       accumulatedData += chunk;
       chunkCount++;
 
-      console.log(`Chunk ${chunkCount}:`, chunk);
+      debugLog(`Chunk ${chunkCount}:`, chunk);
 
       // Yield raw accumulated data - let consumer parse it
       yield {

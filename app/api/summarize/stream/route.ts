@@ -8,10 +8,10 @@ import {
   writeCachedSummary,
   type CachedSummary,
   type TranscriptSource,
-  type Language,
+  type PromptLocale,
   type ThinkingState,
 } from "@/lib/services/summarize-cache";
-import { detectLanguage } from "@/lib/services/language-detect";
+import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import {
   formatSseEvent,
@@ -22,17 +22,23 @@ import { checkRateLimit } from "@/lib/services/rate-limit";
 
 export const maxDuration = 300;
 
+const YOUTUBE_URL_RE = /^https?:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\//i;
 const RequestBodySchema = z.object({
-  youtube_url: z.string().min(1),
+  youtube_url: z
+    .string()
+    .url()
+    .regex(YOUTUBE_URL_RE, "must be a YouTube URL"),
   enable_thinking: z.boolean().optional().default(false),
   include_transcript: z.boolean().optional().default(false),
 });
 
-// Generic messages shown to the user. Full error details stay in server logs.
+// Generic user-facing messages; full error details stay in server logs.
 const USER_ERROR_PROCESS_FAILED =
   "Couldn't process this video. Please try again or try a different URL.";
 const USER_ERROR_GENERIC =
   "Something went wrong generating the summary. Please try again.";
+
+type Stage = "captions" | "vps" | "metadata" | "llm" | "cache" | "unknown";
 
 function jsonError(
   status: number,
@@ -89,9 +95,22 @@ export async function POST(request: Request) {
         if (request.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
-        } catch {
-          // Controller may already be closed (abort or finally). Drop silently.
+        } catch (err) {
+          if (!request.signal.aborted) {
+            console.error("[summarize/stream] enqueue failed post-close", {
+              err,
+            });
+          }
         }
+      };
+
+      const logStageError = (stage: Stage, err: unknown) => {
+        console.error(`[summarize/stream] ${stage} failed`, {
+          stage,
+          youtubeUrl: youtube_url,
+          userId: user.id,
+          err,
+        });
       };
 
       try {
@@ -111,10 +130,17 @@ export async function POST(request: Request) {
 
         let transcript: string;
         let transcriptSource: TranscriptSource;
-        let language: Language;
+        let language: PromptLocale;
         let title = "";
         let channelName = "";
+        // Fires in the Whisper path only; resolved lazily at cache-write time
+        // so the oembed round-trip doesn't serialize with summarization.
+        let metadataPromise: Promise<{
+          title: string;
+          channelName: string;
+        }> | null = null;
 
+        const transcribeStart = Date.now();
         const captions = await extractCaptions(youtube_url);
         if (captions) {
           transcript = captions.transcript;
@@ -128,6 +154,7 @@ export async function POST(request: Request) {
             message: "No captions found. Transcribing audio...",
             stage: "transcribe",
           });
+          metadataPromise = fetchVideoMetadata(youtube_url, request.signal);
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
@@ -135,32 +162,18 @@ export async function POST(request: Request) {
             );
             transcript = vpsResult.transcript;
             transcriptSource = "whisper";
-            language = detectLanguage(transcript.slice(0, 500));
+            language = detectLocale(transcript.slice(0, 500));
           } catch (err) {
             if (isAbortError(err, request.signal)) return;
-            console.error("[summarize/stream] VPS transcription failed", {
-              youtubeUrl: youtube_url,
-              userId: user.id,
-              err,
-            });
+            logStageError("vps", err);
             sendEvent({
               type: "error",
               message: USER_ERROR_PROCESS_FAILED,
             });
             return;
           }
-
-          // Whisper path has no metadata — fetch via YouTube oEmbed so the
-          // cache entry still carries a title. Fire-and-forget in parallel
-          // with summarization so it doesn't add latency to the user's wait.
-          const metadataPromise = fetchVideoMetadata(
-            youtube_url,
-            request.signal
-          );
-          const metadata = await metadataPromise;
-          title = metadata.title;
-          channelName = metadata.channelName;
         }
+        const transcribeSeconds = (Date.now() - transcribeStart) / 1000;
 
         sendEvent({ type: "status", message: `Detected language: ${language}` });
 
@@ -171,20 +184,28 @@ export async function POST(request: Request) {
         const prompt = buildSummarizationPrompt(transcript, language);
         let fullSummary = "";
         let fullThinking = "";
+        let summarizeSeconds = 0;
 
         for await (const event of streamLlmSummary({
           prompt,
           enableThinking,
           signal: request.signal,
         })) {
-          forwardLlmEvent(event, sendEvent);
+          forwardLlmEvent(event, sendEvent, transcribeSeconds);
           if (event.type === "content") fullSummary += event.text;
           else if (event.type === "thinking") fullThinking += event.text;
+          else if (event.type === "timing")
+            summarizeSeconds = event.summarizeSeconds;
         }
 
         const overallDuration = (Date.now() - overallStart) / 1000;
 
         if (fullSummary) {
+          if (metadataPromise) {
+            const metadata = await metadataPromise;
+            title = metadata.title;
+            channelName = metadata.channelName;
+          }
           const thinkingState: ThinkingState = enableThinking
             ? { enableThinking: true, thinking: fullThinking || null }
             : { enableThinking: false, thinking: null };
@@ -199,29 +220,21 @@ export async function POST(request: Request) {
             transcriptSource,
             model: process.env.LLM_MODEL || "claude-sonnet-4-6",
             processingTimeSeconds: overallDuration,
+            transcribeTimeSeconds: transcribeSeconds,
+            summarizeTimeSeconds: summarizeSeconds,
             userId: user.id,
             ...thinkingState,
-          }).catch((err) => {
-            console.error("[summarize/stream] cache write failed (non-fatal)", {
-              youtubeUrl: youtube_url,
-              userId: user.id,
-              err,
-            });
-          });
+          }).catch((err) => logStageError("cache", err));
         }
       } catch (err) {
         if (isAbortError(err, request.signal)) return;
-        console.error("[summarize/stream] unhandled error", {
-          youtubeUrl: youtube_url,
-          userId: user.id,
-          err,
-        });
+        logStageError("unknown", err);
         sendEvent({ type: "error", message: USER_ERROR_GENERIC });
       } finally {
         try {
           controller.close();
         } catch {
-          // Already closed (abort path).
+          // Already closed on abort — nothing to do.
         }
       }
     },
@@ -239,7 +252,8 @@ export async function POST(request: Request) {
 
 function forwardLlmEvent(
   event: LlmEvent,
-  sendEvent: (data: Record<string, unknown>) => void
+  sendEvent: (data: Record<string, unknown>) => void,
+  transcribeSeconds: number
 ) {
   switch (event.type) {
     case "status":
@@ -255,19 +269,20 @@ function forwardLlmEvent(
       sendEvent({
         type: "summary",
         category: "general",
-        total_time: event.total_time,
-        summarize_time: event.summarize_time,
-        transcribe_time: event.transcribe_time,
+        total_time: event.totalSeconds + transcribeSeconds,
+        summarize_time: event.summarizeSeconds,
+        transcribe_time: transcribeSeconds,
       });
       return;
+    default: {
+      const _exhaustive: never = event;
+      return _exhaustive;
+    }
   }
 }
 
-/**
- * Replay a cached summary in the same event order as a fresh run
- * (thinking → content → transcript → summary) so the frontend accumulator
- * renders cache hits identically to live streams.
- */
+// Event order must match a fresh run so the client accumulator renders cache
+// hits identically to live streams.
 function streamCached(
   sendEvent: (data: Record<string, unknown>) => void,
   cached: CachedSummary,
@@ -295,7 +310,7 @@ function streamCached(
     type: "summary",
     category: "general",
     total_time: cached.processingTimeSeconds,
-    summarize_time: cached.processingTimeSeconds,
-    transcribe_time: 0,
+    summarize_time: cached.summarizeTimeSeconds,
+    transcribe_time: cached.transcribeTimeSeconds,
   });
 }
