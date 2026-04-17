@@ -19,6 +19,10 @@ export interface LlmStreamOptions {
   readonly signal?: AbortSignal;
 }
 
+// Per-stream cap: log once so a misbehaving gateway is visible without spamming
+// every chunk. The counter is also load-bearing for the final branch — a
+// non-zero value switches us from "closed without content" to the distinct
+// "only malformed chunks" error.
 const MAX_MALFORMED_WARNINGS = 1;
 
 /**
@@ -69,7 +73,8 @@ export async function* streamLlmSummary(
 
   const decoder = new TextDecoder();
   let buffer = "";
-  let malformedWarnings = 0;
+  let malformedChunks = 0;
+  let malformedLogged = 0;
   let anyContentSeen = false;
 
   try {
@@ -94,12 +99,13 @@ export async function* streamLlmSummary(
         try {
           chunk = JSON.parse(jsonStr);
         } catch {
-          if (malformedWarnings < MAX_MALFORMED_WARNINGS) {
+          malformedChunks++;
+          if (malformedLogged < MAX_MALFORMED_WARNINGS) {
             console.warn(
               "[llm-client] malformed SSE chunk (suppressing further)",
               { preview: jsonStr.slice(0, 120) }
             );
-            malformedWarnings++;
+            malformedLogged++;
           }
           continue;
         }
@@ -126,14 +132,15 @@ export async function* streamLlmSummary(
       throw new Error(
         `LLM gateway stream dropped after partial content: ${
           err instanceof Error ? err.message : String(err)
-        }`
+        }`,
+        { cause: err }
       );
     }
     throw err;
   }
 
   if (!anyContentSeen) {
-    if (malformedWarnings > 0) {
+    if (malformedChunks > 0) {
       throw new Error(
         "LLM gateway produced only malformed SSE chunks (no content)"
       );

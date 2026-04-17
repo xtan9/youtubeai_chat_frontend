@@ -1,9 +1,12 @@
+const ID = "([A-Za-z0-9_-]{11})";
+const HOST = "(?:www\\.|m\\.|music\\.)?youtube\\.com";
+
 const VIDEO_ID_PATTERNS: readonly RegExp[] = [
-  /(?:youtube\.com\/watch\?v=)([^#&?]{11})/,
-  /(?:youtu\.be\/)([^#&?]{11})/,
-  /(?:youtube\.com\/embed\/)([^#&?]{11})/,
-  /(?:youtube\.com\/v\/)([^#&?]{11})/,
-  /(?:youtube\.com\/shorts\/)([^#&?]{11})/,
+  new RegExp(`${HOST}/watch\\?v=${ID}`),
+  new RegExp(`${HOST}/embed/${ID}`),
+  new RegExp(`${HOST}/v/${ID}`),
+  new RegExp(`${HOST}/shorts/${ID}`),
+  new RegExp(`youtu\\.be/${ID}`),
 ];
 
 export function extractVideoId(url: string): string | null {

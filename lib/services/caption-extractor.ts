@@ -13,10 +13,12 @@ import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
 
-export type CaptionSource = Extract<
-  TranscriptSource,
-  "manual_captions" | "auto_captions"
->;
+// youtube-transcript-plus's TranscriptSegment does not expose whether a track
+// was uploader-provided or ASR-generated. Until a future library release
+// surfaces that signal (or we migrate to YouTube Data API captions.list), we
+// cannot honestly distinguish — so everything coming through this path is
+// labelled auto_captions. Narrowing the type enforces that honesty.
+export type CaptionSource = Extract<TranscriptSource, "auto_captions">;
 
 export interface CaptionResult {
   readonly transcript: string;
@@ -42,28 +44,6 @@ function isExpectedNoCaptions(err: unknown): boolean {
 function pickLocale(segments: readonly TranscriptSegment[]): PromptLocale {
   const lang = segments[0]?.lang ?? "";
   return lang.toLowerCase().startsWith("zh") ? "zh" : "en";
-}
-
-// youtube-transcript-plus doesn't publish a typed "isGenerated" flag on each
-// segment, but most responses expose a `kind` (e.g. "asr") on either the
-// segment or the containing track. We look for any of the known indicators
-// and fall back to "auto_captions" — the conservative default that matches
-// YouTube's default caption behavior for uploader-less videos.
-function classifySource(
-  segments: readonly TranscriptSegment[],
-  result: TranscriptResult
-): CaptionSource {
-  const maybeAuto =
-    (segments[0] as { kind?: string; isGenerated?: boolean })?.kind === "asr" ||
-    (segments[0] as { isGenerated?: boolean })?.isGenerated === true ||
-    (result as unknown as { trackKind?: string })?.trackKind === "asr";
-  const maybeManual =
-    (segments[0] as { kind?: string; isGenerated?: boolean })?.kind ===
-      "standard" ||
-    (segments[0] as { isGenerated?: boolean })?.isGenerated === false;
-  if (maybeAuto) return "auto_captions";
-  if (maybeManual) return "manual_captions";
-  return "auto_captions";
 }
 
 // Every silent fallback here costs a paid transcription, so unexpected errors
@@ -102,7 +82,7 @@ export async function extractCaptions(
 
   return {
     transcript,
-    source: classifySource(segments, result),
+    source: "auto_captions",
     language: pickLocale(segments),
     title: videoDetails?.title ?? "",
     channelName: videoDetails?.author ?? "",

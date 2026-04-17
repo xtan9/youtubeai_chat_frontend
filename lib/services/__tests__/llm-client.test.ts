@@ -168,6 +168,60 @@ describe("streamLlmSummary", () => {
     ).rejects.toThrow(/malformed SSE chunks/);
   });
 
+  it("forwards caller's AbortSignal to fetch", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    await collect(
+      streamLlmSummary({
+        prompt: "x",
+        enableThinking: false,
+        signal: controller.signal,
+      })
+    );
+    const passedSignal = fetchMock.mock.calls[0][1]?.signal;
+    expect(passedSignal).toBe(controller.signal);
+  });
+
+  it("attaches original error as cause on mid-stream wrap", async () => {
+    stubEnv();
+    const encoder = new TextEncoder();
+    const originalErr = new Error("TCP reset");
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulls === 0) {
+          pulls++;
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"hi"}}]}\n'
+            )
+          );
+        } else {
+          controller.error(originalErr);
+        }
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(body, { status: 200 }))
+    );
+    let caught: unknown;
+    try {
+      await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).cause).toBe(originalErr);
+  });
+
   it("wraps mid-stream reader failure with partial-content context", async () => {
     stubEnv();
     const encoder = new TextEncoder();

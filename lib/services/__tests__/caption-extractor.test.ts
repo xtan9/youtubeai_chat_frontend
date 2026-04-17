@@ -14,7 +14,10 @@ vi.mock("youtube-transcript-plus", async (orig) => {
 
 import {
   YoutubeTranscriptDisabledError,
+  YoutubeTranscriptInvalidVideoIdError,
   YoutubeTranscriptNotAvailableError,
+  YoutubeTranscriptNotAvailableLanguageError,
+  YoutubeTranscriptVideoUnavailableError,
 } from "youtube-transcript-plus";
 import { extractCaptions } from "../caption-extractor";
 
@@ -30,31 +33,32 @@ describe("extractCaptions", () => {
     expect(mocks.fetchTranscript).not.toHaveBeenCalled();
   });
 
-  it("returns null and does NOT log on expected 'disabled' error", async () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.fetchTranscript.mockRejectedValue(
-      new YoutubeTranscriptDisabledError("dQw4w9WgXcQ")
-    );
-    const result = await extractCaptions(
-      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
-  });
+  it.each<[string, () => Error]>([
+    ["Disabled", () => new YoutubeTranscriptDisabledError("dQw4w9WgXcQ")],
+    ["NotAvailable", () => new YoutubeTranscriptNotAvailableError("dQw4w9WgXcQ")],
+    [
+      "NotAvailableLanguage",
+      () => new YoutubeTranscriptNotAvailableLanguageError("en", ["zh"], "dQw4w9WgXcQ"),
+    ],
+    [
+      "VideoUnavailable",
+      () => new YoutubeTranscriptVideoUnavailableError("dQw4w9WgXcQ"),
+    ],
+    ["InvalidVideoId", () => new YoutubeTranscriptInvalidVideoIdError()],
+  ])(
+    "silently returns null on expected %s error",
+    async (_name, makeErr) => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mocks.fetchTranscript.mockRejectedValue(makeErr());
+      const result = await extractCaptions(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      );
+      expect(result).toBeNull();
+      expect(spy).not.toHaveBeenCalled();
+    }
+  );
 
-  it("returns null and does NOT log on expected 'not available' error", async () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.fetchTranscript.mockRejectedValue(
-      new YoutubeTranscriptNotAvailableError("dQw4w9WgXcQ")
-    );
-    const result = await extractCaptions(
-      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it("returns null AND logs on unexpected errors (paid fallback signal)", async () => {
+  it("logs and returns null on unexpected errors (paid fallback signal)", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.fetchTranscript.mockRejectedValue(new TypeError("network down"));
     const result = await extractCaptions(
@@ -75,7 +79,7 @@ describe("extractCaptions", () => {
     expect(result).toBeNull();
   });
 
-  it("returns cleaned transcript + metadata on success (en)", async () => {
+  it("returns cleaned transcript + metadata on success and labels auto_captions", async () => {
     mocks.fetchTranscript.mockResolvedValue({
       segments: [
         { text: "hello ", lang: "en" },
@@ -104,27 +108,5 @@ describe("extractCaptions", () => {
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     );
     expect(result?.language).toBe("zh");
-  });
-
-  it("classifies as manual_captions when segment reports isGenerated=false", async () => {
-    mocks.fetchTranscript.mockResolvedValue({
-      segments: [{ text: "hi", lang: "en", isGenerated: false }],
-      videoDetails: { title: "", author: "" },
-    });
-    const result = await extractCaptions(
-      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result?.source).toBe("manual_captions");
-  });
-
-  it("classifies as auto_captions when segment reports kind=asr", async () => {
-    mocks.fetchTranscript.mockResolvedValue({
-      segments: [{ text: "hi", lang: "en", kind: "asr" }],
-      videoDetails: { title: "", author: "" },
-    });
-    const result = await extractCaptions(
-      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result?.source).toBe("auto_captions");
   });
 });

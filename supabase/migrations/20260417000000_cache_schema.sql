@@ -20,15 +20,67 @@ CREATE TABLE IF NOT EXISTS summaries (
         CHECK (transcript_source IN ('manual_captions', 'auto_captions', 'whisper')),
     enable_thinking BOOLEAN NOT NULL DEFAULT FALSE,
     model TEXT,
-    processing_time_seconds NUMERIC(10, 2),
-    transcribe_time_seconds NUMERIC(10, 2),
-    summarize_time_seconds NUMERIC(10, 2),
+    processing_time_seconds NUMERIC(10, 2) CHECK (processing_time_seconds IS NULL OR processing_time_seconds >= 0),
+    transcribe_time_seconds NUMERIC(10, 2) CHECK (transcribe_time_seconds IS NULL OR transcribe_time_seconds >= 0),
+    summarize_time_seconds NUMERIC(10, 2) CHECK (summarize_time_seconds IS NULL OR summarize_time_seconds >= 0),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
     UNIQUE(video_id, enable_thinking),
     -- Mirror the in-memory ThinkingState discriminated union at the DB layer.
     CONSTRAINT summaries_thinking_consistent
         CHECK (enable_thinking = TRUE OR thinking IS NULL)
 );
+
+-- When the table already existed (earlier dev/staging runs of this migration),
+-- `CREATE TABLE IF NOT EXISTS` silently skips the whole block including the
+-- inline constraints. These guarded ALTERs reconcile those environments with
+-- a fresh deploy.
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcribe_time_seconds NUMERIC(10, 2);
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS summarize_time_seconds NUMERIC(10, 2);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_thinking_consistent'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_thinking_consistent
+            CHECK (enable_thinking = TRUE OR thinking IS NULL);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_transcript_source_check'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_transcript_source_check
+            CHECK (transcript_source IN ('manual_captions', 'auto_captions', 'whisper'));
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_processing_time_nonneg'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_processing_time_nonneg
+            CHECK (processing_time_seconds IS NULL OR processing_time_seconds >= 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_transcribe_time_nonneg'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_transcribe_time_nonneg
+            CHECK (transcribe_time_seconds IS NULL OR transcribe_time_seconds >= 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_summarize_time_nonneg'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_summarize_time_nonneg
+            CHECK (summarize_time_seconds IS NULL OR summarize_time_seconds >= 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'videos_language_check'
+    ) THEN
+        ALTER TABLE videos ADD CONSTRAINT videos_language_check
+            CHECK (language IN ('en', 'zh'));
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_summaries_video_id ON summaries(video_id);
 

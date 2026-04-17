@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const RATE_LIMITS = {
   anonymous: 10,
@@ -12,16 +12,6 @@ const DEPLOY_DEFECT_CODES = new Set([
   "42883", // undefined_function - migration didn't run
   "42501", // insufficient_privilege - grant revoked
 ]);
-
-let cachedClient: SupabaseClient | null = null;
-function getServiceRoleClient(): SupabaseClient | null {
-  if (cachedClient) return cachedClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  cachedClient = createClient(url, key);
-  return cachedClient;
-}
 
 export function getWindowStart(date: Date): Date {
   const floored = new Date(date);

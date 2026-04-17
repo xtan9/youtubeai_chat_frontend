@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { extractVideoId } from "./youtube-url";
+import { getServiceRoleClient } from "@/lib/supabase/service-role";
 
 export type PromptLocale = "en" | "zh";
 export type TranscriptSource = "manual_captions" | "auto_captions" | "whisper";
@@ -36,22 +36,12 @@ export type CacheWriteParams = VideoMetadata &
 
 /**
  * Normalized cache key. Prefer the 11-char YouTube video ID so different URL
- * forms for the same video collapse to one cache row (e.g. youtu.be/X,
- * youtube.com/watch?v=X, &t=10). Falls back to an MD5 of the raw URL when
- * the ID can't be extracted.
+ * shapes (`youtu.be/X`, `youtube.com/watch?v=X`, `&t=10`, `music.*`) collapse
+ * to one cache row. Falls back to MD5 of the raw URL when the ID can't be
+ * extracted.
  */
 export function computeVideoKey(url: string): string {
   return extractVideoId(url) ?? createHash("md5").update(url).digest("hex");
-}
-
-let cachedClient: SupabaseClient | null = null;
-function getServiceRoleClient(): SupabaseClient | null {
-  if (cachedClient) return cachedClient;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) return null;
-  cachedClient = createClient(url, serviceRoleKey);
-  return cachedClient;
 }
 
 // Parse Supabase responses through these so a stale enum value or dropped
@@ -70,6 +60,9 @@ const VideoRowSchema = z.object({
   language: LocaleSchema.nullable(),
 });
 
+const THINKING_INVARIANT_MESSAGE =
+  "thinking must be null when enable_thinking is false";
+
 const SummaryRowSchema = z
   .object({
     transcript: z.string().nullable(),
@@ -83,9 +76,13 @@ const SummaryRowSchema = z
     summarize_time_seconds: z.number().nullable(),
   })
   .refine((s) => s.enable_thinking || s.thinking === null, {
-    message: "thinking must be null when enable_thinking is false",
+    message: THINKING_INVARIANT_MESSAGE,
     path: ["thinking"],
   });
+
+function isThinkingInvariantViolation(err: z.ZodError): boolean {
+  return err.issues.some((i) => i.message === THINKING_INVARIANT_MESSAGE);
+}
 
 /**
  * Fails open (null) on any error with a log so a broken cache surfaces as
@@ -146,10 +143,20 @@ export async function getCachedSummary(
 
     const summaryParsed = SummaryRowSchema.safeParse(summaryRaw);
     if (!summaryParsed.success) {
-      console.error(
-        "[summarize-cache] summary row schema mismatch (fail-open)",
-        { videoId: video.id, issues: summaryParsed.error.issues }
-      );
+      if (isThinkingInvariantViolation(summaryParsed.error)) {
+        // DB CHECK `summaries_thinking_consistent` is supposed to make this
+        // unreachable. Reaching it means the constraint was bypassed or never
+        // applied — treat as a data-integrity incident, not routine drift.
+        console.error(
+          "[summarize-cache] DATA INTEGRITY: thinking invariant violated in DB row",
+          { videoId: video.id, issues: summaryParsed.error.issues }
+        );
+      } else {
+        console.error(
+          "[summarize-cache] summary row schema mismatch (fail-open)",
+          { videoId: video.id, issues: summaryParsed.error.issues }
+        );
+      }
       return null;
     }
     const s = summaryParsed.data;
@@ -157,6 +164,14 @@ export async function getCachedSummary(
     const thinkingState: ThinkingState = s.enable_thinking
       ? { enableThinking: true, thinking: s.thinking }
       : { enableThinking: false, thinking: null };
+
+    const processingTime = s.processing_time_seconds ?? 0;
+    const transcribeTime = s.transcribe_time_seconds ?? 0;
+    // Legacy rows pre-date the split columns — fall back so cache hits still
+    // render sensible timings instead of 0s.
+    const summarizeTime =
+      s.summarize_time_seconds ??
+      (transcribeTime ? Math.max(0, processingTime - transcribeTime) : processingTime);
 
     return {
       videoId: video.id,
@@ -167,10 +182,9 @@ export async function getCachedSummary(
       summary: s.summary,
       transcriptSource: s.transcript_source,
       model: s.model ?? "",
-      processingTimeSeconds: s.processing_time_seconds ?? 0,
-      transcribeTimeSeconds: s.transcribe_time_seconds ?? 0,
-      summarizeTimeSeconds:
-        s.summarize_time_seconds ?? s.processing_time_seconds ?? 0,
+      processingTimeSeconds: processingTime,
+      transcribeTimeSeconds: transcribeTime,
+      summarizeTimeSeconds: summarizeTime,
       ...thinkingState,
     };
   } catch (err) {
