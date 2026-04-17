@@ -173,7 +173,7 @@ export function useYouTubeSummarizer(
       includeTranscript,
     ],
     queryFn: streamedQuery({
-      queryFn: fetchStreamingSummary,
+      streamFn: fetchStreamingSummary,
     }),
     enabled: false,
     retry: 1,
