@@ -16,10 +16,13 @@ concurrency:
 
 jobs:
   migrate:
-    # Skip unless CI succeeded on main (or manually triggered).
+    # Only run when CI passed on main, or when manually dispatched ON main.
+    # workflow_dispatch on a feature branch would otherwise bypass CI.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
 
@@ -33,10 +36,20 @@ jobs:
 
       - name: Detect migration changes
         id: changes
+        # pipefail + explicit failure so a missing HEAD~1 (shallow fetch /
+        # history rewrite) never silently skips a real migration.
         run: |
+          set -eo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only HEAD~1 HEAD | grep -q '^supabase/migrations/'; then
+            exit 0
+          fi
+          if ! git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            echo "::error::HEAD~1 missing; cannot determine migration changes"
+            exit 1
+          fi
+          changed_files=$(git diff --name-only HEAD~1 HEAD)
+          if grep -q '^supabase/migrations/' <<<"$changed_files"; then
             echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "migrations_changed=false" >> "$GITHUB_OUTPUT"

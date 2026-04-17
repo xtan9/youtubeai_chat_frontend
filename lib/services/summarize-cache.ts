@@ -77,9 +77,12 @@ const SummaryRowSchema = z
     path: ["thinking"],
   });
 
-// Write-side mirror. Validates the payload *before* upsert so a caller that
-// bypassed the TS discriminated union (e.g. via partial spread or an `any`
-// cast) is rejected loudly instead of silently corrupting a cache row.
+// Write-side schema is deliberately stricter than the read-side: new rows
+// must have non-null transcript/model/timings. The read schema allows nulls
+// for historical rows written before the split columns existed. Don't
+// unify them without a backfill. The refine is a belt-and-suspenders guard
+// against callers that bypassed the `ThinkingState` discriminated union via
+// an `any` cast — the DB CHECK is the authoritative invariant.
 const SummaryWriteSchema = z
   .object({
     video_id: z.string(),
@@ -219,18 +222,34 @@ export async function getCachedSummary(
   }
 }
 
-// Runs after the user already has their summary, so throwing here does NOT
-// affect the HTTP response — the route's `.catch` logs with full context.
-// We throw (rather than silently return) so partial-write failures surface
-// as loggable incidents instead of leaving orphan rows behind the user's back.
+// Runs after the user already has their summary. Throws on any partial-write
+// failure so the route's `.catch` can log with full context — a silent skip
+// here leaves orphan `videos` rows without a matching `summaries` row, which
+// breaks cache reads for that URL permanently.
 export async function writeCachedSummary(
   params: CacheWriteParams
 ): Promise<void> {
   const supabase = getServiceRoleClient();
   if (!supabase) {
-    console.warn(
-      "[summarize-cache] write skipped: service-role key not configured"
-    );
+    // Missing creds = cache disabled = every request re-bills through the
+    // LLM gateway. Same incident class as rate-limit fail-open — alertable
+    // in production, tolerable noise in dev.
+    const payload = {
+      errorId: "CACHE_WRITE_SKIP_NO_CREDS",
+      hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    };
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[summarize-cache] write skipped: service-role key not configured (cache disabled in production)",
+        payload
+      );
+    } else {
+      console.warn(
+        "[summarize-cache] write skipped: service-role key not configured",
+        payload
+      );
+    }
     return;
   }
 

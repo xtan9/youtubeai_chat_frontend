@@ -1,4 +1,4 @@
-import type { ClientStage } from "@/app/api/summarize/stream/stages";
+import type { ClientStage } from "@/lib/stages";
 
 export type LlmEvent =
   | {
@@ -26,6 +26,10 @@ export interface LlmStreamOptions {
 // "only malformed chunks" error.
 const MAX_MALFORMED_WARNINGS = 1;
 
+// Default model identifier used when LLM_MODEL is unset. Kept in one place so
+// the route's cache-write and the gateway request stay in sync.
+export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
+
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion
  * (prevents caching empty summaries), or mid-stream reader failure.
@@ -35,7 +39,17 @@ export async function* streamLlmSummary(
 ): AsyncGenerator<LlmEvent> {
   const gatewayUrl = process.env.LLM_GATEWAY_URL;
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY;
-  const model = process.env.LLM_MODEL || "claude-sonnet-4-6";
+  const configuredModel = process.env.LLM_MODEL;
+  // An empty LLM_MODEL in production points at a deploy that forgot to set
+  // the model variable — fall back to the default, but log loudly so the
+  // resulting cost/behaviour mismatch with intent is visible.
+  if (!configuredModel && process.env.NODE_ENV === "production") {
+    console.error("[llm-client] LLM_MODEL unset in production; using default", {
+      errorId: "LLM_MODEL_MISSING",
+      defaultModel: DEFAULT_LLM_MODEL,
+    });
+  }
+  const model = configuredModel || DEFAULT_LLM_MODEL;
 
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");

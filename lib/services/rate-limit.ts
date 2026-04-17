@@ -13,8 +13,6 @@ const DEPLOY_DEFECT_CODES = new Set([
   "42501", // insufficient_privilege - grant revoked
 ]);
 
-export type UserTier = keyof typeof RATE_LIMITS;
-
 // Discriminated on `reason` so callers can tell "user is genuinely within
 // quota" from "we let this through because Supabase is down." Observability
 // wants that distinction — a spike in `fail_open` is an outage, not traffic.

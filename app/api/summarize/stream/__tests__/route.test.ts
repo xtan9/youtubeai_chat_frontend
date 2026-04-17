@@ -46,6 +46,7 @@ vi.mock("@/lib/services/llm-client", () => ({
   streamLlmSummary: mocks.streamLlmSummary,
   formatSseEvent: (d: Record<string, unknown>) =>
     `data: ${JSON.stringify(d)}\n\n`,
+  DEFAULT_LLM_MODEL: "test-model",
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
@@ -168,10 +169,18 @@ describe("POST /api/summarize/stream", () => {
       expect(await res.json()).toEqual({ message: "Unauthorized" });
     });
 
-    it("returns 401 when getUser returns an explicit 401-class error", async () => {
-      // Supabase surfaces missing/expired sessions as a 401 error field
-      // alongside a null user — still a genuine "not logged in," must not
-      // escalate to a 503.
+    it("returns 401 when getUser returns a status-400 session error (AuthSessionMissingError shape)", async () => {
+      // Supabase's AuthSessionMissingError uses status 400 — treat as
+      // unauth, not infra. Escalating to 503 here was a real production bug.
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 400, message: "Auth session missing!" },
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 401 when getUser returns a 401-status error", async () => {
       mocks.getUser.mockResolvedValue({
         data: { user: null },
         error: { status: 401, message: "no session" },
@@ -180,9 +189,9 @@ describe("POST /api/summarize/stream", () => {
       expect(res.status).toBe(401);
     });
 
-    it("returns 503 when getUser reports a non-401 infra error", async () => {
-      // Distinguishes infra outage from unauthenticated so on-call can alert
-      // on the 503 rate instead of silently blaming users.
+    it("returns 503 when getUser reports a 5xx infra error", async () => {
+      // Client-side error statuses (400/401/403) = "not logged in"; 5xx or
+      // status-less = infra outage. Only the latter must page on-call.
       mocks.getUser.mockResolvedValue({
         data: { user: null },
         error: { status: 500, message: "supabase down" },
@@ -197,6 +206,16 @@ describe("POST /api/summarize/stream", () => {
         "[summarize/stream] auth failed",
         expect.objectContaining({ stage: "auth", status: 500 })
       );
+    });
+
+    it("returns 503 when getUser error has no status (unreachable Supabase)", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { message: "network down" },
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(503);
     });
 
     it("returns 503 when getUser throws (network failure reaching Supabase)", async () => {
@@ -502,6 +521,71 @@ describe("POST /api/summarize/stream", () => {
       );
       // Terminal summary still emits so the client accumulator closes.
       expect(events.at(-1)?.type).toBe("summary");
+    });
+
+    it("treats a synchronous throw from fetchVideoMetadata as aborted when caller signal fired", async () => {
+      // Guards the metadataPromise.catch abort-classification branch —
+      // without it, a sync-throw during abort would be logged as a
+      // spurious upstream error.
+      const controller = new AbortController();
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockImplementation(() => {
+        throw new Error("synthetic sync throw");
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      controller.abort();
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL }, { signal: controller.signal })
+      );
+      await readStream(res);
+
+      const metadataLog = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("metadata failed")
+      );
+      expect(metadataLog).toBeUndefined();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("logs upstream error when fetchVideoMetadata throws synchronously without caller abort", async () => {
+      // The companion to the sync-throw-during-abort case: a real error
+      // must still surface when the caller has NOT disconnected.
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockImplementation(() => {
+        throw new Error("synthetic sync throw");
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("metadata failed"),
+        expect.objectContaining({ stage: "metadata" })
+      );
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
     it("skips cache write when oembed returns empty title/channel (prevents headerless cache poisoning)", async () => {

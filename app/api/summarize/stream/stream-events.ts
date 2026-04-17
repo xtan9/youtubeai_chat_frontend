@@ -1,6 +1,6 @@
 import type { CachedSummary } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
-import type { ClientStage } from "./stages";
+import type { ClientStage } from "@/lib/stages";
 
 export type SseEvent =
   | { type: "status"; message: string; stage?: ClientStage }

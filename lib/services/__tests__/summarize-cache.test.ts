@@ -512,4 +512,46 @@ describe("writeCachedSummary", () => {
     );
     expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
   });
+
+  it("accepts enableThinking:true with a non-null thinking value", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.summariesBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.summariesBuilder
+    );
+
+    const { writeCachedSummary } = await loadFresh();
+    await expect(
+      writeCachedSummary({
+        ...baseParams,
+        enableThinking: true,
+        thinking: "reasoning text",
+      })
+    ).resolves.toBeUndefined();
+
+    const summariesCall = mocks.summariesBuilder.upsert.mock
+      .calls[0] as unknown as [Record<string, unknown>];
+    expect(summariesCall[0]).toMatchObject({
+      enable_thinking: true,
+      thinking: "reasoning text",
+    });
+  });
+
+  it("rejects empty summary (invariant: never cache an empty row)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    const { writeCachedSummary } = await loadFresh();
+    await expect(
+      writeCachedSummary({ ...baseParams, summary: "" })
+    ).rejects.toThrow(/summary write rejected by invariant check/);
+    expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
+  });
 });

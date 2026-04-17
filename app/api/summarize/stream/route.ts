@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
 import { transcribeViaVps } from "@/lib/services/vps-client";
@@ -16,6 +17,7 @@ import {
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import {
+  DEFAULT_LLM_MODEL,
   formatSseEvent,
   streamLlmSummary,
 } from "@/lib/services/llm-client";
@@ -25,7 +27,7 @@ import {
   streamCached,
   type SendEvent,
 } from "./stream-events";
-import type { LogStage } from "./stages";
+import type { LogStage } from "@/lib/stages";
 
 export const maxDuration = 300;
 
@@ -50,7 +52,7 @@ const USER_ERROR_GENERIC =
 const USER_ERROR_EMPTY_SUMMARY =
   "The model returned no summary. Please try again.";
 
-export type { LogStage } from "./stages";
+export type { LogStage } from "@/lib/stages";
 
 function jsonError(
   status: number,
@@ -132,18 +134,25 @@ export async function POST(request: Request) {
   } = parsed.data;
 
   const supabase = await createClient();
-  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"];
+  let user: User | null;
   try {
     const { data, error } = await supabase.auth.getUser();
-    // Distinguish infra errors (Supabase gateway down, JWKS fetch failed)
-    // from "no session." Non-401 errors must page, not silently 401 users.
-    if (error && error.status !== 401) {
-      console.error("[summarize/stream] auth failed", {
-        stage: "auth" satisfies LogStage,
-        status: error.status,
-        message: error.message,
-      });
-      return jsonError(503, "Auth service temporarily unavailable.");
+    // Client-side auth errors (missing/expired session, invalid JWT) surface
+    // as status 400/401/403 and ARE "not authenticated" — return 401.
+    // Server-side errors (status >= 500) or status-less failures (fetch
+    // unreachable) mean we can't tell if the user is valid — return 503 so
+    // on-call can alert on the rate instead of blaming users.
+    if (error) {
+      const status = error.status ?? 0;
+      const isInfraError = status === 0 || status >= 500;
+      if (isInfraError) {
+        console.error("[summarize/stream] auth failed", {
+          stage: "auth" satisfies LogStage,
+          status,
+          message: error.message,
+        });
+        return jsonError(503, "Auth service temporarily unavailable.");
+      }
     }
     user = data.user;
   } catch (err) {
@@ -158,36 +167,46 @@ export async function POST(request: Request) {
   const authedUser = user;
   const isAnonymous = authedUser.is_anonymous ?? false;
 
-  const { allowed, remaining } = await checkRateLimit(
-    authedUser.id,
-    isAnonymous
-  );
-  if (!allowed) {
-    return jsonError(429, "Rate limit exceeded. Please try again later.", {
-      "X-RateLimit-Remaining": String(remaining),
+  const rateLimit = await checkRateLimit(authedUser.id, isAnonymous);
+  // Surface fail-open at the route layer so the user/URL is bound to the
+  // bypass in one log line — rate-limit.ts logs the infra cause, the route
+  // logs the request that was waved through.
+  if (rateLimit.reason === "fail_open") {
+    console.error("[summarize/stream] rate-limit bypassed (fail-open)", {
+      stage: "unknown" satisfies LogStage,
+      errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
+      userId: authedUser.id,
+      youtubeUrl: youtube_url,
     });
   }
+  if (!rateLimit.allowed) {
+    return jsonError(429, "Rate limit exceeded. Please try again later.", {
+      "X-RateLimit-Remaining": String(rateLimit.remaining),
+      "X-RateLimit-Mode": rateLimit.reason,
+    });
+  }
+  const remaining = rateLimit.remaining;
+  const rateLimitMode = rateLimit.reason;
 
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      // Explicit closed flag: set once in `finally`, checked before every
+      // enqueue. Cheaper and far more robust than pattern-matching the
+      // `TypeError` message on `enqueue` (runtime-specific wording that
+      // would silently change classification across Node/Edge versions).
+      let closed = false;
       const sendEvent: SendEvent = (data) => {
-        if (request.signal.aborted) return;
+        if (request.signal.aborted || closed) return;
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
         } catch (err) {
-          // The only benign enqueue failure is "controller already closed"
-          // during caller abort — anything else is a real stream bug and
-          // must be visible, even if the signal fired in the meantime.
-          const isAlreadyClosed =
-            err instanceof TypeError &&
-            /closed|invalid state/i.test(err.message);
-          if (!(request.signal.aborted && isAlreadyClosed)) {
-            console.error("[summarize/stream] enqueue failed", {
-              err,
-              aborted: request.signal.aborted,
-            });
-          }
+          // If we still reach here, the controller died outside our control
+          // — log unconditionally so the bug is visible.
+          console.error("[summarize/stream] enqueue failed", {
+            err,
+            aborted: request.signal.aborted,
+          });
         }
       };
 
@@ -247,19 +266,19 @@ export async function POST(request: Request) {
             message: "No captions found. Transcribing audio...",
             stage: "transcribe",
           });
-          metadataPromise = fetchVideoMetadata(
-            youtube_url,
-            request.signal
-          ).catch(
-            // If metadata threw synchronously before reaching its own try/catch
-            // (so the discriminated result was never constructed), preserve
-            // caller-abort classification here so a user disconnect doesn't
-            // trigger spurious logStageError alerts downstream.
-            (err): VideoMetadataResult =>
-              request.signal.aborted
-                ? { ok: false, reason: "aborted" }
-                : { ok: false, reason: "error", error: err }
-          );
+          // Wrapping in Promise.resolve().then() normalizes any synchronous
+          // throw from fetchVideoMetadata into a rejection that the .catch
+          // can classify. The function is already async today, but the
+          // wrapper is cheap belt-and-suspenders so a future refactor that
+          // accidentally throws before `await` can't bypass this handler.
+          metadataPromise = Promise.resolve()
+            .then(() => fetchVideoMetadata(youtube_url, request.signal))
+            .catch(
+              (err): VideoMetadataResult =>
+                request.signal.aborted
+                  ? { ok: false, reason: "aborted" }
+                  : { ok: false, reason: "error", error: err }
+            );
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
@@ -352,18 +371,23 @@ export async function POST(request: Request) {
           transcribe_time: transcribeSeconds,
         });
 
-        // Skip the cache write on any upstream metadata failure, on caller
-        // abort, or when title/channel came back empty — otherwise an
-        // abort-race between LLM completion and this point, or an oembed
-        // that succeeded with blank fields, would cache a headerless row
-        // that poisons future cache hits.
-        if (
-          metadataSkipCache ||
-          request.signal.aborted ||
-          !title ||
-          !channelName
-        )
+        // Skip the cache write on (a) upstream metadata failure, (b) caller
+        // abort, or (c) missing title OR channel. Both fields drive the
+        // cached UI header — either one blank makes the row user-visibly
+        // broken, so both must be present or the cache hit is worse than
+        // a re-run. Blank fields reach here from oembed success-with-empty
+        // OR from caption-extractor when videoDetails lack title/author.
+        if (metadataSkipCache || request.signal.aborted) return;
+        if (!title || !channelName) {
+          console.warn("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", {
+            errorId: "CACHE_SKIP_EMPTY_HEADER",
+            youtubeUrl: youtube_url,
+            source: transcriptSource,
+            hasTitle: !!title,
+            hasChannel: !!channelName,
+          });
           return;
+        }
 
         const thinkingState: ThinkingState = enableThinking
           ? { enableThinking: true, thinking: fullThinking || null }
@@ -377,7 +401,7 @@ export async function POST(request: Request) {
           transcript,
           summary: fullSummary,
           transcriptSource,
-          model: process.env.LLM_MODEL || "claude-sonnet-4-6",
+          model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
           processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
@@ -389,6 +413,7 @@ export async function POST(request: Request) {
         logStageError("unknown", err);
         sendEvent({ type: "error", message: USER_ERROR_GENERIC });
       } finally {
+        closed = true;
         try {
           controller.close();
         } catch {
@@ -404,6 +429,7 @@ export async function POST(request: Request) {
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
       "X-RateLimit-Remaining": String(remaining),
+      "X-RateLimit-Mode": rateLimitMode,
     },
   });
 }

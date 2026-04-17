@@ -139,10 +139,11 @@ describe("transcribeViaVps", () => {
     expect(callerController.signal.aborted).toBe(false);
   });
 
-  it("honors VPS_TIMEOUT_MS env override", async () => {
+  it("passes VPS_TIMEOUT_MS override through to AbortSignal.timeout", async () => {
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
     vi.stubEnv("VPS_API_KEY", "secret");
     vi.stubEnv("VPS_TIMEOUT_MS", "500");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -156,11 +157,29 @@ describe("transcribeViaVps", () => {
         )
       )
     );
-    // Just asserting the call succeeds — the override is load-bearing for
-    // local/dev overrides and the absence of an env-related throw proves
-    // parsing worked.
-    await expect(
-      transcribeViaVps("https://youtu.be/abc")
-    ).resolves.toBeDefined();
+    await transcribeViaVps("https://youtu.be/abc");
+    expect(timeoutSpy).toHaveBeenCalledWith(500);
+  });
+
+  it("falls back to the default timeout when VPS_TIMEOUT_MS is missing or non-numeric", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubEnv("VPS_TIMEOUT_MS", "nonsense");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            transcript: "t",
+            language: "en",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    await transcribeViaVps("https://youtu.be/abc");
+    expect(timeoutSpy).toHaveBeenCalledWith(240_000);
   });
 });

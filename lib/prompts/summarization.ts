@@ -113,8 +113,9 @@ export function buildSummarizationPrompt(
   language: "en" | "zh"
 ): string {
   const truncated = transcript.slice(0, TRANSCRIPT_MAX_LENGTH);
-  // Silent truncation was hiding partial-video summaries in the cache.
-  // Log when content is dropped so long-video degradation is visible.
+  // Long-video degradation is invisible without this log: the cached
+  // summary is valid for the prefix but silently excludes later content,
+  // so repeated hits for the same video all return the partial view.
   if (truncated.length < transcript.length) {
     console.warn("[summarization] transcript truncated to prompt budget", {
       errorId: "TRANSCRIPT_TRUNCATED",

@@ -126,7 +126,9 @@ CREATE POLICY "videos_insert" ON videos FOR INSERT TO service_role WITH CHECK (t
 DROP POLICY IF EXISTS "videos_update" ON videos;
 CREATE POLICY "videos_update" ON videos FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
--- Summaries: public read, service_role write (same rationale as videos).
+-- Summaries: public read, service_role write. Explicit policies keep the
+-- write role load-bearing in the schema even though service_role bypasses
+-- RLS today — narrowing the bypass later must fail loudly, not silently.
 DROP POLICY IF EXISTS "summaries_select" ON summaries;
 CREATE POLICY "summaries_select" ON summaries FOR SELECT USING (true);
 DROP POLICY IF EXISTS "summaries_insert" ON summaries;
