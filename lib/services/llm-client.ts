@@ -4,7 +4,6 @@ export type LlmEvent =
   | { readonly type: "content"; readonly text: string }
   | {
       readonly type: "timing";
-      readonly totalSeconds: number;
       readonly summarizeSeconds: number;
       readonly transcribeSeconds: number;
     };
@@ -151,7 +150,6 @@ export async function* streamLlmSummary(
   const durationSeconds = (Date.now() - startTime) / 1000;
   yield {
     type: "timing",
-    totalSeconds: durationSeconds,
     summarizeSeconds: durationSeconds,
     transcribeSeconds: 0,
   };

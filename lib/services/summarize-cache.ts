@@ -60,9 +60,6 @@ const VideoRowSchema = z.object({
   language: LocaleSchema.nullable(),
 });
 
-const THINKING_INVARIANT_MESSAGE =
-  "thinking must be null when enable_thinking is false";
-
 const SummaryRowSchema = z
   .object({
     transcript: z.string().nullable(),
@@ -76,12 +73,17 @@ const SummaryRowSchema = z
     summarize_time_seconds: z.number().nullable(),
   })
   .refine((s) => s.enable_thinking || s.thinking === null, {
-    message: THINKING_INVARIANT_MESSAGE,
+    message: "thinking must be null when enable_thinking is false",
     path: ["thinking"],
   });
 
+// Detect via structured issue fields, not the human-readable message — so
+// rewording or localization of the message doesn't silently reclassify a
+// data-integrity violation as generic schema drift.
 function isThinkingInvariantViolation(err: z.ZodError): boolean {
-  return err.issues.some((i) => i.message === THINKING_INVARIANT_MESSAGE);
+  return err.issues.some(
+    (i) => i.code === "custom" && i.path[0] === "thinking"
+  );
 }
 
 /**

@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS summaries (
         CHECK (transcript_source IN ('manual_captions', 'auto_captions', 'whisper')),
     enable_thinking BOOLEAN NOT NULL DEFAULT FALSE,
     model TEXT,
-    processing_time_seconds NUMERIC(10, 2) CHECK (processing_time_seconds IS NULL OR processing_time_seconds >= 0),
-    transcribe_time_seconds NUMERIC(10, 2) CHECK (transcribe_time_seconds IS NULL OR transcribe_time_seconds >= 0),
-    summarize_time_seconds NUMERIC(10, 2) CHECK (summarize_time_seconds IS NULL OR summarize_time_seconds >= 0),
+    -- Non-negative CHECKs are added by the named DO block below rather than
+    -- inline, so the constraint name is the same on fresh installs and on
+    -- pre-existing tables getting them retroactively.
+    processing_time_seconds NUMERIC(10, 2),
+    transcribe_time_seconds NUMERIC(10, 2),
+    summarize_time_seconds NUMERIC(10, 2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
     UNIQUE(video_id, enable_thinking),
     -- Mirror the in-memory ThinkingState discriminated union at the DB layer.

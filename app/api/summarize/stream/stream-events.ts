@@ -1,7 +1,28 @@
 import type { CachedSummary } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 
-export type SendEvent = (data: Record<string, unknown>) => void;
+export type SseEvent =
+  | { type: "status"; message: string; stage?: string }
+  | { type: "thinking"; text: string }
+  | { type: "content"; text: string }
+  | {
+      type: "metadata";
+      category: "general";
+      cached: boolean;
+      title?: string;
+      channel?: string;
+    }
+  | { type: "full_transcript"; text: string }
+  | {
+      type: "summary";
+      category: "general";
+      total_time: number;
+      summarize_time: number;
+      transcribe_time: number;
+    }
+  | { type: "error"; message: string };
+
+export type SendEvent = (data: SseEvent) => void;
 
 export function forwardLlmEvent(
   event: LlmEvent,
@@ -28,6 +49,9 @@ export function forwardLlmEvent(
       });
       return;
     default: {
+      // Compile-time exhaustiveness via `never`; runtime log in case a future
+      // LlmEvent variant reaches here without this file being updated.
+      console.error("[stream-events] unknown LlmEvent variant", { event });
       const _exhaustive: never = event;
       return _exhaustive;
     }
@@ -35,8 +59,7 @@ export function forwardLlmEvent(
 }
 
 // Event order must match a fresh run so the client accumulator renders cache
-// hits identically to live streams. Totals use the same summarize+transcribe
-// model as the live path so frontend displays are consistent.
+// hits identically to live streams.
 export function streamCached(
   sendEvent: SendEvent,
   cached: CachedSummary,

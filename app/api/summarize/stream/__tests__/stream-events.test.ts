@@ -27,7 +27,6 @@ describe("forwardLlmEvent", () => {
     forwardLlmEvent(
       {
         type: "timing",
-        totalSeconds: 7,
         summarizeSeconds: 7,
         transcribeSeconds: 0,
       },
@@ -73,6 +72,22 @@ describe("forwardLlmEvent", () => {
     expect(sent).toEqual([
       { type: "status", message: "hi", stage: "summarize" },
     ]);
+  });
+
+  it("logs unknown variant at runtime (defense against future LlmEvent additions)", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const sent: unknown[] = [];
+    // Forcibly pass an unknown variant (simulating upstream adding a new case).
+    forwardLlmEvent(
+      { type: "future_variant" } as unknown as Parameters<
+        typeof forwardLlmEvent
+      >[0],
+      (d) => sent.push(d),
+      0
+    );
+    expect(sent).toEqual([]);
+    expect(err).toHaveBeenCalled();
+    expect(err.mock.calls[0][0]).toContain("unknown LlmEvent variant");
   });
 });
 

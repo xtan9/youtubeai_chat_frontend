@@ -20,7 +20,12 @@ import {
   streamLlmSummary,
 } from "@/lib/services/llm-client";
 import { checkRateLimit } from "@/lib/services/rate-limit";
-import { forwardLlmEvent, streamCached } from "./stream-events";
+import {
+  forwardLlmEvent,
+  streamCached,
+  type SendEvent,
+  type SseEvent,
+} from "./stream-events";
 
 export const maxDuration = 300;
 
@@ -104,7 +109,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      const sendEvent = (data: Record<string, unknown>) => {
+      const sendEvent: SendEvent = (data: SseEvent) => {
         if (request.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
@@ -146,9 +151,12 @@ export async function POST(request: Request) {
         let language: PromptLocale;
         let title = "";
         let channelName = "";
-        // Whisper-only. Attached .catch at creation so an abandoned promise
-        // (e.g. VPS throws below) never surfaces as an unhandled rejection.
+        // Whisper-only. Catch is attached at creation so an abandoned promise
+        // (VPS throws below) never surfaces as an unhandled rejection. We also
+        // track whether metadata resolved successfully so we can skip caching
+        // blank titles instead of poisoning the cache row.
         let metadataPromise: Promise<VideoMetadataBasic> | null = null;
+        let metadataFetchFailed = false;
 
         const transcribeStart = Date.now();
         let captions;
@@ -177,6 +185,7 @@ export async function POST(request: Request) {
             youtube_url,
             request.signal
           ).catch((err) => {
+            metadataFetchFailed = true;
             logStageError("metadata", err);
             return EMPTY_METADATA;
           });
@@ -244,6 +253,11 @@ export async function POST(request: Request) {
             title = metadata.title;
             channelName = metadata.channelName;
           }
+          // Don't poison the cache with blank metadata — the next request will
+          // retry the oembed fetch. Routine "this video has no metadata" is
+          // still cacheable (both fields empty, no failure flag set).
+          if (metadataFetchFailed) return;
+
           const thinkingState: ThinkingState = enableThinking
             ? { enableThinking: true, thinking: fullThinking || null }
             : { enableThinking: false, thinking: null };
@@ -287,4 +301,3 @@ export async function POST(request: Request) {
     },
   });
 }
-
