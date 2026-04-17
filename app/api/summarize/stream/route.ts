@@ -1,234 +1,194 @@
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
 import { transcribeViaVps } from "@/lib/services/vps-client";
 import {
   getCachedSummary,
   writeCachedSummary,
+  type CachedSummary,
+  type TranscriptSource,
+  type Language,
 } from "@/lib/services/summarize-cache";
 import { detectLanguage } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
-import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
+import {
+  formatSseEvent,
+  streamLlmSummary,
+  type LlmEvent,
+} from "@/lib/services/llm-client";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 
 export const maxDuration = 300;
 
-interface RequestBody {
-  youtube_url: string;
-  enable_thinking?: boolean;
-  include_transcript?: boolean;
+const RequestBodySchema = z.object({
+  youtube_url: z.string().min(1),
+  enable_thinking: z.boolean().optional().default(false),
+  include_transcript: z.boolean().optional().default(false),
+});
+
+function jsonError(
+  status: number,
+  message: string,
+  extraHeaders?: Record<string, string>
+) {
+  return new Response(JSON.stringify({ message }), {
+    status,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+  });
 }
 
 export async function POST(request: Request) {
-  // Parse body
-  let body: RequestBody;
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as RequestBody;
+    rawBody = await request.json();
   } catch {
-    return new Response(JSON.stringify({ message: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError(400, "Invalid JSON body");
   }
 
-  const { youtube_url, enable_thinking = false, include_transcript = false } = body;
-
-  if (!youtube_url || typeof youtube_url !== "string") {
-    return new Response(
-      JSON.stringify({ message: "youtube_url is required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
+  const parsed = RequestBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonError(400, `Invalid request body: ${parsed.error.message}`);
   }
+  const {
+    youtube_url,
+    enable_thinking: enableThinking,
+    include_transcript: includeTranscript,
+  } = parsed.data;
 
-  // Auth
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) {
-    return new Response(JSON.stringify({ message: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  if (!user) return jsonError(401, "Unauthorized");
 
   const isAnonymous = user.is_anonymous ?? false;
 
-  // Rate limiting
   const { allowed, remaining } = await checkRateLimit(user.id, isAnonymous);
   if (!allowed) {
-    return new Response(
-      JSON.stringify({ message: "Rate limit exceeded. Please try again later." }),
-      {
-        status: 429,
-        headers: {
-          "Content-Type": "application/json",
-          "X-RateLimit-Remaining": String(remaining),
-        },
-      }
-    );
+    return jsonError(429, "Rate limit exceeded. Please try again later.", {
+      "X-RateLimit-Remaining": String(remaining),
+    });
   }
 
-  // Stream response
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      const send = (data: string) => controller.enqueue(encoder.encode(data));
+      const sendEvent = (data: Record<string, unknown>) =>
+        controller.enqueue(encoder.encode(formatSseEvent(data)));
 
       try {
-        // Cache check
-        const cached = await getCachedSummary(youtube_url, enable_thinking);
-
+        const cached = await getCachedSummary(youtube_url, enableThinking);
         if (cached) {
-          send(
-            formatSseEvent({
-              type: "metadata",
-              category: "general",
-              cached: true,
-            })
-          );
-          send(formatSseEvent({ type: "content", text: cached.summary }));
-          if (enable_thinking && cached.thinking) {
-            send(formatSseEvent({ type: "thinking", text: cached.thinking }));
-          }
-          if (include_transcript && cached.transcript) {
-            send(
-              formatSseEvent({
-                type: "full_transcript",
-                text: cached.transcript,
-              })
-            );
-          }
-          send(
-            formatSseEvent({
-              type: "summary",
-              category: "general",
-              total_time: cached.processingTime ?? 0,
-              summarize_time: cached.processingTime ?? 0,
-              transcribe_time: 0,
-            })
-          );
+          streamCached(sendEvent, cached, { enableThinking, includeTranscript });
           controller.close();
           return;
         }
 
         const overallStart = Date.now();
-
-        // Extract captions (fast path)
-        send(
-          formatSseEvent({
-            type: "status",
-            message: "Extracting captions...",
-            stage: "transcribe",
-          })
-        );
+        sendEvent({ type: "metadata", category: "general", cached: false });
+        sendEvent({
+          type: "status",
+          message: "Extracting captions...",
+          stage: "transcribe",
+        });
 
         let transcript: string;
-        let transcriptSource: string;
+        let transcriptSource: TranscriptSource;
+        let language: Language;
+        let title = "";
+        let channelName = "";
 
         const captions = await extractCaptions(youtube_url);
-
         if (captions) {
           transcript = captions.transcript;
           transcriptSource = captions.source;
+          language = captions.language;
+          title = captions.title;
+          channelName = captions.channelName;
         } else {
-          // Whisper fallback via VPS
-          send(
-            formatSseEvent({
-              type: "status",
-              message: "No captions found. Transcribing audio...",
-              stage: "transcribe",
-            })
-          );
-
+          sendEvent({
+            type: "status",
+            message: "No captions found. Transcribing audio...",
+            stage: "transcribe",
+          });
           try {
-            const vpsResult = await transcribeViaVps(youtube_url);
+            const vpsResult = await transcribeViaVps(youtube_url, request.signal);
             transcript = vpsResult.transcript;
             transcriptSource = "whisper";
+            language = detectLanguage(transcript.slice(0, 500));
           } catch (err) {
+            console.error("[summarize/stream] VPS transcription failed", {
+              youtubeUrl: youtube_url,
+              userId: user.id,
+              err,
+            });
             const message =
               err instanceof Error ? err.message : "Transcription failed";
-            send(
-              formatSseEvent({
-                type: "error",
-                message: `Could not process this video: ${message}`,
-              })
-            );
+            sendEvent({
+              type: "error",
+              message: `Could not process this video: ${message}`,
+            });
             controller.close();
             return;
           }
         }
 
-        // Detect language from transcript
-        const language = detectLanguage(transcript.slice(0, 500));
+        sendEvent({
+          type: "status",
+          message: `Detected language: ${language}`,
+        });
 
-        send(
-          formatSseEvent({
-            type: "status",
-            message: `Detected language: ${language}`,
-          })
-        );
-
-        if (include_transcript) {
-          send(formatSseEvent({ type: "full_transcript", text: transcript }));
+        if (includeTranscript) {
+          sendEvent({ type: "full_transcript", text: transcript });
         }
 
-        // Build prompt and stream LLM summary
         const prompt = buildSummarizationPrompt(transcript, language);
-
         let fullSummary = "";
         let fullThinking = "";
 
         for await (const event of streamLlmSummary({
           prompt,
-          enableThinking: enable_thinking,
+          enableThinking,
+          signal: request.signal,
         })) {
-          send(event);
-
-          // Collect content and thinking chunks for caching
-          const match = event.match(/^data: (.+)\n\n$/);
-          if (match) {
-            try {
-              const parsed = JSON.parse(match[1]);
-              if (parsed.type === "content" && typeof parsed.text === "string") {
-                fullSummary += parsed.text;
-              }
-              if (parsed.type === "thinking" && typeof parsed.text === "string") {
-                fullThinking += parsed.text;
-              }
-            } catch {
-              // Skip
-            }
-          }
+          forwardLlmEvent(event, sendEvent);
+          if (event.type === "content") fullSummary += event.text;
+          else if (event.type === "thinking") fullThinking += event.text;
         }
 
         const overallDuration = (Date.now() - overallStart) / 1000;
 
-        // Write to cache (non-blocking, fail silently)
         if (fullSummary) {
           writeCachedSummary({
             youtubeUrl: youtube_url,
-            title: "",
-            channelName: "",
+            title,
+            channelName,
             language,
             transcript,
             summary: fullSummary,
-            thinking: fullThinking || null,
+            thinking: enableThinking ? fullThinking || null : null,
             transcriptSource,
-            enableThinking: enable_thinking,
+            enableThinking,
             model: process.env.LLM_MODEL || "claude-sonnet-4-6",
             processingTimeSeconds: overallDuration,
             userId: user.id,
           }).catch((err) => {
-            console.error("Cache write error (non-fatal):", err);
+            console.error("[summarize/stream] cache write failed (non-fatal)", {
+              youtubeUrl: youtube_url,
+              userId: user.id,
+              err,
+            });
           });
         }
       } catch (err) {
+        console.error("[summarize/stream] unhandled error", {
+          youtubeUrl: youtube_url,
+          userId: user.id,
+          err,
+        });
         const message =
           err instanceof Error ? err.message : "An unexpected error occurred";
-        send(
-          formatSseEvent({ type: "error", message: `Error: ${message}` })
-        );
+        sendEvent({ type: "error", message: `Error: ${message}` });
       } finally {
         controller.close();
       }
@@ -242,5 +202,68 @@ export async function POST(request: Request) {
       Connection: "keep-alive",
       "X-RateLimit-Remaining": String(remaining),
     },
+  });
+}
+
+function forwardLlmEvent(
+  event: LlmEvent,
+  sendEvent: (data: Record<string, unknown>) => void
+) {
+  switch (event.type) {
+    case "status":
+      sendEvent({ type: "status", message: event.message, stage: event.stage });
+      return;
+    case "thinking":
+      sendEvent({ type: "thinking", text: event.text });
+      return;
+    case "content":
+      sendEvent({ type: "content", text: event.text });
+      return;
+    case "timing":
+      sendEvent({
+        type: "summary",
+        category: "general",
+        total_time: event.total_time,
+        summarize_time: event.summarize_time,
+        transcribe_time: event.transcribe_time,
+      });
+      return;
+  }
+}
+
+/**
+ * Replay a cached summary as events in the same order as a fresh run
+ * (thinking → content → transcript → summary), so the frontend accumulator
+ * renders cache hits identically to live streams.
+ */
+function streamCached(
+  sendEvent: (data: Record<string, unknown>) => void,
+  cached: CachedSummary,
+  opts: { enableThinking: boolean; includeTranscript: boolean }
+) {
+  sendEvent({
+    type: "metadata",
+    category: "general",
+    cached: true,
+    title: cached.title,
+    channel: cached.channelName,
+  });
+
+  if (opts.enableThinking && cached.thinking) {
+    sendEvent({ type: "thinking", text: cached.thinking });
+  }
+
+  sendEvent({ type: "content", text: cached.summary });
+
+  if (opts.includeTranscript && cached.transcript) {
+    sendEvent({ type: "full_transcript", text: cached.transcript });
+  }
+
+  sendEvent({
+    type: "summary",
+    category: "general",
+    total_time: cached.processingTimeSeconds,
+    summarize_time: cached.processingTimeSeconds,
+    transcribe_time: 0,
   });
 }

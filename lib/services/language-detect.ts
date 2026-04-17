@@ -1,10 +1,10 @@
+import type { Language } from "./summarize-cache";
+
 /**
- * Detect language from video title.
- * Checks for Chinese characters (CJK Unified Ideographs range).
- * Returns "zh" if any Chinese characters found, "en" otherwise.
+ * Returns "zh" if the sample contains any CJK unified ideograph, "en" otherwise.
+ * Used against video titles or the leading slice of a transcript.
  */
-export function detectLanguage(title: string): "en" | "zh" {
-  if (!title) return "en";
-  const chinesePattern = /[\u4e00-\u9fff]/;
-  return chinesePattern.test(title) ? "zh" : "en";
+export function detectLanguage(text: string): Language {
+  if (!text) return "en";
+  return /[\u4e00-\u9fff]/.test(text) ? "zh" : "en";
 }

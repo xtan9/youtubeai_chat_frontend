@@ -5,9 +5,6 @@ export const RATE_LIMITS = {
   authenticated: 30,
 } as const;
 
-/**
- * Floor a date to the start of its minute (the rate limit window).
- */
 export function getWindowStart(date: Date): Date {
   const floored = new Date(date);
   floored.setSeconds(0, 0);
@@ -15,10 +12,16 @@ export function getWindowStart(date: Date): Date {
 }
 
 /**
- * Check if a user has exceeded their rate limit.
- * Atomically increments the counter and returns whether the request is allowed.
- * Uses a service-role Supabase client to bypass RLS.
- * Fails open (allows request) if service-role key is not configured.
+ * Atomically increment the per-user request count in the current minute window
+ * and return whether the request is allowed.
+ *
+ * Uses an `increment_rate_limit` Postgres RPC that does INSERT ... ON CONFLICT ...
+ * RETURNING, so two concurrent requests cannot both read the same count and
+ * double-increment past the limit.
+ *
+ * Fails open (allows the request) if:
+ *   - Supabase service-role credentials are not configured (dev/CI)
+ *   - The RPC call throws (we'd rather let the user through than 500)
  */
 export async function checkRateLimit(
   userId: string,
@@ -26,51 +29,49 @@ export async function checkRateLimit(
 ): Promise<{ allowed: boolean; remaining: number }> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const limit = isAnonymous ? RATE_LIMITS.anonymous : RATE_LIMITS.authenticated;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return { allowed: true, remaining: 999 };
+    return { allowed: true, remaining: limit };
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const limit = isAnonymous ? RATE_LIMITS.anonymous : RATE_LIMITS.authenticated;
   const windowStart = getWindowStart(new Date()).toISOString();
 
   try {
-    // Read current count for this window
-    const { data: existing } = await supabase
-      .from("rate_limits")
-      .select("request_count")
-      .eq("user_id", userId)
-      .eq("window_start", windowStart)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("increment_rate_limit", {
+      p_user_id: userId,
+      p_window_start: windowStart,
+    });
 
-    if (existing) {
-      // Row exists — check if already at limit, otherwise increment
-      if (existing.request_count >= limit) {
-        return { allowed: false, remaining: 0 };
-      }
-      const newCount = existing.request_count + 1;
-      await supabase
-        .from("rate_limits")
-        .update({ request_count: newCount })
-        .eq("user_id", userId)
-        .eq("window_start", windowStart);
-      return {
-        allowed: true,
-        remaining: Math.max(0, limit - newCount),
-      };
+    if (error) {
+      console.error("[rate-limit] RPC error (fail-open)", {
+        userId,
+        isAnonymous,
+        error,
+      });
+      return { allowed: true, remaining: limit };
     }
 
-    // No row yet — insert with count=1
-    await supabase.from("rate_limits").insert({
-      user_id: userId,
-      window_start: windowStart,
-      request_count: 1,
-    });
-    return { allowed: true, remaining: limit - 1 };
+    const count = typeof data === "number" ? data : Number(data);
+    if (!Number.isFinite(count)) {
+      console.error("[rate-limit] RPC returned non-numeric count (fail-open)", {
+        userId,
+        data,
+      });
+      return { allowed: true, remaining: limit };
+    }
+
+    return {
+      allowed: count <= limit,
+      remaining: Math.max(0, limit - count),
+    };
   } catch (err) {
-    console.error("Rate limit check failed:", err);
-    // Fail open on any error
-    return { allowed: true, remaining: 999 };
+    console.error("[rate-limit] unexpected error (fail-open)", {
+      userId,
+      isAnonymous,
+      err,
+    });
+    return { allowed: true, remaining: limit };
   }
 }
