@@ -77,6 +77,27 @@ const SummaryRowSchema = z
     path: ["thinking"],
   });
 
+// Write-side mirror. Validates the payload *before* upsert so a caller that
+// bypassed the TS discriminated union (e.g. via partial spread or an `any`
+// cast) is rejected loudly instead of silently corrupting a cache row.
+const SummaryWriteSchema = z
+  .object({
+    video_id: z.string(),
+    transcript: z.string(),
+    summary: z.string().min(1),
+    thinking: z.string().nullable(),
+    transcript_source: TranscriptSourceSchema,
+    enable_thinking: z.boolean(),
+    model: z.string(),
+    processing_time_seconds: z.number().min(0),
+    transcribe_time_seconds: z.number().min(0),
+    summarize_time_seconds: z.number().min(0),
+  })
+  .refine((s) => s.enable_thinking || s.thinking === null, {
+    message: "thinking must be null when enable_thinking is false",
+    path: ["thinking"],
+  });
+
 // Detect via structured issue fields, not the human-readable message — so
 // rewording or localization of the message doesn't silently reclassify a
 // data-integrity violation as generic schema drift.
@@ -198,8 +219,10 @@ export async function getCachedSummary(
   }
 }
 
-// Runs after the user already has their summary; failure logs but doesn't
-// affect the response.
+// Runs after the user already has their summary, so throwing here does NOT
+// affect the HTTP response — the route's `.catch` logs with full context.
+// We throw (rather than silently return) so partial-write failures surface
+// as loggable incidents instead of leaving orphan rows behind the user's back.
 export async function writeCachedSummary(
   params: CacheWriteParams
 ): Promise<void> {
@@ -211,75 +234,72 @@ export async function writeCachedSummary(
     return;
   }
 
-  try {
-    const videoKey = computeVideoKey(params.youtubeUrl);
+  const videoKey = computeVideoKey(params.youtubeUrl);
 
-    const { data: video, error: videoError } = await supabase
-      .from("videos")
-      .upsert(
-        {
-          youtube_url: params.youtubeUrl,
-          url_hash: videoKey,
-          title: params.title || null,
-          channel_name: params.channelName || null,
-          language: params.language,
-        },
-        { onConflict: "url_hash" }
-      )
-      .select("id")
-      .single();
-
-    if (videoError || !video) {
-      console.error("[summarize-cache] video upsert failed", {
-        youtubeUrl: params.youtubeUrl,
-        error: videoError,
-      });
-      return;
-    }
-
-    const { error: summaryError } = await supabase.from("summaries").upsert(
+  const { data: video, error: videoError } = await supabase
+    .from("videos")
+    .upsert(
       {
-        video_id: video.id,
-        transcript: params.transcript,
-        summary: params.summary,
-        thinking: params.thinking,
-        transcript_source: params.transcriptSource,
-        enable_thinking: params.enableThinking,
-        model: params.model,
-        processing_time_seconds: params.processingTimeSeconds,
-        transcribe_time_seconds: params.transcribeTimeSeconds,
-        summarize_time_seconds: params.summarizeTimeSeconds,
+        youtube_url: params.youtubeUrl,
+        url_hash: videoKey,
+        title: params.title || null,
+        channel_name: params.channelName || null,
+        language: params.language,
       },
-      { onConflict: "video_id,enable_thinking" }
+      { onConflict: "url_hash" }
+    )
+    .select("id")
+    .single();
+
+  if (videoError || !video) {
+    throw new Error(
+      `video upsert failed: ${videoError?.message ?? "no row returned"}`,
+      { cause: videoError ?? undefined }
     );
+  }
 
-    if (summaryError) {
-      console.error("[summarize-cache] summary upsert failed", {
-        videoId: video.id,
-        error: summaryError,
-      });
-      return;
-    }
+  const summaryRow = {
+    video_id: video.id,
+    transcript: params.transcript,
+    summary: params.summary,
+    thinking: params.thinking,
+    transcript_source: params.transcriptSource,
+    enable_thinking: params.enableThinking,
+    model: params.model,
+    processing_time_seconds: params.processingTimeSeconds,
+    transcribe_time_seconds: params.transcribeTimeSeconds,
+    summarize_time_seconds: params.summarizeTimeSeconds,
+  };
 
-    if (params.userId) {
-      const { error: historyError } = await supabase
-        .from("user_video_history")
-        .upsert(
-          { user_id: params.userId, video_id: video.id },
-          { onConflict: "user_id,video_id" }
-        );
-      if (historyError) {
-        console.error("[summarize-cache] history upsert failed", {
-          userId: params.userId,
-          videoId: video.id,
-          error: historyError,
-        });
-      }
-    }
-  } catch (err) {
-    console.error("[summarize-cache] write failed", {
-      youtubeUrl: params.youtubeUrl,
-      err,
+  const writeCheck = SummaryWriteSchema.safeParse(summaryRow);
+  if (!writeCheck.success) {
+    throw new Error(
+      `summary write rejected by invariant check: ${writeCheck.error.message}`,
+      { cause: writeCheck.error }
+    );
+  }
+
+  const { error: summaryError } = await supabase
+    .from("summaries")
+    .upsert(writeCheck.data, { onConflict: "video_id,enable_thinking" });
+
+  if (summaryError) {
+    throw new Error(`summary upsert failed: ${summaryError.message}`, {
+      cause: summaryError,
     });
+  }
+
+  if (params.userId) {
+    const { error: historyError } = await supabase
+      .from("user_video_history")
+      .upsert(
+        { user_id: params.userId, video_id: video.id },
+        { onConflict: "user_id,video_id" }
+      );
+    if (historyError) {
+      throw new Error(`history upsert failed: ${historyError.message}`, {
+        cause: historyError,
+      });
+    }
   }
 }

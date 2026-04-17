@@ -25,6 +25,7 @@ import {
   streamCached,
   type SendEvent,
 } from "./stream-events";
+import type { LogStage } from "./stages";
 
 export const maxDuration = 300;
 
@@ -49,13 +50,7 @@ const USER_ERROR_GENERIC =
 const USER_ERROR_EMPTY_SUMMARY =
   "The model returned no summary. Please try again.";
 
-export type Stage =
-  | "captions"
-  | "vps"
-  | "metadata"
-  | "llm"
-  | "cache"
-  | "unknown";
+export type { LogStage } from "./stages";
 
 function jsonError(
   status: number,
@@ -68,8 +63,14 @@ function jsonError(
   });
 }
 
-function isAbortError(err: unknown, signal: AbortSignal): boolean {
-  return signal.aborted || (err instanceof Error && err.name === "AbortError");
+// Caller-disconnect is the only thing that counts as a silently-dropped abort.
+// `err.name === "AbortError"` also fires on internal timeouts composed via
+// AbortSignal.any — classifying those as aborts would silently hide VPS/LLM
+// timeouts and leave the SSE stream closed with no error event. Always
+// distinguish via `signal.aborted` (which is true only when the caller's own
+// signal fired).
+function isCallerAbort(signal: AbortSignal): boolean {
+  return signal.aborted;
 }
 
 // Upstream failures warrant skipping the cache write + logging. Caller-abort
@@ -131,14 +132,36 @@ export async function POST(request: Request) {
   } = parsed.data;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"];
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    // Distinguish infra errors (Supabase gateway down, JWKS fetch failed)
+    // from "no session." Non-401 errors must page, not silently 401 users.
+    if (error && error.status !== 401) {
+      console.error("[summarize/stream] auth failed", {
+        stage: "auth" satisfies LogStage,
+        status: error.status,
+        message: error.message,
+      });
+      return jsonError(503, "Auth service temporarily unavailable.");
+    }
+    user = data.user;
+  } catch (err) {
+    console.error("[summarize/stream] auth threw", {
+      stage: "auth" satisfies LogStage,
+      err,
+    });
+    return jsonError(503, "Auth service temporarily unavailable.");
+  }
   if (!user) return jsonError(401, "Unauthorized");
 
-  const isAnonymous = user.is_anonymous ?? false;
+  const authedUser = user;
+  const isAnonymous = authedUser.is_anonymous ?? false;
 
-  const { allowed, remaining } = await checkRateLimit(user.id, isAnonymous);
+  const { allowed, remaining } = await checkRateLimit(
+    authedUser.id,
+    isAnonymous
+  );
   if (!allowed) {
     return jsonError(429, "Rate limit exceeded. Please try again later.", {
       "X-RateLimit-Remaining": String(remaining),
@@ -153,19 +176,26 @@ export async function POST(request: Request) {
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
         } catch (err) {
-          if (!request.signal.aborted) {
-            console.error("[summarize/stream] enqueue failed post-close", {
+          // The only benign enqueue failure is "controller already closed"
+          // during caller abort — anything else is a real stream bug and
+          // must be visible, even if the signal fired in the meantime.
+          const isAlreadyClosed =
+            err instanceof TypeError &&
+            /closed|invalid state/i.test(err.message);
+          if (!(request.signal.aborted && isAlreadyClosed)) {
+            console.error("[summarize/stream] enqueue failed", {
               err,
+              aborted: request.signal.aborted,
             });
           }
         }
       };
 
-      const logStageError = (stage: Stage, err: unknown) => {
+      const logStageError = (stage: LogStage, err: unknown) => {
         console.error(`[summarize/stream] ${stage} failed`, {
           stage,
           youtubeUrl: youtube_url,
-          userId: user.id,
+          userId: authedUser.id,
           err,
         });
       };
@@ -199,7 +229,7 @@ export async function POST(request: Request) {
         try {
           captions = await extractCaptions(youtube_url);
         } catch (err) {
-          if (isAbortError(err, request.signal)) return;
+          if (isCallerAbort(request.signal)) return;
           logStageError("captions", err);
           sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
           return;
@@ -221,11 +251,14 @@ export async function POST(request: Request) {
             youtube_url,
             request.signal
           ).catch(
-            (err): VideoMetadataResult => ({
-              ok: false,
-              reason: "error",
-              error: err,
-            })
+            // If metadata threw synchronously before reaching its own try/catch
+            // (so the discriminated result was never constructed), preserve
+            // caller-abort classification here so a user disconnect doesn't
+            // trigger spurious logStageError alerts downstream.
+            (err): VideoMetadataResult =>
+              request.signal.aborted
+                ? { ok: false, reason: "aborted" }
+                : { ok: false, reason: "error", error: err }
           );
           try {
             const vpsResult = await transcribeViaVps(
@@ -236,7 +269,7 @@ export async function POST(request: Request) {
             transcriptSource = "whisper";
             language = detectLocale(transcript.slice(0, 500));
           } catch (err) {
-            if (isAbortError(err, request.signal)) return;
+            if (isCallerAbort(request.signal)) return;
             logStageError("vps", err);
             sendEvent({
               type: "error",
@@ -272,7 +305,7 @@ export async function POST(request: Request) {
               summarizeSeconds = event.summarizeSeconds;
           }
         } catch (err) {
-          if (isAbortError(err, request.signal)) return;
+          if (isCallerAbort(request.signal)) return;
           logStageError("llm", err);
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
           return;
@@ -319,10 +352,18 @@ export async function POST(request: Request) {
           transcribe_time: transcribeSeconds,
         });
 
-        // Skip the cache write on any upstream metadata failure OR on caller
-        // abort — otherwise an abort-race between LLM completion and this
-        // point would cache a blank-title row for future requests.
-        if (metadataSkipCache || request.signal.aborted) return;
+        // Skip the cache write on any upstream metadata failure, on caller
+        // abort, or when title/channel came back empty — otherwise an
+        // abort-race between LLM completion and this point, or an oembed
+        // that succeeded with blank fields, would cache a headerless row
+        // that poisons future cache hits.
+        if (
+          metadataSkipCache ||
+          request.signal.aborted ||
+          !title ||
+          !channelName
+        )
+          return;
 
         const thinkingState: ThinkingState = enableThinking
           ? { enableThinking: true, thinking: fullThinking || null }
@@ -340,11 +381,11 @@ export async function POST(request: Request) {
           processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
-          userId: user.id,
+          userId: authedUser.id,
           ...thinkingState,
         }).catch((err) => logStageError("cache", err));
       } catch (err) {
-        if (isAbortError(err, request.signal)) return;
+        if (isCallerAbort(request.signal)) return;
         logStageError("unknown", err);
         sendEvent({ type: "error", message: USER_ERROR_GENERIC });
       } finally {

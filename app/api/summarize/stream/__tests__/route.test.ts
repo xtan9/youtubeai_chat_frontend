@@ -167,6 +167,48 @@ describe("POST /api/summarize/stream", () => {
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ message: "Unauthorized" });
     });
+
+    it("returns 401 when getUser returns an explicit 401-class error", async () => {
+      // Supabase surfaces missing/expired sessions as a 401 error field
+      // alongside a null user — still a genuine "not logged in," must not
+      // escalate to a 503.
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 401, message: "no session" },
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 503 when getUser reports a non-401 infra error", async () => {
+      // Distinguishes infra outage from unauthenticated so on-call can alert
+      // on the 503 rate instead of silently blaming users.
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 500, message: "supabase down" },
+      });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        message: "Auth service temporarily unavailable.",
+      });
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] auth failed",
+        expect.objectContaining({ stage: "auth", status: 500 })
+      );
+    });
+
+    it("returns 503 when getUser throws (network failure reaching Supabase)", async () => {
+      mocks.getUser.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(503);
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] auth threw",
+        expect.objectContaining({ stage: "auth" })
+      );
+    });
   });
 
   describe("rate limiting", () => {
@@ -462,7 +504,10 @@ describe("POST /api/summarize/stream", () => {
       expect(events.at(-1)?.type).toBe("summary");
     });
 
-    it("does NOT mark as failed when oembed returns empty metadata (still cacheable)", async () => {
+    it("skips cache write when oembed returns empty title/channel (prevents headerless cache poisoning)", async () => {
+      // Previously the route cached even when oembed succeeded with blank
+      // fields. Now we skip so the next lookup re-runs instead of hitting a
+      // headerless row.
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
         ok: true,
@@ -481,8 +526,39 @@ describe("POST /api/summarize/stream", () => {
       );
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+      // Terminal summary still emits so the client accumulator closes.
+      expect(events.at(-1)?.type).toBe("summary");
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("caches normally when oembed returns populated title/channel", async () => {
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "Live Title", channelName: "Live Channel" },
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "whisper output",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "whisper summary" },
+          { type: "timing", summarizeSeconds: 2 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
       expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Live Title",
+          channelName: "Live Channel",
+        })
+      );
     });
 
     it("metadata aborted: no log, and when caller signal is aborted no cache write", async () => {

@@ -115,23 +115,36 @@ ALTER TABLE summaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_video_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
 
--- Videos: public read, service_role write
+-- Videos: public read, service_role write. service_role bypasses RLS, but we
+-- list the policies explicitly so intent is load-bearing in the schema — if
+-- a future migration narrows the writing role, upserts fail loudly rather
+-- than silently 403-ing via the bypass.
 DROP POLICY IF EXISTS "videos_select" ON videos;
 CREATE POLICY "videos_select" ON videos FOR SELECT USING (true);
 DROP POLICY IF EXISTS "videos_insert" ON videos;
 CREATE POLICY "videos_insert" ON videos FOR INSERT TO service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "videos_update" ON videos;
+CREATE POLICY "videos_update" ON videos FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
--- Summaries: public read, service_role write
+-- Summaries: public read, service_role write (same rationale as videos).
 DROP POLICY IF EXISTS "summaries_select" ON summaries;
 CREATE POLICY "summaries_select" ON summaries FOR SELECT USING (true);
 DROP POLICY IF EXISTS "summaries_insert" ON summaries;
 CREATE POLICY "summaries_insert" ON summaries FOR INSERT TO service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "summaries_update" ON summaries;
+CREATE POLICY "summaries_update" ON summaries FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
--- User history: private to owner
+-- User history: private to owner. Service role writes from the cache path
+-- too; keep that explicit so the route's upsert matches intent, not just the
+-- bypass.
 DROP POLICY IF EXISTS "history_select" ON user_video_history;
 CREATE POLICY "history_select" ON user_video_history FOR SELECT TO authenticated USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "history_insert" ON user_video_history;
 CREATE POLICY "history_insert" ON user_video_history FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "history_insert_service" ON user_video_history;
+CREATE POLICY "history_insert_service" ON user_video_history FOR INSERT TO service_role WITH CHECK (true);
+DROP POLICY IF EXISTS "history_update_service" ON user_video_history;
+CREATE POLICY "history_update_service" ON user_video_history FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
 -- Rate limits: deny all non-service-role access. service_role bypasses RLS,
 -- so no ALLOW policy is needed; the REVOKEs below make the denial explicit.

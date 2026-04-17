@@ -60,7 +60,7 @@ Migrations live in `supabase/migrations/` and are applied by `.github/workflows/
 - `videos` — one row per distinct YouTube video ID. `url_hash` stores the normalized 11-char video ID (falling back to an MD5 of the full URL) so different URL shapes for the same video collapse to one cache row.
 - `summaries` — one row per `(video_id, enable_thinking)`. Enforces `thinking IS NULL` when `enable_thinking = FALSE` via CHECK constraint.
 - `user_video_history` — per-user read history, RLS-scoped to the owner.
-- `rate_limits` — `(user_id, minute_window)` counter mutated via `increment_rate_limit` RPC.
+- `rate_limits` — `(user_id, window_start)` counter mutated via `increment_rate_limit` RPC.
 
 ## Rate limits
 
@@ -74,7 +74,7 @@ Migrations live in `supabase/migrations/` and are applied by `.github/workflows/
 ```
 app/api/summarize/stream/route.ts   Orchestration: auth, rate limit, cache, SSE stream
 lib/services/                       One module per external boundary
-  caption-extractor.ts              YouTube captions via Innertube
+  caption-extractor.ts              YouTube captions via youtube-transcript-plus
   vps-client.ts                     Whisper microservice
   llm-client.ts                     Streaming LLM gateway
   summarize-cache.ts                Supabase cache read/write

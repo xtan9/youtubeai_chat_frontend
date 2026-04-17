@@ -1,3 +1,8 @@
+// Transcript budget: roughly the largest chunk that keeps the prompt well
+// inside Claude's context window even with the long instruction preamble
+// below, while staying cost-conscious on the gateway side. Changing this
+// affects cache fidelity for long videos — summaries generated under a
+// different budget are still cached under the same video_id key.
 const TRANSCRIPT_MAX_LENGTH = 15000;
 
 function getEnglishPrompt(transcript: string): string {
@@ -108,6 +113,17 @@ export function buildSummarizationPrompt(
   language: "en" | "zh"
 ): string {
   const truncated = transcript.slice(0, TRANSCRIPT_MAX_LENGTH);
+  // Silent truncation was hiding partial-video summaries in the cache.
+  // Log when content is dropped so long-video degradation is visible.
+  if (truncated.length < transcript.length) {
+    console.warn("[summarization] transcript truncated to prompt budget", {
+      errorId: "TRANSCRIPT_TRUNCATED",
+      originalLength: transcript.length,
+      truncatedLength: truncated.length,
+      droppedChars: transcript.length - truncated.length,
+      language,
+    });
+  }
   return language === "zh"
     ? getChinesePrompt(truncated)
     : getEnglishPrompt(truncated);

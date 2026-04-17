@@ -48,7 +48,11 @@ describe("checkRateLimit", () => {
 
     const { checkRateLimit, RATE_LIMITS } = await loadFreshModule();
     const res = await checkRateLimit("u1", true);
-    expect(res).toEqual({ allowed: true, remaining: RATE_LIMITS.anonymous });
+    expect(res).toEqual({
+      allowed: true,
+      remaining: RATE_LIMITS.anonymous,
+      reason: "fail_open",
+    });
     expect(warn).toHaveBeenCalled();
   });
 
@@ -70,7 +74,11 @@ describe("checkRateLimit", () => {
 
     const { checkRateLimit } = await loadFreshModule();
     const res = await checkRateLimit("u1", false);
-    expect(res).toEqual({ allowed: true, remaining: 25 });
+    expect(res).toEqual({
+      allowed: true,
+      remaining: 25,
+      reason: "within_limit",
+    });
   });
 
   it("allows at the boundary (count === limit)", async () => {
@@ -80,7 +88,11 @@ describe("checkRateLimit", () => {
 
     const { checkRateLimit } = await loadFreshModule();
     const res = await checkRateLimit("u1", false);
-    expect(res).toEqual({ allowed: true, remaining: 0 });
+    expect(res).toEqual({
+      allowed: true,
+      remaining: 0,
+      reason: "within_limit",
+    });
   });
 
   it("denies when count exceeds limit", async () => {
@@ -92,6 +104,7 @@ describe("checkRateLimit", () => {
     const res = await checkRateLimit("u1", false);
     expect(res.allowed).toBe(false);
     expect(res.remaining).toBe(0);
+    expect(res.reason).toBe("exceeded");
   });
 
   it("uses correct limit for anonymous vs authenticated", async () => {
@@ -132,6 +145,7 @@ describe("checkRateLimit", () => {
     expect(res).toEqual({
       allowed: true,
       remaining: RATE_LIMITS.authenticated,
+      reason: "fail_open",
     });
   });
 
@@ -143,7 +157,11 @@ describe("checkRateLimit", () => {
 
     const { checkRateLimit, RATE_LIMITS } = await loadFreshModule();
     const res = await checkRateLimit("u1", true);
-    expect(res).toEqual({ allowed: true, remaining: RATE_LIMITS.anonymous });
+    expect(res).toEqual({
+      allowed: true,
+      remaining: RATE_LIMITS.anonymous,
+      reason: "fail_open",
+    });
   });
 
   it("memoizes the Supabase client across calls", async () => {

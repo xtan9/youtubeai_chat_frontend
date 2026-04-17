@@ -8,7 +8,10 @@ const TranscribeResponseSchema = z.object({
 
 export type TranscribeResult = z.infer<typeof TranscribeResponseSchema>;
 
-// Vercel's route budget is 300s; leave headroom for caption fetch + LLM.
+// Vercel's route budget is 300s; leave ~60s headroom for the post-transcribe
+// work on the same request (LLM streaming p99 ≈ 30s, cache write + SSE
+// teardown a few seconds, plus slack for the oembed round-trip). If Vercel
+// maxDuration is raised above 300s, bump this proportionally.
 const DEFAULT_VPS_TIMEOUT_MS = 240_000;
 
 export function buildTranscribeUrl(baseUrl: string): string {

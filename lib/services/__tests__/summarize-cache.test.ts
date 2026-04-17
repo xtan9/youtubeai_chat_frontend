@@ -434,4 +434,82 @@ describe("writeCachedSummary", () => {
     expect(historyCall[1]).toEqual({ onConflict: "user_id,video_id" });
     expect(historyCall[0]).toEqual({ user_id: "user-1", video_id: "v1" });
   });
+
+  it("throws when video upsert fails (so route's .catch logs with context)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: null,
+      error: { message: "unique violation" },
+    });
+
+    const { writeCachedSummary } = await loadFresh();
+    await expect(writeCachedSummary(baseParams)).rejects.toThrow(
+      /video upsert failed: unique violation/
+    );
+  });
+
+  it("throws when summary upsert fails (surface partial-write, avoid orphan videos row)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.summariesBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({
+        error: { message: "summaries upsert blew up" },
+      }) as unknown as typeof mocks.summariesBuilder
+    );
+
+    const { writeCachedSummary } = await loadFresh();
+    await expect(writeCachedSummary(baseParams)).rejects.toThrow(
+      /summary upsert failed: summaries upsert blew up/
+    );
+  });
+
+  it("throws when history upsert fails", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.summariesBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.summariesBuilder
+    );
+    mocks.historyBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({
+        error: { message: "history upsert blew up" },
+      }) as unknown as typeof mocks.historyBuilder
+    );
+
+    const { writeCachedSummary } = await loadFresh();
+    await expect(
+      writeCachedSummary({ ...baseParams, userId: "user-1" })
+    ).rejects.toThrow(/history upsert failed: history upsert blew up/);
+  });
+
+  it("throws when the write-side invariant fails (thinking set while disabled)", async () => {
+    // TS/zod write validation: a caller that bypassed the discriminated
+    // union (e.g. via `any` cast) must not corrupt the cache.
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    const { writeCachedSummary } = await loadFresh();
+
+    // Deliberate invariant bypass: enableThinking=false but thinking set.
+    const bad = {
+      ...baseParams,
+      thinking: "illegal",
+    } as unknown as Parameters<typeof writeCachedSummary>[0];
+
+    await expect(writeCachedSummary(bad)).rejects.toThrow(
+      /summary write rejected by invariant check/
+    );
+    expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
+  });
 });

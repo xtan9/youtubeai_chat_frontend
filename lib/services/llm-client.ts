@@ -1,5 +1,11 @@
+import type { ClientStage } from "@/app/api/summarize/stream/stages";
+
 export type LlmEvent =
-  | { readonly type: "status"; readonly message: string; readonly stage: string }
+  | {
+      readonly type: "status";
+      readonly message: string;
+      readonly stage: ClientStage;
+    }
   | { readonly type: "thinking"; readonly text: string }
   | { readonly type: "content"; readonly text: string }
   | { readonly type: "timing"; readonly summarizeSeconds: number };
@@ -35,7 +41,11 @@ export async function* streamLlmSummary(
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
 
-  yield { type: "status", message: "Generating summary...", stage: "summarize" };
+  yield {
+    type: "status",
+    message: "Generating summary...",
+    stage: "summarize",
+  };
 
   const startTime = Date.now();
 
@@ -51,6 +61,10 @@ export async function* streamLlmSummary(
         model,
         messages: [{ role: "user", content: options.prompt }],
         stream: true,
+        // Low-temperature decoding tuned for summarization determinism:
+        // repeated summaries of the same video should be near-identical so
+        // cache hits and live runs read the same. Raise only if product
+        // wants variety.
         temperature: 0.1,
         top_p: 0.9,
       }),
@@ -141,6 +155,18 @@ export async function* streamLlmSummary(
       );
     }
     throw new Error("LLM gateway closed the stream without producing content");
+  }
+
+  // Even when the stream succeeds, a non-zero malformed count is a gateway
+  // health signal — the user got content, but the deploy may be dropping a
+  // meaningful fraction of it. Surface the final count so on-call can alert
+  // on the pattern without relying on the suppressed per-chunk logs.
+  if (malformedChunks > 0) {
+    console.error("[llm-client] stream completed with malformed chunks", {
+      errorId: "LLM_MALFORMED_CHUNKS",
+      malformedChunks,
+      contentReceived: true,
+    });
   }
 
   const durationSeconds = (Date.now() - startTime) / 1000;

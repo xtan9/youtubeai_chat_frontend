@@ -57,7 +57,12 @@ export async function extractCaptions(
     result = response as TranscriptResult;
   } catch (err) {
     if (!isExpectedNoCaptions(err)) {
-      console.error("[caption-extractor] unexpected fetch failure", {
+      // Alertable: unexpected failures here silently fall back to paid
+      // Whisper transcription. A systematic library outage can burn the
+      // VPS budget with no other signal — keep the error ID stable so
+      // on-call can alert on the rate.
+      console.error("[caption-extractor] UNEXPECTED_CAPTION_FETCH_FAILURE", {
+        errorId: "CAPTION_UNEXPECTED_FAILURE",
         videoId,
         errorClass: err instanceof Error ? err.constructor.name : typeof err,
         err,

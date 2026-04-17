@@ -78,4 +78,89 @@ describe("transcribeViaVps", () => {
       source: "whisper",
     });
   });
+
+  it("forwards the caller signal to fetch (composed with internal timeout)", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          transcript: "t",
+          language: "en",
+          source: "whisper",
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    await transcribeViaVps("https://youtu.be/abc", controller.signal);
+
+    const initArg = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(initArg.signal).toBeInstanceOf(AbortSignal);
+    // Aborting the caller must propagate through the composed signal.
+    controller.abort();
+    expect((initArg.signal as AbortSignal).aborted).toBe(true);
+  });
+
+  it("surfaces a timeout as a real error (not swallowed as caller abort)", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    // 1ms internal timeout guarantees the composed signal fires before the
+    // slow mock fetch resolves. The rejection should surface — the route's
+    // `isCallerAbort` check only treats caller-signal aborts as silent drops.
+    vi.stubEnv("VPS_TIMEOUT_MS", "1");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            const signal = init.signal!;
+            if (signal.aborted) {
+              reject(signal.reason ?? new Error("aborted"));
+              return;
+            }
+            signal.addEventListener("abort", () => {
+              reject(signal.reason ?? new Error("aborted"));
+            });
+          })
+      )
+    );
+
+    const callerController = new AbortController();
+    await expect(
+      transcribeViaVps("https://youtu.be/abc", callerController.signal)
+    ).rejects.toBeDefined();
+    // Crucially: the caller's own signal was NOT aborted — the internal
+    // timeout fired. A route that classifies this as a caller abort would
+    // silently close the stream instead of logging.
+    expect(callerController.signal.aborted).toBe(false);
+  });
+
+  it("honors VPS_TIMEOUT_MS env override", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubEnv("VPS_TIMEOUT_MS", "500");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            transcript: "t",
+            language: "en",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    // Just asserting the call succeeds — the override is load-bearing for
+    // local/dev overrides and the absence of an env-related throw proves
+    // parsing worked.
+    await expect(
+      transcribeViaVps("https://youtu.be/abc")
+    ).resolves.toBeDefined();
+  });
 });

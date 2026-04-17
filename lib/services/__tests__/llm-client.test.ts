@@ -168,6 +168,48 @@ describe("streamLlmSummary", () => {
     ).rejects.toThrow(/malformed SSE chunks/);
   });
 
+  it("succeeds with mixed malformed+valid chunks and logs final malformed count", async () => {
+    // Realistic gateway glitch: a few chunks are dropped but content still
+    // flows. Must NOT throw, must deliver the good content, AND must log a
+    // final summary line so on-call can alert on malformed ratios even when
+    // the user-facing path succeeds.
+    stubEnv();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          "data: not-json\n",
+          'data: {"choices":[{"delta":{"content":"hello "}}]}\n',
+          "data: also-not-json\n",
+          'data: {"choices":[{"delta":{"content":"world"}}]}\n',
+          "data: [DONE]\n",
+        ])
+      )
+    );
+
+    const events = await collect(
+      streamLlmSummary({ prompt: "x", enableThinking: false })
+    );
+
+    const contents = events
+      .filter((e) => e.type === "content")
+      .map((e) => (e as { text: string }).text)
+      .join("");
+    expect(contents).toBe("hello world");
+
+    const finalLog = errSpy.mock.calls.find((c) =>
+      String(c[0]).includes("stream completed with malformed chunks")
+    );
+    expect(finalLog).toBeDefined();
+    expect(finalLog?.[1]).toMatchObject({
+      errorId: "LLM_MALFORMED_CHUNKS",
+      malformedChunks: 2,
+      contentReceived: true,
+    });
+  });
+
   it("forwards caller's AbortSignal to fetch", async () => {
     stubEnv();
     const fetchMock = vi.fn().mockResolvedValue(
