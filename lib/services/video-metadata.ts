@@ -12,12 +12,22 @@ export interface VideoMetadataBasic {
   readonly channelName: string;
 }
 
-const EMPTY: VideoMetadataBasic = { title: "", channelName: "" };
+// Discriminated result: `ok: false` lets callers distinguish real failures
+// (oembed 404/500, DNS blip, schema drift) from "video genuinely has no
+// title" so we can skip caching blank rows instead of poisoning the cache.
+export type VideoMetadataResult =
+  | { readonly ok: true; readonly data: VideoMetadataBasic }
+  | {
+      readonly ok: false;
+      readonly reason: "aborted" | "non_ok" | "schema" | "error";
+      readonly status?: number;
+      readonly error?: unknown;
+    };
 
 export async function fetchVideoMetadata(
   youtubeUrl: string,
   signal?: AbortSignal
-): Promise<VideoMetadataBasic> {
+): Promise<VideoMetadataResult> {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
       youtubeUrl
@@ -25,19 +35,25 @@ export async function fetchVideoMetadata(
     const res = await fetch(oembedUrl, {
       signal: signal ?? AbortSignal.timeout(5000),
     });
-    if (!res.ok) return EMPTY;
+    if (!res.ok) return { ok: false, reason: "non_ok", status: res.status };
     const raw: unknown = await res.json();
     const parsed = OembedResponseSchema.safeParse(raw);
-    if (!parsed.success) return EMPTY;
+    if (!parsed.success) return { ok: false, reason: "schema" };
     return {
-      title: parsed.data.title ?? "",
-      channelName: parsed.data.author_name ?? "",
+      ok: true,
+      data: {
+        title: parsed.data.title ?? "",
+        channelName: parsed.data.author_name ?? "",
+      },
     };
   } catch (err) {
-    console.warn("[video-metadata] oembed fetch failed", {
-      youtubeUrl,
-      errorClass: err instanceof Error ? err.constructor.name : typeof err,
-    });
-    return EMPTY;
+    if (
+      signal?.aborted ||
+      (err instanceof Error && err.name === "AbortError") ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
+      return { ok: false, reason: "aborted" };
+    }
+    return { ok: false, reason: "error", error: err };
   }
 }

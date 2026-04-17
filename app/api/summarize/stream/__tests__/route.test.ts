@@ -53,11 +53,17 @@ vi.mock("@/lib/services/rate-limit", () => ({
 
 import { POST } from "../route";
 
-function makeRequest(body: unknown, opts: { bodyIsRaw?: string } = {}) {
+const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+function makeRequest(
+  body: unknown,
+  opts: { bodyIsRaw?: string; signal?: AbortSignal } = {}
+) {
   return new Request("https://app.test/api/summarize/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: opts.bodyIsRaw ?? JSON.stringify(body),
+    signal: opts.signal,
   });
 }
 
@@ -84,10 +90,17 @@ async function* fakeGen(events: LlmEvent[]): AsyncGenerator<LlmEvent> {
   for (const e of events) yield e;
 }
 
+const CAPTIONS_FIXTURE = {
+  transcript: "captioned transcript",
+  source: "auto_captions" as const,
+  language: "en" as const,
+  title: "Live Title",
+  channelName: "Live Chan",
+};
+
 describe("POST /api/summarize/stream", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((m) => m.mockReset());
-    // Sensible defaults — individual tests override as needed.
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "user-1", is_anonymous: false } },
     });
@@ -99,6 +112,7 @@ describe("POST /api/summarize/stream", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -141,11 +155,7 @@ describe("POST /api/summarize/stream", () => {
 
     it("accepts https canonical URL", async () => {
       mocks.getCachedSummary.mockResolvedValue(cachedFixture());
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(200);
     });
   });
@@ -153,11 +163,7 @@ describe("POST /api/summarize/stream", () => {
   describe("auth", () => {
     it("returns 401 when user is not authenticated", async () => {
       mocks.getUser.mockResolvedValue({ data: { user: null } });
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ message: "Unauthorized" });
     });
@@ -166,11 +172,7 @@ describe("POST /api/summarize/stream", () => {
   describe("rate limiting", () => {
     it("returns 429 with X-RateLimit-Remaining header when denied", async () => {
       mocks.checkRateLimit.mockResolvedValue({ allowed: false, remaining: 0 });
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(429);
       expect(res.headers.get("X-RateLimit-Remaining")).toBe("0");
     });
@@ -181,12 +183,7 @@ describe("POST /api/summarize/stream", () => {
       });
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
       mocks.getCachedSummary.mockResolvedValue(cachedFixture());
-
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(200);
       expect(mocks.checkRateLimit).toHaveBeenCalledWith("anon-1", true);
     });
@@ -194,12 +191,7 @@ describe("POST /api/summarize/stream", () => {
     it("propagates remaining header on live stream response", async () => {
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 15 });
       mocks.getCachedSummary.mockResolvedValue(cachedFixture());
-
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.headers.get("X-RateLimit-Remaining")).toBe("15");
       expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     });
@@ -220,7 +212,7 @@ describe("POST /api/summarize/stream", () => {
 
       const res = await POST(
         makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          youtube_url: VALID_URL,
           include_transcript: true,
         })
       );
@@ -248,26 +240,16 @@ describe("POST /api/summarize/stream", () => {
 
   describe("live captions path", () => {
     it("writes cache with separate transcribe/summarize times", async () => {
-      mocks.extractCaptions.mockResolvedValue({
-        transcript: "hello world transcript",
-        source: "auto_captions",
-        language: "en",
-        title: "Live Title",
-        channelName: "Live Chan",
-      });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
           { type: "content", text: "Live " },
           { type: "content", text: "summary." },
-          { type: "timing", summarizeSeconds: 4, transcribeSeconds: 0 },
+          { type: "timing", summarizeSeconds: 4 },
         ])
       );
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
 
       const contentTexts = events
@@ -279,7 +261,7 @@ describe("POST /api/summarize/stream", () => {
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
       expect(writeCall).toMatchObject({
-        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        youtubeUrl: VALID_URL,
         title: "Live Title",
         channelName: "Live Chan",
         summary: "Live summary.",
@@ -289,40 +271,21 @@ describe("POST /api/summarize/stream", () => {
         thinking: null,
         userId: "user-1",
       });
-      expect(writeCall.transcribeTimeSeconds).toBeGreaterThanOrEqual(0);
     });
 
     it("does NOT write cache when LLM produces empty summary", async () => {
-      mocks.extractCaptions.mockResolvedValue({
-        transcript: "x",
-        source: "auto_captions",
-        language: "en",
-        title: "T",
-        channelName: "C",
-      });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([
-          { type: "timing", summarizeSeconds: 1, transcribeSeconds: 0 },
-        ])
+        fakeGen([{ type: "timing", summarizeSeconds: 1 }])
       );
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("returns error event when LLM throws mid-stream", async () => {
-      mocks.extractCaptions.mockResolvedValue({
-        transcript: "x",
-        source: "auto_captions",
-        language: "en",
-        title: "T",
-        channelName: "C",
-      });
+    it("emits error event and skips cache when LLM throws mid-stream", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
         (async function* () {
           yield { type: "content", text: "partial" } as LlmEvent;
@@ -331,49 +294,87 @@ describe("POST /api/summarize/stream", () => {
       );
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
-      const errorEvent = events.find((e) => e.type === "error");
-      expect(errorEvent).toBeDefined();
-      expect(errSpy.mock.calls[0][0]).toContain("llm failed");
+      expect(events.find((e) => e.type === "error")).toBeDefined();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("llm failed"),
+        expect.objectContaining({ stage: "llm" })
+      );
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
     it("uses wall-clock fallback when generator omits timing event", async () => {
-      mocks.extractCaptions.mockResolvedValue({
-        transcript: "x",
-        source: "auto_captions",
-        language: "en",
-        title: "T",
-        channelName: "C",
+      let now = 1_000_000;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(async function* () {
+        yield { type: "content", text: "hi" };
+        // 2500ms of wall-clock elapses between last content and generator end.
+        now += 2500;
       });
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const writeCall = mocks.writeCachedSummary.mock
+        .calls[0][0] as CacheWriteParams;
+      expect(writeCall.summarizeTimeSeconds).toBe(2.5);
+    });
+
+    it("accumulates thinking + content and persists both when enable_thinking is true", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([{ type: "content", text: "hi" }])
+        fakeGen([
+          { type: "thinking", text: "deep" },
+          { type: "thinking", text: " thoughts" },
+          { type: "content", text: "result" },
+          { type: "timing", summarizeSeconds: 2 },
+        ])
       );
 
       const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
+        makeRequest({ youtube_url: VALID_URL, enable_thinking: true })
       );
       await readStream(res);
 
-      expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
-      expect(writeCall.summarizeTimeSeconds).toBeGreaterThanOrEqual(0);
-      // Not zero — the fallback computed a real wall-clock delta.
+      expect(writeCall.enableThinking).toBe(true);
+      expect(writeCall.thinking).toBe("deep thoughts");
+      expect(writeCall.summary).toBe("result");
+    });
+
+    it("returns silently on client abort during LLM stream (no error event, no cache)", async () => {
+      const controller = new AbortController();
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        (async function* () {
+          yield { type: "content", text: "partial" } as LlmEvent;
+          controller.abort();
+          const abortErr = new Error("aborted");
+          abortErr.name = "AbortError";
+          throw abortErr;
+        })()
+      );
+
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL }, { signal: controller.signal })
+      );
+      const events = parseEvents(await readStream(res));
+      expect(events.find((e) => e.type === "error")).toBeUndefined();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
   });
 
   describe("Whisper fallback path", () => {
     it("skips cache write when metadata fetch failed (no blank-title poisoning)", async () => {
       mocks.extractCaptions.mockResolvedValue(null);
-      mocks.fetchVideoMetadata.mockRejectedValue(new Error("oembed down"));
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: false,
+        reason: "error",
+        error: new Error("network down"),
+      });
       mocks.transcribeViaVps.mockResolvedValue({
         transcript: "whisper output",
         language: "en",
@@ -382,26 +383,24 @@ describe("POST /api/summarize/stream", () => {
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
           { type: "content", text: "whisper summary" },
-          { type: "timing", summarizeSeconds: 2, transcribeSeconds: 0 },
+          { type: "timing", summarizeSeconds: 2 },
         ])
       );
       vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
-      await readStream(res);
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
 
+      // Stream still emits terminal summary so the client accumulator closes.
+      expect(events.at(-1)?.type).toBe("summary");
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("writes cache with empty metadata when oembed succeeds but returns blank", async () => {
+    it("does NOT mark as failed when oembed returns empty metadata (still cacheable)", async () => {
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
-        title: "",
-        channelName: "",
+        ok: true,
+        data: { title: "", channelName: "" },
       });
       mocks.transcribeViaVps.mockResolvedValue({
         transcript: "whisper output",
@@ -411,31 +410,55 @@ describe("POST /api/summarize/stream", () => {
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
           { type: "content", text: "whisper summary" },
-          { type: "timing", summarizeSeconds: 2, transcribeSeconds: 0 },
+          { type: "timing", summarizeSeconds: 2 },
         ])
       );
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT log when metadata fetch aborted (client disconnect)", async () => {
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: false,
+        reason: "aborted",
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
       );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
 
+      const metadataLog = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("metadata failed")
+      );
+      expect(metadataLog).toBeUndefined();
+      // Still caches because "aborted" isn't treated as a real failure.
       expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
     });
 
     it("emits error event + skips LLM when VPS transcription fails", async () => {
       mocks.extractCaptions.mockResolvedValue(null);
-      mocks.fetchVideoMetadata.mockResolvedValue({ title: "", channelName: "" });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "", channelName: "" },
+      });
       mocks.transcribeViaVps.mockRejectedValue(new Error("vps boom"));
       vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const res = await POST(
-        makeRequest({
-          youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        })
-      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
       expect(events.find((e) => e.type === "error")).toBeDefined();
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();

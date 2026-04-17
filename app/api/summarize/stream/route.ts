@@ -4,7 +4,7 @@ import { extractCaptions } from "@/lib/services/caption-extractor";
 import { transcribeViaVps } from "@/lib/services/vps-client";
 import {
   fetchVideoMetadata,
-  type VideoMetadataBasic,
+  type VideoMetadataResult,
 } from "@/lib/services/video-metadata";
 import {
   getCachedSummary,
@@ -24,7 +24,6 @@ import {
   forwardLlmEvent,
   streamCached,
   type SendEvent,
-  type SseEvent,
 } from "./stream-events";
 
 export const maxDuration = 300;
@@ -55,8 +54,6 @@ export type Stage =
   | "llm"
   | "cache"
   | "unknown";
-
-const EMPTY_METADATA: VideoMetadataBasic = { title: "", channelName: "" };
 
 function jsonError(
   status: number,
@@ -109,7 +106,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      const sendEvent: SendEvent = (data: SseEvent) => {
+      const sendEvent: SendEvent = (data) => {
         if (request.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
@@ -151,11 +148,10 @@ export async function POST(request: Request) {
         let language: PromptLocale;
         let title = "";
         let channelName = "";
-        // Whisper-only. Catch is attached at creation so an abandoned promise
-        // (VPS throws below) never surfaces as an unhandled rejection. We also
-        // track whether metadata resolved successfully so we can skip caching
-        // blank titles instead of poisoning the cache row.
-        let metadataPromise: Promise<VideoMetadataBasic> | null = null;
+        // Whisper-only. Kicked off before VPS transcription so oembed runs in
+        // parallel with audio transcription. Resolved lazily at cache-write
+        // time so the round-trip doesn't serialize with summarization.
+        let metadataPromise: Promise<VideoMetadataResult> | null = null;
         let metadataFetchFailed = false;
 
         const transcribeStart = Date.now();
@@ -181,14 +177,7 @@ export async function POST(request: Request) {
             message: "No captions found. Transcribing audio...",
             stage: "transcribe",
           });
-          metadataPromise = fetchVideoMetadata(
-            youtube_url,
-            request.signal
-          ).catch((err) => {
-            metadataFetchFailed = true;
-            logStageError("metadata", err);
-            return EMPTY_METADATA;
-          });
+          metadataPromise = fetchVideoMetadata(youtube_url, request.signal);
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
@@ -245,39 +234,54 @@ export async function POST(request: Request) {
         // rather than caching 0.
         const summarizeSecondsFinal =
           summarizeSeconds ?? (Date.now() - llmStart) / 1000;
-        const overallDuration = (Date.now() - overallStart) / 1000;
 
-        if (fullSummary) {
-          if (metadataPromise) {
-            const metadata = await metadataPromise;
-            title = metadata.title;
-            channelName = metadata.channelName;
+        if (!fullSummary) return;
+
+        if (metadataPromise) {
+          const result = await metadataPromise;
+          if (result.ok) {
+            title = result.data.title;
+            channelName = result.data.channelName;
+          } else if (result.reason !== "aborted") {
+            metadataFetchFailed = true;
+            logStageError("metadata", result);
           }
-          // Don't poison the cache with blank metadata — the next request will
-          // retry the oembed fetch. Routine "this video has no metadata" is
-          // still cacheable (both fields empty, no failure flag set).
-          if (metadataFetchFailed) return;
-
-          const thinkingState: ThinkingState = enableThinking
-            ? { enableThinking: true, thinking: fullThinking || null }
-            : { enableThinking: false, thinking: null };
-
-          writeCachedSummary({
-            youtubeUrl: youtube_url,
-            title,
-            channelName,
-            language,
-            transcript,
-            summary: fullSummary,
-            transcriptSource,
-            model: process.env.LLM_MODEL || "claude-sonnet-4-6",
-            processingTimeSeconds: overallDuration,
-            transcribeTimeSeconds: transcribeSeconds,
-            summarizeTimeSeconds: summarizeSecondsFinal,
-            userId: user.id,
-            ...thinkingState,
-          }).catch((err) => logStageError("cache", err));
         }
+
+        // Always emit a terminal summary so the client accumulator closes
+        // cleanly, even when we skip the cache write below.
+        sendEvent({
+          type: "summary",
+          category: "general",
+          total_time: summarizeSecondsFinal + transcribeSeconds,
+          summarize_time: summarizeSecondsFinal,
+          transcribe_time: transcribeSeconds,
+        });
+
+        // Skip caching when oembed failed so the next request retries instead
+        // of being served a title-less row for life. "Video genuinely has no
+        // metadata" (result.ok with empty strings) still caches.
+        if (metadataFetchFailed) return;
+
+        const thinkingState: ThinkingState = enableThinking
+          ? { enableThinking: true, thinking: fullThinking || null }
+          : { enableThinking: false, thinking: null };
+
+        writeCachedSummary({
+          youtubeUrl: youtube_url,
+          title,
+          channelName,
+          language,
+          transcript,
+          summary: fullSummary,
+          transcriptSource,
+          model: process.env.LLM_MODEL || "claude-sonnet-4-6",
+          processingTimeSeconds: (Date.now() - overallStart) / 1000,
+          transcribeTimeSeconds: transcribeSeconds,
+          summarizeTimeSeconds: summarizeSecondsFinal,
+          userId: user.id,
+          ...thinkingState,
+        }).catch((err) => logStageError("cache", err));
       } catch (err) {
         if (isAbortError(err, request.signal)) return;
         logStageError("unknown", err);

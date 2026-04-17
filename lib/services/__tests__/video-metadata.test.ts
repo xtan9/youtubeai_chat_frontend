@@ -6,7 +6,7 @@ describe("fetchVideoMetadata", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns parsed title and channel on 200", async () => {
+  it("returns ok result with parsed title and channel on 200", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -19,10 +19,13 @@ describe("fetchVideoMetadata", () => {
     const result = await fetchVideoMetadata(
       "https://www.youtube.com/watch?v=abc123"
     );
-    expect(result).toEqual({ title: "Hello World", channelName: "Channel X" });
+    expect(result).toEqual({
+      ok: true,
+      data: { title: "Hello World", channelName: "Channel X" },
+    });
   });
 
-  it("returns empty strings on non-2xx response", async () => {
+  it("returns ok:false reason:non_ok with status on 4xx/5xx", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("", { status: 404 }))
@@ -30,21 +33,29 @@ describe("fetchVideoMetadata", () => {
     const result = await fetchVideoMetadata(
       "https://www.youtube.com/watch?v=abc123"
     );
-    expect(result).toEqual({ title: "", channelName: "" });
+    expect(result).toEqual({ ok: false, reason: "non_ok", status: 404 });
   });
 
-  it("returns empty strings on network error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("network down"))
-    );
+  it("returns ok:false reason:error on network throw", async () => {
+    const netErr = new Error("network down");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(netErr));
     const result = await fetchVideoMetadata(
       "https://www.youtube.com/watch?v=abc123"
     );
-    expect(result).toEqual({ title: "", channelName: "" });
+    expect(result).toEqual({ ok: false, reason: "error", error: netErr });
   });
 
-  it("tolerates missing fields in oembed response", async () => {
+  it("returns ok:false reason:aborted when abort signal fires", async () => {
+    const abortErr = new Error("The operation was aborted");
+    abortErr.name = "AbortError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortErr));
+    const result = await fetchVideoMetadata(
+      "https://www.youtube.com/watch?v=abc123"
+    );
+    expect(result).toEqual({ ok: false, reason: "aborted" });
+  });
+
+  it("returns ok:true with empty strings when oembed payload lacks fields", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -54,6 +65,9 @@ describe("fetchVideoMetadata", () => {
     const result = await fetchVideoMetadata(
       "https://www.youtube.com/watch?v=abc123"
     );
-    expect(result).toEqual({ title: "only title", channelName: "" });
+    expect(result).toEqual({
+      ok: true,
+      data: { title: "only title", channelName: "" },
+    });
   });
 });

@@ -25,11 +25,7 @@ describe("forwardLlmEvent", () => {
   it("converts timing event to SSE summary with summarize+transcribe total", () => {
     const sent: Record<string, unknown>[] = [];
     forwardLlmEvent(
-      {
-        type: "timing",
-        summarizeSeconds: 7,
-        transcribeSeconds: 0,
-      },
+      { type: "timing", summarizeSeconds: 7 },
       (d) => sent.push(d),
       3
     );

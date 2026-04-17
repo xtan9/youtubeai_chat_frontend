@@ -2,11 +2,7 @@ export type LlmEvent =
   | { readonly type: "status"; readonly message: string; readonly stage: string }
   | { readonly type: "thinking"; readonly text: string }
   | { readonly type: "content"; readonly text: string }
-  | {
-      readonly type: "timing";
-      readonly summarizeSeconds: number;
-      readonly transcribeSeconds: number;
-    };
+  | { readonly type: "timing"; readonly summarizeSeconds: number };
 
 export function formatSseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -151,6 +147,5 @@ export async function* streamLlmSummary(
   yield {
     type: "timing",
     summarizeSeconds: durationSeconds,
-    transcribeSeconds: 0,
   };
 }
