@@ -3,14 +3,11 @@ CREATE TABLE IF NOT EXISTS videos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     youtube_url TEXT NOT NULL,
     url_hash TEXT NOT NULL UNIQUE,
-    youtube_id VARCHAR(20),
     title TEXT,
     channel_name TEXT,
     language TEXT DEFAULT 'en',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_videos_url_hash ON videos(url_hash);
 
 -- Summaries table for cached results
 CREATE TABLE IF NOT EXISTS summaries (
@@ -23,7 +20,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     enable_thinking BOOLEAN NOT NULL DEFAULT FALSE,
     model TEXT,
     processing_time_seconds NUMERIC(10, 2),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
     UNIQUE(video_id, enable_thinking)
 );
 
@@ -34,7 +31,7 @@ CREATE TABLE IF NOT EXISTS user_video_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
     UNIQUE(user_id, video_id)
 );
 
@@ -57,17 +54,24 @@ ALTER TABLE summaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_video_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
 
--- Videos: public read, authenticated write
+-- Videos: public read, service_role write
+DROP POLICY IF EXISTS "videos_select" ON videos;
 CREATE POLICY "videos_select" ON videos FOR SELECT USING (true);
-CREATE POLICY "videos_insert" ON videos FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "videos_insert" ON videos;
+CREATE POLICY "videos_insert" ON videos FOR INSERT TO service_role WITH CHECK (true);
 
--- Summaries: public read, authenticated write
+-- Summaries: public read, service_role write
+DROP POLICY IF EXISTS "summaries_select" ON summaries;
 CREATE POLICY "summaries_select" ON summaries FOR SELECT USING (true);
-CREATE POLICY "summaries_insert" ON summaries FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "summaries_insert" ON summaries;
+CREATE POLICY "summaries_insert" ON summaries FOR INSERT TO service_role WITH CHECK (true);
 
 -- User history: private to owner
+DROP POLICY IF EXISTS "history_select" ON user_video_history;
 CREATE POLICY "history_select" ON user_video_history FOR SELECT TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "history_insert" ON user_video_history;
 CREATE POLICY "history_insert" ON user_video_history FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
 -- Rate limits: service role only (accessed via server-side Supabase client)
+DROP POLICY IF EXISTS "rate_limits_all" ON rate_limits;
 CREATE POLICY "rate_limits_all" ON rate_limits FOR ALL TO service_role USING (true);
