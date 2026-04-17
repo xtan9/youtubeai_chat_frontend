@@ -431,7 +431,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("skips cache on oembed timeout (not treated as aborted)", async () => {
+    it("skips cache + logs on oembed timeout (not treated as aborted)", async () => {
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
         ok: false,
@@ -448,11 +448,18 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      vi.spyOn(console, "error").mockImplementation(() => {});
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      await readStream(res);
+      const events = parseEvents(await readStream(res));
+
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("metadata failed"),
+        expect.objectContaining({ stage: "metadata" })
+      );
+      // Terminal summary still emits so the client accumulator closes.
+      expect(events.at(-1)?.type).toBe("summary");
     });
 
     it("does NOT mark as failed when oembed returns empty metadata (still cacheable)", async () => {
@@ -478,7 +485,11 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
     });
 
-    it("does NOT log when metadata fetch aborted (client disconnect)", async () => {
+    it("metadata aborted: no log, and when caller signal is aborted no cache write", async () => {
+      // Simulates the race where the caller aborts between LLM completion
+      // and the metadata await. Aborted metadata isn't an upstream failure
+      // (no log), but we must NOT cache a blank-title row for future hits.
+      const controller = new AbortController();
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
         ok: false,
@@ -497,15 +508,64 @@ describe("POST /api/summarize/stream", () => {
       );
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      // Abort after constructing the request so route.ts sees
+      // request.signal.aborted === true at the cache-write check.
+      controller.abort();
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL }, { signal: controller.signal })
+      );
       await readStream(res);
 
       const metadataLog = errSpy.mock.calls.find((c) =>
         String(c[0]).includes("metadata failed")
       );
       expect(metadataLog).toBeUndefined();
-      // Still caches because "aborted" isn't treated as a real failure.
-      expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("continues normally when cache write fails (logs + no exception propagates)", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      mocks.writeCachedSummary.mockRejectedValue(new Error("supabase down"));
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      // User still got their summary — no error event.
+      expect(events.find((e) => e.type === "error")).toBeUndefined();
+      expect(events.filter((e) => e.type === "summary")).toHaveLength(1);
+      // Wait for microtask-scheduled .catch to log before asserting.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        errSpy.mock.calls.some(
+          (c) =>
+            String(c[0]).includes("cache failed") &&
+            (c[1] as { stage?: string } | undefined)?.stage === "cache"
+        )
+      ).toBe(true);
+    });
+
+    it("emits generic error event when unhandled exception bubbles to outer catch", async () => {
+      // getCachedSummary isn't wrapped in an inner try/catch, so a throw
+      // here hits the outer catch → logStageError("unknown", err) + error event.
+      mocks.getCachedSummary.mockRejectedValue(new Error("supabase explode"));
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      expect(events.find((e) => e.type === "error")).toBeDefined();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("unknown failed"),
+        expect.objectContaining({ stage: "unknown" })
+      );
     });
 
     it("emits error event + skips LLM when VPS transcription fails", async () => {

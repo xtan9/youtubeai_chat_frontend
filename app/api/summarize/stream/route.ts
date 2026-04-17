@@ -72,9 +72,9 @@ function isAbortError(err: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (err instanceof Error && err.name === "AbortError");
 }
 
-// A real failure is anything that warrants skipping the cache write + logging.
-// Caller aborts are excluded — the user disconnected, not an upstream error.
-function isRealMetadataFailure(
+// Upstream failures warrant skipping the cache write + logging. Caller-abort
+// is a different class — the user disconnected, it's not an oembed problem.
+function isUpstreamMetadataFailure(
   result: VideoMetadataResult
 ): result is Extract<VideoMetadataResult, { ok: false }> & {
   reason: Exclude<
@@ -85,14 +85,31 @@ function isRealMetadataFailure(
   return !result.ok && result.reason !== "aborted";
 }
 
+// Synthesize a stable Error for Sentry grouping when there's no underlying
+// thrown error to wrap. Switch is exhaustive via `never` so a new reason
+// in VideoMetadataResult fails compilation here.
 function metadataErrorForLog(
-  result: Extract<VideoMetadataResult, { ok: false }>
-): unknown {
-  if (result.reason === "error") return result.error;
-  if (result.reason === "non_ok") {
-    return new Error(`oembed non_ok (status ${result.status})`);
+  result: Extract<VideoMetadataResult, { ok: false }> & {
+    reason: Exclude<
+      Extract<VideoMetadataResult, { ok: false }>["reason"],
+      "aborted"
+    >;
   }
-  return new Error(`oembed ${result.reason}`);
+): unknown {
+  switch (result.reason) {
+    case "error":
+      return result.error;
+    case "non_ok":
+      return new Error(`oembed non_ok (status ${result.status})`);
+    case "timeout":
+      return new Error("oembed timeout");
+    case "schema":
+      return new Error("oembed schema");
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
+  }
 }
 
 export async function POST(request: Request) {
@@ -173,9 +190,8 @@ export async function POST(request: Request) {
         let language: PromptLocale;
         let title = "";
         let channelName = "";
-        // Whisper-only. Kicked off before VPS transcription so oembed runs in
-        // parallel with audio transcription. The .catch at construction guards
-        // against unhandled rejection if the LLM path errors before we await.
+        // Whisper-only. The .catch at construction guards against unhandled
+        // rejection if the LLM path errors before we await the promise.
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
 
         const transcribeStart = Date.now();
@@ -287,7 +303,7 @@ export async function POST(request: Request) {
           if (result.ok) {
             title = result.data.title;
             channelName = result.data.channelName;
-          } else if (isRealMetadataFailure(result)) {
+          } else if (isUpstreamMetadataFailure(result)) {
             metadataSkipCache = true;
             logStageError("metadata", metadataErrorForLog(result));
           }
@@ -303,7 +319,10 @@ export async function POST(request: Request) {
           transcribe_time: transcribeSeconds,
         });
 
-        if (metadataSkipCache) return;
+        // Skip the cache write on any upstream metadata failure OR on caller
+        // abort — otherwise an abort-race between LLM completion and this
+        // point would cache a blank-title row for future requests.
+        if (metadataSkipCache || request.signal.aborted) return;
 
         const thinkingState: ThinkingState = enableThinking
           ? { enableThinking: true, thinking: fullThinking || null }

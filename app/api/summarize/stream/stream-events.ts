@@ -36,9 +36,10 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
       sendEvent({ type: "content", text: event.text });
       return;
     case "timing":
-      // No SSE emit here — the route owns the terminal `summary` event so
-      // there's exactly one per stream (live or cached). We capture
-      // summarizeSeconds from the timing event in the route loop.
+      // Intentionally no SSE emit. The route owns the single terminal
+      // `summary` event (live + cached paths emit exactly one each). If you
+      // add logic here, you will double-emit on the live path — see the
+      // `emits exactly one terminal summary event` test.
       return;
     default: {
       // Compile-time exhaustiveness via `never`; runtime log in case a future

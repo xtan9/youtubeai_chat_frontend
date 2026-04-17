@@ -24,13 +24,16 @@ export type VideoMetadataResult =
   | { readonly ok: false; readonly reason: "schema" }
   | { readonly ok: false; readonly reason: "error"; readonly error: unknown };
 
-const DEFAULT_TIMEOUT_MS = 5000;
+const OEMBED_TIMEOUT_MS = 5000;
 
 export async function fetchVideoMetadata(
   youtubeUrl: string,
   signal?: AbortSignal
 ): Promise<VideoMetadataResult> {
-  const timeoutSignal = AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+  // Compose the caller's signal with our internal timer so the fetch aborts
+  // on either user disconnect OR upstream slowness. The catch below reads
+  // signal.aborted (caller's signal only) to tell the two apart.
+  const timeoutSignal = AbortSignal.timeout(OEMBED_TIMEOUT_MS);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
