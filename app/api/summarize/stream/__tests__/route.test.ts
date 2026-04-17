@@ -273,14 +273,43 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
-    it("does NOT write cache when LLM produces empty summary", async () => {
+    it("emits exactly one terminal summary event on happy path", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 2 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      const summaryEvents = events.filter((e) => e.type === "summary");
+      expect(summaryEvents).toHaveLength(1);
+      expect(summaryEvents[0]).toMatchObject({
+        summarize_time: 2,
+        total_time: expect.any(Number),
+        transcribe_time: expect.any(Number),
+      });
+    });
+
+    it("emits error event + skips cache when LLM produces empty summary", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([{ type: "timing", summarizeSeconds: 1 }])
       );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      await readStream(res);
+      const events = parseEvents(await readStream(res));
+
+      expect(events.find((e) => e.type === "error")).toBeDefined();
+      expect(events.find((e) => e.type === "summary")).toBeUndefined();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("llm failed"),
+        expect.objectContaining({ stage: "llm" })
+      );
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
@@ -345,12 +374,14 @@ describe("POST /api/summarize/stream", () => {
       expect(writeCall.summary).toBe("result");
     });
 
-    it("returns silently on client abort during LLM stream (no error event, no cache)", async () => {
+    it("returns silently on client abort during LLM stream (partial content delivered, no error, no cache)", async () => {
       const controller = new AbortController();
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
         (async function* () {
           yield { type: "content", text: "partial" } as LlmEvent;
+          // Let the route enqueue the content event before aborting.
+          await Promise.resolve();
           controller.abort();
           const abortErr = new Error("aborted");
           abortErr.name = "AbortError";
@@ -362,6 +393,10 @@ describe("POST /api/summarize/stream", () => {
         makeRequest({ youtube_url: VALID_URL }, { signal: controller.signal })
       );
       const events = parseEvents(await readStream(res));
+
+      expect(
+        events.some((e) => e.type === "content" && e.text === "partial")
+      ).toBe(true);
       expect(events.find((e) => e.type === "error")).toBeUndefined();
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
@@ -393,6 +428,30 @@ describe("POST /api/summarize/stream", () => {
 
       // Stream still emits terminal summary so the client accumulator closes.
       expect(events.at(-1)?.type).toBe("summary");
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("skips cache on oembed timeout (not treated as aborted)", async () => {
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: false,
+        reason: "timeout",
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 

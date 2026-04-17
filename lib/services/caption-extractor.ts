@@ -13,11 +13,8 @@ import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
 
-// youtube-transcript-plus's TranscriptSegment does not expose whether a track
-// was uploader-provided or ASR-generated. Until a future library release
-// surfaces that signal (or we migrate to YouTube Data API captions.list), we
-// cannot honestly distinguish — so everything coming through this path is
-// labelled auto_captions. Narrowing the type enforces that honesty.
+// Library doesn't expose whether a track is ASR vs uploader-provided, so
+// everything through this path is honestly labelled auto_captions.
 export type CaptionSource = Extract<TranscriptSource, "auto_captions">;
 
 export interface CaptionResult {

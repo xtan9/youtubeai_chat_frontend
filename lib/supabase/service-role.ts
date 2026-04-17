@@ -2,12 +2,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cached: SupabaseClient | null = null;
 
-/**
- * Single memoized service-role Supabase client shared across server modules.
- * Returns null when env vars are missing — callers decide between fail-open
- * and hard-fail based on their domain. In dev/CI the env may be absent; in
- * production a missing key is a deploy defect the caller should log loudly.
- */
+// Single memoized service-role Supabase client shared across server modules.
+// Returns null when env vars are missing so each caller can choose its own
+// fail-open vs hard-fail policy.
 export function getServiceRoleClient(): SupabaseClient | null {
   if (cached) return cached;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

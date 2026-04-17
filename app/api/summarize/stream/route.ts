@@ -46,6 +46,8 @@ const USER_ERROR_PROCESS_FAILED =
   "Couldn't process this video. Please try again or try a different URL.";
 const USER_ERROR_GENERIC =
   "Something went wrong generating the summary. Please try again.";
+const USER_ERROR_EMPTY_SUMMARY =
+  "The model returned no summary. Please try again.";
 
 export type Stage =
   | "captions"
@@ -68,6 +70,29 @@ function jsonError(
 
 function isAbortError(err: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (err instanceof Error && err.name === "AbortError");
+}
+
+// A real failure is anything that warrants skipping the cache write + logging.
+// Caller aborts are excluded — the user disconnected, not an upstream error.
+function isRealMetadataFailure(
+  result: VideoMetadataResult
+): result is Extract<VideoMetadataResult, { ok: false }> & {
+  reason: Exclude<
+    Extract<VideoMetadataResult, { ok: false }>["reason"],
+    "aborted"
+  >;
+} {
+  return !result.ok && result.reason !== "aborted";
+}
+
+function metadataErrorForLog(
+  result: Extract<VideoMetadataResult, { ok: false }>
+): unknown {
+  if (result.reason === "error") return result.error;
+  if (result.reason === "non_ok") {
+    return new Error(`oembed non_ok (status ${result.status})`);
+  }
+  return new Error(`oembed ${result.reason}`);
 }
 
 export async function POST(request: Request) {
@@ -149,10 +174,9 @@ export async function POST(request: Request) {
         let title = "";
         let channelName = "";
         // Whisper-only. Kicked off before VPS transcription so oembed runs in
-        // parallel with audio transcription. Resolved lazily at cache-write
-        // time so the round-trip doesn't serialize with summarization.
+        // parallel with audio transcription. The .catch at construction guards
+        // against unhandled rejection if the LLM path errors before we await.
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
-        let metadataFetchFailed = false;
 
         const transcribeStart = Date.now();
         let captions;
@@ -177,7 +201,16 @@ export async function POST(request: Request) {
             message: "No captions found. Transcribing audio...",
             stage: "transcribe",
           });
-          metadataPromise = fetchVideoMetadata(youtube_url, request.signal);
+          metadataPromise = fetchVideoMetadata(
+            youtube_url,
+            request.signal
+          ).catch(
+            (err): VideoMetadataResult => ({
+              ok: false,
+              reason: "error",
+              error: err,
+            })
+          );
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
@@ -216,7 +249,7 @@ export async function POST(request: Request) {
             enableThinking,
             signal: request.signal,
           })) {
-            forwardLlmEvent(event, sendEvent, transcribeSeconds);
+            forwardLlmEvent(event, sendEvent);
             if (event.type === "content") fullSummary += event.text;
             else if (event.type === "thinking") fullThinking += event.text;
             else if (event.type === "timing")
@@ -235,16 +268,28 @@ export async function POST(request: Request) {
         const summarizeSecondsFinal =
           summarizeSeconds ?? (Date.now() - llmStart) / 1000;
 
-        if (!fullSummary) return;
+        // Empty output isn't a silent-close UX — surface it so the client
+        // accumulator doesn't hang in "generating" state forever.
+        if (!fullSummary) {
+          logStageError("llm", new Error("empty summary from gateway"));
+          sendEvent({ type: "error", message: USER_ERROR_EMPTY_SUMMARY });
+          return;
+        }
 
+        // Capture processing time BEFORE awaiting metadata so the metric
+        // doesn't include the oembed round-trip — a slow oembed would
+        // otherwise inflate processing_time_seconds in the cache row.
+        const processingTimeSeconds = (Date.now() - overallStart) / 1000;
+
+        let metadataSkipCache = false;
         if (metadataPromise) {
           const result = await metadataPromise;
           if (result.ok) {
             title = result.data.title;
             channelName = result.data.channelName;
-          } else if (result.reason !== "aborted") {
-            metadataFetchFailed = true;
-            logStageError("metadata", result);
+          } else if (isRealMetadataFailure(result)) {
+            metadataSkipCache = true;
+            logStageError("metadata", metadataErrorForLog(result));
           }
         }
 
@@ -258,10 +303,7 @@ export async function POST(request: Request) {
           transcribe_time: transcribeSeconds,
         });
 
-        // Skip caching when oembed failed so the next request retries instead
-        // of being served a title-less row for life. "Video genuinely has no
-        // metadata" (result.ok with empty strings) still caches.
-        if (metadataFetchFailed) return;
+        if (metadataSkipCache) return;
 
         const thinkingState: ThinkingState = enableThinking
           ? { enableThinking: true, thinking: fullThinking || null }
@@ -276,7 +318,7 @@ export async function POST(request: Request) {
           summary: fullSummary,
           transcriptSource,
           model: process.env.LLM_MODEL || "claude-sonnet-4-6",
-          processingTimeSeconds: (Date.now() - overallStart) / 1000,
+          processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
           userId: user.id,

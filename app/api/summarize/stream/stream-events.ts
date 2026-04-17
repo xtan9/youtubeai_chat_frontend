@@ -24,11 +24,7 @@ export type SseEvent =
 
 export type SendEvent = (data: SseEvent) => void;
 
-export function forwardLlmEvent(
-  event: LlmEvent,
-  sendEvent: SendEvent,
-  transcribeSeconds: number
-): void {
+export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
   switch (event.type) {
     case "status":
       sendEvent({ type: "status", message: event.message, stage: event.stage });
@@ -40,13 +36,9 @@ export function forwardLlmEvent(
       sendEvent({ type: "content", text: event.text });
       return;
     case "timing":
-      sendEvent({
-        type: "summary",
-        category: "general",
-        total_time: event.summarizeSeconds + transcribeSeconds,
-        summarize_time: event.summarizeSeconds,
-        transcribe_time: transcribeSeconds,
-      });
+      // No SSE emit here — the route owns the terminal `summary` event so
+      // there's exactly one per stream (live or cached). We capture
+      // summarizeSeconds from the timing event in the route loop.
       return;
     default: {
       // Compile-time exhaustiveness via `never`; runtime log in case a future

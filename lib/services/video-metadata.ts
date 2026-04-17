@@ -12,29 +12,34 @@ export interface VideoMetadataBasic {
   readonly channelName: string;
 }
 
-// Discriminated result: `ok: false` lets callers distinguish real failures
-// (oembed 404/500, DNS blip, schema drift) from "video genuinely has no
-// title" so we can skip caching blank rows instead of poisoning the cache.
+// Discriminated result. Per-reason fields are narrowed so `status` is only
+// addressable when reason === "non_ok", etc. — illegal combinations are
+// unrepresentable. Callers check `result.ok` first, then dispatch on
+// `result.reason` knowing which payload fields exist.
 export type VideoMetadataResult =
   | { readonly ok: true; readonly data: VideoMetadataBasic }
-  | {
-      readonly ok: false;
-      readonly reason: "aborted" | "non_ok" | "schema" | "error";
-      readonly status?: number;
-      readonly error?: unknown;
-    };
+  | { readonly ok: false; readonly reason: "aborted" }
+  | { readonly ok: false; readonly reason: "timeout" }
+  | { readonly ok: false; readonly reason: "non_ok"; readonly status: number }
+  | { readonly ok: false; readonly reason: "schema" }
+  | { readonly ok: false; readonly reason: "error"; readonly error: unknown };
+
+const DEFAULT_TIMEOUT_MS = 5000;
 
 export async function fetchVideoMetadata(
   youtubeUrl: string,
   signal?: AbortSignal
 ): Promise<VideoMetadataResult> {
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
       youtubeUrl
     )}&format=json`;
-    const res = await fetch(oembedUrl, {
-      signal: signal ?? AbortSignal.timeout(5000),
-    });
+    const res = await fetch(oembedUrl, { signal: combinedSignal });
     if (!res.ok) return { ok: false, reason: "non_ok", status: res.status };
     const raw: unknown = await res.json();
     const parsed = OembedResponseSchema.safeParse(raw);
@@ -47,12 +52,12 @@ export async function fetchVideoMetadata(
       },
     };
   } catch (err) {
-    if (
-      signal?.aborted ||
-      (err instanceof Error && err.name === "AbortError") ||
-      (err instanceof Error && err.name === "TimeoutError")
-    ) {
-      return { ok: false, reason: "aborted" };
+    // Caller-initiated aborts only when the caller's signal actually fired —
+    // not our internal timeout. Timeout is a genuine failure; caller cancels
+    // are no-op skip signals.
+    if (signal?.aborted) return { ok: false, reason: "aborted" };
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return { ok: false, reason: "timeout" };
     }
     return { ok: false, reason: "error", error: err };
   }
