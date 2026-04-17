@@ -1,6 +1,5 @@
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
-import { API_ENDPOINTS } from "@/lib/config/api";
 
 import type { SummaryResult } from "@/lib/types";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
@@ -97,7 +96,7 @@ export function useYouTubeSummarizer(
     }
 
     const response = await fetch(
-      API_ENDPOINTS.SUMMARIZE_STREAM,
+      "/api/summarize/stream",
       {
         method: "POST",
         headers: {
