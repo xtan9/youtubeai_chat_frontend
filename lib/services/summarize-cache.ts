@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 export type Language = "en" | "zh";
 export type TranscriptSource = "manual_captions" | "auto_captions" | "whisper";
@@ -10,24 +11,27 @@ export interface VideoMetadata {
   readonly language: Language;
 }
 
-export interface SummaryBody {
+/**
+ * Discriminated on `enableThinking`, so the type system enforces the invariant
+ * "thinking is null when thinking was not requested."
+ */
+export type ThinkingState =
+  | { readonly enableThinking: true; readonly thinking: string | null }
+  | { readonly enableThinking: false; readonly thinking: null };
+
+export type SummaryBody = ThinkingState & {
   readonly transcript: string;
   readonly summary: string;
-  readonly thinking: string | null;
   readonly transcriptSource: TranscriptSource;
-  readonly enableThinking: boolean;
   readonly model: string;
   readonly processingTimeSeconds: number;
-}
+};
 
-export interface CachedSummary extends VideoMetadata, SummaryBody {
-  readonly videoId: string;
-}
+export type CachedSummary = VideoMetadata &
+  SummaryBody & { readonly videoId: string };
 
-export interface CacheWriteParams extends VideoMetadata, SummaryBody {
-  readonly youtubeUrl: string;
-  readonly userId?: string;
-}
+export type CacheWriteParams = VideoMetadata &
+  SummaryBody & { readonly youtubeUrl: string; readonly userId?: string };
 
 export function computeUrlHash(url: string): string {
   return createHash("md5").update(url).digest("hex");
@@ -40,18 +44,32 @@ function createServiceRoleClient(): SupabaseClient | null {
   return createClient(url, serviceRoleKey);
 }
 
-// Supabase returns `PGRST116` for ".single() found no rows" — that's a normal
-// cache miss, not a real error. Anything else is unexpected.
-const PGRST_NO_ROWS = "PGRST116";
+// Shape of the rows we actually care about. We parse Supabase responses
+// through these so a stale enum value or a dropped column is a loud cache
+// miss, not a silently corrupted typed object.
+const LanguageSchema = z.enum(["en", "zh"]);
+const TranscriptSourceSchema = z.enum([
+  "manual_captions",
+  "auto_captions",
+  "whisper",
+]);
 
-function isNoRowsError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code: unknown }).code === PGRST_NO_ROWS
-  );
-}
+const VideoRowSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  channel_name: z.string().nullable(),
+  language: LanguageSchema.nullable(),
+});
+
+const SummaryRowSchema = z.object({
+  transcript: z.string().nullable(),
+  summary: z.string(),
+  thinking: z.string().nullable(),
+  transcript_source: TranscriptSourceSchema,
+  enable_thinking: z.boolean(),
+  model: z.string().nullable(),
+  processing_time_seconds: z.number().nullable(),
+});
 
 /**
  * Cache read. Returns null on miss; fails open (null) on any error with a log
@@ -67,49 +85,74 @@ export async function getCachedSummary(
 
   try {
     const urlHash = computeUrlHash(youtubeUrl);
-    const { data: video, error: videoError } = await supabase
+    const { data: videoRaw, error: videoError } = await supabase
       .from("videos")
       .select("id, title, channel_name, language")
       .eq("url_hash", urlHash)
       .maybeSingle();
 
-    if (videoError && !isNoRowsError(videoError)) {
+    if (videoError) {
       console.error("[summarize-cache] video lookup failed (fail-open)", {
         urlHash,
         error: videoError,
       });
       return null;
     }
-    if (!video) return null;
+    if (!videoRaw) return null;
 
-    const { data: summary, error: summaryError } = await supabase
+    const videoParsed = VideoRowSchema.safeParse(videoRaw);
+    if (!videoParsed.success) {
+      console.error("[summarize-cache] video row schema mismatch (fail-open)", {
+        urlHash,
+        issues: videoParsed.error.issues,
+      });
+      return null;
+    }
+    const video = videoParsed.data;
+
+    const { data: summaryRaw, error: summaryError } = await supabase
       .from("summaries")
-      .select("*")
+      .select(
+        "transcript, summary, thinking, transcript_source, enable_thinking, model, processing_time_seconds"
+      )
       .eq("video_id", video.id)
       .eq("enable_thinking", enableThinking)
       .maybeSingle();
 
-    if (summaryError && !isNoRowsError(summaryError)) {
-      console.error("[summarize-cache] summary lookup failed (fail-open)", {
-        videoId: video.id,
-        error: summaryError,
-      });
+    if (summaryError) {
+      console.error(
+        "[summarize-cache] summary lookup failed (fail-open)",
+        { videoId: video.id, error: summaryError }
+      );
       return null;
     }
-    if (!summary) return null;
+    if (!summaryRaw) return null;
+
+    const summaryParsed = SummaryRowSchema.safeParse(summaryRaw);
+    if (!summaryParsed.success) {
+      console.error(
+        "[summarize-cache] summary row schema mismatch (fail-open)",
+        { videoId: video.id, issues: summaryParsed.error.issues }
+      );
+      return null;
+    }
+    const s = summaryParsed.data;
+
+    const thinkingState: ThinkingState = s.enable_thinking
+      ? { enableThinking: true, thinking: s.thinking }
+      : { enableThinking: false, thinking: null };
 
     return {
       videoId: video.id,
       title: video.title ?? "",
       channelName: video.channel_name ?? "",
-      language: (video.language ?? "en") as Language,
-      transcript: summary.transcript ?? "",
-      summary: summary.summary,
-      thinking: summary.thinking,
-      transcriptSource: summary.transcript_source as TranscriptSource,
-      enableThinking: summary.enable_thinking,
-      model: summary.model ?? "",
-      processingTimeSeconds: summary.processing_time_seconds ?? 0,
+      language: video.language ?? "en",
+      transcript: s.transcript ?? "",
+      summary: s.summary,
+      transcriptSource: s.transcript_source,
+      model: s.model ?? "",
+      processingTimeSeconds: s.processing_time_seconds ?? 0,
+      ...thinkingState,
     };
   } catch (err) {
     console.error("[summarize-cache] read failed (fail-open)", {
@@ -134,9 +177,6 @@ export async function writeCachedSummary(
     );
     return;
   }
-
-  // Enforce invariant: thinking is null when thinking was disabled.
-  const thinking = params.enableThinking ? params.thinking : null;
 
   try {
     const urlHash = computeUrlHash(params.youtubeUrl);
@@ -169,7 +209,7 @@ export async function writeCachedSummary(
         video_id: video.id,
         transcript: params.transcript,
         summary: params.summary,
-        thinking,
+        thinking: params.thinking,
         transcript_source: params.transcriptSource,
         enable_thinking: params.enableThinking,
         model: params.model,

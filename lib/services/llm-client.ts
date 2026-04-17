@@ -5,10 +5,15 @@
  * re-parsing strings.
  */
 export type LlmEvent =
-  | { type: "status"; message: string; stage: string }
-  | { type: "thinking"; text: string }
-  | { type: "content"; text: string }
-  | { type: "timing"; total_time: number; summarize_time: number; transcribe_time: number };
+  | { readonly type: "status"; readonly message: string; readonly stage: string }
+  | { readonly type: "thinking"; readonly text: string }
+  | { readonly type: "content"; readonly text: string }
+  | {
+      readonly type: "timing";
+      readonly total_time: number;
+      readonly summarize_time: number;
+      readonly transcribe_time: number;
+    };
 
 export function formatSseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -28,7 +33,8 @@ const MAX_MALFORMED_WARNINGS = 1;
  * Stream a chat completion from llm-gateway. Yields typed events the caller
  * can both forward to the client and inspect (e.g., for cache accumulation).
  *
- * Throws on HTTP error, missing config, or no response body.
+ * Throws on: HTTP error, missing config, no response body, or a completed
+ * stream that produced zero content (prevents caching empty summaries).
  */
 export async function* streamLlmSummary(
   options: LlmStreamOptions
