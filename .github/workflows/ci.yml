@@ -60,3 +60,49 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+
+  # Upgrade-path regression guard: replays prod's pre-migration shape and
+  # then applies every migration in order. Catches the class of failure
+  # where a migration works on a fresh DB (Vitest tests) but breaks on a
+  # pre-existing one (what bit us on db-migrate run 24593654019).
+  migration-upgrade-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      PGHOST: localhost
+      PGUSER: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load Supabase role + auth stubs
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
+      - name: Load legacy-schema fixture (pre-migration state)
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_schema.sql
+      - name: Apply migrations in order
+        run: |
+          set -eo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "::group::Applying $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+      - name: Re-apply migrations to prove idempotency
+        run: |
+          set -eo pipefail
+          for f in supabase/migrations/*.sql; do
+            echo "::group::Re-applying $f (idempotency check)"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
