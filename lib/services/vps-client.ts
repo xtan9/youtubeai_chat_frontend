@@ -22,8 +22,10 @@ export async function transcribeViaVps(
   youtubeUrl: string,
   signal?: AbortSignal
 ): Promise<TranscribeResult> {
-  const vpsBaseUrl = process.env.VPS_API_URL;
-  const vpsApiKey = process.env.VPS_API_KEY;
+  // Trim to defend against trailing whitespace in env-var sources. See
+  // caption-extractor.ts for the incident that motivated this.
+  const vpsBaseUrl = process.env.VPS_API_URL?.trim();
+  const vpsApiKey = process.env.VPS_API_KEY?.trim();
 
   if (!vpsBaseUrl || !vpsApiKey) {
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");

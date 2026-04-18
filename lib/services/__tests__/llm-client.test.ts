@@ -125,6 +125,29 @@ describe("streamLlmSummary", () => {
     ).toBe(true);
   });
 
+  it("trims whitespace/newlines from env-var values before they hit the gateway", async () => {
+    // A trailing `\n` in LLM_MODEL on Vercel once caused a silent 404 from
+    // Anthropic (`model: claude-sonnet-4-6\n` isn't a valid model). Pin the
+    // guard against a regression — URL, key, and model all trimmed.
+    vi.stubEnv("LLM_GATEWAY_URL", "  https://gw.example.com/v1\n");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "\tkey  ");
+    vi.stubEnv("LLM_MODEL", "claude-sonnet-4-6\n");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://gw.example.com/v1/chat/completions");
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer key");
+    const body = JSON.parse(init.body as string) as { model: string };
+    expect(body.model).toBe("claude-sonnet-4-6");
+  });
+
   it("throws with status + body on non-ok response", async () => {
     stubEnv();
     vi.stubGlobal(

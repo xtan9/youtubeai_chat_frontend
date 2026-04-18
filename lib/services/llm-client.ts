@@ -36,9 +36,15 @@ export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
 export async function* streamLlmSummary(
   options: LlmStreamOptions
 ): AsyncGenerator<LlmEvent> {
-  const gatewayUrl = process.env.LLM_GATEWAY_URL;
-  const gatewayKey = process.env.LLM_GATEWAY_API_KEY;
-  const configuredModel = process.env.LLM_MODEL;
+  // Trim to defend against trailing whitespace in env-var sources (Vercel
+  // dashboard, .env files with a stray newline, etc). A `\n` on the model
+  // name produced a real prod outage — Anthropic's API rejected
+  // `claude-sonnet-4-6\n` with `not_found_error`, and the failure was
+  // invisible in the response body (`"message":"model: claude-sonnet-4-6\n"`
+  // renders without the control char in most log viewers).
+  const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
+  const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
+  const configuredModel = process.env.LLM_MODEL?.trim();
   // Deploys outside dev/test that haven't set LLM_MODEL are almost always
   // misconfigured — running on the default model with no billing awareness
   // is expensive to discover later. Inverting the gate (log UNLESS dev/test)

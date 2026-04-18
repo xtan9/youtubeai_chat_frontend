@@ -46,8 +46,12 @@ export async function extractCaptions(
   const videoId = extractVideoId(youtubeUrl);
   if (!videoId) return null;
 
-  const vpsBaseUrl = process.env.VPS_API_URL;
-  const vpsApiKey = process.env.VPS_API_KEY;
+  // Trim to defend against trailing whitespace in env-var sources. A stray
+  // newline in LLM_MODEL on Vercel caused a silent prod outage once — apply
+  // the same hygiene here so a VPS_API_URL or VPS_API_KEY with pasted-in
+  // whitespace surfaces as a clean "not configured" rather than a 404.
+  const vpsBaseUrl = process.env.VPS_API_URL?.trim();
+  const vpsApiKey = process.env.VPS_API_KEY?.trim();
   if (!vpsBaseUrl || !vpsApiKey) {
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
