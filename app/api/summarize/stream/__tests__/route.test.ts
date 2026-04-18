@@ -115,6 +115,7 @@ describe("POST /api/summarize/stream", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe("input validation", () => {
@@ -317,6 +318,9 @@ describe("POST /api/summarize/stream", () => {
         expect.objectContaining({
           errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
           userId: "user-1",
+          // Dashboards alert per-URL; dropping this from the payload
+          // would silently break the signal.
+          youtubeUrl: VALID_URL,
         })
       );
     });

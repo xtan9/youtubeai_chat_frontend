@@ -439,8 +439,11 @@ export async function POST(request: Request) {
     },
     // `cancel()` fires when the consumer tears down the reader before we
     // finished (e.g. the browser tab closed, or Next.js wound down the
-    // response). Set `closed` so any still-running upstream work that
-    // calls sendEvent() stops writing to a dead controller.
+    // response). Set `closed` so future sendEvent() calls become no-ops
+    // instead of writing to a dead controller. Does NOT abort upstream
+    // work (captions/VPS/LLM/cache-write); those stop only when
+    // request.signal aborts, which Vercel/Next.js typically fire on
+    // client disconnect.
     cancel() {
       closed = true;
     },
