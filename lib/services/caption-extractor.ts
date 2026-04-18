@@ -4,7 +4,7 @@ import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
 
-// Library doesn't expose whether a track is ASR vs uploader-provided, so
+// The VPS response doesn't distinguish ASR from uploader-provided tracks, so
 // everything through this path is honestly labelled auto_captions.
 export type CaptionSource = Extract<TranscriptSource, "auto_captions">;
 
@@ -72,48 +72,40 @@ export async function extractCaptions(
       signal: combinedSignal,
     });
   } catch (err) {
-    // Caller abort is an intentional teardown — the route already handles
-    // it via isCallerAbort(request.signal) and must not see a noisy log.
-    if (signal?.aborted) return null;
-    logUnexpectedFailure(videoId, {
+    return reportUnexpectedFailure(videoId, signal, {
       errorClass: err instanceof Error ? err.constructor.name : typeof err,
       err,
     });
-    return null;
   }
 
   // 404 is the stable "no captions available" contract — fall through to
-  // Whisper without logging, matching the previous library's expected-error
-  // branch.
+  // Whisper without logging.
   if (response.status === 404) return null;
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    logUnexpectedFailure(videoId, {
+    return reportUnexpectedFailure(videoId, signal, {
       status: response.status,
       body: text.slice(0, 200),
     });
-    return null;
   }
 
   let raw: unknown;
   try {
     raw = await response.json();
   } catch (err) {
-    logUnexpectedFailure(videoId, {
+    return reportUnexpectedFailure(videoId, signal, {
       errorClass: "JsonParse",
       err,
     });
-    return null;
   }
 
   const parsed = CaptionsResponseSchema.safeParse(raw);
   if (!parsed.success) {
-    logUnexpectedFailure(videoId, {
+    return reportUnexpectedFailure(videoId, signal, {
       errorClass: "SchemaMismatch",
       issues: parsed.error.issues,
     });
-    return null;
   }
 
   const data = parsed.data;
@@ -131,13 +123,21 @@ export async function extractCaptions(
 // Alertable: unexpected failures here silently fall back to paid Whisper
 // transcription. A systematic VPS outage can burn the compute bill with no
 // other signal — errorId is the stable alert key.
-function logUnexpectedFailure(
+//
+// Suppresses the log when the caller's own signal aborted: a user closing
+// the tab mid-request will typically surface as a fetch/JSON-parse failure
+// on whichever await was in flight, and classifying those as unexpected
+// would fire a false alert on every client disconnect.
+function reportUnexpectedFailure(
   videoId: string,
+  signal: AbortSignal | undefined,
   extra: Record<string, unknown>
-): void {
+): null {
+  if (signal?.aborted) return null;
   console.error("[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
     errorId: "CAPTION_UNEXPECTED_FAILURE",
     videoId,
     ...extra,
   });
+  return null;
 }

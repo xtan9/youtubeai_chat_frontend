@@ -93,8 +93,6 @@ describe("extractCaptions", () => {
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     );
     expect(result).toBeNull();
-    // 404 is the expected "fall through to Whisper" signal; a log here
-    // would fire on every no-captions video and drown the real alerts.
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -160,8 +158,70 @@ describe("extractCaptions", () => {
     controller.abort();
     const result = await promise;
     expect(result).toBeNull();
-    // Caller-disconnect shouldn't wake up on-call.
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an internal timeout as a logged failure (not as a silent caller-abort)", async () => {
+    stubEnv();
+    // 1ms internal timeout guarantees the composed signal fires before the
+    // mock fetch resolves. A future refactor that checks `combinedSignal.aborted`
+    // instead of `signal?.aborted` would silently drop this — and with it,
+    // the alert that fires when the VPS is hanging under load.
+    vi.stubEnv("VPS_CAPTIONS_TIMEOUT_MS", "1");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            const sig = init.signal!;
+            if (sig.aborted) {
+              reject(sig.reason ?? new Error("aborted"));
+              return;
+            }
+            sig.addEventListener("abort", () => {
+              reject(sig.reason ?? new Error("aborted"));
+            });
+          })
+      )
+    );
+
+    const callerController = new AbortController();
+    const result = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      callerController.signal
+    );
+    expect(result).toBeNull();
+    // Caller's own signal was NOT aborted — the internal timeout fired.
+    // This must log so the on-call alert fires on a stuck VPS.
+    expect(callerController.signal.aborted).toBe(false);
+    expect(spy).toHaveBeenCalledWith(
+      "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
+      expect.objectContaining({ errorId: "CAPTION_UNEXPECTED_FAILURE" })
+    );
+  });
+
+  it("returns null and logs when 200 response body isn't valid JSON", async () => {
+    stubEnv();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("not json{", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+    const result = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    );
+    expect(result).toBeNull();
+    expect(spy).toHaveBeenCalledWith(
+      "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
+      expect.objectContaining({ errorClass: "JsonParse" })
+    );
   });
 
   it("returns null and logs on schema mismatch", async () => {
@@ -218,9 +278,6 @@ describe("extractCaptions", () => {
     const result = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     );
-    // Null → "" preserves the route's existing (string) contract; without
-    // this the route would propagate null through to the CACHE_SKIP_EMPTY_HEADER
-    // branch correctly, but the streamed UI would render "null" literal.
     expect(result).toEqual({
       transcript: "hello world",
       source: "auto_captions",
