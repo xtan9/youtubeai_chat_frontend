@@ -406,7 +406,7 @@ export async function POST(request: Request) {
           transcript,
           summary: fullSummary,
           transcriptSource,
-          model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
+          model: process.env.LLM_MODEL?.trim() || DEFAULT_LLM_MODEL,
           processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,

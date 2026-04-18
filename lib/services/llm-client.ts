@@ -36,12 +36,11 @@ export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
 export async function* streamLlmSummary(
   options: LlmStreamOptions
 ): AsyncGenerator<LlmEvent> {
-  // Trim to defend against trailing whitespace in env-var sources (Vercel
-  // dashboard, .env files with a stray newline, etc). A `\n` on the model
-  // name produced a real prod outage — Anthropic's API rejected
-  // `claude-sonnet-4-6\n` with `not_found_error`, and the failure was
-  // invisible in the response body (`"message":"model: claude-sonnet-4-6\n"`
-  // renders without the control char in most log viewers).
+  // Trim at every env-var HTTP-boundary read. Some env-var sources (Vercel
+  // dashboard paste, .env files opened in editors that auto-newline) preserve
+  // trailing whitespace verbatim. The control chars are invisible in log
+  // viewers — a stray `\n` on a model ID or bearer token silently breaks
+  // auth or returns a model-not-found at the upstream provider.
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
   const configuredModel = process.env.LLM_MODEL?.trim();

@@ -402,6 +402,24 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
+    it("trims LLM_MODEL before writing to cache (prevents model-key drift vs the trimmed value sent to the gateway)", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      vi.stubEnv("LLM_MODEL", "my-model\n");
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const writeCall = mocks.writeCachedSummary.mock
+        .calls[0][0] as CacheWriteParams;
+      expect(writeCall.model).toBe("my-model");
+    });
+
     it("emits exactly one terminal summary event on happy path", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>

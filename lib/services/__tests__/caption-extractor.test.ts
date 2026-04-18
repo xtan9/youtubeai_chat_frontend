@@ -67,6 +67,14 @@ describe("extractCaptions", () => {
     );
   });
 
+  it("treats whitespace-only VPS env vars as unset (throws 'must be configured')", async () => {
+    vi.stubEnv("VPS_API_URL", "  \n  ");
+    vi.stubEnv("VPS_API_KEY", "\t");
+    await expect(
+      extractCaptions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    ).rejects.toThrow(/VPS_API_URL and VPS_API_KEY must be configured/);
+  });
+
   it("throws when required env vars are missing", async () => {
     vi.stubEnv("VPS_API_URL", "");
     vi.stubEnv("VPS_API_KEY", "");
