@@ -155,9 +155,8 @@ describe("streamLlmSummary", () => {
 
   it("preserves internal whitespace in env-var values (only edges are trimmed)", async () => {
     // `.trim()` only touches edges — guards against a future refactor that
-    // "helpfully" swaps to `.replace(/\s/g, "")` and mangles keys that
-    // legitimately contain internal whitespace (rare but possible for
-    // some bearer formats or URLs with %20).
+    // "helpfully" swaps to `.replace(/\s/g, "")` and mangles keys with
+    // legitimate internal whitespace.
     vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
     vi.stubEnv("LLM_GATEWAY_API_KEY", "key with spaces");
     vi.stubEnv("LLM_MODEL", "my-model");
