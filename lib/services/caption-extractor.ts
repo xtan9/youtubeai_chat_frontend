@@ -1,13 +1,4 @@
-import {
-  fetchTranscript,
-  YoutubeTranscriptDisabledError,
-  YoutubeTranscriptInvalidVideoIdError,
-  YoutubeTranscriptNotAvailableError,
-  YoutubeTranscriptNotAvailableLanguageError,
-  YoutubeTranscriptVideoUnavailableError,
-  type TranscriptResult,
-  type TranscriptSegment,
-} from "youtube-transcript-plus";
+import { z } from "zod";
 import type { PromptLocale, TranscriptSource } from "./summarize-cache";
 import { extractVideoId } from "./youtube-url";
 
@@ -25,67 +16,128 @@ export interface CaptionResult {
   readonly channelName: string;
 }
 
-// Errors that mean "no usable captions" — a normal fallback, not an alert.
-const EXPECTED_NO_CAPTIONS_ERRORS = [
-  YoutubeTranscriptDisabledError,
-  YoutubeTranscriptNotAvailableError,
-  YoutubeTranscriptNotAvailableLanguageError,
-  YoutubeTranscriptVideoUnavailableError,
-  YoutubeTranscriptInvalidVideoIdError,
-] as const;
+// Matches the VPS /captions 200 contract. title/channelName arrive as
+// `string | null` from the upstream library's optional videoDetails;
+// normalize to "" here so the route's existing string contract holds.
+const CaptionsResponseSchema = z.object({
+  transcript: z.string(),
+  source: z.literal("auto_captions"),
+  language: z.enum(["en", "zh"]),
+  title: z.string().nullable(),
+  channelName: z.string().nullable(),
+});
 
-function isExpectedNoCaptions(err: unknown): boolean {
-  return EXPECTED_NO_CAPTIONS_ERRORS.some((cls) => err instanceof cls);
+// Captions path is fast — a slow VPS response here is a signal to fall back
+// to Whisper, not to keep waiting. Keep well under the route's 300s budget.
+const DEFAULT_VPS_CAPTIONS_TIMEOUT_MS = 30_000;
+
+export function buildCaptionsUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/$/, "")}/captions`;
 }
 
-function pickLocale(segments: readonly TranscriptSegment[]): PromptLocale {
-  const lang = segments[0]?.lang ?? "";
-  return lang.toLowerCase().startsWith("zh") ? "zh" : "en";
-}
-
-// Every silent fallback here costs a paid transcription, so unexpected errors
-// are logged with context.
+// Returns null for all "no usable captions" outcomes (including unexpected
+// VPS failures) so the caller silently falls back to Whisper. Unexpected
+// failures are logged with a stable errorId so a systematic outage is
+// visible in alerts instead of silently burning the Whisper compute bill.
 export async function extractCaptions(
-  youtubeUrl: string
+  youtubeUrl: string,
+  signal?: AbortSignal
 ): Promise<CaptionResult | null> {
   const videoId = extractVideoId(youtubeUrl);
   if (!videoId) return null;
 
-  let result: TranscriptResult;
+  const vpsBaseUrl = process.env.VPS_API_URL;
+  const vpsApiKey = process.env.VPS_API_KEY;
+  if (!vpsBaseUrl || !vpsApiKey) {
+    throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
+  }
+
+  const timeoutMs =
+    Number(process.env.VPS_CAPTIONS_TIMEOUT_MS) ||
+    DEFAULT_VPS_CAPTIONS_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
+  let response: Response;
   try {
-    const response = await fetchTranscript(videoId, { videoDetails: true });
-    result = response as TranscriptResult;
+    response = await fetch(buildCaptionsUrl(vpsBaseUrl), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${vpsApiKey}`,
+      },
+      body: JSON.stringify({ youtube_url: youtubeUrl }),
+      signal: combinedSignal,
+    });
   } catch (err) {
-    if (!isExpectedNoCaptions(err)) {
-      // Alertable: unexpected failures here silently fall back to paid
-      // Whisper transcription. A systematic library outage can burn the
-      // VPS budget with no other signal — errorId is the stable alert key.
-      console.error("[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
-        errorId: "CAPTION_UNEXPECTED_FAILURE",
-        videoId,
-        errorClass: err instanceof Error ? err.constructor.name : typeof err,
-        err,
-      });
-    }
+    // Caller abort is an intentional teardown — the route already handles
+    // it via isCallerAbort(request.signal) and must not see a noisy log.
+    if (signal?.aborted) return null;
+    logUnexpectedFailure(videoId, {
+      errorClass: err instanceof Error ? err.constructor.name : typeof err,
+      err,
+    });
     return null;
   }
 
-  const { segments, videoDetails } = result;
-  if (!segments || segments.length === 0) return null;
+  // 404 is the stable "no captions available" contract — fall through to
+  // Whisper without logging, matching the previous library's expected-error
+  // branch.
+  if (response.status === 404) return null;
 
-  const transcript = segments
-    .map((s) => s.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    logUnexpectedFailure(videoId, {
+      status: response.status,
+      body: text.slice(0, 200),
+    });
+    return null;
+  }
 
-  if (!transcript) return null;
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch (err) {
+    logUnexpectedFailure(videoId, {
+      errorClass: "JsonParse",
+      err,
+    });
+    return null;
+  }
+
+  const parsed = CaptionsResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    logUnexpectedFailure(videoId, {
+      errorClass: "SchemaMismatch",
+      issues: parsed.error.issues,
+    });
+    return null;
+  }
+
+  const data = parsed.data;
+  if (!data.transcript) return null;
 
   return {
-    transcript,
-    source: "auto_captions",
-    language: pickLocale(segments),
-    title: videoDetails?.title ?? "",
-    channelName: videoDetails?.author ?? "",
+    transcript: data.transcript,
+    source: data.source,
+    language: data.language,
+    title: data.title ?? "",
+    channelName: data.channelName ?? "",
   };
+}
+
+// Alertable: unexpected failures here silently fall back to paid Whisper
+// transcription. A systematic VPS outage can burn the compute bill with no
+// other signal — errorId is the stable alert key.
+function logUnexpectedFailure(
+  videoId: string,
+  extra: Record<string, unknown>
+): void {
+  console.error("[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
+    errorId: "CAPTION_UNEXPECTED_FAILURE",
+    videoId,
+    ...extra,
+  });
 }
