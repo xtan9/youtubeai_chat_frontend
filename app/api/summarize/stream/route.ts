@@ -242,7 +242,7 @@ export async function POST(request: Request) {
         const transcribeStart = Date.now();
         let captions;
         try {
-          captions = await extractCaptions(youtube_url);
+          captions = await extractCaptions(youtube_url, request.signal);
         } catch (err) {
           if (isCallerAbort(request.signal)) return;
           logStageError("captions", err);
