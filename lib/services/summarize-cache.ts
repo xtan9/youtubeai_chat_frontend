@@ -77,12 +77,8 @@ const SummaryRowSchema = z
     path: ["thinking"],
   });
 
-// Write-side schema is deliberately stricter than the read-side: new rows
-// must have non-null transcript/model/timings. The read schema allows nulls
-// for historical rows written before the split columns existed. Don't
-// unify them without a backfill. The refine is a belt-and-suspenders guard
-// against callers that bypassed the `ThinkingState` discriminated union via
-// an `any` cast — the DB CHECK is the authoritative invariant.
+// Writes are stricter than reads (which allow nulls for historical rows).
+// Don't unify without a backfill. DB CHECK is the authoritative invariant.
 const SummaryWriteSchema = z
   .object({
     video_id: z.string(),

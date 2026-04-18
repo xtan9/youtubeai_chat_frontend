@@ -52,8 +52,6 @@ const USER_ERROR_GENERIC =
 const USER_ERROR_EMPTY_SUMMARY =
   "The model returned no summary. Please try again.";
 
-export type { LogStage } from "@/lib/stages";
-
 function jsonError(
   status: number,
   message: string,
@@ -133,26 +131,24 @@ export async function POST(request: Request) {
     include_transcript: includeTranscript,
   } = parsed.data;
 
+  // Status codes that mean "this request is not authenticated" as opposed
+  // to "the auth service is broken." AuthSessionMissingError + friends are
+  // 400; AuthApiError for bad JWT is 401; forbidden responses are 403.
+  // Everything else (including 408 request-timeout, 429 rate-limited-at-
+  // Supabase, any 5xx, and status-less fetch failures) is infra and must
+  // surface as 503 so we don't silently 401 users during outages.
+  const AUTH_CLIENT_ERROR_STATUSES = new Set([400, 401, 403]);
   const supabase = await createClient();
   let user: User | null;
   try {
     const { data, error } = await supabase.auth.getUser();
-    // Client-side auth errors (missing/expired session, invalid JWT) surface
-    // as status 400/401/403 and ARE "not authenticated" — return 401.
-    // Server-side errors (status >= 500) or status-less failures (fetch
-    // unreachable) mean we can't tell if the user is valid — return 503 so
-    // on-call can alert on the rate instead of blaming users.
-    if (error) {
-      const status = error.status ?? 0;
-      const isInfraError = status === 0 || status >= 500;
-      if (isInfraError) {
-        console.error("[summarize/stream] auth failed", {
-          stage: "auth" satisfies LogStage,
-          status,
-          message: error.message,
-        });
-        return jsonError(503, "Auth service temporarily unavailable.");
-      }
+    if (error && !AUTH_CLIENT_ERROR_STATUSES.has(error.status ?? -1)) {
+      console.error("[summarize/stream] auth failed", {
+        stage: "auth" satisfies LogStage,
+        status: error.status ?? null,
+        message: error.message,
+      });
+      return jsonError(503, "Auth service temporarily unavailable.");
     }
     user = data.user;
   } catch (err) {
@@ -168,9 +164,10 @@ export async function POST(request: Request) {
   const isAnonymous = authedUser.is_anonymous ?? false;
 
   const rateLimit = await checkRateLimit(authedUser.id, isAnonymous);
-  // Surface fail-open at the route layer so the user/URL is bound to the
-  // bypass in one log line — rate-limit.ts logs the infra cause, the route
-  // logs the request that was waved through.
+  // Bind the user + URL to the bypass in one log line so dashboards can
+  // alert without joining against rate-limit.ts's infra-cause log. Do NOT
+  // surface this distinction in the HTTP response — exposing fail_open to
+  // clients tells abusers exactly when our abuse wall is down.
   if (rateLimit.reason === "fail_open") {
     console.error("[summarize/stream] rate-limit bypassed (fail-open)", {
       stage: "unknown" satisfies LogStage,
@@ -182,20 +179,19 @@ export async function POST(request: Request) {
   if (!rateLimit.allowed) {
     return jsonError(429, "Rate limit exceeded. Please try again later.", {
       "X-RateLimit-Remaining": String(rateLimit.remaining),
-      "X-RateLimit-Mode": rateLimit.reason,
     });
   }
   const remaining = rateLimit.remaining;
-  const rateLimitMode = rateLimit.reason;
 
+  // Flag lives in the stream closure so the `cancel()` hook can flip it
+  // when the consumer tears down the reader mid-flight. `start()` sets it
+  // in its own `finally` on normal completion; either path makes
+  // subsequent `sendEvent` calls no-op instead of writing to a dead
+  // controller.
+  let closed = false;
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      // Explicit closed flag: set once in `finally`, checked before every
-      // enqueue. Cheaper and far more robust than pattern-matching the
-      // `TypeError` message on `enqueue` (runtime-specific wording that
-      // would silently change classification across Node/Edge versions).
-      let closed = false;
       const sendEvent: SendEvent = (data) => {
         if (request.signal.aborted || closed) return;
         try {
@@ -266,11 +262,10 @@ export async function POST(request: Request) {
             message: "No captions found. Transcribing audio...",
             stage: "transcribe",
           });
-          // Wrapping in Promise.resolve().then() normalizes any synchronous
-          // throw from fetchVideoMetadata into a rejection that the .catch
-          // can classify. The function is already async today, but the
-          // wrapper is cheap belt-and-suspenders so a future refactor that
-          // accidentally throws before `await` can't bypass this handler.
+          // Wrapping in .then() normalizes any synchronous throw into a
+          // rejection that the downstream .catch can classify, so a
+          // refactor that drops `async` on fetchVideoMetadata can't
+          // bypass the handler.
           metadataPromise = Promise.resolve()
             .then(() => fetchVideoMetadata(youtube_url, request.signal))
             .catch(
@@ -299,7 +294,11 @@ export async function POST(request: Request) {
         }
         const transcribeSeconds = (Date.now() - transcribeStart) / 1000;
 
-        sendEvent({ type: "status", message: `Detected language: ${language}` });
+        sendEvent({
+          type: "status",
+          message: `Detected language: ${language}`,
+          stage: "summarize",
+        });
 
         if (includeTranscript) {
           sendEvent({ type: "full_transcript", text: transcript });
@@ -371,21 +370,27 @@ export async function POST(request: Request) {
           transcribe_time: transcribeSeconds,
         });
 
-        // Skip the cache write on (a) upstream metadata failure, (b) caller
-        // abort, or (c) missing title OR channel. Both fields drive the
-        // cached UI header — either one blank makes the row user-visibly
-        // broken, so both must be present or the cache hit is worse than
-        // a re-run. Blank fields reach here from oembed success-with-empty
-        // OR from caption-extractor when videoDetails lack title/author.
+        // Both title and channel drive the cached UI header. Either one
+        // blank makes the cached row user-visibly broken, so skip the
+        // write — a re-run is better than a headerless cache hit.
         if (metadataSkipCache || request.signal.aborted) return;
         if (!title || !channelName) {
-          console.warn("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", {
+          const payload = {
             errorId: "CACHE_SKIP_EMPTY_HEADER",
             youtubeUrl: youtube_url,
             source: transcriptSource,
             hasTitle: !!title,
             hasChannel: !!channelName,
-          });
+          };
+          // Alertable in prod: a systematic upstream regression producing
+          // empty title/channel silently disables caching and re-bills
+          // every request. Same incident class as rate-limit / cache-creds
+          // fail-open — error severity in prod, warn in dev.
+          if (process.env.NODE_ENV === "production") {
+            console.error("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
+          } else {
+            console.warn("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
+          }
           return;
         }
 
@@ -413,13 +418,31 @@ export async function POST(request: Request) {
         logStageError("unknown", err);
         sendEvent({ type: "error", message: USER_ERROR_GENERIC });
       } finally {
+        // Order matters: flip `closed` BEFORE close(). Any in-flight
+        // sendEvent() must observe the flag on its next entry and short-
+        // circuit instead of racing the close() call.
         closed = true;
         try {
           controller.close();
-        } catch {
-          // Already closed on abort — nothing to do.
+        } catch (err) {
+          // TypeError "already closed" is expected when the runtime closed
+          // the controller first (abort, consumer cancel). Anything else
+          // is a genuine stream bug and must surface.
+          const isAlreadyClosed =
+            err instanceof TypeError &&
+            /closed|invalid state/i.test(err.message);
+          if (!isAlreadyClosed) {
+            console.error("[summarize/stream] close failed", { err });
+          }
         }
       }
+    },
+    // `cancel()` fires when the consumer tears down the reader before we
+    // finished (e.g. the browser tab closed, or Next.js wound down the
+    // response). Set `closed` so any still-running upstream work that
+    // calls sendEvent() stops writing to a dead controller.
+    cancel() {
+      closed = true;
     },
   });
 
@@ -429,7 +452,6 @@ export async function POST(request: Request) {
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
       "X-RateLimit-Remaining": String(remaining),
-      "X-RateLimit-Mode": rateLimitMode,
     },
   });
 }

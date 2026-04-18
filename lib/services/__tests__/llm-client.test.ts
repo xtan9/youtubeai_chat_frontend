@@ -1,5 +1,9 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { formatSseEvent, streamLlmSummary } from "../llm-client";
+import {
+  DEFAULT_LLM_MODEL,
+  formatSseEvent,
+  streamLlmSummary,
+} from "../llm-client";
 
 describe("formatSseEvent", () => {
   it("formats an SSE event", () => {
@@ -48,6 +52,77 @@ describe("streamLlmSummary", () => {
     await expect(
       collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
     ).rejects.toThrow(/LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY/);
+  });
+
+  it("uses DEFAULT_LLM_MODEL and logs LLM_MODEL_MISSING when env unset outside dev/test", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "");
+    vi.stubEnv("NODE_ENV", "production");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.model).toBe(DEFAULT_LLM_MODEL);
+    expect(errSpy).toHaveBeenCalledWith(
+      "[llm-client] LLM_MODEL unset; using default",
+      expect.objectContaining({
+        errorId: "LLM_MODEL_MISSING",
+        defaultModel: DEFAULT_LLM_MODEL,
+      })
+    );
+  });
+
+  it("does NOT log LLM_MODEL_MISSING in development", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "");
+    vi.stubEnv("NODE_ENV", "development");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+          "data: [DONE]\n",
+        ])
+      )
+    );
+
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    expect(
+      errSpy.mock.calls.some((c) => String(c[0]).includes("LLM_MODEL unset"))
+    ).toBe(false);
+  });
+
+  it("logs LLM_MODEL_MISSING when NODE_ENV is unset (guards against misconfigured prod)", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "");
+    vi.stubEnv("NODE_ENV", "");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+          "data: [DONE]\n",
+        ])
+      )
+    );
+
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    expect(
+      errSpy.mock.calls.some((c) => String(c[0]).includes("LLM_MODEL unset"))
+    ).toBe(true);
   });
 
   it("throws with status + body on non-ok response", async () => {

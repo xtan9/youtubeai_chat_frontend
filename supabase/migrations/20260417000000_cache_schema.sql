@@ -115,10 +115,8 @@ ALTER TABLE summaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_video_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
 
--- Videos: public read, service_role write. service_role bypasses RLS, but we
--- list the policies explicitly so intent is load-bearing in the schema — if
--- a future migration narrows the writing role, upserts fail loudly rather
--- than silently 403-ing via the bypass.
+-- Videos: public read, service_role write. Explicit policies so a future
+-- RLS-narrowing change fails loud instead of silently widening access.
 DROP POLICY IF EXISTS "videos_select" ON videos;
 CREATE POLICY "videos_select" ON videos FOR SELECT USING (true);
 DROP POLICY IF EXISTS "videos_insert" ON videos;
@@ -126,9 +124,7 @@ CREATE POLICY "videos_insert" ON videos FOR INSERT TO service_role WITH CHECK (t
 DROP POLICY IF EXISTS "videos_update" ON videos;
 CREATE POLICY "videos_update" ON videos FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
--- Summaries: public read, service_role write. Explicit policies keep the
--- write role load-bearing in the schema even though service_role bypasses
--- RLS today — narrowing the bypass later must fail loudly, not silently.
+-- Summaries: public read, service_role write. (See videos policy block.)
 DROP POLICY IF EXISTS "summaries_select" ON summaries;
 CREATE POLICY "summaries_select" ON summaries FOR SELECT USING (true);
 DROP POLICY IF EXISTS "summaries_insert" ON summaries;
@@ -136,9 +132,7 @@ CREATE POLICY "summaries_insert" ON summaries FOR INSERT TO service_role WITH CH
 DROP POLICY IF EXISTS "summaries_update" ON summaries;
 CREATE POLICY "summaries_update" ON summaries FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 
--- User history: private to owner. Service role writes from the cache path
--- too; keep that explicit so the route's upsert matches intent, not just the
--- bypass.
+-- User history: private to owner, plus service-role for cache-path upserts.
 DROP POLICY IF EXISTS "history_select" ON user_video_history;
 CREATE POLICY "history_select" ON user_video_history FOR SELECT TO authenticated USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "history_insert" ON user_video_history;

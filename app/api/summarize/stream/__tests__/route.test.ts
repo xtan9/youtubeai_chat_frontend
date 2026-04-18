@@ -190,8 +190,8 @@ describe("POST /api/summarize/stream", () => {
     });
 
     it("returns 503 when getUser reports a 5xx infra error", async () => {
-      // Client-side error statuses (400/401/403) = "not logged in"; 5xx or
-      // status-less = infra outage. Only the latter must page on-call.
+      // Auth status 400/401/403 = "not logged in"; everything else
+      // (including 408/429/5xx/status-less) = infra outage.
       mocks.getUser.mockResolvedValue({
         data: { user: null },
         error: { status: 500, message: "supabase down" },
@@ -206,6 +206,38 @@ describe("POST /api/summarize/stream", () => {
         "[summarize/stream] auth failed",
         expect.objectContaining({ stage: "auth", status: 500 })
       );
+    });
+
+    it("returns 503 when getUser reports 429 (Supabase JWKS throttled — not a user-auth error)", async () => {
+      // Round-10 regression guard: a 429 from Supabase is not "this user
+      // is not logged in" — it's infra telling us the auth endpoint is
+      // overloaded. Must page, not silently 401.
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 429, message: "too many requests" },
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(503);
+    });
+
+    it("returns 503 when getUser reports 408 request-timeout", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 408, message: "auth request timeout" },
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(503);
+    });
+
+    it("returns 401 when getUser reports 403 (forbidden - still a client-side auth result)", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 403, message: "forbidden" },
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(401);
     });
 
     it("returns 503 when getUser error has no status (unreachable Supabase)", async () => {
@@ -255,6 +287,38 @@ describe("POST /api/summarize/stream", () => {
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.headers.get("X-RateLimit-Remaining")).toBe("15");
       expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+    });
+
+    it("does NOT expose the rate-limit reason as a response header", async () => {
+      // Exposing fail_open to clients tells abusers exactly when our
+      // abuse wall is down. Keep the distinction server-internal.
+      mocks.checkRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 10,
+        reason: "fail_open",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.headers.get("X-RateLimit-Mode")).toBeNull();
+    });
+
+    it("logs RATE_LIMIT_FAIL_OPEN_REQUEST at route layer on fail-open path", async () => {
+      mocks.checkRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 30,
+        reason: "fail_open",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] rate-limit bypassed (fail-open)",
+        expect.objectContaining({
+          errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
+          userId: "user-1",
+        })
+      );
     });
   });
 
@@ -588,10 +652,10 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("skips cache write when oembed returns empty title/channel (prevents headerless cache poisoning)", async () => {
-      // Previously the route cached even when oembed succeeded with blank
-      // fields. Now we skip so the next lookup re-runs instead of hitting a
-      // headerless row.
+    it("skips cache write and logs CACHE_SKIP_EMPTY_HEADER when oembed returns empty title/channel", async () => {
+      // Empty title/channel would cache a user-visibly broken row. Skip
+      // the write AND log with a stable errorId so a systematic upstream
+      // regression is alertable.
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
         ok: true,
@@ -608,12 +672,58 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 2 },
         ])
       );
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
       // Terminal summary still emits so the client accumulator closes.
       expect(events.at(-1)?.type).toBe("summary");
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[summarize/stream] CACHE_SKIP_EMPTY_HEADER",
+        expect.objectContaining({
+          errorId: "CACHE_SKIP_EMPTY_HEADER",
+          source: "whisper",
+          hasTitle: false,
+          hasChannel: false,
+        })
+      );
+    });
+
+    it("logs CACHE_SKIP_EMPTY_HEADER at error level in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "only-title", channelName: "" },
+      });
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "whisper output",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] CACHE_SKIP_EMPTY_HEADER",
+        expect.objectContaining({ errorId: "CACHE_SKIP_EMPTY_HEADER" })
+      );
+      // Not also logged at warn level — prod uses error OR warn, not both.
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          String(c[0]).includes("CACHE_SKIP_EMPTY_HEADER")
+        )
+      ).toBe(false);
     });
 
     it("caches normally when oembed returns populated title/channel", async () => {

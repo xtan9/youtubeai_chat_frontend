@@ -26,8 +26,7 @@ export interface LlmStreamOptions {
 // "only malformed chunks" error.
 const MAX_MALFORMED_WARNINGS = 1;
 
-// Default model identifier used when LLM_MODEL is unset. Kept in one place so
-// the route's cache-write and the gateway request stay in sync.
+// Shared so cache-write and gateway request don't drift.
 export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
 
 /**
@@ -40,13 +39,17 @@ export async function* streamLlmSummary(
   const gatewayUrl = process.env.LLM_GATEWAY_URL;
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY;
   const configuredModel = process.env.LLM_MODEL;
-  // An empty LLM_MODEL in production points at a deploy that forgot to set
-  // the model variable — fall back to the default, but log loudly so the
-  // resulting cost/behaviour mismatch with intent is visible.
-  if (!configuredModel && process.env.NODE_ENV === "production") {
-    console.error("[llm-client] LLM_MODEL unset in production; using default", {
+  // Deploys outside dev/test that haven't set LLM_MODEL are almost always
+  // misconfigured — running on the default model with no billing awareness
+  // is expensive to discover later. Inverting the gate (log UNLESS dev/test)
+  // covers the "NODE_ENV unset in prod" misconfig that a === "production"
+  // check would silently pass through.
+  const envMode = process.env.NODE_ENV;
+  if (!configuredModel && envMode !== "development" && envMode !== "test") {
+    console.error("[llm-client] LLM_MODEL unset; using default", {
       errorId: "LLM_MODEL_MISSING",
       defaultModel: DEFAULT_LLM_MODEL,
+      nodeEnv: envMode ?? null,
     });
   }
   const model = configuredModel || DEFAULT_LLM_MODEL;
