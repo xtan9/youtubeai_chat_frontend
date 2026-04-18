@@ -16,9 +16,9 @@ export interface CaptionResult {
   readonly channelName: string;
 }
 
-// Matches the VPS /captions 200 contract. title/channelName arrive as
-// `string | null` from the upstream library's optional videoDetails;
-// normalize to "" here so the route's existing string contract holds.
+// Matches the VPS /captions 200 contract. VPS returns `string | null` for
+// title/channelName when video metadata is unavailable; normalize to "" here
+// so the route's existing string contract holds.
 const CaptionsResponseSchema = z.object({
   transcript: z.string(),
   source: z.literal("auto_captions"),

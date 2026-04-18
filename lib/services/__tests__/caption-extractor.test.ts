@@ -163,10 +163,8 @@ describe("extractCaptions", () => {
 
   it("surfaces an internal timeout as a logged failure (not as a silent caller-abort)", async () => {
     stubEnv();
-    // 1ms internal timeout guarantees the composed signal fires before the
-    // mock fetch resolves. A future refactor that checks `combinedSignal.aborted`
-    // instead of `signal?.aborted` would silently drop this — and with it,
-    // the alert that fires when the VPS is hanging under load.
+    // Internal-timeout aborts must log; only caller-initiated aborts stay
+    // silent. 1ms guarantees the timeout fires before the mock fetch resolves.
     vi.stubEnv("VPS_CAPTIONS_TIMEOUT_MS", "1");
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 
