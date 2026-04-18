@@ -125,6 +125,87 @@ describe("streamLlmSummary", () => {
     ).toBe(true);
   });
 
+  it.each<[string, string]>([
+    ["leading/trailing spaces", "  value  "],
+    ["trailing newline", "value\n"],
+    ["leading tab", "\tvalue"],
+    ["CRLF", "value\r\n"],
+    ["trailing CR", "value\r"],
+    ["mixed", " \tvalue\r\n "],
+  ])("trims %s from env-var values", async (_label, wrap) => {
+    vi.stubEnv("LLM_GATEWAY_URL", wrap.replace("value", "https://gw.example.com/v1"));
+    vi.stubEnv("LLM_GATEWAY_API_KEY", wrap.replace("value", "key"));
+    vi.stubEnv("LLM_MODEL", wrap.replace("value", "test-model"));
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://gw.example.com/v1/chat/completions");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer key"
+    );
+    const body = JSON.parse(init.body as string) as { model: string };
+    expect(body.model).toBe("test-model");
+  });
+
+  it("preserves internal whitespace in env-var values (only edges are trimmed)", async () => {
+    // `.trim()` only touches edges — guards against a future refactor that
+    // "helpfully" swaps to `.replace(/\s/g, "")` and mangles keys with
+    // legitimate internal whitespace.
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key with spaces");
+    vi.stubEnv("LLM_MODEL", "my-model");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer key with spaces"
+    );
+  });
+
+  it("treats whitespace-only LLM_MODEL as unset (falls back to DEFAULT + fires LLM_MODEL_MISSING)", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "  \n\t  ");
+    vi.stubEnv("NODE_ENV", "production");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+      model: string;
+    };
+    expect(body.model).toBe(DEFAULT_LLM_MODEL);
+    expect(errSpy).toHaveBeenCalledWith(
+      "[llm-client] LLM_MODEL unset; using default",
+      expect.objectContaining({ errorId: "LLM_MODEL_MISSING" })
+    );
+  });
+
+  it("treats whitespace-only LLM_GATEWAY_URL as unset (throws 'must be configured')", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "  \n  ");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    await expect(
+      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+    ).rejects.toThrow(/LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY/);
+  });
+
   it("throws with status + body on non-ok response", async () => {
     stubEnv();
     vi.stubGlobal(

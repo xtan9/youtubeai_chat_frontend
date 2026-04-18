@@ -21,6 +21,32 @@ describe("transcribeViaVps", () => {
     vi.unstubAllEnvs();
   });
 
+  it("trims whitespace from VPS_API_URL and VPS_API_KEY", async () => {
+    vi.stubEnv("VPS_API_URL", "  https://vps.example.com\n");
+    vi.stubEnv("VPS_API_KEY", "\tsecret  ");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ transcript: "t", language: "en", source: "whisper" }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeViaVps("https://youtu.be/abc");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://vps.example.com/transcribe");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer secret"
+    );
+  });
+
+  it("treats whitespace-only VPS env vars as unset (throws 'must be configured')", async () => {
+    vi.stubEnv("VPS_API_URL", "  \n  ");
+    vi.stubEnv("VPS_API_KEY", "\t");
+    await expect(transcribeViaVps("https://youtu.be/abc")).rejects.toThrow(
+      /VPS_API_URL and VPS_API_KEY must be configured/
+    );
+  });
+
   it("throws when required env vars are missing", async () => {
     vi.stubEnv("VPS_API_URL", "");
     vi.stubEnv("VPS_API_KEY", "");

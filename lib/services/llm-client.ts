@@ -36,9 +36,14 @@ export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
 export async function* streamLlmSummary(
   options: LlmStreamOptions
 ): AsyncGenerator<LlmEvent> {
-  const gatewayUrl = process.env.LLM_GATEWAY_URL;
-  const gatewayKey = process.env.LLM_GATEWAY_API_KEY;
-  const configuredModel = process.env.LLM_MODEL;
+  // Trim at every env-var HTTP-boundary read. Some env-var sources (Vercel
+  // dashboard paste, .env files opened in editors that auto-newline) preserve
+  // trailing whitespace verbatim. The control chars are invisible in log
+  // viewers — a stray `\n` on a model ID or bearer token silently breaks
+  // auth or returns a model-not-found at the upstream provider.
+  const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
+  const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
+  const configuredModel = process.env.LLM_MODEL?.trim();
   // Deploys outside dev/test that haven't set LLM_MODEL are almost always
   // misconfigured — running on the default model with no billing awareness
   // is expensive to discover later. Inverting the gate (log UNLESS dev/test)

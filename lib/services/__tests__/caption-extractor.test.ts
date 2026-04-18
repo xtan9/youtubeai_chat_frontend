@@ -46,6 +46,35 @@ describe("extractCaptions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("trims whitespace from VPS_API_URL and VPS_API_KEY", async () => {
+    vi.stubEnv("VPS_API_URL", "  https://vps.example.com\n");
+    vi.stubEnv("VPS_API_KEY", "\tsecret  ");
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        transcript: "t",
+        source: "auto_captions",
+        language: "en",
+        title: null,
+        channelName: null,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await extractCaptions("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://vps.example.com/captions");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer secret"
+    );
+  });
+
+  it("treats whitespace-only VPS env vars as unset (throws 'must be configured')", async () => {
+    vi.stubEnv("VPS_API_URL", "  \n  ");
+    vi.stubEnv("VPS_API_KEY", "\t");
+    await expect(
+      extractCaptions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    ).rejects.toThrow(/VPS_API_URL and VPS_API_KEY must be configured/);
+  });
+
   it("throws when required env vars are missing", async () => {
     vi.stubEnv("VPS_API_URL", "");
     vi.stubEnv("VPS_API_KEY", "");
