@@ -33,12 +33,24 @@ CREATE TABLE IF NOT EXISTS summaries (
         CHECK (enable_thinking = TRUE OR thinking IS NULL)
 );
 
--- When the table already existed (earlier dev/staging runs of this migration),
+-- When the tables pre-existed (earlier dev/staging runs or a legacy schema),
 -- `CREATE TABLE IF NOT EXISTS` silently skips the whole block including the
--- inline constraints. These guarded ALTERs reconcile those environments with
--- a fresh deploy.
+-- inline columns. These guarded ALTERs reconcile those environments: every
+-- column referenced by a CHECK/UNIQUE later in the file must be guarded
+-- here, otherwise the constraint fails with column-does-not-exist.
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS enable_thinking BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS thinking TEXT;
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcript TEXT;
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcript_source TEXT NOT NULL DEFAULT 'auto_captions';
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE summaries ADD COLUMN IF NOT EXISTS processing_time_seconds NUMERIC(10, 2);
 ALTER TABLE summaries ADD COLUMN IF NOT EXISTS transcribe_time_seconds NUMERIC(10, 2);
 ALTER TABLE summaries ADD COLUMN IF NOT EXISTS summarize_time_seconds NUMERIC(10, 2);
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS url_hash TEXT;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS channel_name TEXT;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
 
 DO $$
 BEGIN
@@ -82,6 +94,22 @@ BEGIN
     ) THEN
         ALTER TABLE videos ADD CONSTRAINT videos_language_check
             CHECK (language IN ('en', 'zh'));
+    END IF;
+
+    -- UNIQUE constraints: CREATE TABLE IF NOT EXISTS skips these when the
+    -- table pre-existed. Add with a guard so later upserts have the
+    -- onConflict target they need.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'videos_url_hash_key'
+    ) THEN
+        ALTER TABLE videos ADD CONSTRAINT videos_url_hash_key UNIQUE (url_hash);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'summaries_video_id_enable_thinking_key'
+    ) THEN
+        ALTER TABLE summaries ADD CONSTRAINT summaries_video_id_enable_thinking_key
+            UNIQUE (video_id, enable_thinking);
     END IF;
 END $$;
 
