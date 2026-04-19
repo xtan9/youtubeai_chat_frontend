@@ -66,3 +66,22 @@ export interface RoutingDecision {
   readonly reason: RoutingReason;
   readonly dimensions: ClassifierResult | null;
 }
+
+/**
+ * Count words and estimate tokens from a transcript. Pure; no I/O. The
+ * estimator is intentionally a simple wordCount * TOKENS_PER_WORD — good
+ * enough for routing thresholds, and exact tokenization would cost a
+ * gateway round trip.
+ */
+export function getTranscriptMetadata(
+  transcript: string,
+  language: PromptLocale
+): TranscriptMetadata {
+  // `split(/\s+/)` on an empty string yields [""] — filter it out so empty
+  // transcripts correctly count as zero words.
+  const wordCount = transcript.trim() === ""
+    ? 0
+    : transcript.trim().split(/\s+/).length;
+  const tokens = Math.round(wordCount * TOKENS_PER_WORD);
+  return { wordCount, tokens, language };
+}
