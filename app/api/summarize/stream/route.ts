@@ -397,9 +397,10 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Oembed was already awaited before the classifier — so by now
-        // processingTimeSeconds correctly reflects transcription + classifier
-        // + LLM. No extra metadata round-trip happens here.
+        // Oembed was already awaited before the classifier, so this
+        // duration no longer includes an oembed round-trip tail. Includes
+        // transcription + LLM always; classifier time is included only
+        // when the classifier actually ran (middle-zone tokens).
         const processingTimeSeconds = (Date.now() - overallStart) / 1000;
 
         // Always emit a terminal summary so the client accumulator closes

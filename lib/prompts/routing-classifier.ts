@@ -1,7 +1,11 @@
 // youtubeai_chat_frontend/lib/prompts/routing-classifier.ts
 
-// Prompt for the Haiku-as-router classifier. Keep strict: JSON-only,
-// fixed enums, no prose, so Zod validation on the caller side is reliable.
+// Prompt for the Haiku-as-router classifier. Strict JSON-only with fixed
+// enums. The caller (classifyContent) does NOT do cleanup — no markdown
+// fence stripping, no prose extraction, no retries. Any deviation from
+// strict JSON returns null and routing degrades to the token-count
+// fallback. Reliability comes from graceful degradation, not from
+// trusting the model to always comply.
 
 export interface ClassifierPromptInput {
   readonly transcriptExcerpt: string;
