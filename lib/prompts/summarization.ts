@@ -1,10 +1,3 @@
-// Transcript budget: roughly the largest chunk that keeps the prompt well
-// inside Claude's context window even with the long instruction preamble
-// below, while staying cost-conscious on the gateway side. Changing this
-// affects cache fidelity for long videos — summaries generated under a
-// different budget are still cached under the same video_id key.
-const TRANSCRIPT_MAX_LENGTH = 15000;
-
 function getEnglishPrompt(transcript: string): string {
   return `You are a professional video content analyst. Please create an in-depth, comprehensive analysis of this YouTube video content.
 Analysis Requirements:
@@ -110,12 +103,13 @@ ${transcript}`;
 
 export function buildSummarizationPrompt(
   transcript: string,
-  language: "en" | "zh"
+  language: "en" | "zh",
+  charBudget: number
 ): string {
-  const truncated = transcript.slice(0, TRANSCRIPT_MAX_LENGTH);
-  // Long-video degradation is invisible without this log: the cached
-  // summary is valid for the prefix but silently excludes later content,
-  // so repeated hits for the same video all return the partial view.
+  const truncated = transcript.slice(0, charBudget);
+  // Truncation used to be the common case at 15K chars; now that charBudget
+  // is model-aware (hundreds of K), this log fires only for genuinely
+  // long content that's brushing up against Haiku/Sonnet practical limits.
   if (truncated.length < transcript.length) {
     console.warn("[summarization] transcript truncated to prompt budget", {
       errorId: "TRANSCRIPT_TRUNCATED",
@@ -123,6 +117,7 @@ export function buildSummarizationPrompt(
       truncatedLength: truncated.length,
       droppedChars: transcript.length - truncated.length,
       language,
+      charBudget,
     });
   }
   return language === "zh"
