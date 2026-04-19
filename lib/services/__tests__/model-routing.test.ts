@@ -39,7 +39,10 @@ describe("getTranscriptMetadata", () => {
 
 import {
   chooseModel,
+  FALLBACK_HAIKU_TOKENS,
   HAIKU,
+  LONG_TOKENS,
+  SHORT_TOKENS,
   SONNET,
   type ClassifierResult,
   type TranscriptMetadata,
@@ -127,6 +130,28 @@ describe("chooseModel", () => {
   it("falls back to Sonnet with reason 'classifier_failed_long' when classifier is null and tokens >= FALLBACK_HAIKU_TOKENS", () => {
     const decision = chooseModel(meta(50_000), null);
     expect(decision.model).toBe(SONNET);
+    expect(decision.reason).toBe("classifier_failed_long");
+  });
+
+  // Boundary tests — pin the strict-inequality choices in the rule engine so
+  // a future refactor that flips `<` to `<=` doesn't silently change routing.
+  it("at tokens === SHORT_TOKENS the classifier result wins (not 'very_short')", () => {
+    const decision = chooseModel(meta(SHORT_TOKENS), classifier({ density: "medium" }));
+    expect(decision.reason).not.toBe("very_short");
+    expect(decision.reason).toBe("default_haiku");
+  });
+
+  it("at tokens === LONG_TOKENS the classifier result wins (not 'long_content')", () => {
+    const decision = chooseModel(
+      meta(LONG_TOKENS),
+      classifier({ density: "high" })
+    );
+    expect(decision.reason).not.toBe("long_content");
+    expect(decision.reason).toBe("high_density");
+  });
+
+  it("at tokens === FALLBACK_HAIKU_TOKENS with null classifier routes to classifier_failed_long", () => {
+    const decision = chooseModel(meta(FALLBACK_HAIKU_TOKENS), null);
     expect(decision.reason).toBe("classifier_failed_long");
   });
 });

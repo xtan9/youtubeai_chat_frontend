@@ -565,4 +565,57 @@ describe("callLlmJson", () => {
       callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
     ).rejects.toThrow(/content/i);
   });
+
+  it("aborts the fetch after timeoutMs elapses", async () => {
+    stubEnv();
+    // Resolve fetch only when its signal aborts, so we can observe the
+    // timeout firing end-to-end (timeout → AbortSignal.any → fetch signal).
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+      timeoutMs: 50,
+    });
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("composes caller signal with timeout signal so caller-abort propagates", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ac = new AbortController();
+    const promise = callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+      timeoutMs: 10_000,
+      signal: ac.signal,
+    });
+    // Abort the caller long before timeout — fetch should still abort.
+    setTimeout(() => ac.abort(), 10);
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(ac.signal.aborted).toBe(true);
+  });
 });
