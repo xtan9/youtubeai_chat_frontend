@@ -16,11 +16,17 @@ import {
 } from "@/lib/services/summarize-cache";
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
+import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
 import {
-  DEFAULT_LLM_MODEL,
-  formatSseEvent,
-  streamLlmSummary,
-} from "@/lib/services/llm-client";
+  HAIKU_CHAR_BUDGET,
+  SONNET_CHAR_BUDGET,
+  HAIKU,
+  LONG_TOKENS,
+  SHORT_TOKENS,
+  chooseModel,
+  classifyContent,
+  getTranscriptMetadata,
+} from "@/lib/services/model-routing";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import {
   forwardLlmEvent,
@@ -304,7 +310,37 @@ export async function POST(request: Request) {
           sendEvent({ type: "full_transcript", text: transcript });
         }
 
-        const prompt = buildSummarizationPrompt(transcript, language);
+        // Routing: compute metadata, run classifier in the middle zone,
+        // pick a model via chooseModel, log the decision.
+        const metadata = getTranscriptMetadata(transcript, language);
+        const classifierInRange =
+          metadata.tokens >= SHORT_TOKENS && metadata.tokens <= LONG_TOKENS;
+        const classifier = classifierInRange
+          ? await classifyContent({
+              transcriptExcerpt: transcript.slice(0, 4_000),
+              title,
+              language,
+              signal: request.signal,
+            })
+          : null;
+        if (isCallerAbort(request.signal)) return;
+        const decision = chooseModel(metadata, classifier);
+
+        console.log("[summarize/stream] routing_decision", {
+          event: "routing_decision",
+          youtubeUrl: youtube_url,
+          userId: authedUser.id,
+          model: decision.model,
+          reason: decision.reason,
+          tokens: metadata.tokens,
+          wordCount: metadata.wordCount,
+          classifierRan: classifierInRange,
+          dimensions: decision.dimensions,
+        });
+
+        const charBudget =
+          decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
+        const prompt = buildSummarizationPrompt(transcript, language, charBudget);
         let fullSummary = "";
         let fullThinking = "";
         let summarizeSeconds: number | null = null;
@@ -315,6 +351,7 @@ export async function POST(request: Request) {
             prompt,
             enableThinking,
             signal: request.signal,
+            model: decision.model,
           })) {
             forwardLlmEvent(event, sendEvent);
             if (event.type === "content") fullSummary += event.text;
@@ -406,7 +443,7 @@ export async function POST(request: Request) {
           transcript,
           summary: fullSummary,
           transcriptSource,
-          model: process.env.LLM_MODEL?.trim() || DEFAULT_LLM_MODEL,
+          model: decision.model,
           processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,

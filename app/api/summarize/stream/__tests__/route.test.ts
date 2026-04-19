@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   buildSummarizationPrompt: vi.fn(),
   streamLlmSummary: vi.fn(),
   checkRateLimit: vi.fn(),
+  classifyContent: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -46,11 +47,21 @@ vi.mock("@/lib/services/llm-client", () => ({
   streamLlmSummary: mocks.streamLlmSummary,
   formatSseEvent: (d: Record<string, unknown>) =>
     `data: ${JSON.stringify(d)}\n\n`,
-  DEFAULT_LLM_MODEL: "test-model",
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
 }));
+vi.mock("@/lib/services/model-routing", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/model-routing")>(
+    "@/lib/services/model-routing"
+  );
+  return {
+    ...actual,
+    // classifyContent is the only function with I/O — mock it. Pure
+    // functions (getTranscriptMetadata, chooseModel, constants) run for real.
+    classifyContent: mocks.classifyContent,
+  };
+});
 
 import { POST } from "../route";
 
@@ -110,6 +121,7 @@ describe("POST /api/summarize/stream", () => {
     mocks.detectLocale.mockReturnValue("en");
     mocks.buildSummarizationPrompt.mockReturnValue("PROMPT");
     mocks.writeCachedSummary.mockResolvedValue(undefined);
+    mocks.classifyContent.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -402,22 +414,53 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
-    it("trims LLM_MODEL before writing to cache (prevents model-key drift vs the trimmed value sent to the gateway)", async () => {
+    it("writes the routing decision's model to cache (not the env var)", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
           { type: "content", text: "ok" },
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      vi.stubEnv("LLM_MODEL", "my-model\n");
+      // Env var is intentionally ignored — routing owns model selection now.
+      vi.stubEnv("LLM_MODEL", "env-would-be-wrong");
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
 
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
-      expect(writeCall.model).toBe("my-model");
+      // CAPTIONS_FIXTURE transcript "captioned transcript" is very short (2
+      // words, ~3 tokens) so it falls below SHORT_TOKENS → Haiku via
+      // very_short.
+      expect(writeCall.model).toBe("claude-haiku-4-5");
+    });
+
+    it("emits a routing_decision log with reason and dimensions", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const routingLog = logSpy.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("routing_decision")
+      );
+      expect(routingLog).toBeDefined();
+      expect(routingLog![1]).toMatchObject({
+        event: "routing_decision",
+        model: "claude-haiku-4-5",
+        reason: "very_short",
+        classifierRan: false,
+      });
     });
 
     it("emits exactly one terminal summary event on happy path", async () => {
