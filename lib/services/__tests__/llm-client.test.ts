@@ -446,6 +446,30 @@ describe("streamLlmSummary", () => {
       collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
     ).rejects.toThrow(/dropped after partial content/);
   });
+
+  it("uses the explicit `model` param when provided, bypassing env var", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "env-model");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await collect(
+      streamLlmSummary({
+        prompt: "x",
+        enableThinking: false,
+        model: "explicit-model",
+      })
+    );
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.model).toBe("explicit-model");
+  });
 });
 
 import { callLlmJson } from "../llm-client";

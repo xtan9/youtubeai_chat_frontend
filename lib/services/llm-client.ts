@@ -18,6 +18,8 @@ export interface LlmStreamOptions {
   readonly prompt: string;
   readonly enableThinking: boolean;
   readonly signal?: AbortSignal;
+  /** Overrides LLM_MODEL env var when provided. */
+  readonly model?: string;
 }
 
 // Per-stream cap: log once so a misbehaving gateway is visible without spamming
@@ -43,21 +45,21 @@ export async function* streamLlmSummary(
   // auth or returns a model-not-found at the upstream provider.
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
-  const configuredModel = process.env.LLM_MODEL?.trim();
-  // Deploys outside dev/test that haven't set LLM_MODEL are almost always
-  // misconfigured — running on the default model with no billing awareness
-  // is expensive to discover later. Inverting the gate (log UNLESS dev/test)
-  // covers the "NODE_ENV unset in prod" misconfig that a === "production"
-  // check would silently pass through.
+  // Normalize empty/whitespace-only to undefined so `??` falls through to
+  // the default — an empty env var must be treated the same as unset.
+  const configuredModel = process.env.LLM_MODEL?.trim() || undefined;
+  // Only surface the env-unset warning when the caller didn't pass a model
+  // AND env is missing. Explicit model overrides never warn — route-level
+  // routing will always pass one.
   const envMode = process.env.NODE_ENV;
-  if (!configuredModel && envMode !== "development" && envMode !== "test") {
+  if (!options.model && !configuredModel && envMode !== "development" && envMode !== "test") {
     console.error("[llm-client] LLM_MODEL unset; using default", {
       errorId: "LLM_MODEL_MISSING",
       defaultModel: DEFAULT_LLM_MODEL,
       nodeEnv: envMode ?? null,
     });
   }
-  const model = configuredModel || DEFAULT_LLM_MODEL;
+  const model = options.model ?? configuredModel ?? DEFAULT_LLM_MODEL;
 
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
