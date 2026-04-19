@@ -189,6 +189,28 @@ describe("classifyContent", () => {
     );
   });
 
+  it("returns null silently (no CLASSIFIER_FAILED log) when the caller aborted", async () => {
+    const ac = new AbortController();
+    // Simulate upstream fetch throwing AbortError once the caller signal fires.
+    vi.mocked(callLlmJson).mockImplementation(async () => {
+      ac.abort();
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await classifyContent({
+      transcriptExcerpt: "abc",
+      title: "t",
+      language: "en",
+      signal: ac.signal,
+    });
+
+    expect(result).toBeNull();
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
   it("returns null when the response is not valid JSON", async () => {
     vi.mocked(callLlmJson).mockResolvedValue("not json at all");
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});

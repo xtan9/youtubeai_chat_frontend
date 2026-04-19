@@ -161,6 +161,11 @@ export async function classifyContent(
       signal: options.signal,
     });
   } catch (err) {
+    // Caller-abort (browser disconnect) should exit silently — logging it
+    // as CLASSIFIER_FAILED would pollute the alert signal with per-disconnect
+    // noise and mask real classifier failures. The 5s timeout fires via a
+    // different AbortSignal, so timeouts continue to log as CLASSIFIER_FAILED.
+    if (options.signal?.aborted) return null;
     console.error("[routing] classifier call failed", {
       errorId: "CLASSIFIER_FAILED",
       stage: "classify",

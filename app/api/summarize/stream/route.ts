@@ -310,6 +310,22 @@ export async function POST(request: Request) {
           sendEvent({ type: "full_transcript", text: transcript });
         }
 
+        // Resolve oembed metadata NOW (not after the LLM call) so the
+        // classifier sees a real title on the Whisper path. By this point
+        // VPS transcription already took minutes, so the oembed fetch has
+        // almost always resolved — the await is effectively free.
+        let metadataSkipCache = false;
+        if (metadataPromise) {
+          const result = await metadataPromise;
+          if (result.ok) {
+            title = result.data.title;
+            channelName = result.data.channelName;
+          } else if (isUpstreamMetadataFailure(result)) {
+            metadataSkipCache = true;
+            logStageError("metadata", metadataErrorForLog(result));
+          }
+        }
+
         // Routing: compute metadata, run classifier in the middle zone,
         // pick a model via chooseModel, log the decision.
         const metadata = getTranscriptMetadata(transcript, language);
@@ -380,22 +396,10 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Capture processing time BEFORE awaiting metadata so the metric
-        // doesn't include the oembed round-trip — a slow oembed would
-        // otherwise inflate processing_time_seconds in the cache row.
+        // Oembed was already awaited before the classifier — so by now
+        // processingTimeSeconds correctly reflects transcription + classifier
+        // + LLM. No extra metadata round-trip happens here.
         const processingTimeSeconds = (Date.now() - overallStart) / 1000;
-
-        let metadataSkipCache = false;
-        if (metadataPromise) {
-          const result = await metadataPromise;
-          if (result.ok) {
-            title = result.data.title;
-            channelName = result.data.channelName;
-          } else if (isUpstreamMetadataFailure(result)) {
-            metadataSkipCache = true;
-            logStageError("metadata", metadataErrorForLog(result));
-          }
-        }
 
         // Always emit a terminal summary so the client accumulator closes
         // cleanly, even when we skip the cache write below.
