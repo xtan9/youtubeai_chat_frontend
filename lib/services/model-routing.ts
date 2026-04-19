@@ -85,3 +85,36 @@ export function getTranscriptMetadata(
   const tokens = Math.round(wordCount * TOKENS_PER_WORD);
   return { wordCount, tokens, language };
 }
+
+/**
+ * Pure routing decision from metadata + (optional) classifier output.
+ * Rule order matters — first match wins. See the design doc for the
+ * rationale on each branch.
+ */
+export function chooseModel(
+  metadata: TranscriptMetadata,
+  classifier: ClassifierResult | null
+): RoutingDecision {
+  if (metadata.tokens > LONG_TOKENS) {
+    return { model: SONNET, reason: "long_content", dimensions: classifier };
+  }
+  if (metadata.tokens < SHORT_TOKENS) {
+    return { model: HAIKU, reason: "very_short", dimensions: classifier };
+  }
+  if (classifier === null) {
+    if (metadata.tokens < FALLBACK_HAIKU_TOKENS) {
+      return { model: HAIKU, reason: "classifier_failed_short", dimensions: null };
+    }
+    return { model: SONNET, reason: "classifier_failed_long", dimensions: null };
+  }
+  if (classifier.density === "high") {
+    return { model: SONNET, reason: "high_density", dimensions: classifier };
+  }
+  if (classifier.type === "lecture" || classifier.type === "news") {
+    return { model: SONNET, reason: "structured_fidelity", dimensions: classifier };
+  }
+  if (classifier.structure === "rambling" && classifier.density === "low") {
+    return { model: HAIKU, reason: "low_density_casual", dimensions: classifier };
+  }
+  return { model: HAIKU, reason: "default_haiku", dimensions: classifier };
+}
