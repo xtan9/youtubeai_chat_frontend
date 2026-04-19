@@ -14,14 +14,12 @@ describe("getTranscriptMetadata", () => {
 
     expect(metadata.wordCount).toBe(500);
     expect(metadata.tokens).toBe(Math.round(500 * TOKENS_PER_WORD));
-    expect(metadata.language).toBe("en");
   });
 
   it("returns zero counts for an empty transcript", () => {
     const metadata = getTranscriptMetadata("", "zh");
     expect(metadata.wordCount).toBe(0);
     expect(metadata.tokens).toBe(0);
-    expect(metadata.language).toBe("zh");
   });
 
   it("counts CJK chars (not whitespace-split words) for Chinese transcripts", () => {
@@ -48,7 +46,11 @@ import {
 } from "../model-routing";
 
 function meta(tokens: number): TranscriptMetadata {
-  return { tokens, wordCount: Math.round(tokens / 1.3), language: "en" };
+  return { tokens, wordCount: Math.round(tokens / 1.3) };
+}
+
+function abortableSignal(): AbortSignal {
+  return new AbortController().signal;
 }
 
 const classifier = (c: Partial<ClassifierResult> = {}): ClassifierResult => ({
@@ -160,6 +162,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(result).toEqual({
@@ -178,6 +181,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(result).toEqual({
@@ -195,6 +199,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(result).toBeNull();
@@ -234,6 +239,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(result).toBeNull();
@@ -253,6 +259,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(result).toBeNull();
@@ -271,6 +278,7 @@ describe("classifyContent", () => {
       transcriptExcerpt: "abc",
       title: "t",
       language: "en",
+      signal: abortableSignal(),
     });
 
     expect(callLlmJson).toHaveBeenCalledWith(

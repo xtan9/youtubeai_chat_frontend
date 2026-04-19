@@ -43,10 +43,15 @@ export const FALLBACK_HAIKU_TOKENS = 25_000;
 export const HAIKU_CHAR_BUDGET = 720_000; // ≈ 180K tokens
 export const SONNET_CHAR_BUDGET = 2_000_000; // ≈ 500K tokens — cost guardrail, not context
 
+// How much of the transcript to feed the classifier. 4K chars covers ~1K
+// tokens of English (≈650 words) or ~2K tokens of Chinese — enough to read
+// style/density/type in either language without inflating classifier cost
+// or approaching Haiku's request limits.
+export const CLASSIFIER_EXCERPT_CHARS = 4_000;
+
 export interface TranscriptMetadata {
   readonly wordCount: number;
   readonly tokens: number;
-  readonly language: PromptLocale;
 }
 
 export interface ClassifierResult {
@@ -61,21 +66,33 @@ export interface ClassifierResult {
   readonly structure: "structured" | "rambling";
 }
 
-export type RoutingReason =
+// Reasons where the classifier did NOT run successfully — either the token
+// gate skipped it, or it ran and failed. Dimensions are null in both cases.
+export type NoClassifierReason =
   | "long_content"
   | "very_short"
   | "classifier_failed_short"
-  | "classifier_failed_long"
+  | "classifier_failed_long";
+
+// Reasons where the classifier produced a validated result — dimensions is
+// always present.
+export type ClassifierReason =
   | "high_density"
   | "structured_fidelity"
   | "low_density_casual"
   | "default_haiku";
 
-export interface RoutingDecision {
-  readonly model: typeof HAIKU | typeof SONNET;
-  readonly reason: RoutingReason;
-  readonly dimensions: ClassifierResult | null;
-}
+export type RoutingReason = NoClassifierReason | ClassifierReason;
+
+type Model = typeof HAIKU | typeof SONNET;
+
+// Discriminated on the reason subtype so `dimensions` is non-null iff the
+// classifier's output informed the decision. Enforces at compile-time that
+// the two cannot drift — e.g. a `very_short` decision cannot carry leftover
+// dimensions from an earlier classifier call.
+export type RoutingDecision =
+  | { readonly model: Model; readonly reason: NoClassifierReason; readonly dimensions: null }
+  | { readonly model: Model; readonly reason: ClassifierReason; readonly dimensions: ClassifierResult };
 
 // CJK Unified Ideographs block. Enough coverage for routine Chinese content;
 // exotic compatibility blocks (extensions A/B/…) are rare in YouTube transcripts
@@ -98,19 +115,19 @@ export function getTranscriptMetadata(
 ): TranscriptMetadata {
   const trimmed = transcript.trim();
   if (trimmed === "") {
-    return { wordCount: 0, tokens: 0, language };
+    return { wordCount: 0, tokens: 0 };
   }
   if (language === "zh") {
     const cjkCount = (trimmed.match(CJK_CHAR_REGEX) ?? []).length;
     const tokens = Math.round(cjkCount * TOKENS_PER_ZH_CHAR);
-    return { wordCount: cjkCount, tokens, language };
+    return { wordCount: cjkCount, tokens };
   }
   // `split(/\s+/)` on a whitespace-only string yields [""] — the trim above
   // plus the empty-check guards the empty case; anything that reaches here
   // has at least one non-whitespace run.
   const wordCount = trimmed.split(/\s+/).length;
   const tokens = Math.round(wordCount * TOKENS_PER_WORD);
-  return { wordCount, tokens, language };
+  return { wordCount, tokens };
 }
 
 /**
@@ -122,11 +139,14 @@ export function chooseModel(
   metadata: TranscriptMetadata,
   classifier: ClassifierResult | null
 ): RoutingDecision {
+  // Non-classifier branches always produce `dimensions: null` — enforced by
+  // the discriminated union so a future refactor can't silently leak a
+  // leftover classifier result into a token-gate reason.
   if (metadata.tokens > LONG_TOKENS) {
-    return { model: SONNET, reason: "long_content", dimensions: classifier };
+    return { model: SONNET, reason: "long_content", dimensions: null };
   }
   if (metadata.tokens < SHORT_TOKENS) {
-    return { model: HAIKU, reason: "very_short", dimensions: classifier };
+    return { model: HAIKU, reason: "very_short", dimensions: null };
   }
   if (classifier === null) {
     if (metadata.tokens < FALLBACK_HAIKU_TOKENS) {
@@ -158,14 +178,21 @@ export interface ClassifyContentOptions {
   readonly transcriptExcerpt: string;
   readonly title: string;
   readonly language: PromptLocale;
-  readonly signal?: AbortSignal;
+  // Required — the silent-abort semantic below depends on this being the
+  // caller's own signal. If a future caller forgets to pass it, every
+  // browser disconnect would surface as a CLASSIFIER_FAILED error log.
+  readonly signal: AbortSignal;
 }
 
 /**
  * Single Haiku call that classifies a transcript excerpt along three
- * dimensions. Internally catches every failure mode (network, timeout,
- * non-JSON, schema) and returns null so routing degrades to token-count
- * fallback. Never throws.
+ * dimensions. Returns `null` on any failure so routing degrades to the
+ * token-count fallback — never throws.
+ *
+ * Failure logging: genuine failures (network, 5s timeout, non-JSON,
+ * schema-invalid) emit `CLASSIFIER_FAILED` at error level. Caller-abort
+ * (browser disconnect) is an exception and exits silently to avoid
+ * polluting that alert signal.
  */
 export async function classifyContent(
   options: ClassifyContentOptions
@@ -189,7 +216,7 @@ export async function classifyContent(
     // as CLASSIFIER_FAILED would pollute the alert signal with per-disconnect
     // noise and mask real classifier failures. The 5s timeout fires via a
     // different AbortSignal, so timeouts continue to log as CLASSIFIER_FAILED.
-    if (options.signal?.aborted) return null;
+    if (options.signal.aborted) return null;
     console.error("[routing] classifier call failed", {
       errorId: "CLASSIFIER_FAILED",
       stage: "classify",

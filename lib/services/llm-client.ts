@@ -14,12 +14,17 @@ export function formatSseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
+// Models the routing layer can legitimately pick. Arbitrary strings remain
+// accepted (for experimental overrides via env/flag) but autocompletion
+// surfaces the sanctioned options first.
+export type KnownModel = "claude-haiku-4-5" | "claude-sonnet-4-6";
+
 export interface LlmStreamOptions {
   readonly prompt: string;
   readonly enableThinking: boolean;
   readonly signal?: AbortSignal;
   /** Overrides LLM_MODEL env var when provided. */
-  readonly model?: string;
+  readonly model?: KnownModel | (string & {});
 }
 
 // Per-stream cap: log once so a misbehaving gateway is visible without spamming

@@ -18,6 +18,7 @@ import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
 import {
+  CLASSIFIER_EXCERPT_CHARS,
   HAIKU_CHAR_BUDGET,
   SONNET_CHAR_BUDGET,
   HAIKU,
@@ -333,7 +334,7 @@ export async function POST(request: Request) {
           metadata.tokens >= SHORT_TOKENS && metadata.tokens <= LONG_TOKENS;
         const classifier = classifierInRange
           ? await classifyContent({
-              transcriptExcerpt: transcript.slice(0, 4_000),
+              transcriptExcerpt: transcript.slice(0, CLASSIFIER_EXCERPT_CHARS),
               title,
               language,
               signal: request.signal,
