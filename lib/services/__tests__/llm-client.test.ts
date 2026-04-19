@@ -447,3 +447,73 @@ describe("streamLlmSummary", () => {
     ).rejects.toThrow(/dropped after partial content/);
   });
 });
+
+import { callLlmJson } from "../llm-client";
+
+describe("callLlmJson", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function stubEnv() {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+  }
+
+  it("sends a non-streaming POST and returns message content", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "  {\"x\":1}  " } }] }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const content = await callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+    });
+
+    expect(content).toBe('  {"x":1}  ');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://gw.example.com/v1/chat/completions");
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toBe("claude-haiku-4-5");
+    expect(body.stream).not.toBe(true);
+    expect(body.temperature).toBe(0);
+  });
+
+  it("throws on non-OK HTTP status", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("nope", { status: 500 }))
+    );
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/500/);
+  });
+
+  it("throws when env vars are missing", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "");
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/LLM_GATEWAY_URL/);
+  });
+
+  it("throws when the response is missing choices[0].message.content", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ choices: [] }), { status: 200 })
+      )
+    );
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/content/i);
+  });
+});

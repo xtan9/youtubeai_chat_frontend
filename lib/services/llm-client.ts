@@ -197,3 +197,62 @@ export async function* streamLlmSummary(
     summarizeSeconds: durationSeconds,
   };
 }
+
+export interface CallLlmJsonOptions {
+  readonly model: string;
+  readonly prompt: string;
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Non-streaming gateway call. Returns the raw assistant content string —
+ * callers parse and schema-validate. Kept separate from streamLlmSummary
+ * because streaming plumbing is overkill for short classification calls.
+ */
+export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> {
+  const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
+  const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
+  if (!gatewayUrl || !gatewayKey) {
+    throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
+  }
+
+  const timeoutSignal =
+    options.timeoutMs !== undefined
+      ? AbortSignal.timeout(options.timeoutMs)
+      : undefined;
+  const signal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : (options.signal ?? timeoutSignal);
+
+  const response = await fetch(
+    `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${gatewayKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: [{ role: "user", content: options.prompt }],
+        temperature: 0,
+      }),
+      signal,
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`LLM gateway error (${response.status}): ${text}`);
+  }
+
+  const raw: unknown = await response.json();
+  const content = (raw as { choices?: Array<{ message?: { content?: unknown } }> })
+    ?.choices?.[0]?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("LLM gateway response missing choices[0].message.content");
+  }
+  return content;
+}
