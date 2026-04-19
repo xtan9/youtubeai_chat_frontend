@@ -18,6 +18,13 @@ export const SONNET = "claude-sonnet-4-6";
 // don't need.
 export const TOKENS_PER_WORD = 1.3;
 
+// Chinese has no whitespace word boundaries — count CJK characters directly.
+// Claude's tokenizer averages ~1.5 tokens per CJK char in practice. Without
+// this, `split(/\s+/)` on a ZH transcript yields wordCount=1 for any length,
+// routing every Chinese video to `very_short` and (since the 15K char cap was
+// lifted) potentially blowing past Haiku's 200K context on long videos.
+export const TOKENS_PER_ZH_CHAR = 1.5;
+
 // Below this we don't bother classifying — short content never shows a
 // noticeable Haiku vs Sonnet quality gap.
 export const SHORT_TOKENS = 5_000;
@@ -70,21 +77,38 @@ export interface RoutingDecision {
   readonly dimensions: ClassifierResult | null;
 }
 
+// CJK Unified Ideographs block. Enough coverage for routine Chinese content;
+// exotic compatibility blocks (extensions A/B/…) are rare in YouTube transcripts
+// and their absence here only slightly under-counts — which stays safe since
+// routing already prefers Haiku on the token-count fence.
+const CJK_CHAR_REGEX = /[\u4e00-\u9fff]/g;
+
 /**
- * Count words and estimate tokens from a transcript. Pure; no I/O. The
- * estimator is intentionally a simple wordCount * TOKENS_PER_WORD — good
- * enough for routing thresholds, and exact tokenization would cost a
- * gateway round trip.
+ * Count words and estimate tokens from a transcript. Pure; no I/O. For
+ * English, one word ≈ 1.3 tokens; for Chinese, one CJK char ≈ 1.5 tokens.
+ * Exact tokenization would cost a gateway round trip, which these heuristics
+ * avoid.
+ *
+ * `wordCount` is a misnomer on the Chinese path (it's CJK-char count) but
+ * stays named that way so the shape is consistent across languages in logs.
  */
 export function getTranscriptMetadata(
   transcript: string,
   language: PromptLocale
 ): TranscriptMetadata {
-  // `split(/\s+/)` on an empty string yields [""] — filter it out so empty
-  // transcripts correctly count as zero words.
-  const wordCount = transcript.trim() === ""
-    ? 0
-    : transcript.trim().split(/\s+/).length;
+  const trimmed = transcript.trim();
+  if (trimmed === "") {
+    return { wordCount: 0, tokens: 0, language };
+  }
+  if (language === "zh") {
+    const cjkCount = (trimmed.match(CJK_CHAR_REGEX) ?? []).length;
+    const tokens = Math.round(cjkCount * TOKENS_PER_ZH_CHAR);
+    return { wordCount: cjkCount, tokens, language };
+  }
+  // `split(/\s+/)` on a whitespace-only string yields [""] — the trim above
+  // plus the empty-check guards the empty case; anything that reaches here
+  // has at least one non-whitespace run.
+  const wordCount = trimmed.split(/\s+/).length;
   const tokens = Math.round(wordCount * TOKENS_PER_WORD);
   return { wordCount, tokens, language };
 }

@@ -45,21 +45,25 @@ export async function* streamLlmSummary(
   // auth or returns a model-not-found at the upstream provider.
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
-  // Normalize empty/whitespace-only to undefined so `??` falls through to
-  // the default — an empty env var must be treated the same as unset.
+  // Normalize empty/whitespace-only to undefined on BOTH paths — `??` only
+  // coalesces nullish, so without this an empty string ("") on either the
+  // explicit options.model or the env var would slip through and be sent
+  // to the gateway as `model: ""` (which some providers silently substitute
+  // with a server default — a worst-of-all-worlds failure mode).
+  const explicitModel = options.model?.trim() || undefined;
   const configuredModel = process.env.LLM_MODEL?.trim() || undefined;
   // Only surface the env-unset warning when the caller didn't pass a model
   // AND env is missing. Explicit model overrides never warn — route-level
   // routing will always pass one.
   const envMode = process.env.NODE_ENV;
-  if (!options.model && !configuredModel && envMode !== "development" && envMode !== "test") {
+  if (!explicitModel && !configuredModel && envMode !== "development" && envMode !== "test") {
     console.error("[llm-client] LLM_MODEL unset; using default", {
       errorId: "LLM_MODEL_MISSING",
       defaultModel: DEFAULT_LLM_MODEL,
       nodeEnv: envMode ?? null,
     });
   }
-  const model = options.model ?? configuredModel ?? DEFAULT_LLM_MODEL;
+  const model = explicitModel ?? configuredModel ?? DEFAULT_LLM_MODEL;
 
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");

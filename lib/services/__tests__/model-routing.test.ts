@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
   getTranscriptMetadata,
   TOKENS_PER_WORD,
+  TOKENS_PER_ZH_CHAR,
 } from "../model-routing";
 
 describe("getTranscriptMetadata", () => {
@@ -21,6 +22,20 @@ describe("getTranscriptMetadata", () => {
     expect(metadata.wordCount).toBe(0);
     expect(metadata.tokens).toBe(0);
     expect(metadata.language).toBe("zh");
+  });
+
+  it("counts CJK chars (not whitespace-split words) for Chinese transcripts", () => {
+    const transcript = "你好世界欢迎来到机器学习的奇妙世界";
+    const metadata = getTranscriptMetadata(transcript, "zh");
+    // 17 CJK chars in the string above.
+    expect(metadata.wordCount).toBe(17);
+    expect(metadata.tokens).toBe(Math.round(17 * TOKENS_PER_ZH_CHAR));
+  });
+
+  it("estimates tokens for a long Chinese transcript well above SHORT_TOKENS (regression: was 1 via whitespace-split)", () => {
+    const transcript = "机".repeat(10_000);
+    const metadata = getTranscriptMetadata(transcript, "zh");
+    expect(metadata.tokens).toBeGreaterThan(5_000);
   });
 });
 
