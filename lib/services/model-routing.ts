@@ -6,6 +6,9 @@
 // docs/superpowers/specs/2026-04-19-model-routing-design.md for rationale.
 
 import type { PromptLocale } from "./summarize-cache";
+import { z } from "zod";
+import { callLlmJson } from "./llm-client";
+import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
 
 export const HAIKU = "claude-haiku-4-5";
 export const SONNET = "claude-sonnet-4-6";
@@ -117,4 +120,76 @@ export function chooseModel(
     return { model: HAIKU, reason: "low_density_casual", dimensions: classifier };
   }
   return { model: HAIKU, reason: "default_haiku", dimensions: classifier };
+}
+
+const CLASSIFIER_TIMEOUT_MS = 5_000;
+
+const ClassifierSchema = z.object({
+  density: z.enum(["low", "medium", "high"]),
+  type: z.enum(["tutorial", "lecture", "news", "casual", "interview", "other"]),
+  structure: z.enum(["structured", "rambling"]),
+});
+
+export interface ClassifyContentOptions {
+  readonly transcriptExcerpt: string;
+  readonly title: string;
+  readonly language: PromptLocale;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Single Haiku call that classifies a transcript excerpt along three
+ * dimensions. Internally catches every failure mode (network, timeout,
+ * non-JSON, schema) and returns null so routing degrades to token-count
+ * fallback. Never throws.
+ */
+export async function classifyContent(
+  options: ClassifyContentOptions
+): Promise<ClassifierResult | null> {
+  const prompt = buildClassifierPrompt({
+    transcriptExcerpt: options.transcriptExcerpt,
+    title: options.title,
+    language: options.language,
+  });
+
+  let raw: string;
+  try {
+    raw = await callLlmJson({
+      model: HAIKU,
+      prompt,
+      timeoutMs: CLASSIFIER_TIMEOUT_MS,
+      signal: options.signal,
+    });
+  } catch (err) {
+    console.error("[routing] classifier call failed", {
+      errorId: "CLASSIFIER_FAILED",
+      stage: "classify",
+      err,
+    });
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch (err) {
+    console.error("[routing] classifier response not valid JSON", {
+      errorId: "CLASSIFIER_FAILED",
+      stage: "classify",
+      preview: raw.slice(0, 200),
+      err,
+    });
+    return null;
+  }
+
+  const validated = ClassifierSchema.safeParse(parsed);
+  if (!validated.success) {
+    console.error("[routing] classifier response failed schema", {
+      errorId: "CLASSIFIER_FAILED",
+      stage: "classify",
+      issues: validated.error.issues,
+    });
+    return null;
+  }
+  return validated.data;
 }
