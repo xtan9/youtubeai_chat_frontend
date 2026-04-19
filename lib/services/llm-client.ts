@@ -216,6 +216,11 @@ export interface CallLlmJsonOptions {
   readonly signal?: AbortSignal;
 }
 
+// Default ceiling for non-streaming calls. A forgotten `timeoutMs` shouldn't
+// let a classifier hang indefinitely and block the summarize stream —
+// 30 seconds is a generous cap for a ~1K-token prompt.
+const DEFAULT_CALL_TIMEOUT_MS = 30_000;
+
 /**
  * Non-streaming gateway call. Returns the raw assistant content string —
  * callers parse and schema-validate. Kept separate from streamLlmSummary
@@ -228,14 +233,11 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
 
-  const timeoutSignal =
-    options.timeoutMs !== undefined
-      ? AbortSignal.timeout(options.timeoutMs)
-      : undefined;
-  const signal =
-    options.signal && timeoutSignal
-      ? AbortSignal.any([options.signal, timeoutSignal])
-      : (options.signal ?? timeoutSignal);
+  const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
 
   const response = await fetch(
     `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,
@@ -255,7 +257,17 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
   );
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
+    // Preserve the status as the primary error signal. A body-read failure
+    // shouldn't silently swallow diagnostic context — log the underlying
+    // read error at debug level so on-call can tell "empty body" from
+    // "body read crashed" apart.
+    const text = await response.text().catch((err) => {
+      console.warn("[llm-client] failed to read error response body", {
+        status: response.status,
+        err,
+      });
+      return "";
+    });
     throw new Error(`LLM gateway error (${response.status}): ${text}`);
   }
 
