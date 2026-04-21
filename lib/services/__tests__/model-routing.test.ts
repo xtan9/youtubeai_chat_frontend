@@ -154,6 +154,22 @@ describe("chooseModel", () => {
     const decision = chooseModel(meta(FALLBACK_HAIKU_TOKENS), null);
     expect(decision.reason).toBe("classifier_failed_long");
   });
+
+  // Runtime invariants the RoutingDecision discriminated union promises at
+  // compile time. A refactor that silently drops the type annotation would
+  // lose the compile-time check — these pin the runtime behavior too.
+  it("carries the classifier result through as .dimensions (reference equality) on classifier branches", () => {
+    const cls = classifier({ density: "high" });
+    const decision = chooseModel(meta(20_000), cls);
+    expect(decision.dimensions).toBe(cls);
+  });
+
+  it("sets .dimensions to null on every non-classifier reason", () => {
+    expect(chooseModel(meta(4_000), classifier()).dimensions).toBeNull();
+    expect(chooseModel(meta(200_000), classifier()).dimensions).toBeNull();
+    expect(chooseModel(meta(10_000), null).dimensions).toBeNull();
+    expect(chooseModel(meta(50_000), null).dimensions).toBeNull();
+  });
 });
 
 import { classifyContent } from "../model-routing";
@@ -312,5 +328,25 @@ describe("classifyContent", () => {
         timeoutMs: 5_000,
       })
     );
+  });
+
+  // Verifies the classifier → callLlmJson prompt boundary: without this, a
+  // refactor that fed the wrong title or dropped the excerpt would silently
+  // ship garbage to Haiku and degrade routing with no observable failure.
+  it("forwards the title and transcript excerpt into the Haiku prompt", async () => {
+    vi.mocked(callLlmJson).mockResolvedValue(
+      JSON.stringify({ density: "medium", type: "casual", structure: "rambling" })
+    );
+
+    await classifyContent({
+      transcriptExcerpt: "UNIQUE_EXCERPT_MARKER_FOR_TEST_42",
+      title: "UNIQUE_TITLE_MARKER_FOR_TEST_42",
+      language: "en",
+      signal: abortableSignal(),
+    });
+
+    const prompt = vi.mocked(callLlmJson).mock.calls[0][0].prompt;
+    expect(prompt).toContain("UNIQUE_TITLE_MARKER_FOR_TEST_42");
+    expect(prompt).toContain("UNIQUE_EXCERPT_MARKER_FOR_TEST_42");
   });
 });

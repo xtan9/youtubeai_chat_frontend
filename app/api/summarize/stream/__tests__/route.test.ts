@@ -576,6 +576,64 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
+    // Mirror of the Sonnet charBudget assertion at the top of this group,
+    // for the Haiku path. Catches a swap like HAIKU_CHAR_BUDGET <-> SONNET_CHAR_BUDGET
+    // that would over-budget Haiku past its 200K context.
+    it("passes HAIKU_CHAR_BUDGET to buildSummarizationPrompt when routing to Haiku", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE); // 2-word → very_short → Haiku
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
+        string,
+        "en" | "zh",
+        number,
+      ];
+      expect(promptArgs[2]).toBe(720_000); // HAIKU_CHAR_BUDGET
+    });
+
+    // Regression test for the ZH tokenizer bug: without CJK counting, a long
+    // Chinese transcript looks like wordCount=1 and routes to very_short
+    // (Haiku) — skipping the classifier entirely. This test ensures the ZH
+    // path produces a token count large enough to reach the middle-zone
+    // classifier branch end-to-end.
+    it("routes Chinese transcripts through CJK tokenization end-to-end (classifier runs)", async () => {
+      const ZH_MIDDLE_ZONE = "机".repeat(20_000); // 20K CJK chars × 1.5 = 30K tokens
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: ZH_MIDDLE_ZONE,
+        language: "zh" as const,
+      });
+      mocks.detectLocale.mockReturnValue("zh");
+      mocks.classifyContent.mockResolvedValue({
+        density: "medium",
+        type: "other",
+        structure: "structured",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.classifyContent).toHaveBeenCalledTimes(1);
+      const classifyArg = mocks.classifyContent.mock.calls[0][0] as {
+        language: "en" | "zh";
+      };
+      expect(classifyArg.language).toBe("zh");
+    });
+
     it("emits exactly one terminal summary event on happy path", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
