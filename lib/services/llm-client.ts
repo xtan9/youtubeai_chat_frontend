@@ -233,7 +233,13 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
 
-  const effectiveTimeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+  // Floor at 1ms — `AbortSignal.timeout(0)` or negative would fire
+  // synchronously before the fetch even starts. Callers sending bad input
+  // get a slightly-bumped timeout rather than an unfireable request.
+  const effectiveTimeoutMs = Math.max(
+    1,
+    options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS
+  );
   const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeoutSignal])
@@ -262,11 +268,12 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
 
   if (!response.ok) {
     // Preserve the status as the primary error signal. A body-read failure
-    // shouldn't silently swallow diagnostic context — log the underlying
-    // read error at debug level so on-call can tell "empty body" from
-    // "body read crashed" apart.
+    // shouldn't silently swallow diagnostic context — log at error level
+    // with a stable errorId so on-call can alert on the pattern and tell
+    // "empty body" from "body read crashed" apart in postmortem.
     const text = await response.text().catch((err) => {
-      console.warn("[llm-client] failed to read error response body", {
+      console.error("[llm-client] failed to read error response body", {
+        errorId: "LLM_GATEWAY_BODY_READ_FAILED",
         status: response.status,
         err,
       });

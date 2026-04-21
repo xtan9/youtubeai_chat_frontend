@@ -100,14 +100,16 @@ export type RoutingDecision =
   | { readonly model: KnownModel; readonly reason: NoClassifierReason; readonly dimensions: null }
   | { readonly model: KnownModel; readonly reason: ClassifierReason; readonly dimensions: ClassifierResult };
 
-// Basic CJK Unified Ideographs (U+4E00–9FFF) — covers >99% of common
-// Chinese characters in YouTube transcripts. Rare CJK Extension blocks
-// (A: U+3400–4DBF, B: U+20000+) and Compatibility Ideographs (U+F900–FAFF)
-// are not matched; the small under-count is acceptable near the SHORT_TOKENS
-// boundary (biases toward Haiku, which is the cheap-and-safe side) and only
-// becomes concerning near the LONG_TOKENS boundary — rare in practice since
-// transcripts crossing 100K+ tokens are almost entirely basic-block content.
-const CJK_CHAR_REGEX = /[\u4e00-\u9fff]/g;
+// Covers the three character sets reachable on the `zh` path:
+//   Basic CJK Unified Ideographs  U+4E00–9FFF (Chinese + kanji)
+//   Hiragana                       U+3040–309F (Japanese)
+//   Katakana                       U+30A0–30FF (Japanese)
+// Japanese transcripts occasionally fall into the `zh` branch when
+// detectLocale sees kanji — without kana coverage they'd under-count by
+// ~50%. Rare CJK Extension blocks (A: U+3400–4DBF, B+: U+20000+) and
+// Compatibility Ideographs (U+F900–FAFF) remain unmatched; under-count
+// stays within routing tolerance at the SHORT_TOKENS/LONG_TOKENS fences.
+const CJK_CHAR_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g;
 
 /**
  * Count words and estimate tokens from a transcript. Pure; no I/O. For
