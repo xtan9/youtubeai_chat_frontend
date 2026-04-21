@@ -83,7 +83,7 @@ Every request emits one structured log line for later analysis:
 ```json
 {
   "event": "routing_decision",
-  "videoId": "abc",
+  "youtubeUrl": "https://www.youtube.com/watch?v=abc",
   "userId": "...",
   "model": "claude-haiku-4-5",
   "reason": "default_haiku",

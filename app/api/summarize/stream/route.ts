@@ -355,6 +355,9 @@ export async function POST(request: Request) {
           dimensions: decision.dimensions,
         });
 
+        // Model-aware truncation: Haiku's 200K context can't absorb the same
+        // transcript length Sonnet's 1M can. Budgets exported from
+        // model-routing.ts — replaces the old 15K-char cap for all models.
         const charBudget =
           decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
         const prompt = buildSummarizationPrompt(transcript, language, charBudget);

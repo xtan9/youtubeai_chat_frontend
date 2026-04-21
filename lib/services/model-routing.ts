@@ -39,14 +39,17 @@ export const LONG_TOKENS = 150_000;
 export const FALLBACK_HAIKU_TOKENS = 25_000;
 
 // Character budgets for prompt truncation (replaces the old 15_000 cap).
-// Roughly chars = tokens × 4 for English.
-export const HAIKU_CHAR_BUDGET = 720_000; // ≈ 180K tokens
-export const SONNET_CHAR_BUDGET = 2_000_000; // ≈ 500K tokens — cost guardrail, not context
+// Roughly chars = tokens × 4 for English; CJK is denser (~1.5 tokens/char)
+// so these char limits correspond to far more tokens in ZH. Safe in practice
+// because LONG_TOKENS gates any transcript long enough to exceed Haiku's
+// context before it reaches the Haiku branch.
+export const HAIKU_CHAR_BUDGET = 720_000; // ≈ 180K EN tokens
+export const SONNET_CHAR_BUDGET = 2_000_000; // ≈ 500K EN tokens — cost guardrail, not context
 
 // How much of the transcript to feed the classifier. 4K chars covers ~1K
-// tokens of English (≈650 words) or ~2K tokens of Chinese — enough to read
-// style/density/type in either language without inflating classifier cost
-// or approaching Haiku's request limits.
+// tokens of English (≈650 words) or ~6K tokens of Chinese at our 1.5
+// tokens-per-char estimate — enough signal for Haiku to classify style
+// without materially inflating classifier cost or latency.
 export const CLASSIFIER_EXCERPT_CHARS = 4_000;
 
 export interface TranscriptMetadata {
@@ -82,6 +85,9 @@ export type ClassifierReason =
   | "low_density_casual"
   | "default_haiku";
 
+// Union of every routing reason — exported so dashboards and log consumers
+// outside this module can type-narrow on the full space without manually
+// re-concatenating the two subtypes.
 export type RoutingReason = NoClassifierReason | ClassifierReason;
 
 type Model = typeof HAIKU | typeof SONNET;
@@ -94,10 +100,13 @@ export type RoutingDecision =
   | { readonly model: Model; readonly reason: NoClassifierReason; readonly dimensions: null }
   | { readonly model: Model; readonly reason: ClassifierReason; readonly dimensions: ClassifierResult };
 
-// CJK Unified Ideographs block. Enough coverage for routine Chinese content;
-// exotic compatibility blocks (extensions A/B/…) are rare in YouTube transcripts
-// and their absence here only slightly under-counts — which stays safe since
-// routing already prefers Haiku on the token-count fence.
+// Basic CJK Unified Ideographs (U+4E00–9FFF) — covers >99% of common
+// Chinese characters in YouTube transcripts. Rare CJK Extension blocks
+// (A: U+3400–4DBF, B: U+20000+) and Compatibility Ideographs (U+F900–FAFF)
+// are not matched; the small under-count is acceptable near the SHORT_TOKENS
+// boundary (biases toward Haiku, which is the cheap-and-safe side) and only
+// becomes concerning near the LONG_TOKENS boundary — rare in practice since
+// transcripts crossing 100K+ tokens are almost entirely basic-block content.
 const CJK_CHAR_REGEX = /[\u4e00-\u9fff]/g;
 
 /**
@@ -166,6 +175,10 @@ export function chooseModel(
   return { model: HAIKU, reason: "default_haiku", dimensions: classifier };
 }
 
+// 5s is the hard cap on classifier latency. Haiku classification of a ~1K
+// token prompt returns in <2s under normal load, so 5s leaves headroom for
+// gateway cold-start without letting a stuck classifier dominate end-to-end
+// summarization latency (classifier runs BEFORE the main LLM call).
 const CLASSIFIER_TIMEOUT_MS = 5_000;
 
 const ClassifierSchema = z.object({

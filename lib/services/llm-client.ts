@@ -250,6 +250,10 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
       body: JSON.stringify({
         model: options.model,
         messages: [{ role: "user", content: options.prompt }],
+        // Deterministic decoding — this helper feeds schema-validated JSON
+        // callers (e.g. classifyContent's Zod parse). Any variability would
+        // translate directly into routing-decision flapping across otherwise
+        // identical requests.
         temperature: 0,
       }),
       signal,
