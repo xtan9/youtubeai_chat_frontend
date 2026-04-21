@@ -1,4 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
+import type { KnownModel } from "./models";
 
 export type LlmEvent =
   | {
@@ -14,16 +15,15 @@ export function formatSseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-// Models the routing layer can legitimately pick. Arbitrary strings remain
-// accepted (for experimental overrides via env/flag) but autocompletion
-// surfaces the sanctioned options first.
-export type KnownModel = "claude-haiku-4-5" | "claude-sonnet-4-6";
-
 export interface LlmStreamOptions {
   readonly prompt: string;
   readonly enableThinking: boolean;
   readonly signal?: AbortSignal;
-  /** Overrides LLM_MODEL env var when provided. */
+  /**
+   * Overrides LLM_MODEL env var when provided. `KnownModel | (string & {})`
+   * autocompletes the sanctioned Claude IDs while still accepting arbitrary
+   * strings for experimental env-var overrides.
+   */
   readonly model?: KnownModel | (string & {});
 }
 
@@ -210,7 +210,7 @@ export async function* streamLlmSummary(
 }
 
 export interface CallLlmJsonOptions {
-  readonly model: string;
+  readonly model: KnownModel | (string & {});
   readonly prompt: string;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;

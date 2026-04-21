@@ -9,9 +9,11 @@ import type { PromptLocale } from "./summarize-cache";
 import { z } from "zod";
 import { callLlmJson } from "./llm-client";
 import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
+import { HAIKU, SONNET, type KnownModel } from "./models";
 
-export const HAIKU = "claude-haiku-4-5";
-export const SONNET = "claude-sonnet-4-6";
+// Re-export so existing consumers (route.ts, tests) keep their import path.
+export { HAIKU, SONNET };
+export type { KnownModel };
 
 // Rough estimator: one English word ≈ 1.3 Claude tokens. Good enough for
 // routing thresholds; the actual tokenizer would add a gateway round trip we
@@ -90,15 +92,13 @@ export type ClassifierReason =
 // re-concatenating the two subtypes.
 export type RoutingReason = NoClassifierReason | ClassifierReason;
 
-type Model = typeof HAIKU | typeof SONNET;
-
 // Discriminated on the reason subtype so `dimensions` is non-null iff the
 // classifier's output informed the decision. Enforces at compile-time that
 // the two cannot drift — e.g. a `very_short` decision cannot carry leftover
 // dimensions from an earlier classifier call.
 export type RoutingDecision =
-  | { readonly model: Model; readonly reason: NoClassifierReason; readonly dimensions: null }
-  | { readonly model: Model; readonly reason: ClassifierReason; readonly dimensions: ClassifierResult };
+  | { readonly model: KnownModel; readonly reason: NoClassifierReason; readonly dimensions: null }
+  | { readonly model: KnownModel; readonly reason: ClassifierReason; readonly dimensions: ClassifierResult };
 
 // Basic CJK Unified Ideographs (U+4E00–9FFF) — covers >99% of common
 // Chinese characters in YouTube transcripts. Rare CJK Extension blocks
