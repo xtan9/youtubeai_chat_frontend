@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   extractCaptions: vi.fn(),
   transcribeViaVps: vi.fn(),
   fetchVideoMetadata: vi.fn(),
+  fetchVpsMetadata: vi.fn(),
   getCachedSummary: vi.fn(),
   writeCachedSummary: vi.fn(),
   detectLocale: vi.fn(),
@@ -32,6 +33,9 @@ vi.mock("@/lib/services/vps-client", () => ({
 }));
 vi.mock("@/lib/services/video-metadata", () => ({
   fetchVideoMetadata: mocks.fetchVideoMetadata,
+}));
+vi.mock("@/lib/services/vps-metadata", () => ({
+  fetchVpsMetadata: mocks.fetchVpsMetadata,
 }));
 vi.mock("@/lib/services/summarize-cache", () => ({
   getCachedSummary: mocks.getCachedSummary,
@@ -118,6 +122,10 @@ describe("POST /api/summarize/stream", () => {
     });
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
     mocks.getCachedSummary.mockResolvedValue(null);
+    // Default: metadata returns a graceful "no signal" — every existing
+    // test scenario behaves the same as before the feature existed. Tests
+    // that assert on detected-lang behavior override this per-case.
+    mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "config" });
     mocks.detectLocale.mockReturnValue("en");
     mocks.buildSummarizationPrompt.mockReturnValue("PROMPT");
     mocks.writeCachedSummary.mockResolvedValue(undefined);
@@ -1087,6 +1095,243 @@ describe("POST /api/summarize/stream", () => {
       const events = parseEvents(await readStream(res));
       expect(events.find((e) => e.type === "error")).toBeDefined();
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("language-detection orchestration", () => {
+    // The whole point of this feature: the detected language flows into
+    // both /captions and /transcribe so we stop picking wrong-language
+    // caption tracks and stop letting whisper auto-detect mistakes.
+
+    const vpsMetaOk = (language: string, availableCaptions: string[]) => ({
+      ok: true as const,
+      data: {
+        language,
+        title: "Title",
+        description: "Description",
+        availableCaptions,
+      },
+    });
+
+    it("forwards detectedLang to extractCaptions when metadata resolves", async () => {
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["fr", "en"]));
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        language: "en",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        "fr"
+      );
+    });
+
+    it("retries extractCaptions with lang=en when detected-lang fails AND en is available", async () => {
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["ar", "en"]));
+      mocks.extractCaptions
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...CAPTIONS_FIXTURE, language: "en" });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledTimes(2);
+      expect(mocks.extractCaptions.mock.calls[0][2]).toBe("fr");
+      expect(mocks.extractCaptions.mock.calls[1][2]).toBe("en");
+      // Second call succeeded → whisper not invoked.
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    });
+
+    it("does NOT retry with lang=en when detected-lang is already en", async () => {
+      // Avoids a pointless second round-trip for English-language videos
+      // where the first call's lang hint IS "en".
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("en", ["en", "fr"]));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT retry with lang=en when availableCaptions doesn't include en", async () => {
+      // availableCaptions is authoritative for this decision — if en isn't
+      // there, the retry would just burn another round-trip to a 404.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["ar", "es"]));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls through to transcribeViaVps with lang=detectedLang when no captions at all", async () => {
+      // End-to-end validation of the bug fix: detected fr → whisper pinned
+      // to fr → transcript will actually be French instead of whisper's
+      // audio auto-detect misfiring.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", []));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "bonjour",
+        language: "fr",
+        source: "whisper",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "T", channelName: "C" },
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "résumé" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        "fr"
+      );
+    });
+
+    it("falls back to legacy no-hint flow when metadata fails (feature is additive)", async () => {
+      // Graceful-degradation contract: a VPS metadata outage must not
+      // break the pipeline. extractCaptions called with lang=undefined.
+      mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "timeout" });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        undefined
+      );
+    });
+
+    it("logs metadata failures (non-aborted) at the metadata stage", async () => {
+      mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "non_ok", status: 500 });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("metadata failed"),
+        expect.objectContaining({ stage: "metadata" })
+      );
+    });
+
+    it("does NOT log when metadata was caller-aborted (user closed tab)", async () => {
+      // Caller aborts are silent; an error log would fire a false alert
+      // on every user disconnect.
+      mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "aborted" });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const metadataLog = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("metadata failed")
+      );
+      expect(metadataLog).toBeUndefined();
+    });
+
+    it("preserves PromptLocale=zh when detectedLang is zh on the whisper path", async () => {
+      // detectLocale is still run post-hoc on non-zh detected languages,
+      // but a zh detection short-circuits because forcing --language=zh
+      // means we trust the CJK path.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("zh", []));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "你好世界",
+        language: "zh",
+        source: "whisper",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "T", channelName: "C" },
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ language: "zh" }),
+      );
+      // detectLocale should be skipped when we already pinned zh — that
+      // avoids re-running CJK detection on content we know is Chinese.
+      expect(mocks.detectLocale).not.toHaveBeenCalled();
     });
   });
 });

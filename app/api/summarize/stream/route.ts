@@ -7,6 +7,7 @@ import {
   fetchVideoMetadata,
   type VideoMetadataResult,
 } from "@/lib/services/video-metadata";
+import { fetchVpsMetadata } from "@/lib/services/vps-metadata";
 import {
   getCachedSummary,
   writeCachedSummary,
@@ -247,14 +248,68 @@ export async function POST(request: Request) {
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
 
         const transcribeStart = Date.now();
+
+        // Ask the VPS for the video's language + available caption codes
+        // up front. This drives both:
+        //   - which caption track to request from /captions (avoids
+        //     youtube-transcript-plus picking tracks[0], which is
+        //     arbitrarily ordered and produced Arabic-for-French before)
+        //   - the whisper --language pin when we fall back to /transcribe
+        //
+        // Graceful degradation: any failure (config, network, schema,
+        // timeout) produces `detectedLang = null` and the whole chain
+        // falls back to the legacy "no hint" flow. The feature is
+        // strictly additive — never fatal.
+        const vpsMeta = await fetchVpsMetadata(youtube_url, request.signal);
+        if (isCallerAbort(request.signal)) return;
+        let detectedLang: string | null = null;
+        let availableCaptions: readonly string[] = [];
+        if (vpsMeta.ok) {
+          detectedLang = vpsMeta.data.language;
+          availableCaptions = vpsMeta.data.availableCaptions;
+        } else if (vpsMeta.reason !== "aborted") {
+          logStageError("metadata", vpsMeta);
+        }
+
         let captions;
         try {
-          captions = await extractCaptions(youtube_url, request.signal);
+          captions = await extractCaptions(
+            youtube_url,
+            request.signal,
+            detectedLang ?? undefined
+          );
         } catch (err) {
           if (isCallerAbort(request.signal)) return;
           logStageError("captions", err);
           sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
           return;
+        }
+
+        // If the detected-language caption track isn't available but an
+        // English one is, retry once with `lang="en"`. English captions
+        // are a lower-quality but acceptable fallback per product
+        // decision — preferable to paying for whisper when a usable
+        // track already exists. Skipped when we don't have a detected
+        // language (legacy path), when detected is already English, or
+        // when `availableCaptions` doesn't promise an English track.
+        if (
+          !captions &&
+          detectedLang &&
+          detectedLang !== "en" &&
+          availableCaptions.includes("en")
+        ) {
+          try {
+            captions = await extractCaptions(
+              youtube_url,
+              request.signal,
+              "en"
+            );
+          } catch (err) {
+            if (isCallerAbort(request.signal)) return;
+            logStageError("captions", err);
+            sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
+            return;
+          }
         }
 
         if (captions) {
@@ -284,11 +339,19 @@ export async function POST(request: Request) {
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
-              request.signal
+              request.signal,
+              detectedLang ?? undefined
             );
             transcript = vpsResult.transcript;
             transcriptSource = "whisper";
-            language = detectLocale(transcript.slice(0, 500));
+            // PromptLocale stays binary (en|zh). If we pinned zh, trust
+            // that; for every other detected language we still run
+            // detectLocale on the transcript to catch CJK output from
+            // mis-detection (or legacy "no hint" calls).
+            language =
+              detectedLang === "zh"
+                ? "zh"
+                : detectLocale(transcript.slice(0, 500));
           } catch (err) {
             if (isCallerAbort(request.signal)) return;
             logStageError("vps", err);
