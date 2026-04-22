@@ -35,6 +35,20 @@ describe("getTranscriptMetadata", () => {
     const metadata = getTranscriptMetadata(transcript, "zh");
     expect(metadata.tokens).toBeGreaterThan(5_000);
   });
+
+  // Regression guard: the CJK_CHAR_REGEX extension to cover kana was added
+  // so Japanese transcripts misclassified as `zh` by detectLocale stop
+  // under-counting by ~50%. A revert to Basic-CJK-only would silently pass
+  // the other ZH tests because they use kanji.
+  it("counts Hiragana and Katakana as CJK for the zh path", () => {
+    const hiragana = getTranscriptMetadata("あ".repeat(100), "zh");
+    expect(hiragana.wordCount).toBe(100);
+    expect(hiragana.tokens).toBeGreaterThan(100);
+
+    const katakana = getTranscriptMetadata("ア".repeat(100), "zh");
+    expect(katakana.wordCount).toBe(100);
+    expect(katakana.tokens).toBeGreaterThan(100);
+  });
 });
 
 import {

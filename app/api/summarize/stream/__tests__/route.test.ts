@@ -606,12 +606,14 @@ describe("POST /api/summarize/stream", () => {
     // classifier branch end-to-end.
     it("routes Chinese transcripts through CJK tokenization end-to-end (classifier runs)", async () => {
       const ZH_MIDDLE_ZONE = "机".repeat(20_000); // 20K CJK chars × 1.5 = 30K tokens
+      // Captions path: route uses `captions.language`, not `detectLocale` —
+      // no need to stub the latter. language:"zh" on the fixture is the
+      // load-bearing line.
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
         transcript: ZH_MIDDLE_ZONE,
         language: "zh" as const,
       });
-      mocks.detectLocale.mockReturnValue("zh");
       mocks.classifyContent.mockResolvedValue({
         density: "medium",
         type: "other",

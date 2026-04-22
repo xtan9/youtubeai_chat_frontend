@@ -618,4 +618,67 @@ describe("callLlmJson", () => {
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
     expect(ac.signal.aborted).toBe(true);
   });
+
+  it.each<[string, number]>([
+    ["zero", 0],
+    ["negative", -5],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ])(
+    "logs LLM_GATEWAY_TIMEOUT_INVALID and falls back to default for %s timeoutMs",
+    async (_label, badValue) => {
+      stubEnv();
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+          { status: 200 }
+        )
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await callLlmJson({
+        model: "claude-haiku-4-5",
+        prompt: "hi",
+        timeoutMs: badValue,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("invalid timeoutMs"),
+        expect.objectContaining({
+          errorId: "LLM_GATEWAY_TIMEOUT_INVALID",
+          requestedTimeoutMs: badValue,
+        })
+      );
+    }
+  );
+
+  it("logs LLM_GATEWAY_BODY_READ_FAILED when response.text() rejects on non-OK", async () => {
+    stubEnv();
+    // Construct a Response whose body is a ReadableStream that errors out
+    // mid-read, so `.text()` rejects instead of resolving.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("stream exploded"));
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(body, { status: 502 }))
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/502/);
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("failed to read error response body"),
+      expect.objectContaining({
+        errorId: "LLM_GATEWAY_BODY_READ_FAILED",
+        status: 502,
+      })
+    );
+  });
 });
