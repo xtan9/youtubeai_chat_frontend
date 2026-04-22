@@ -52,7 +52,11 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/auth") ||
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/privacy") ||
-    request.nextUrl.pathname.startsWith("/terms");
+    request.nextUrl.pathname.startsWith("/terms") ||
+    // Smoke tests hit /api/health from an unauthenticated runner. The
+    // endpoint itself reads only server env vars (no user context) and
+    // returns shallow infra status, so exposing it publicly is safe.
+    request.nextUrl.pathname === "/api/health";
 
   if (!user && !isPublicPath) {
     // no user and not accessing a public path, redirect to login
