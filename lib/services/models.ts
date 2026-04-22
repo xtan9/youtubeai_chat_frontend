@@ -11,7 +11,14 @@
 // enforcing it today — so reviewers should flag new gateway model
 // literals that bypass this file.
 
-export const HAIKU = "claude-haiku-4-5";
+// Haiku MUST include the dated suffix — CLIProxyAPI (the LLM gateway)
+// resolves `claude-haiku-4-5` as "unknown provider" and returns 502,
+// while the dated form routes cleanly. Sonnet 4-6 works undated because
+// its alias is wired through the gateway's model list. When a new Haiku
+// revision ships, update both the constant and `gh pr checks` a live
+// request before merging — the gateway's `GET /v1/models` is the
+// authoritative list.
+export const HAIKU = "claude-haiku-4-5-20251001";
 export const SONNET = "claude-sonnet-4-6";
 
 // The narrow union we guarantee internally. Arbitrary strings still flow

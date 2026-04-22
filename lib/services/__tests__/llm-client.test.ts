@@ -521,7 +521,7 @@ describe("callLlmJson", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const content = await callLlmJson({
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-4-5-20251001",
       prompt: "hi",
     });
 
@@ -529,7 +529,7 @@ describe("callLlmJson", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://gw.example.com/v1/chat/completions");
     const body = JSON.parse(init.body as string);
-    expect(body.model).toBe("claude-haiku-4-5");
+    expect(body.model).toBe("claude-haiku-4-5-20251001");
     expect(body.stream).not.toBe(true);
     expect(body.temperature).toBe(0);
   });
@@ -541,7 +541,7 @@ describe("callLlmJson", () => {
       vi.fn().mockResolvedValue(new Response("nope", { status: 500 }))
     );
     await expect(
-      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+      callLlmJson({ model: "claude-haiku-4-5-20251001", prompt: "hi" })
     ).rejects.toThrow(/500/);
   });
 
@@ -549,7 +549,7 @@ describe("callLlmJson", () => {
     vi.stubEnv("LLM_GATEWAY_URL", "");
     vi.stubEnv("LLM_GATEWAY_API_KEY", "");
     await expect(
-      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+      callLlmJson({ model: "claude-haiku-4-5-20251001", prompt: "hi" })
     ).rejects.toThrow(/LLM_GATEWAY_URL/);
   });
 
@@ -562,7 +562,7 @@ describe("callLlmJson", () => {
       )
     );
     await expect(
-      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+      callLlmJson({ model: "claude-haiku-4-5-20251001", prompt: "hi" })
     ).rejects.toThrow(/content/i);
   });
 
@@ -583,7 +583,7 @@ describe("callLlmJson", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const promise = callLlmJson({
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-4-5-20251001",
       prompt: "hi",
       timeoutMs: 50,
     });
@@ -607,7 +607,7 @@ describe("callLlmJson", () => {
 
     const ac = new AbortController();
     const promise = callLlmJson({
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-4-5-20251001",
       prompt: "hi",
       timeoutMs: 10_000,
       signal: ac.signal,
@@ -638,7 +638,7 @@ describe("callLlmJson", () => {
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       await callLlmJson({
-        model: "claude-haiku-4-5",
+        model: "claude-haiku-4-5-20251001",
         prompt: "hi",
         timeoutMs: badValue,
       });
@@ -670,7 +670,7 @@ describe("callLlmJson", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+      callLlmJson({ model: "claude-haiku-4-5-20251001", prompt: "hi" })
     ).rejects.toThrow(/502/);
 
     expect(errSpy).toHaveBeenCalledWith(
