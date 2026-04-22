@@ -8,6 +8,11 @@ import {
   type VideoMetadataResult,
 } from "@/lib/services/video-metadata";
 import {
+  fetchVpsMetadata,
+  primarySubtag,
+  type VpsMetadataResult,
+} from "@/lib/services/vps-metadata";
+import {
   getCachedSummary,
   writeCachedSummary,
   type TranscriptSource,
@@ -113,6 +118,41 @@ function metadataErrorForLog(
       return new Error("oembed timeout");
     case "schema":
       return new Error("oembed schema");
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
+  }
+}
+
+// Same rationale as metadataErrorForLog but for the VPS /metadata client.
+// Unwraps `reason: "error"` to its inner cause so Sentry groups on the
+// actual thrown error rather than the Result wrapper; synthesizes a
+// stable Error for the no-inner-error reasons. Exhaustive via `never`.
+function vpsMetadataErrorForLog(
+  result: Extract<VpsMetadataResult, { ok: false }> & {
+    reason: Exclude<
+      Extract<VpsMetadataResult, { ok: false }>["reason"],
+      "aborted"
+    >;
+  }
+): unknown {
+  switch (result.reason) {
+    case "error":
+      return result.error;
+    case "non_ok":
+      return new Error(`vps metadata non_ok (status ${result.status})`);
+    case "timeout":
+      return new Error("vps metadata timeout");
+    case "schema":
+      // Embed the first zod issue path for grouping — a pure
+      // "vps metadata schema" would collide across unrelated field
+      // regressions.
+      return new Error(
+        `vps metadata schema (${result.issues[0]?.path.join(".") ?? "?"})`
+      );
+    case "config":
+      return new Error("vps metadata config missing");
     default: {
       const _exhaustive: never = result;
       return _exhaustive;
@@ -247,14 +287,85 @@ export async function POST(request: Request) {
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
 
         const transcribeStart = Date.now();
+
+        // Ask the VPS for the video's language + available caption codes
+        // up front. This drives both:
+        //   - which caption track to request from /captions (avoids
+        //     youtube-transcript-plus picking tracks[0], which is
+        //     arbitrarily ordered and produced Arabic-for-French before)
+        //   - the whisper --language pin when we fall back to /transcribe
+        //
+        // Graceful degradation: any failure (config, network, schema,
+        // timeout) produces `detectedLang = null` and the whole chain
+        // falls back to the legacy "no hint" flow. The feature is
+        // strictly additive — never fatal.
+        const vpsMeta = await fetchVpsMetadata(youtube_url, request.signal);
+        if (isCallerAbort(request.signal)) return;
+        let detectedLang: string | null = null;
+        let availableCaptions: readonly string[] = [];
+        if (vpsMeta.ok) {
+          // Normalize to primary subtag so the "zh" short-circuit below
+          // still fires when the VPS returns `zh-Hans` or similar. Also
+          // the `availableCaptions` list from yt-dlp can contain mixed
+          // tagged/untagged entries; normalizing both sides keeps the
+          // .includes("en") check honest.
+          detectedLang = primarySubtag(vpsMeta.data.language);
+          availableCaptions = vpsMeta.data.availableCaptions.map(primarySubtag);
+        } else if (vpsMeta.reason !== "aborted") {
+          // Suppress alert-level logging when the VPS lacks the new
+          // /metadata endpoint — during the deploy window (frontend ships
+          // before the backend), every request would fire a false alarm.
+          // Other non_ok statuses (500, etc.) still log at error level.
+          if (vpsMeta.reason === "non_ok" && vpsMeta.status === 404) {
+            console.warn("[summarize/stream] metadata endpoint unavailable", {
+              errorId: "VPS_METADATA_404",
+              status: 404,
+              youtubeUrl: youtube_url,
+            });
+          } else {
+            logStageError("metadata", vpsMetadataErrorForLog(vpsMeta));
+          }
+        }
+
         let captions;
         try {
-          captions = await extractCaptions(youtube_url, request.signal);
+          captions = await extractCaptions(
+            youtube_url,
+            request.signal,
+            detectedLang ?? undefined
+          );
         } catch (err) {
           if (isCallerAbort(request.signal)) return;
           logStageError("captions", err);
           sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
           return;
+        }
+
+        // If the detected-language caption track isn't available but an
+        // English one is, retry once with `lang="en"`. English captions
+        // are a lower-quality but acceptable fallback per product
+        // decision — preferable to paying for whisper when a usable
+        // track already exists. Skipped when we don't have a detected
+        // language (legacy path), when detected is already English, or
+        // when `availableCaptions` doesn't promise an English track.
+        if (
+          !captions &&
+          detectedLang &&
+          detectedLang !== "en" &&
+          availableCaptions.includes("en")
+        ) {
+          try {
+            captions = await extractCaptions(
+              youtube_url,
+              request.signal,
+              "en"
+            );
+          } catch (err) {
+            if (isCallerAbort(request.signal)) return;
+            logStageError("captions", err);
+            sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
+            return;
+          }
         }
 
         if (captions) {
@@ -284,11 +395,19 @@ export async function POST(request: Request) {
           try {
             const vpsResult = await transcribeViaVps(
               youtube_url,
-              request.signal
+              request.signal,
+              detectedLang ?? undefined
             );
             transcript = vpsResult.transcript;
             transcriptSource = "whisper";
-            language = detectLocale(transcript.slice(0, 500));
+            // PromptLocale stays binary (en|zh). If we pinned zh, trust
+            // that; for every other detected language we still run
+            // detectLocale on the transcript to catch CJK output from
+            // mis-detection (or legacy "no hint" calls).
+            language =
+              detectedLang === "zh"
+                ? "zh"
+                : detectLocale(transcript.slice(0, 500));
           } catch (err) {
             if (isCallerAbort(request.signal)) return;
             logStageError("vps", err);

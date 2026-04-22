@@ -81,6 +81,45 @@ describe("transcribeViaVps", () => {
     );
   });
 
+  it("omits `lang` in body when no lang provided (back-compat)", async () => {
+    // Pinning the pre-PR body shape: a future refactor to
+    // `body.lang = lang` (which stringifies even for undefined via
+    // explicit assignment) would silently break compat with clients
+    // that sniff the exact body string.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ transcript: "t", language: "en", source: "whisper" }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeViaVps("https://youtu.be/abc");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(JSON.stringify({ youtube_url: "https://youtu.be/abc" }));
+  });
+
+  it("forwards `lang` in body when provided (pins whisper --language)", async () => {
+    // The feature's payoff on the whisper path: without this, lang is
+    // accepted at the type boundary but silently dropped before the
+    // network call, so whisper keeps auto-detecting.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ transcript: "bonjour", language: "fr", source: "whisper" }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeViaVps("https://youtu.be/abc", undefined, "fr");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(
+      JSON.stringify({ youtube_url: "https://youtu.be/abc", lang: "fr" })
+    );
+  });
+
   it("returns parsed result on valid response", async () => {
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
     vi.stubEnv("VPS_API_KEY", "secret");

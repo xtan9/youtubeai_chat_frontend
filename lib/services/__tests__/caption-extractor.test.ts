@@ -109,6 +109,60 @@ describe("extractCaptions", () => {
     );
   });
 
+  it("omits `lang` in the request body when no lang provided (back-compat)", async () => {
+    // Existing VPS and consumers rely on the exact pre-PR body shape for
+    // lang-less calls. Injecting `lang: undefined` would stringify as
+    // `"lang":undefined` which JSON.stringify drops anyway — but this
+    // test pins the invariant so a future refactor to `body.lang = lang`
+    // (which WOULD stringify when lang is "") can't pass silently.
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        transcript: "t",
+        source: "auto_captions",
+        language: "en",
+        title: null,
+        channelName: null,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await extractCaptions("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(
+      JSON.stringify({
+        youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      })
+    );
+  });
+
+  it("forwards `lang` in the request body when provided", async () => {
+    // The whole point of the lang param: it must reach the VPS so the
+    // specific caption track is selected instead of tracks[0].
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        transcript: "bonjour",
+        source: "auto_captions",
+        language: "en",
+        title: null,
+        channelName: null,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      undefined,
+      "fr"
+    );
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(
+      JSON.stringify({
+        youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        lang: "fr",
+      })
+    );
+  });
+
   it("returns null on 404 (no_captions) without logging", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

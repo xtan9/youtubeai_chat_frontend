@@ -1,6 +1,6 @@
 # YouTube AI Chat — Frontend
 
-Next.js 15 + TypeScript + React 19 app that summarizes YouTube videos. All server work runs in Vercel API routes; the only external service we still operate is a small Whisper transcription microservice used as a fallback for videos without captions.
+Next.js 15 + TypeScript + React 19 app that summarizes YouTube videos. All server work runs in Vercel API routes; the only external service we still operate is a small transcription microservice used for caption extraction + Whisper fallback.
 
 ## Architecture
 
@@ -9,9 +9,10 @@ Browser ──> Next.js (Vercel)
              ├─ /api/summarize/stream  (SSE orchestration)
              │    ├─ Supabase auth + rate limit
              │    ├─ Supabase cache lookup/write
-             │    ├─ youtube-transcript-plus (captions)
-             │    ├─ VPS Whisper service   (fallback, audio → text)
-             │    └─ llm-gateway           (OpenAI-compatible Claude proxy)
+             │    ├─ VPS /metadata     (detect video language + available caption codes)
+             │    ├─ VPS /captions     (language-pinned caption extraction)
+             │    ├─ VPS /transcribe   (Whisper fallback, audio → text)
+             │    └─ llm-gateway       (OpenAI-compatible Claude proxy)
              └─ Supabase (Auth + Postgres: videos, summaries, rate_limits, user_video_history)
 ```
 
@@ -103,14 +104,15 @@ Thresholds (`SHORT_TOKENS`, `LONG_TOKENS`, `FALLBACK_HAIKU_TOKENS`, char budgets
 ```
 app/api/summarize/stream/route.ts   Orchestration: auth, rate limit, cache, SSE stream
 lib/services/                       One module per external boundary
-  caption-extractor.ts              YouTube captions via youtube-transcript-plus
-  vps-client.ts                     Whisper microservice
+  caption-extractor.ts              VPS /captions client (language-pinned)
+  vps-client.ts                     VPS /transcribe client (whisper, language-pinned)
+  vps-metadata.ts                   VPS /metadata client (detected language + caption codes)
   llm-client.ts                     Streaming LLM gateway + callLlmJson helper
   model-routing.ts                  Haiku vs Sonnet routing: metadata + classifier + rules
   summarize-cache.ts                Supabase cache read/write
   rate-limit.ts                     Atomic per-user quota
   video-metadata.ts                 YouTube oEmbed (title/channel for Whisper path)
-  language-detect.ts                CJK → zh, else en
+  language-detect.ts                CJK → zh, else en (post-hoc PromptLocale derivation)
   youtube-url.ts                    Video ID extraction
 lib/prompts/
   summarization.ts                  Summarization prompt (language-agnostic; model matches video's language)

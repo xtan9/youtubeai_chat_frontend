@@ -39,9 +39,16 @@ export function buildCaptionsUrl(baseUrl: string): string {
 // VPS failures) so the caller silently falls back to Whisper. Unexpected
 // failures are logged with a stable errorId so a systematic outage is
 // visible in alerts instead of silently burning the Whisper compute bill.
+//
+// When `lang` is provided, forwarded to the VPS so a specific caption
+// track is selected instead of YouTube's arbitrary `tracks[0]`. A 404
+// from the VPS still means "no captions available" (either the video
+// has none, or the specific track doesn't exist) — the orchestrator's
+// retry-with-English decision lives above this layer.
 export async function extractCaptions(
   youtubeUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  lang?: string
 ): Promise<CaptionResult | null> {
   const videoId = extractVideoId(youtubeUrl);
   if (!videoId) return null;
@@ -60,6 +67,13 @@ export async function extractCaptions(
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
 
+  // Only include `lang` when non-empty — the VPS zod schema rejects
+  // `{ lang: undefined }` as a schema violation (optional means "absent",
+  // not "present-but-undefined"). Back-compat: `lang`-less calls send
+  // exactly the pre-PR body.
+  const body: Record<string, unknown> = { youtube_url: youtubeUrl };
+  if (lang) body.lang = lang;
+
   let response: Response;
   try {
     response = await fetch(buildCaptionsUrl(vpsBaseUrl), {
@@ -68,7 +82,7 @@ export async function extractCaptions(
         "Content-Type": "application/json",
         Authorization: `Bearer ${vpsApiKey}`,
       },
-      body: JSON.stringify({ youtube_url: youtubeUrl }),
+      body: JSON.stringify(body),
       signal: combinedSignal,
     });
   } catch (err) {

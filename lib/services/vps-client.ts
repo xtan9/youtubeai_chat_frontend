@@ -20,7 +20,8 @@ export function buildTranscribeUrl(baseUrl: string): string {
 
 export async function transcribeViaVps(
   youtubeUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  lang?: string
 ): Promise<TranscribeResult> {
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
   const vpsApiKey = process.env.VPS_API_KEY?.trim();
@@ -35,13 +36,20 @@ export async function transcribeViaVps(
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
 
+  // Spread `lang` in only when provided — the VPS zod schema rejects
+  // `{ lang: undefined }` fields and a literal `null` body field. Back-
+  // compat: callers that don't pass lang see the exact same request body
+  // as before.
+  const body: Record<string, unknown> = { youtube_url: youtubeUrl };
+  if (lang) body.lang = lang;
+
   const response = await fetch(buildTranscribeUrl(vpsBaseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${vpsApiKey}`,
     },
-    body: JSON.stringify({ youtube_url: youtubeUrl }),
+    body: JSON.stringify(body),
     signal: combinedSignal,
   });
 
