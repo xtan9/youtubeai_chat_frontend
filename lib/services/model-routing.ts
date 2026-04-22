@@ -49,8 +49,9 @@ export const HAIKU_CHAR_BUDGET = 720_000; // ≈ 180K EN tokens
 export const SONNET_CHAR_BUDGET = 2_000_000; // ≈ 500K EN tokens — cost guardrail, not context
 
 // How much of the transcript to feed the classifier. 4K chars covers ~1K
-// tokens of English (≈650 words) or ~6K tokens of Chinese at our 1.5
-// tokens-per-char estimate — enough signal for Haiku to classify style
+// tokens of English (≈650 words) or ~6K tokens of CJK/kana at our 1.5
+// tokens-per-char estimate (conservative for kana-heavy Japanese, which
+// tokenizes closer to 1:1) — enough signal for Haiku to classify style
 // without materially inflating classifier cost or latency.
 export const CLASSIFIER_EXCERPT_CHARS = 4_000;
 
@@ -196,6 +197,8 @@ export interface ClassifyContentOptions {
   // Required — the silent-abort semantic below depends on this being the
   // caller's own signal. If a future caller forgets to pass it, every
   // browser disconnect would surface as a CLASSIFIER_FAILED error log.
+  // Note: callLlmJson composes this with its own CLASSIFIER_TIMEOUT_MS
+  // internal timeout, so cancellation is both caller-driven AND bounded.
   readonly signal: AbortSignal;
 }
 

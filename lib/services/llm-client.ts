@@ -1,5 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
-import type { KnownModel } from "./models";
+import { SONNET, type KnownModel } from "./models";
 
 export type LlmEvent =
   | {
@@ -33,8 +33,10 @@ export interface LlmStreamOptions {
 // "only malformed chunks" error.
 const MAX_MALFORMED_WARNINGS = 1;
 
-// Shared so cache-write and gateway request don't drift.
-export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
+// Shared so cache-write and gateway request don't drift. Referenced against
+// the shared `SONNET` constant so a model-ID bump in `./models` flows here
+// automatically — not duplicated as a string literal.
+export const DEFAULT_LLM_MODEL: KnownModel = SONNET;
 
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion
