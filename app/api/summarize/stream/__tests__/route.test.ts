@@ -447,7 +447,7 @@ describe("POST /api/summarize/stream", () => {
       // CAPTIONS_FIXTURE transcript "captioned transcript" is very short (2
       // words, ~3 tokens) so it falls below SHORT_TOKENS → Haiku via
       // very_short.
-      expect(writeCall.model).toBe("claude-haiku-4-5");
+      expect(writeCall.model).toBe("claude-haiku-4-5-20251001");
     });
 
     it("emits a routing_decision log with reason and dimensions", async () => {
@@ -470,7 +470,7 @@ describe("POST /api/summarize/stream", () => {
       expect(routingLog).toBeDefined();
       expect(routingLog![1]).toMatchObject({
         event: "routing_decision",
-        model: "claude-haiku-4-5",
+        model: "claude-haiku-4-5-20251001",
         reason: "very_short",
         classifierRan: false,
       });
