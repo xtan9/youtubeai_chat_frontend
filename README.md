@@ -113,7 +113,7 @@ lib/services/                       One module per external boundary
   language-detect.ts                CJK → zh, else en
   youtube-url.ts                    Video ID extraction
 lib/prompts/
-  summarization.ts                  Language-aware summarization prompts
+  summarization.ts                  Summarization prompt (language-agnostic; model matches video's language)
   routing-classifier.ts             Haiku-as-router classifier prompt (EN + ZH)
 supabase/migrations/                DB schema + RPCs
 ```
