@@ -29,7 +29,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `VPS_TIMEOUT_MS` | server only, optional | Override the 240s VPS call ceiling |
 | `LLM_GATEWAY_URL` | server only | OpenAI-compatible endpoint (e.g. `https://llm.betterr.me/v1`) |
 | `LLM_GATEWAY_API_KEY` | server only | Bearer token for the gateway |
-| `LLM_MODEL` | server only, optional | Defaults to `claude-sonnet-4-6` |
+| `LLM_MODEL` | server only, optional | Legacy fallback for `streamLlmSummary` callers that don't pass an explicit model. The summarize route does NOT use this — see "Model routing" below. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 
 ## Local development
@@ -69,6 +69,35 @@ Migrations live in `supabase/migrations/` and are applied by `.github/workflows/
 - Enforced atomically via an `INSERT ... ON CONFLICT DO UPDATE RETURNING` RPC.
 - Fail-open if Supabase is unreachable; every fail-open path logs so abuse-wall regressions are visible.
 
+## Model routing
+
+The summarize route picks between Claude Haiku 4.5 and Claude Sonnet 4.6 automatically per request. Routing happens in `lib/services/model-routing.ts`:
+
+1. **Token-count gate** — `tokens < 5K` → Haiku via `very_short`; `tokens > 150K` → Sonnet via `long_content`. Classifier is skipped in both cases.
+2. **Classifier (middle zone)** — first 4K chars of transcript + title sent to Haiku with a strict JSON schema prompt (`lib/prompts/routing-classifier.ts`). Returns `{density, type, structure}`.
+3. **Rules** map classifier dimensions to a model: `high_density` → Sonnet, `type ∈ {lecture, news}` → Sonnet, low-density rambling → Haiku, else `default_haiku`. First-match-wins; see `chooseModel` for the full table.
+4. **Graceful degradation** — if the classifier fails (timeout, malformed JSON, schema miss), routing falls back to token-count only (`classifier_failed_short`/`classifier_failed_long`). Caller-abort exits silently.
+
+Every request emits one structured log line for later analysis:
+
+```json
+{
+  "event": "routing_decision",
+  "youtubeUrl": "https://www.youtube.com/watch?v=abc",
+  "userId": "...",
+  "model": "claude-haiku-4-5",
+  "reason": "default_haiku",
+  "tokens": 18420,
+  "wordCount": 14170,
+  "classifierRan": true,
+  "dimensions": { "density": "medium", "type": "casual", "structure": "structured" }
+}
+```
+
+Classifier failures log at error level with `errorId: "CLASSIFIER_FAILED"` — useful for alerting if the rate spikes. Caller-aborts are intentionally silent to keep that signal clean.
+
+Thresholds (`SHORT_TOKENS`, `LONG_TOKENS`, `FALLBACK_HAIKU_TOKENS`, char budgets) are exported constants in `lib/services/model-routing.ts` — tune from one week of `routing_decision` logs.
+
 ## Structure
 
 ```
@@ -76,13 +105,16 @@ app/api/summarize/stream/route.ts   Orchestration: auth, rate limit, cache, SSE 
 lib/services/                       One module per external boundary
   caption-extractor.ts              YouTube captions via youtube-transcript-plus
   vps-client.ts                     Whisper microservice
-  llm-client.ts                     Streaming LLM gateway
+  llm-client.ts                     Streaming LLM gateway + callLlmJson helper
+  model-routing.ts                  Haiku vs Sonnet routing: metadata + classifier + rules
   summarize-cache.ts                Supabase cache read/write
   rate-limit.ts                     Atomic per-user quota
   video-metadata.ts                 YouTube oEmbed (title/channel for Whisper path)
   language-detect.ts                CJK → zh, else en
   youtube-url.ts                    Video ID extraction
-lib/prompts/summarization.ts        Language-aware prompt templates
+lib/prompts/
+  summarization.ts                  Language-aware summarization prompts
+  routing-classifier.ts             Haiku-as-router classifier prompt (EN + ZH)
 supabase/migrations/                DB schema + RPCs
 ```
 

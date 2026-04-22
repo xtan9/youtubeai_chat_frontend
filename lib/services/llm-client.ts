@@ -1,4 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
+import { SONNET, type KnownModel } from "./models";
 
 export type LlmEvent =
   | {
@@ -18,6 +19,12 @@ export interface LlmStreamOptions {
   readonly prompt: string;
   readonly enableThinking: boolean;
   readonly signal?: AbortSignal;
+  /**
+   * Overrides LLM_MODEL env var when provided. `KnownModel | (string & {})`
+   * autocompletes the sanctioned Claude IDs while still accepting arbitrary
+   * strings for experimental env-var overrides.
+   */
+  readonly model?: KnownModel | (string & {});
 }
 
 // Per-stream cap: log once so a misbehaving gateway is visible without spamming
@@ -26,8 +33,10 @@ export interface LlmStreamOptions {
 // "only malformed chunks" error.
 const MAX_MALFORMED_WARNINGS = 1;
 
-// Shared so cache-write and gateway request don't drift.
-export const DEFAULT_LLM_MODEL = "claude-sonnet-4-6";
+// Shared so cache-write and gateway request don't drift. Referenced against
+// the shared `SONNET` constant so a model-ID bump in `./models` flows here
+// automatically — not duplicated as a string literal.
+export const DEFAULT_LLM_MODEL: KnownModel = SONNET;
 
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion
@@ -43,21 +52,25 @@ export async function* streamLlmSummary(
   // auth or returns a model-not-found at the upstream provider.
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
-  const configuredModel = process.env.LLM_MODEL?.trim();
-  // Deploys outside dev/test that haven't set LLM_MODEL are almost always
-  // misconfigured — running on the default model with no billing awareness
-  // is expensive to discover later. Inverting the gate (log UNLESS dev/test)
-  // covers the "NODE_ENV unset in prod" misconfig that a === "production"
-  // check would silently pass through.
+  // Normalize empty/whitespace-only to undefined on BOTH paths — `??` only
+  // coalesces nullish, so without this an empty string ("") on either the
+  // explicit options.model or the env var would slip through and be sent
+  // to the gateway as `model: ""` (which some providers silently substitute
+  // with a server default — a worst-of-all-worlds failure mode).
+  const explicitModel = options.model?.trim() || undefined;
+  const configuredModel = process.env.LLM_MODEL?.trim() || undefined;
+  // Only surface the env-unset warning when the caller didn't pass a model
+  // AND env is missing. Explicit model overrides never warn — route-level
+  // routing will always pass one.
   const envMode = process.env.NODE_ENV;
-  if (!configuredModel && envMode !== "development" && envMode !== "test") {
+  if (!explicitModel && !configuredModel && envMode !== "development" && envMode !== "test") {
     console.error("[llm-client] LLM_MODEL unset; using default", {
       errorId: "LLM_MODEL_MISSING",
       defaultModel: DEFAULT_LLM_MODEL,
       nodeEnv: envMode ?? null,
     });
   }
-  const model = configuredModel || DEFAULT_LLM_MODEL;
+  const model = explicitModel ?? configuredModel ?? DEFAULT_LLM_MODEL;
 
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
@@ -196,4 +209,98 @@ export async function* streamLlmSummary(
     type: "timing",
     summarizeSeconds: durationSeconds,
   };
+}
+
+export interface CallLlmJsonOptions {
+  readonly model: KnownModel | (string & {});
+  readonly prompt: string;
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+// Default ceiling for non-streaming calls. A forgotten `timeoutMs` shouldn't
+// let a classifier hang indefinitely and block the summarize stream —
+// 30 seconds is a generous cap for a ~1K-token prompt.
+const DEFAULT_CALL_TIMEOUT_MS = 30_000;
+
+/**
+ * Non-streaming gateway call. Returns the raw assistant content string —
+ * callers parse and schema-validate. Kept separate from streamLlmSummary
+ * because streaming plumbing is overkill for short classification calls.
+ */
+export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> {
+  const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
+  const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
+  if (!gatewayUrl || !gatewayKey) {
+    throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
+  }
+
+  // Guard against bad inputs: NaN (e.g. parseInt of a missing env var),
+  // Infinity, zero, negative — all of these would make AbortSignal.timeout
+  // fire synchronously (or throw TypeError on NaN) before the fetch even
+  // starts, surfacing as a bogus AbortError that masks the root cause
+  // (likely a config typo). Fall back to the 30s default with a loud log
+  // including the bad value so the caller notices.
+  const requestedTimeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+  const isValidTimeout =
+    Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs >= 1;
+  if (!isValidTimeout) {
+    console.error("[llm-client] invalid timeoutMs — using default", {
+      errorId: "LLM_GATEWAY_TIMEOUT_INVALID",
+      requestedTimeoutMs,
+      appliedTimeoutMs: DEFAULT_CALL_TIMEOUT_MS,
+    });
+  }
+  const effectiveTimeoutMs = isValidTimeout
+    ? requestedTimeoutMs
+    : DEFAULT_CALL_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
+
+  const response = await fetch(
+    `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${gatewayKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model,
+        messages: [{ role: "user", content: options.prompt }],
+        // Deterministic decoding — this helper feeds schema-validated JSON
+        // callers (e.g. classifyContent's Zod parse). Any variability would
+        // translate directly into routing-decision flapping across otherwise
+        // identical requests.
+        temperature: 0,
+      }),
+      signal,
+    }
+  );
+
+  if (!response.ok) {
+    // Preserve the status as the primary error signal. A body-read failure
+    // shouldn't silently swallow diagnostic context — log at error level
+    // with a stable errorId so on-call can alert on the pattern and tell
+    // "empty body" from "body read crashed" apart in postmortem.
+    const text = await response.text().catch((err) => {
+      console.error("[llm-client] failed to read error response body", {
+        errorId: "LLM_GATEWAY_BODY_READ_FAILED",
+        status: response.status,
+        err,
+      });
+      return "";
+    });
+    throw new Error(`LLM gateway error (${response.status}): ${text}`);
+  }
+
+  const raw: unknown = await response.json();
+  const content = (raw as { choices?: Array<{ message?: { content?: unknown } }> })
+    ?.choices?.[0]?.message?.content;
+  if (typeof content !== "string") {
+    throw new Error("LLM gateway response missing choices[0].message.content");
+  }
+  return content;
 }

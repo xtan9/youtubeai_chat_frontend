@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   buildSummarizationPrompt: vi.fn(),
   streamLlmSummary: vi.fn(),
   checkRateLimit: vi.fn(),
+  classifyContent: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -46,11 +47,21 @@ vi.mock("@/lib/services/llm-client", () => ({
   streamLlmSummary: mocks.streamLlmSummary,
   formatSseEvent: (d: Record<string, unknown>) =>
     `data: ${JSON.stringify(d)}\n\n`,
-  DEFAULT_LLM_MODEL: "test-model",
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
 }));
+vi.mock("@/lib/services/model-routing", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/model-routing")>(
+    "@/lib/services/model-routing"
+  );
+  return {
+    ...actual,
+    // classifyContent is the only function with I/O — mock it. Pure
+    // functions (getTranscriptMetadata, chooseModel, constants) run for real.
+    classifyContent: mocks.classifyContent,
+  };
+});
 
 import { POST } from "../route";
 
@@ -110,6 +121,7 @@ describe("POST /api/summarize/stream", () => {
     mocks.detectLocale.mockReturnValue("en");
     mocks.buildSummarizationPrompt.mockReturnValue("PROMPT");
     mocks.writeCachedSummary.mockResolvedValue(undefined);
+    mocks.classifyContent.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -402,22 +414,226 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
-    it("trims LLM_MODEL before writing to cache (prevents model-key drift vs the trimmed value sent to the gateway)", async () => {
+    it("writes the routing decision's model to cache (not the env var)", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
           { type: "content", text: "ok" },
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      vi.stubEnv("LLM_MODEL", "my-model\n");
+      // Env var is intentionally ignored — routing owns model selection now.
+      vi.stubEnv("LLM_MODEL", "env-would-be-wrong");
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
 
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
-      expect(writeCall.model).toBe("my-model");
+      // CAPTIONS_FIXTURE transcript "captioned transcript" is very short (2
+      // words, ~3 tokens) so it falls below SHORT_TOKENS → Haiku via
+      // very_short.
+      expect(writeCall.model).toBe("claude-haiku-4-5");
+    });
+
+    it("emits a routing_decision log with reason and dimensions", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const routingLog = logSpy.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("routing_decision")
+      );
+      expect(routingLog).toBeDefined();
+      expect(routingLog![1]).toMatchObject({
+        event: "routing_decision",
+        model: "claude-haiku-4-5",
+        reason: "very_short",
+        classifierRan: false,
+      });
+    });
+
+    // Middle-zone integration: classifier runs, returns dimensions, route
+    // picks Sonnet via high_density, and the Sonnet char-budget is plumbed
+    // into buildSummarizationPrompt. Protects against someone removing the
+    // classifier call or swapping the charBudget branches.
+    it("routes to Sonnet via classifier dimensions and passes SONNET_CHAR_BUDGET to the prompt", async () => {
+      const MIDDLE_ZONE_TRANSCRIPT = "word ".repeat(40_000); // ~40K words → ~52K tokens
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: MIDDLE_ZONE_TRANSCRIPT,
+      });
+      mocks.classifyContent.mockResolvedValue({
+        density: "high",
+        type: "lecture",
+        structure: "structured",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "summary" },
+          { type: "timing", summarizeSeconds: 3 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.classifyContent).toHaveBeenCalledTimes(1);
+      const classifyArg = mocks.classifyContent.mock.calls[0][0] as {
+        transcriptExcerpt: string;
+        title: string;
+        language: "en" | "zh";
+        signal: AbortSignal;
+      };
+      expect(classifyArg.title).toBe(CAPTIONS_FIXTURE.title);
+      expect(classifyArg.language).toBe(CAPTIONS_FIXTURE.language);
+      expect(classifyArg.transcriptExcerpt.length).toBe(4_000);
+      expect(classifyArg.signal).toBeDefined();
+
+      const streamArg = mocks.streamLlmSummary.mock.calls[0][0] as {
+        model: string;
+      };
+      expect(streamArg.model).toBe("claude-sonnet-4-6");
+
+      const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
+        string,
+        "en" | "zh",
+        number,
+      ];
+      expect(promptArgs[2]).toBe(2_000_000); // SONNET_CHAR_BUDGET
+
+      const writeCall = mocks.writeCachedSummary.mock
+        .calls[0][0] as CacheWriteParams;
+      expect(writeCall.model).toBe("claude-sonnet-4-6");
+    });
+
+    // Gate check: above LONG_TOKENS, the route must NOT call the classifier
+    // (expensive + meaningless — decision is already forced to Sonnet).
+    it("skips the classifier call for very-long transcripts and forces Sonnet", async () => {
+      const LONG_TRANSCRIPT = "word ".repeat(200_000); // ~260K tokens
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: LONG_TRANSCRIPT,
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "summary" },
+          { type: "timing", summarizeSeconds: 5 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.classifyContent).not.toHaveBeenCalled();
+      const streamArg = mocks.streamLlmSummary.mock.calls[0][0] as {
+        model: string;
+      };
+      expect(streamArg.model).toBe("claude-sonnet-4-6");
+    });
+
+    // Degradation path: middle-zone transcript but classifier returns null
+    // (network/schema failure). Route must still pick a sensible model via
+    // chooseModel's fallback.
+    it("falls back to classifier_failed_long → Sonnet when middle-zone classifier returns null", async () => {
+      const MIDDLE_ZONE_TRANSCRIPT = "word ".repeat(40_000);
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: MIDDLE_ZONE_TRANSCRIPT,
+      });
+      mocks.classifyContent.mockResolvedValue(null); // simulate classifier failure
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "summary" },
+          { type: "timing", summarizeSeconds: 3 },
+        ])
+      );
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const routingLog = logSpy.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("routing_decision")
+      );
+      expect(routingLog).toBeDefined();
+      expect(routingLog![1]).toMatchObject({
+        event: "routing_decision",
+        model: "claude-sonnet-4-6",
+        reason: "classifier_failed_long",
+        classifierRan: true,
+        dimensions: null,
+      });
+    });
+
+    // Mirror of the Sonnet charBudget assertion at the top of this group,
+    // for the Haiku path. Catches a swap like HAIKU_CHAR_BUDGET <-> SONNET_CHAR_BUDGET
+    // that would over-budget Haiku past its 200K context.
+    it("passes HAIKU_CHAR_BUDGET to buildSummarizationPrompt when routing to Haiku", async () => {
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE); // 2-word → very_short → Haiku
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
+        string,
+        "en" | "zh",
+        number,
+      ];
+      expect(promptArgs[2]).toBe(720_000); // HAIKU_CHAR_BUDGET
+    });
+
+    // Regression test for the ZH tokenizer bug: without CJK counting, a long
+    // Chinese transcript looks like wordCount=1 and routes to very_short
+    // (Haiku) — skipping the classifier entirely. This test ensures the ZH
+    // path produces a token count large enough to reach the middle-zone
+    // classifier branch end-to-end.
+    it("routes Chinese transcripts through CJK tokenization end-to-end (classifier runs)", async () => {
+      const ZH_MIDDLE_ZONE = "机".repeat(20_000); // 20K CJK chars × 1.5 = 30K tokens
+      // Captions path: route uses `captions.language`, not `detectLocale` —
+      // no need to stub the latter. language:"zh" on the fixture is the
+      // load-bearing line.
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: ZH_MIDDLE_ZONE,
+        language: "zh" as const,
+      });
+      mocks.classifyContent.mockResolvedValue({
+        density: "medium",
+        type: "other",
+        structure: "structured",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.classifyContent).toHaveBeenCalledTimes(1);
+      const classifyArg = mocks.classifyContent.mock.calls[0][0] as {
+        language: "en" | "zh";
+      };
+      expect(classifyArg.language).toBe("zh");
     });
 
     it("emits exactly one terminal summary event on happy path", async () => {

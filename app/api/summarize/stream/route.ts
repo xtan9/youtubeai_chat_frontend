@@ -16,11 +16,18 @@ import {
 } from "@/lib/services/summarize-cache";
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
+import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
 import {
-  DEFAULT_LLM_MODEL,
-  formatSseEvent,
-  streamLlmSummary,
-} from "@/lib/services/llm-client";
+  CLASSIFIER_EXCERPT_CHARS,
+  HAIKU_CHAR_BUDGET,
+  SONNET_CHAR_BUDGET,
+  HAIKU,
+  LONG_TOKENS,
+  SHORT_TOKENS,
+  chooseModel,
+  classifyContent,
+  getTranscriptMetadata,
+} from "@/lib/services/model-routing";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import {
   forwardLlmEvent,
@@ -304,7 +311,56 @@ export async function POST(request: Request) {
           sendEvent({ type: "full_transcript", text: transcript });
         }
 
-        const prompt = buildSummarizationPrompt(transcript, language);
+        // Resolve oembed metadata NOW (not after the LLM call) so the
+        // classifier sees a real title on the Whisper path. By this point
+        // VPS transcription already took minutes, so the oembed fetch has
+        // almost always resolved — the await is effectively free.
+        let metadataSkipCache = false;
+        if (metadataPromise) {
+          const result = await metadataPromise;
+          if (result.ok) {
+            title = result.data.title;
+            channelName = result.data.channelName;
+          } else if (isUpstreamMetadataFailure(result)) {
+            metadataSkipCache = true;
+            logStageError("metadata", metadataErrorForLog(result));
+          }
+        }
+
+        // Routing: compute metadata, run classifier in the middle zone,
+        // pick a model via chooseModel, log the decision.
+        const metadata = getTranscriptMetadata(transcript, language);
+        const classifierInRange =
+          metadata.tokens >= SHORT_TOKENS && metadata.tokens <= LONG_TOKENS;
+        const classifier = classifierInRange
+          ? await classifyContent({
+              transcriptExcerpt: transcript.slice(0, CLASSIFIER_EXCERPT_CHARS),
+              title,
+              language,
+              signal: request.signal,
+            })
+          : null;
+        if (isCallerAbort(request.signal)) return;
+        const decision = chooseModel(metadata, classifier);
+
+        console.log("[summarize/stream] routing_decision", {
+          event: "routing_decision",
+          youtubeUrl: youtube_url,
+          userId: authedUser.id,
+          model: decision.model,
+          reason: decision.reason,
+          tokens: metadata.tokens,
+          wordCount: metadata.wordCount,
+          classifierRan: classifierInRange,
+          dimensions: decision.dimensions,
+        });
+
+        // Model-aware truncation: Haiku's 200K context can't absorb the same
+        // transcript length Sonnet's 1M can. Budgets exported from
+        // model-routing.ts — replaces the old 15K-char cap for all models.
+        const charBudget =
+          decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
+        const prompt = buildSummarizationPrompt(transcript, language, charBudget);
         let fullSummary = "";
         let fullThinking = "";
         let summarizeSeconds: number | null = null;
@@ -315,6 +371,7 @@ export async function POST(request: Request) {
             prompt,
             enableThinking,
             signal: request.signal,
+            model: decision.model,
           })) {
             forwardLlmEvent(event, sendEvent);
             if (event.type === "content") fullSummary += event.text;
@@ -343,22 +400,11 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Capture processing time BEFORE awaiting metadata so the metric
-        // doesn't include the oembed round-trip — a slow oembed would
-        // otherwise inflate processing_time_seconds in the cache row.
+        // Oembed was already awaited before the classifier, so this
+        // duration no longer includes an oembed round-trip tail. Includes
+        // transcription + LLM always; classifier time is included only
+        // when the classifier actually ran (middle-zone tokens).
         const processingTimeSeconds = (Date.now() - overallStart) / 1000;
-
-        let metadataSkipCache = false;
-        if (metadataPromise) {
-          const result = await metadataPromise;
-          if (result.ok) {
-            title = result.data.title;
-            channelName = result.data.channelName;
-          } else if (isUpstreamMetadataFailure(result)) {
-            metadataSkipCache = true;
-            logStageError("metadata", metadataErrorForLog(result));
-          }
-        }
 
         // Always emit a terminal summary so the client accumulator closes
         // cleanly, even when we skip the cache write below.
@@ -406,7 +452,7 @@ export async function POST(request: Request) {
           transcript,
           summary: fullSummary,
           transcriptSource,
-          model: process.env.LLM_MODEL?.trim() || DEFAULT_LLM_MODEL,
+          model: decision.model,
           processingTimeSeconds,
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,

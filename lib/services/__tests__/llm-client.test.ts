@@ -446,4 +446,239 @@ describe("streamLlmSummary", () => {
       collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
     ).rejects.toThrow(/dropped after partial content/);
   });
+
+  it("uses the explicit `model` param when provided, bypassing env var", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "env-model");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await collect(
+      streamLlmSummary({
+        prompt: "x",
+        enableThinking: false,
+        model: "explicit-model",
+      })
+    );
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.model).toBe("explicit-model");
+  });
+
+  it("treats empty/whitespace-only explicit model as unset (falls back to env then default)", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+    vi.stubEnv("LLM_MODEL", "env-model");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        "data: [DONE]\n",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await collect(
+      streamLlmSummary({
+        prompt: "x",
+        enableThinking: false,
+        // Regression: `??` alone would let "" slip through and hit the gateway.
+        model: "   ",
+      })
+    );
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.model).toBe("env-model");
+  });
+});
+
+import { callLlmJson } from "../llm-client";
+
+describe("callLlmJson", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function stubEnv() {
+    vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
+  }
+
+  it("sends a non-streaming POST and returns message content", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "  {\"x\":1}  " } }] }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const content = await callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+    });
+
+    expect(content).toBe('  {"x":1}  ');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://gw.example.com/v1/chat/completions");
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toBe("claude-haiku-4-5");
+    expect(body.stream).not.toBe(true);
+    expect(body.temperature).toBe(0);
+  });
+
+  it("throws on non-OK HTTP status", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("nope", { status: 500 }))
+    );
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/500/);
+  });
+
+  it("throws when env vars are missing", async () => {
+    vi.stubEnv("LLM_GATEWAY_URL", "");
+    vi.stubEnv("LLM_GATEWAY_API_KEY", "");
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/LLM_GATEWAY_URL/);
+  });
+
+  it("throws when the response is missing choices[0].message.content", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ choices: [] }), { status: 200 })
+      )
+    );
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/content/i);
+  });
+
+  it("aborts the fetch after timeoutMs elapses", async () => {
+    stubEnv();
+    // Resolve fetch only when its signal aborts, so we can observe the
+    // timeout firing end-to-end (timeout → AbortSignal.any → fetch signal).
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+      timeoutMs: 50,
+    });
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("composes caller signal with timeout signal so caller-abort propagates", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ac = new AbortController();
+    const promise = callLlmJson({
+      model: "claude-haiku-4-5",
+      prompt: "hi",
+      timeoutMs: 10_000,
+      signal: ac.signal,
+    });
+    // Abort the caller long before timeout — fetch should still abort.
+    setTimeout(() => ac.abort(), 10);
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(ac.signal.aborted).toBe(true);
+  });
+
+  it.each<[string, number]>([
+    ["zero", 0],
+    ["negative", -5],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ])(
+    "logs LLM_GATEWAY_TIMEOUT_INVALID and falls back to default for %s timeoutMs",
+    async (_label, badValue) => {
+      stubEnv();
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+          { status: 200 }
+        )
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await callLlmJson({
+        model: "claude-haiku-4-5",
+        prompt: "hi",
+        timeoutMs: badValue,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("invalid timeoutMs"),
+        expect.objectContaining({
+          errorId: "LLM_GATEWAY_TIMEOUT_INVALID",
+          requestedTimeoutMs: badValue,
+        })
+      );
+    }
+  );
+
+  it("logs LLM_GATEWAY_BODY_READ_FAILED when response.text() rejects on non-OK", async () => {
+    stubEnv();
+    // Construct a Response whose body is a ReadableStream that errors out
+    // mid-read, so `.text()` rejects instead of resolving.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("stream exploded"));
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(body, { status: 502 }))
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      callLlmJson({ model: "claude-haiku-4-5", prompt: "hi" })
+    ).rejects.toThrow(/502/);
+
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("failed to read error response body"),
+      expect.objectContaining({
+        errorId: "LLM_GATEWAY_BODY_READ_FAILED",
+        status: 502,
+      })
+    );
+  });
 });

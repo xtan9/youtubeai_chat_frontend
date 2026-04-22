@@ -83,7 +83,18 @@ export async function extractCaptions(
   if (response.status === 404) return null;
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
+    // Mirror of llm-client's body-read safety: preserve the status as the
+    // primary error signal but surface body-read failures via a stable
+    // errorId so "empty body" and "body read crashed" are distinguishable
+    // in postmortem rather than collapsed into the same silent "".
+    const text = await response.text().catch((err) => {
+      console.error("[captions] failed to read error response body", {
+        errorId: "CAPTIONS_GATEWAY_BODY_READ_FAILED",
+        status: response.status,
+        err,
+      });
+      return "";
+    });
     return reportUnexpectedFailure(videoId, signal, {
       status: response.status,
       body: text.slice(0, 200),
