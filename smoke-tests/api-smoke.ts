@@ -29,42 +29,63 @@ function log(message: string, data?: unknown): void {
   }
 }
 
-async function fetchHealth(prodUrl: string): Promise<{
-  status: number;
-  body: HealthBody | { error: string };
-}> {
+type FetchResult =
+  | { ok: true; status: number; body: unknown }
+  | { ok: false; status: number; rawText: string; parseError: string };
+
+async function fetchHealth(prodUrl: string): Promise<FetchResult> {
   const url = `${prodUrl.replace(/\/$/, "")}/api/health`;
   const response = await fetch(url, {
     method: "GET",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     cache: "no-store",
   });
-  let body: unknown;
+  const rawText = await response.text();
   try {
-    body = await response.json();
-  } catch {
-    body = { error: "non_json_response" };
+    return { ok: true, status: response.status, body: JSON.parse(rawText) };
+  } catch (err) {
+    const parseError = err instanceof Error ? err.message : String(err);
+    return { ok: false, status: response.status, rawText, parseError };
   }
-  return { status: response.status, body: body as HealthBody };
+}
+
+function isHealthBody(v: unknown): v is HealthBody {
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  if (obj.status !== "ok" && obj.status !== "degraded") return false;
+  if (typeof obj.checks !== "object" || obj.checks === null) return false;
+  return true;
 }
 
 async function main(): Promise<void> {
   const prodUrl = process.env.PROD_URL?.trim() || DEFAULT_PROD_URL;
   log(`[api-smoke] target: ${prodUrl}`);
 
-  const { status, body } = await fetchHealth(prodUrl);
-  log(`[api-smoke] /api/health status=${status}`, body);
+  const result = await fetchHealth(prodUrl);
 
-  if (status !== 200) {
+  if (!result.ok) {
+    log(
+      `[api-smoke] FAIL: /api/health returned non-JSON (status=${result.status}): ${result.parseError}`
+    );
+    log(`[api-smoke] raw body: ${result.rawText.slice(0, 500)}`);
+    process.exit(1);
+  }
+
+  log(`[api-smoke] /api/health status=${result.status}`, result.body);
+
+  if (result.status !== 200) {
     log("[api-smoke] FAIL: health endpoint returned non-200");
     process.exit(1);
   }
-  const healthy = body as HealthBody;
-  if (healthy.status !== "ok") {
+  if (!isHealthBody(result.body)) {
+    log("[api-smoke] FAIL: health body shape invalid", result.body);
+    process.exit(1);
+  }
+  if (result.body.status !== "ok") {
     log("[api-smoke] FAIL: health status != ok");
     process.exit(1);
   }
-  for (const [name, check] of Object.entries(healthy.checks)) {
+  for (const [name, check] of Object.entries(result.body.checks)) {
     if (!check.ok) {
       log(`[api-smoke] FAIL: downstream ${name} is unhealthy`, check);
       process.exit(1);

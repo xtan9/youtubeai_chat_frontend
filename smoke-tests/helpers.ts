@@ -2,16 +2,21 @@
 // e2e spec. Keep free of runtime-specific imports so both environments can
 // load this module without bundling surprises.
 
-// Range covers Arabic + Arabic Supplement. If the fix regresses and a
-// French video yields Arabic transcripts again, even one character here
-// fails the test loudly.
-const ARABIC_RANGE = /[\u0600-\u06FF]/;
+// Arabic block + Arabic Supplement + Arabic Extended-A + Presentation
+// Forms A/B. YouTube captions have been observed to use presentation
+// forms (shaped glyphs) on older content, so catching just the basic
+// block risks missing a regression that happens to use a different
+// codepoint range.
+const ARABIC_RANGE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 
-// Common French function words. Chosen to be short and unambiguous — these
-// are too frequent to be absent from a real French transcript, and they
-// all share the Latin script so a false positive on accidental Arabic is
-// structurally impossible.
-const FRENCH_ANCHORS = /\b(le|la|les|je|est|pour|vous|nous|que|des)\b/i;
+// French function words without English homographs. Earlier versions
+// included le/la/pour — all of which are real English words ("pour
+// water", "La La Land") — so the same helper applied to UI body text
+// false-positived. Current set is intentionally narrow: every token
+// here is either a French grammatical word with no English meaning or
+// contains a diacritic that pins it to French.
+const FRENCH_ANCHORS =
+  /\b(les|je|est|vous|nous|que|des|avec|sont|très|était|étaient|êtes|c'est|n'est)\b/i;
 
 export function hasArabicChars(text: string): boolean {
   return ARABIC_RANGE.test(text);

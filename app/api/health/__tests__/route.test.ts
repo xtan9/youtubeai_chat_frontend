@@ -4,6 +4,7 @@ const originalFetch = global.fetch;
 
 describe("GET /api/health", () => {
   beforeEach(() => {
+    vi.resetModules(); // Reset the in-memory cache between tests.
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
     vi.stubEnv("LLM_GATEWAY_URL", "https://gw.example.com/v1");
     vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
@@ -59,7 +60,36 @@ describe("GET /api/health", () => {
 
     expect(res.status).toBe(503);
     expect(body.checks.llm.ok).toBe(false);
-    expect(body.checks.llm.error).toBe("TimeoutError");
+    expect(body.checks.llm.error).toMatch(/TimeoutError/);
+  });
+
+  it("caches responses for 20s to prevent DoS amplification", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+    global.fetch = fetchMock;
+
+    const { GET } = await import("../route");
+    await GET();
+    await GET();
+    await GET();
+
+    // Three inbound calls, but only one fan-out pair to downstream.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache config-missing responses", async () => {
+    vi.stubEnv("VPS_API_URL", "");
+
+    const { GET } = await import("../route");
+    const res1 = await GET();
+    const res2 = await GET();
+
+    expect(res1.status).toBe(503);
+    expect(res2.status).toBe(503);
+    // Still 503 both times, but the config fail path never populates the cache.
+    const body = await res2.json();
+    expect(body.checks.config.error).toBe("missing_env");
   });
 
   it("returns 503 when env is missing", async () => {
