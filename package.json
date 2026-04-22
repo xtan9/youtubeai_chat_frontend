@@ -6,7 +6,10 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke:api": "tsx smoke-tests/api-smoke.ts",
+    "smoke:e2e": "playwright test",
+    "smoke": "pnpm smoke:api && pnpm smoke:e2e"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.0",
@@ -66,6 +69,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4.1.10",
     "@tanstack/eslint-plugin-query": "^5.78.0",
     "@tanstack/react-query-devtools": "^5.80.7",
@@ -79,6 +83,7 @@
     "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "^4.1.10",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.4"
   }

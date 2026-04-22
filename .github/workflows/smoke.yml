@@ -1,0 +1,62 @@
+name: smoke
+
+# Three triggers:
+#  - schedule: catches external drift (YouTube HTML changes, LLM gateway
+#    outages) that a post-deploy hook would miss on days we don't push
+#  - push: main: fast feedback on regressions we ship
+#  - workflow_dispatch: manual runs for debugging
+on:
+  schedule:
+    - cron: "0 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm smoke:api
+        env:
+          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    needs: api-smoke
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm smoke:e2e
+        env:
+          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
