@@ -18,6 +18,7 @@ export function parseStreamingData(rawData: string): {
   result: SummaryResult;
   progress: StreamingProgress | null;
   isCached: boolean;
+  streamError: string | null;
 } {
   let accumulatedSummary = "";
   let title = "Streaming Summary";
@@ -27,6 +28,10 @@ export function parseStreamingData(rawData: string): {
   let currentProgress: StreamingProgress | null = null;
   let transcript = "";
   let isCached = false;
+  // Server-emitted `{type: "error", message}` events surface here. Without
+  // this hook the client silently drops error events and the progress bar
+  // stalls at whatever stage was in flight — no feedback to the user.
+  let streamError: string | null = null;
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
@@ -152,6 +157,25 @@ export function parseStreamingData(rawData: string): {
               progress: 100,
             };
             break;
+
+          case "error": {
+            // Terminal state: capture the message for the banner and
+            // advance progress to complete so the indicator stops
+            // spinning. Without this the UI hangs at whatever stage
+            // fired last (classically the 70% "Generating summary..."
+            // state when the LLM call throws).
+            const errorMessage: string =
+              typeof data.message === "string" && data.message
+                ? data.message
+                : "Something went wrong. Please try again.";
+            streamError = errorMessage;
+            currentProgress = {
+              stage: "complete",
+              message: errorMessage,
+              progress: 100,
+            };
+            break;
+          }
         }
       } catch (e) {
         // Skip invalid JSON lines
@@ -181,6 +205,7 @@ export function parseStreamingData(rawData: string): {
     },
     progress: currentProgress,
     isCached,
+    streamError,
   };
 }
 

@@ -7,6 +7,7 @@ import { useClipboard } from "@/lib/hooks/useClipboard";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
+import { StreamErrorBanner } from "./stream-error-banner";
 import type { SummaryResult } from "@/lib/types";
 import { parseStreamingData, type StreamingProgress } from "../utils";
 import YoutubeVideo from "./youtube-video";
@@ -42,7 +43,7 @@ export function YouTubeSummarizerApp({
   } = summarizationQuery;
 
   // Handle streaming data (array)
-  const { data, streamingProgress, isCached } = useMemo(() => {
+  const { data, streamingProgress, isCached, streamError } = useMemo(() => {
     if ((isLoading || isFetching) && !rawData) {
       setIsProcessing(true);
       setStreamingComplete(false);
@@ -54,6 +55,7 @@ export function YouTubeSummarizerApp({
           progress: 5,
         } as StreamingProgress,
         isCached: false,
+        streamError: null as string | null,
       };
     }
 
@@ -65,10 +67,12 @@ export function YouTubeSummarizerApp({
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
 
-        // Check if streaming is complete
+        // Check if streaming is complete OR errored — either way the
+        // stream has finished and the progress indicator should stop.
         if (
-          parsed.progress?.stage === "complete" &&
-          parsed.progress.progress === 100
+          parsed.streamError ||
+          (parsed.progress?.stage === "complete" &&
+            parsed.progress.progress === 100)
         ) {
           setStreamingComplete(true);
         }
@@ -77,12 +81,14 @@ export function YouTubeSummarizerApp({
           data: parsed.result,
           streamingProgress: parsed.progress,
           isCached: parsed.isCached,
+          streamError: parsed.streamError,
         };
       }
       return {
         data: latestRawData,
         streamingProgress: null,
         isCached: false,
+        streamError: null as string | null,
       };
     }
 
@@ -90,6 +96,7 @@ export function YouTubeSummarizerApp({
       data: rawData as SummaryResult | undefined,
       streamingProgress: null,
       isCached: false,
+      streamError: null as string | null,
     };
   }, [rawData, isLoading, isFetching]);
 
@@ -147,7 +154,10 @@ export function YouTubeSummarizerApp({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <AuthErrorBanner authError={queryError?.message} />
-          {(streamingProgress || isProcessing) && (
+          {streamError && <StreamErrorBanner message={streamError} />}
+          {/* Suppress the progress indicator once the stream has errored —
+              the error banner is the terminal UI, not a stalled 70% bar. */}
+          {!streamError && (streamingProgress || isProcessing) && (
             <StreamingProgressIndicator
               progress={
                 streamingProgress || {
@@ -158,7 +168,7 @@ export function YouTubeSummarizerApp({
               }
             />
           )}
-          {data && (
+          {data && !streamError && (
             <ResultsDisplay
               data={data}
               url={url}
