@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+// Sentinel codes that mean "no linguistic content" or "ambiguous" —
+// forwarding them downstream as a `lang` param produces cryptic CLI
+// errors at whisper and a no-tracks miss at the caption library.
+// Rejecting at the schema boundary means they bubble up as
+// `reason: "schema"` → orchestrator falls back to legacy flow.
+const LANGUAGE_SENTINELS: ReadonlySet<string> = new Set([
+  "und",
+  "zxx",
+  "mul",
+  "mis",
+]);
+
 // BCP-47 primary subtag + optional region/script (`en`, `fra`, `en-US`,
 // `zh-Hans`, `zh-Hant-TW`). Pinned at the schema boundary so a VPS
 // regression that emits garbage ("", "und", "--model") fails parsing
@@ -10,15 +22,21 @@ const LanguageCodeSchema = z
   .regex(
     /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/,
     "language must be a BCP-47 tag"
+  )
+  .refine(
+    (v) => !LANGUAGE_SENTINELS.has(v.toLowerCase().split("-")[0]),
+    "language must not be an und/zxx/mul/mis sentinel"
   );
 
 // VPS /metadata response contract. Mirrors the shape defined in the VPS
-// service's routes/metadata.ts — keep in sync.
+// service's routes/metadata.ts — keep in sync. `availableCaptions` uses
+// the same per-code schema so garbage entries in the list can't flow
+// through and later be used as a `lang` hint on a caption retry.
 const VpsMetadataResponseSchema = z.object({
   language: LanguageCodeSchema,
   title: z.string(),
   description: z.string(),
-  availableCaptions: z.array(z.string()),
+  availableCaptions: z.array(LanguageCodeSchema),
 });
 
 export type VpsMetadata = z.infer<typeof VpsMetadataResponseSchema>;
@@ -43,7 +61,15 @@ export type VpsMetadataResult =
   | { readonly ok: false; readonly reason: "aborted" }
   | { readonly ok: false; readonly reason: "timeout" }
   | { readonly ok: false; readonly reason: "non_ok"; readonly status: number }
-  | { readonly ok: false; readonly reason: "schema" }
+  | {
+      readonly ok: false;
+      readonly reason: "schema";
+      // Preserve zod's per-field diagnostics so the orchestrator's log
+      // carries actionable info. A bare `{reason:"schema"}` with no
+      // `issues` is what the hardening schema was designed to catch —
+      // dropping the detail defeats the purpose.
+      readonly issues: readonly z.ZodIssue[];
+    }
   | { readonly ok: false; readonly reason: "config" }
   | { readonly ok: false; readonly reason: "error"; readonly error: unknown };
 
@@ -113,7 +139,7 @@ export async function fetchVpsMetadata(
 
   const parsed = VpsMetadataResponseSchema.safeParse(raw);
   if (!parsed.success) {
-    return { ok: false, reason: "schema" };
+    return { ok: false, reason: "schema", issues: parsed.error.issues };
   }
 
   return { ok: true, data: parsed.data };

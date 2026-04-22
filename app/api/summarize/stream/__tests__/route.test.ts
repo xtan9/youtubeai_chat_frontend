@@ -1264,7 +1264,10 @@ describe("POST /api/summarize/stream", () => {
       );
     });
 
-    it("logs metadata failures (non-aborted) at the metadata stage", async () => {
+    it("logs metadata failures (non-aborted, non-404) at the metadata stage with a synthesized Error", async () => {
+      // Sentry groups on Error type+message. Passing the raw Result
+      // object as `err` would produce per-request noise fingerprints;
+      // the synthesized Error keeps incident counts honest.
       mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "non_ok", status: 500 });
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
@@ -1278,10 +1281,12 @@ describe("POST /api/summarize/stream", () => {
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
 
-      expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining("metadata failed"),
-        expect.objectContaining({ stage: "metadata" })
+      const call = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("metadata failed")
       );
+      expect(call).toBeDefined();
+      expect(call?.[1]).toMatchObject({ stage: "metadata" });
+      expect((call?.[1] as { err: unknown }).err).toBeInstanceOf(Error);
     });
 
     it("does NOT log when metadata was caller-aborted (user closed tab)", async () => {
@@ -1304,6 +1309,149 @@ describe("POST /api/summarize/stream", () => {
         String(c[0]).includes("metadata failed")
       );
       expect(metadataLog).toBeUndefined();
+    });
+
+    it("normalizes zh-Hans through primarySubtag so the zh short-circuit fires end-to-end", async () => {
+      // Integration guard: `route.ts` must apply `primarySubtag` to
+      // `vpsMeta.data.language` before the `=== "zh"` check. Previously
+      // only the bare "zh" case was tested; a regression that removed
+      // `primarySubtag` from the assignment would have silently fallen
+      // through to `detectLocale` on the CJK transcript.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("zh-Hans", []));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "你好",
+        language: "zh",
+        source: "whisper",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "T", channelName: "C" },
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      // zh short-circuit fired → detectLocale skipped → whisper called
+      // with lang="zh-Hans" (VPS normalizes server-side too; the frontend
+      // passes the raw detected code through).
+      expect(mocks.detectLocale).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ language: "zh" })
+      );
+    });
+
+    it("falls through to whisper when BOTH detected-lang and en caption calls fail", async () => {
+      // Covers the retry-exhausted branch: first call returns null, retry
+      // with lang=en also returns null, must land on /transcribe with
+      // lang=detectedLang. A regression that mis-classified a null-after-
+      // retry as "have captions" would cache a blank transcript.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["fr", "en"]));
+      mocks.extractCaptions
+        .mockResolvedValueOnce(null) // first: fr → 404
+        .mockResolvedValueOnce(null); // retry: en → 404
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "bonjour",
+        language: "fr",
+        source: "whisper",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "T", channelName: "C" },
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledTimes(2);
+      expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        "fr"
+      );
+    });
+
+    it("does NOT attempt the English retry when metadata failed (detectedLang is null)", async () => {
+      // Combinatorics gap: with detectedLang=null AND captions=null,
+      // the retry predicate's `detectedLang && ...` must short-circuit.
+      // A regression changing the guard to `detectedLang !== undefined`
+      // would call extractCaptions a second time with lang="en" on
+      // every metadata-failed request.
+      mocks.fetchVpsMetadata.mockResolvedValue({
+        ok: false,
+        reason: "timeout",
+      });
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "w",
+        language: "en",
+        source: "whisper",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "T", channelName: "C" },
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.extractCaptions).toHaveBeenCalledTimes(1);
+      expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        undefined
+      );
+    });
+
+    it("suppresses metadata alert-level log when the VPS returns 404 (pre-deploy window)", async () => {
+      // Frontend ships before the VPS has /metadata. A 404 here is
+      // expected during the cut-over — logging it as an error would
+      // page someone on every request. Verify it's downgraded to warn
+      // with a distinct errorId.
+      mocks.fetchVpsMetadata.mockResolvedValue({
+        ok: false,
+        reason: "non_ok",
+        status: 404,
+      });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("metadata failed"))
+      ).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("metadata endpoint unavailable"),
+        expect.objectContaining({ errorId: "VPS_METADATA_404" })
+      );
     });
 
     it("preserves PromptLocale=zh when detectedLang is zh on the whisper path", async () => {

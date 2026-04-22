@@ -7,7 +7,11 @@ import {
   fetchVideoMetadata,
   type VideoMetadataResult,
 } from "@/lib/services/video-metadata";
-import { fetchVpsMetadata, primarySubtag } from "@/lib/services/vps-metadata";
+import {
+  fetchVpsMetadata,
+  primarySubtag,
+  type VpsMetadataResult,
+} from "@/lib/services/vps-metadata";
 import {
   getCachedSummary,
   writeCachedSummary,
@@ -114,6 +118,41 @@ function metadataErrorForLog(
       return new Error("oembed timeout");
     case "schema":
       return new Error("oembed schema");
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
+  }
+}
+
+// Same rationale as metadataErrorForLog but for the VPS /metadata client.
+// Unwraps `reason: "error"` to its inner cause so Sentry groups on the
+// actual thrown error rather than the Result wrapper; synthesizes a
+// stable Error for the no-inner-error reasons. Exhaustive via `never`.
+function vpsMetadataErrorForLog(
+  result: Extract<VpsMetadataResult, { ok: false }> & {
+    reason: Exclude<
+      Extract<VpsMetadataResult, { ok: false }>["reason"],
+      "aborted"
+    >;
+  }
+): unknown {
+  switch (result.reason) {
+    case "error":
+      return result.error;
+    case "non_ok":
+      return new Error(`vps metadata non_ok (status ${result.status})`);
+    case "timeout":
+      return new Error("vps metadata timeout");
+    case "schema":
+      // Embed the first zod issue path for grouping — a pure
+      // "vps metadata schema" would collide across unrelated field
+      // regressions.
+      return new Error(
+        `vps metadata schema (${result.issues[0]?.path.join(".") ?? "?"})`
+      );
+    case "config":
+      return new Error("vps metadata config missing");
     default: {
       const _exhaustive: never = result;
       return _exhaustive;
@@ -273,7 +312,19 @@ export async function POST(request: Request) {
           detectedLang = primarySubtag(vpsMeta.data.language);
           availableCaptions = vpsMeta.data.availableCaptions.map(primarySubtag);
         } else if (vpsMeta.reason !== "aborted") {
-          logStageError("metadata", vpsMeta);
+          // Suppress alert-level logging when the VPS lacks the new
+          // /metadata endpoint — during the deploy window (frontend ships
+          // before the backend), every request would fire a false alarm.
+          // Other non_ok statuses (500, etc.) still log at error level.
+          if (vpsMeta.reason === "non_ok" && vpsMeta.status === 404) {
+            console.warn("[summarize/stream] metadata endpoint unavailable", {
+              errorId: "VPS_METADATA_404",
+              status: 404,
+              youtubeUrl: youtube_url,
+            });
+          } else {
+            logStageError("metadata", vpsMetadataErrorForLog(vpsMeta));
+          }
         }
 
         let captions;

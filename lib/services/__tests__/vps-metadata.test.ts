@@ -99,10 +99,12 @@ describe("fetchVpsMetadata", () => {
     expect(result).toEqual({ ok: false, reason: "non_ok", status: 500 });
   });
 
-  it("returns { ok: false, reason: 'schema' } when response shape is wrong", async () => {
+  it("returns { ok: false, reason: 'schema', issues } when response shape is wrong", async () => {
     // A silent pass on schema mismatch would let a VPS deploy regression
     // serve malformed metadata into the orchestrator, which would then
-    // either crash or miscategorize the language.
+    // either crash or miscategorize the language. Preserving zod's
+    // `issues` means the downstream log carries the specific field path
+    // that failed — critical for postmortem when this actually fires.
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
     vi.stubEnv("VPS_API_KEY", "secret");
     vi.stubGlobal(
@@ -110,7 +112,12 @@ describe("fetchVpsMetadata", () => {
       vi.fn().mockResolvedValue(okResponse({ language: "fr" }))
     );
     const result = await fetchVpsMetadata("https://youtu.be/abc");
-    expect(result).toEqual({ ok: false, reason: "schema" });
+    expect(result.ok).toBe(false);
+    if (result.ok === false && result.reason === "schema") {
+      expect(result.issues.length).toBeGreaterThan(0);
+    } else {
+      throw new Error(`expected schema result, got ${JSON.stringify(result)}`);
+    }
   });
 
   it.each([
@@ -118,6 +125,9 @@ describe("fetchVpsMetadata", () => {
     ["--model", "CLI-flag shape"],
     [" en", "leading whitespace"],
     ["en_US", "underscore separator"],
+    ["und", "yt-dlp undetermined sentinel"],
+    ["zxx", "yt-dlp no-linguistic-content sentinel"],
+    ["mul", "yt-dlp multiple-languages sentinel"],
   ])("rejects language=%s (%s) via schema (reason='schema')", async (language) => {
     // Defense-in-depth: if the VPS regresses and starts emitting "und"
     // or empty strings, the orchestrator falls back to the legacy
@@ -135,10 +145,33 @@ describe("fetchVpsMetadata", () => {
       )
     );
     const result = await fetchVpsMetadata("https://youtu.be/abc");
-    expect(result).toEqual({ ok: false, reason: "schema" });
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toBe("schema");
+    }
   });
 
-  it.each([["en"], ["fr"], ["eng"], ["en-US"], ["zh-Hans"]])(
+  it("rejects availableCaptions entries that fail the language schema", async () => {
+    // A VPS regression emitting `["--model"]` in availableCaptions would
+    // otherwise flow through unvalidated — and a follow-up feature that
+    // uses an availableCaptions entry as a `lang` hint on retry would
+    // then leak garbage. Pin the invariant now.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        okResponse({
+          ...validResponse,
+          availableCaptions: ["en", "--model"],
+        })
+      )
+    );
+    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    expect(result.ok).toBe(false);
+  });
+
+  it.each([["en"], ["fr"], ["eng"], ["en-US"], ["zh-Hans"], ["zh-Hant-TW"]])(
     "accepts well-formed language tag %s",
     async (language) => {
       vi.stubEnv("VPS_API_URL", "https://vps.example.com");
