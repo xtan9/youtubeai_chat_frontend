@@ -235,13 +235,25 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
 
-  // Floor at 1ms — `AbortSignal.timeout(0)` or negative would fire
-  // synchronously before the fetch even starts. Callers sending bad input
-  // get a slightly-bumped timeout rather than an unfireable request.
-  const effectiveTimeoutMs = Math.max(
-    1,
-    options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS
-  );
+  // Guard against bad inputs: NaN (e.g. parseInt of a missing env var),
+  // Infinity, zero, negative — all of these would make AbortSignal.timeout
+  // fire synchronously (or throw TypeError on NaN) before the fetch even
+  // starts, surfacing as a bogus AbortError that masks the root cause
+  // (likely a config typo). Fall back to the 30s default with a loud log
+  // including the bad value so the caller notices.
+  const requestedTimeoutMs = options.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+  const isValidTimeout =
+    Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs >= 1;
+  if (!isValidTimeout) {
+    console.error("[llm-client] invalid timeoutMs — using default", {
+      errorId: "LLM_GATEWAY_TIMEOUT_INVALID",
+      requestedTimeoutMs,
+      appliedTimeoutMs: DEFAULT_CALL_TIMEOUT_MS,
+    });
+  }
+  const effectiveTimeoutMs = isValidTimeout
+    ? requestedTimeoutMs
+    : DEFAULT_CALL_TIMEOUT_MS;
   const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeoutSignal])
