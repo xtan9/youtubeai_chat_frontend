@@ -420,9 +420,14 @@ export async function POST(request: Request) {
         }
         const transcribeSeconds = (Date.now() - transcribeStart) / 1000;
 
+        // Surface the BCP-47 detectedLang (e.g. "fr", "zh-Hans") when we have
+        // it — the PromptLocale is binary (en|zh) and tells the user "en" for
+        // every non-CJK video, which reads as "we think your French video is
+        // English." Fall back to PromptLocale only when /metadata didn't
+        // return a signal (e.g. VPS outage, pre-endpoint deploy).
         sendEvent({
           type: "status",
-          message: `Detected language: ${language}`,
+          message: `Detected language: ${detectedLang ?? language}`,
           stage: "summarize",
         });
 

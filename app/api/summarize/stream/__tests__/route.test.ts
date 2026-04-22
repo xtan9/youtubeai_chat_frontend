@@ -1311,6 +1311,63 @@ describe("POST /api/summarize/stream", () => {
       expect(metadataLog).toBeUndefined();
     });
 
+    it("surfaces the BCP-47 detectedLang (not PromptLocale) in the status event", async () => {
+      // PromptLocale is binary en|zh and collapses every non-CJK language
+      // to "en". Users reading "Detected language: en" for a French video
+      // would reasonably conclude the detection is broken — actually it's
+      // a UI labeling issue. The status message should echo the detected
+      // BCP-47 code whenever /metadata provided one.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["fr", "en"]));
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        language: "en",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      const detectedStatus = events.find(
+        (e) =>
+          e.type === "status" &&
+          typeof e.message === "string" &&
+          e.message.includes("Detected language")
+      );
+      expect(detectedStatus?.message).toBe("Detected language: fr");
+    });
+
+    it("falls back to PromptLocale in the status event when metadata didn't provide a signal", async () => {
+      // Pre-deploy window / VPS outage: no BCP-47 detectedLang available.
+      // Keep the legacy string rather than emitting an empty/undefined one.
+      mocks.fetchVpsMetadata.mockResolvedValue({
+        ok: false,
+        reason: "config",
+      });
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      const detectedStatus = events.find(
+        (e) =>
+          e.type === "status" &&
+          typeof e.message === "string" &&
+          e.message.includes("Detected language")
+      );
+      expect(detectedStatus?.message).toBe("Detected language: en");
+    });
+
     it("normalizes zh-Hans through primarySubtag so the zh short-circuit fires end-to-end", async () => {
       // Integration guard: `route.ts` must apply `primarySubtag` to
       // `vpsMeta.data.language` before the `=== "zh"` check. Previously
