@@ -1,5 +1,9 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { buildMetadataUrl, fetchVpsMetadata } from "../vps-metadata";
+import {
+  buildMetadataUrl,
+  fetchVpsMetadata,
+  primarySubtag,
+} from "../vps-metadata";
 
 const validResponse = {
   language: "fr",
@@ -23,6 +27,19 @@ describe("buildMetadataUrl", () => {
     expect(buildMetadataUrl("https://vps.example.com/")).toBe(
       "https://vps.example.com/metadata"
     );
+  });
+});
+
+describe("primarySubtag", () => {
+  it.each([
+    ["en", "en"],
+    ["EN", "en"],
+    ["en-US", "en"],
+    ["zh-Hans", "zh"],
+    ["zh-Hant-TW", "zh"],
+    ["fra", "fra"], // 3-letter ISO 639-3 passes through untouched
+  ])("normalizes %s → %s", (input, expected) => {
+    expect(primarySubtag(input)).toBe(expected);
   });
 });
 
@@ -95,6 +112,45 @@ describe("fetchVpsMetadata", () => {
     const result = await fetchVpsMetadata("https://youtu.be/abc");
     expect(result).toEqual({ ok: false, reason: "schema" });
   });
+
+  it.each([
+    ["", "empty"],
+    ["--model", "CLI-flag shape"],
+    [" en", "leading whitespace"],
+    ["en_US", "underscore separator"],
+  ])("rejects language=%s (%s) via schema (reason='schema')", async (language) => {
+    // Defense-in-depth: if the VPS regresses and starts emitting "und"
+    // or empty strings, the orchestrator falls back to the legacy
+    // no-lang flow via reason='schema' rather than forwarding garbage
+    // as a `lang` param to downstream /captions and /transcribe calls.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        okResponse({
+          ...validResponse,
+          language,
+        })
+      )
+    );
+    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    expect(result).toEqual({ ok: false, reason: "schema" });
+  });
+
+  it.each([["en"], ["fr"], ["eng"], ["en-US"], ["zh-Hans"]])(
+    "accepts well-formed language tag %s",
+    async (language) => {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(okResponse({ ...validResponse, language }))
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(true);
+    }
+  );
 
   it("distinguishes caller-initiated aborts from timeout", async () => {
     // The distinction matters because the route's top-level catch-all

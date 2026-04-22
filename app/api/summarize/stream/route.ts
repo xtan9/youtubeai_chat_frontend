@@ -7,7 +7,7 @@ import {
   fetchVideoMetadata,
   type VideoMetadataResult,
 } from "@/lib/services/video-metadata";
-import { fetchVpsMetadata } from "@/lib/services/vps-metadata";
+import { fetchVpsMetadata, primarySubtag } from "@/lib/services/vps-metadata";
 import {
   getCachedSummary,
   writeCachedSummary,
@@ -265,8 +265,13 @@ export async function POST(request: Request) {
         let detectedLang: string | null = null;
         let availableCaptions: readonly string[] = [];
         if (vpsMeta.ok) {
-          detectedLang = vpsMeta.data.language;
-          availableCaptions = vpsMeta.data.availableCaptions;
+          // Normalize to primary subtag so the "zh" short-circuit below
+          // still fires when the VPS returns `zh-Hans` or similar. Also
+          // the `availableCaptions` list from yt-dlp can contain mixed
+          // tagged/untagged entries; normalizing both sides keeps the
+          // .includes("en") check honest.
+          detectedLang = primarySubtag(vpsMeta.data.language);
+          availableCaptions = vpsMeta.data.availableCaptions.map(primarySubtag);
         } else if (vpsMeta.reason !== "aborted") {
           logStageError("metadata", vpsMeta);
         }

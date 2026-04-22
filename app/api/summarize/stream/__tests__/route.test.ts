@@ -36,6 +36,11 @@ vi.mock("@/lib/services/video-metadata", () => ({
 }));
 vi.mock("@/lib/services/vps-metadata", () => ({
   fetchVpsMetadata: mocks.fetchVpsMetadata,
+  // Real implementation — pure function, safe to pass through. Mocking
+  // it would require every language-detection test to stub a mapping,
+  // and the primary-subtag extraction is trivial enough that a real
+  // call gives more realistic coverage of the route's integration.
+  primarySubtag: (code: string) => code.toLowerCase().split("-")[0],
 }));
 vi.mock("@/lib/services/summarize-cache", () => ({
   getCachedSummary: mocks.getCachedSummary,

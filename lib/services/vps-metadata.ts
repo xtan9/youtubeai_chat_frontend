@@ -1,15 +1,37 @@
 import { z } from "zod";
 
+// BCP-47 primary subtag + optional region/script (`en`, `fra`, `en-US`,
+// `zh-Hans`, `zh-Hant-TW`). Pinned at the schema boundary so a VPS
+// regression that emits garbage ("", "und", "--model") fails parsing
+// here with `reason: "schema"` instead of silently flowing through as a
+// bogus `lang` parameter on downstream /captions and /transcribe calls.
+const LanguageCodeSchema = z
+  .string()
+  .regex(
+    /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/,
+    "language must be a BCP-47 tag"
+  );
+
 // VPS /metadata response contract. Mirrors the shape defined in the VPS
 // service's routes/metadata.ts — keep in sync.
 const VpsMetadataResponseSchema = z.object({
-  language: z.string(),
+  language: LanguageCodeSchema,
   title: z.string(),
   description: z.string(),
   availableCaptions: z.array(z.string()),
 });
 
 export type VpsMetadata = z.infer<typeof VpsMetadataResponseSchema>;
+
+/**
+ * Normalize a BCP-47 tag to its primary subtag, lowercased (`en-US` →
+ * `"en"`, `zh-Hans` → `"zh"`). Used by the orchestrator so the
+ * `detectedLang === "zh"` short-circuit works even when the VPS
+ * returns a region-qualified variant.
+ */
+export function primarySubtag(code: string): string {
+  return code.toLowerCase().split("-")[0];
+}
 
 // Discriminated result mirrors `video-metadata.ts` (oembed client) so
 // callers can `switch (result.reason)` with exhaustive type narrowing.
