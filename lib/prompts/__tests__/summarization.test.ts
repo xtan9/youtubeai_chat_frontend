@@ -6,22 +6,22 @@ describe("buildSummarizationPrompt", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns English prompt for language 'en'", () => {
-    const prompt = buildSummarizationPrompt("Hello world transcript", "en", 1_000_000);
-    expect(prompt).toContain("professional video content analyst");
+  it("returns a prompt containing the summarizer role and the transcript", () => {
+    const prompt = buildSummarizationPrompt("Hello world transcript", 1_000_000);
+    expect(prompt).toContain("summarizer for a YouTube viewing app");
     expect(prompt).toContain("Hello world transcript");
   });
 
-  it("returns Chinese prompt for language 'zh'", () => {
-    const prompt = buildSummarizationPrompt("你好世界", "zh", 1_000_000);
-    expect(prompt).toContain("专业的视频内容分析师");
-    expect(prompt).toContain("你好世界");
+  it("instructs the model to respond in the video's language", () => {
+    const prompt = buildSummarizationPrompt("任意内容", 1_000_000);
+    expect(prompt).toContain("same language as the video");
+    expect(prompt).toContain("任意内容");
   });
 
   it("truncates the transcript to charBudget and warns", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const transcript = "a".repeat(100);
-    const prompt = buildSummarizationPrompt(transcript, "en", 40);
+    const prompt = buildSummarizationPrompt(transcript, 40);
     expect(prompt).toContain("a".repeat(40));
     expect(prompt).not.toContain("a".repeat(41));
     expect(warnSpy).toHaveBeenCalledWith(
@@ -37,7 +37,7 @@ describe("buildSummarizationPrompt", () => {
 
   it("does not warn when transcript fits within charBudget", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    buildSummarizationPrompt("short", "en", 1_000);
+    buildSummarizationPrompt("short", 1_000);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 });

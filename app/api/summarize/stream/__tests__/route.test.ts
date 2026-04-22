@@ -507,10 +507,9 @@ describe("POST /api/summarize/stream", () => {
 
       const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
         string,
-        "en" | "zh",
         number,
       ];
-      expect(promptArgs[2]).toBe(2_000_000); // SONNET_CHAR_BUDGET
+      expect(promptArgs[1]).toBe(2_000_000); // SONNET_CHAR_BUDGET
 
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
@@ -593,10 +592,9 @@ describe("POST /api/summarize/stream", () => {
 
       const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
         string,
-        "en" | "zh",
         number,
       ];
-      expect(promptArgs[2]).toBe(720_000); // HAIKU_CHAR_BUDGET
+      expect(promptArgs[1]).toBe(720_000); // HAIKU_CHAR_BUDGET
     });
 
     // Regression test for the ZH tokenizer bug: without CJK counting, a long
