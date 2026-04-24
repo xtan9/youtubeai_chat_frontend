@@ -161,7 +161,6 @@ export function YouTubeSummarizerApp({
           {data && !streamError && (
             <ResultsDisplay
               data={data}
-              url={url}
               copied={copied}
               onCopySummary={handleCopySummary}
               onNewSummary={handleNewSummary}
