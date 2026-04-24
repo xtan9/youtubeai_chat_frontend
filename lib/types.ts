@@ -11,7 +11,6 @@ export interface SummaryResult {
   title: string;
   duration: string;
   summary: string;
-  keyPoints: string[];
   transcriptionTime: number;
   summaryTime: number;
   transcript?: string;

@@ -130,11 +130,7 @@ export function YouTubeSummarizerApp({
   const handleCopySummary = async () => {
     if (!data) return;
 
-    const textToCopy = `${data?.title}\n\n${
-      data?.summary
-    }\n\nKey Insights:\n${data?.keyPoints
-      .map((point: string) => `• ${point}`)
-      .join("\n")}`;
+    const textToCopy = `${data?.title}\n\n${data?.summary}`;
     await copyToClipboard(textToCopy);
   };
 

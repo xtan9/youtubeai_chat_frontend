@@ -36,9 +36,6 @@ export function parseStreamingData(rawData: string): {
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
 
-  // Track thinking content separately
-  let thinkingContent = "";
-
   for (const line of lines) {
     if (line.startsWith("data: ")) {
       try {
@@ -123,12 +120,6 @@ export function parseStreamingData(rawData: string): {
             }
             break;
 
-          case "thinking":
-            if (data.text) {
-              thinkingContent += data.text;
-            }
-            break;
-
           case "full_transcript":
             if (data.text) {
               transcript = data.text;
@@ -198,7 +189,6 @@ export function parseStreamingData(rawData: string): {
       title,
       duration,
       summary: accumulatedSummary,
-      keyPoints: thinkingContent ? [thinkingContent] : [],
       transcriptionTime,
       summaryTime,
       transcript,

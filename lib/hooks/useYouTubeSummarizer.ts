@@ -151,7 +151,6 @@ export function useYouTubeSummarizer(
         title: "Streaming Summary",
         duration: "Streaming in progress",
         summary: accumulatedData,
-        keyPoints: [],
         transcriptionTime: 0,
         summaryTime: 0,
       };
