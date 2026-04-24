@@ -1,5 +1,20 @@
 # Migrations
 
+## Rule: migrations apply only via the GitHub Action
+
+The `Database Migration` workflow (`.github/workflows/db-migrate.yml`) runs
+`supabase db push --include-all` against prod after CI passes on `main`.
+**Do not run `supabase db push` (or any equivalent migration command) from a
+local shell against production.** Add the migration file, open a PR, let the
+`migration-upgrade-test` CI job replay it against the legacy fixture, and
+merge — the action takes it from there.
+
+This rule exists because production drifted from the migration files once
+already (column-name skew between prod's `youtube_id`/`summary_text` and
+the code's `youtube_url`/`summary`); manual interventions are how that
+class of bug enters the codebase. The action gives you one chronologically
+ordered apply log per merge to `main`.
+
 ## Rule: one forward-only delta per migration
 
 Every new migration should be a single, small, forward-only DDL change:
