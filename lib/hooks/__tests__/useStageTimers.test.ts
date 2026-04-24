@@ -13,7 +13,7 @@ const fresh = (): StageTimerState => ({
 
 describe("advanceStageTimerState", () => {
   it("captures startedAt on the first observed stage", () => {
-    const next = advanceStageTimerState(fresh(), "downloading", 1_000);
+    const next = advanceStageTimerState(fresh(), "preparing", 1_000);
     expect(next.startedAt).toBe(1_000);
     expect(next.transcribeEndedAt).toBeNull();
     expect(next.summarizeEndedAt).toBeNull();
@@ -69,7 +69,7 @@ describe("advanceStageTimerState", () => {
       transcribeEndedAt: 4_000,
       summarizeEndedAt: 9_000,
     };
-    const restarted = advanceStageTimerState(completed, "downloading", 50_000);
+    const restarted = advanceStageTimerState(completed, "preparing", 50_000);
     expect(restarted).toEqual({
       startedAt: 50_000,
       transcribeEndedAt: null,

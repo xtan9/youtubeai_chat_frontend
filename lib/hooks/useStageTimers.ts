@@ -28,7 +28,7 @@ const INITIAL_STATE: StageTimerState = {
 // Boundaries are sticky: the first transition into "summarizing" or
 // "complete" wins, so a later event can't reset transcribeEndedAt and
 // zero out the summary stopwatch. Exception: a fresh run on the same
-// component instance — detected when stage regresses to "downloading"/
+// component instance — detected when stage regresses to "preparing"/
 // "transcribing" after we already sealed summarizeEndedAt — must clear
 // all boundaries so the new run's stopwatch doesn't inherit the previous
 // run's startedAt.
@@ -39,7 +39,7 @@ export function advanceStageTimerState(
 ): StageTimerState {
   if (!stage) return prev;
   const isRestart =
-    (stage === "downloading" || stage === "transcribing") &&
+    (stage === "preparing" || stage === "transcribing") &&
     prev.summarizeEndedAt !== null;
   if (isRestart) {
     return { startedAt: now, transcribeEndedAt: null, summarizeEndedAt: null };
