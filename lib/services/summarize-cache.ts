@@ -2,9 +2,20 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import { extractVideoId } from "./youtube-url";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import type { SupportedLanguageCode } from "@/lib/constants/languages";
 
+// PromptLocale = the VIDEO's detected language (binary — drives the classifier
+// + cache's videos.language column + legacy code paths). Distinct from
+// SupportedLanguageCode which names the summary's OUTPUT language. Don't
+// unify: they have different life cycles and one is constrained to what the
+// cache schema accepts, the other to what the picker ships.
 export type PromptLocale = "en" | "zh";
 export type TranscriptSource = "manual_captions" | "auto_captions" | "whisper";
+
+// Output language value that gets written to summaries.output_language.
+// `null` means "this is the video's native-language summary" — the default
+// path that existed before the language-picker feature.
+export type CachedOutputLanguage = SupportedLanguageCode | null;
 
 export interface VideoMetadata {
   readonly title: string;
@@ -23,10 +34,17 @@ export type SummaryBody = {
 };
 
 export type CachedSummary = VideoMetadata &
-  SummaryBody & { readonly videoId: string };
+  SummaryBody & {
+    readonly videoId: string;
+    readonly outputLanguage: CachedOutputLanguage;
+  };
 
 export type CacheWriteParams = VideoMetadata &
-  SummaryBody & { readonly youtubeUrl: string; readonly userId?: string };
+  SummaryBody & {
+    readonly youtubeUrl: string;
+    readonly userId?: string;
+    readonly outputLanguage?: CachedOutputLanguage;
+  };
 
 /**
  * Normalized cache key. Prefer the 11-char YouTube video ID so different URL
@@ -62,10 +80,14 @@ const SummaryRowSchema = z.object({
   processing_time_seconds: z.number().nullable(),
   transcribe_time_seconds: z.number().nullable(),
   summarize_time_seconds: z.number().nullable(),
+  output_language: z.string().nullable(),
 });
 
 // Writes are stricter than reads (which allow nulls for historical rows).
-// Don't unify without a backfill.
+// Don't unify without a backfill. output_language is nullable because the
+// video-native row uses NULL as its "no explicit override" marker (composite
+// UNIQUE (video_id, output_language) NULLS NOT DISTINCT enforces one native
+// row per video).
 const SummaryWriteSchema = z.object({
   video_id: z.string(),
   transcript: z.string(),
@@ -75,15 +97,23 @@ const SummaryWriteSchema = z.object({
   processing_time_seconds: z.number().min(0),
   transcribe_time_seconds: z.number().min(0),
   summarize_time_seconds: z.number().min(0),
+  output_language: z.string().nullable(),
 });
 
 /**
  * Fails open (null) on any error with a log so a broken cache surfaces as
  * "every request re-billed through the LLM gateway" rather than silent
  * degradation.
+ *
+ * `outputLanguage` selects which row to read for this video. `null` (or
+ * undefined) targets the video-native summary (output_language IS NULL).
+ * A language code targets that specific translation row. The two share a
+ * video_id but are independent rows — a hit on one doesn't imply the other
+ * exists.
  */
 export async function getCachedSummary(
-  youtubeUrl: string
+  youtubeUrl: string,
+  outputLanguage: CachedOutputLanguage = null
 ): Promise<CachedSummary | null> {
   const supabase = getServiceRoleClient();
   if (!supabase) return null;
@@ -115,18 +145,29 @@ export async function getCachedSummary(
     }
     const video = videoParsed.data;
 
-    // maybeSingle() trusts the DB UNIQUE(video_id) constraint installed by
-    // migration 20260423000000_drop_thinking_columns.sql. If two rows ever
+    // maybeSingle() trusts the DB UNIQUE(video_id, output_language) with
+    // NULLS NOT DISTINCT installed by
+    // migration 20260424000000_add_output_language.sql. If two rows ever
     // slipped through (constraint dropped, bad data load) PostgREST returns
     // PGRST116 and the branch below treats it as a fail-open cache miss —
     // the request re-bills through the LLM instead of silently picking a row.
-    const { data: summaryRaw, error: summaryError } = await supabase
+    //
+    // PostgREST filter semantics: .is(col, null) produces `col IS NULL`;
+    // .eq(col, value) produces `col = value`. We need both paths explicitly
+    // because `.eq(col, null)` would emit `col = NULL` which SQL evaluates
+    // as UNKNOWN and would match nothing.
+    let summaryQuery = supabase
       .from("summaries")
       .select(
-        "transcript, summary, transcript_source, model, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds"
+        "transcript, summary, transcript_source, model, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds, output_language"
       )
-      .eq("video_id", video.id)
-      .maybeSingle();
+      .eq("video_id", video.id);
+    summaryQuery =
+      outputLanguage === null
+        ? summaryQuery.is("output_language", null)
+        : summaryQuery.eq("output_language", outputLanguage);
+    const { data: summaryRaw, error: summaryError } =
+      await summaryQuery.maybeSingle();
 
     if (summaryError) {
       console.error(
@@ -167,6 +208,7 @@ export async function getCachedSummary(
       processingTimeSeconds: processingTime,
       transcribeTimeSeconds: transcribeTime,
       summarizeTimeSeconds: summarizeTime,
+      outputLanguage: (s.output_language ?? null) as CachedOutputLanguage,
     };
   } catch (err) {
     console.error("[summarize-cache] read failed (fail-open)", {
@@ -241,6 +283,7 @@ export async function writeCachedSummary(
     processing_time_seconds: params.processingTimeSeconds,
     transcribe_time_seconds: params.transcribeTimeSeconds,
     summarize_time_seconds: params.summarizeTimeSeconds,
+    output_language: params.outputLanguage ?? null,
   };
 
   const writeCheck = SummaryWriteSchema.safeParse(summaryRow);
@@ -253,7 +296,7 @@ export async function writeCachedSummary(
 
   const { error: summaryError } = await supabase
     .from("summaries")
-    .upsert(writeCheck.data, { onConflict: "video_id" });
+    .upsert(writeCheck.data, { onConflict: "video_id,output_language" });
 
   if (summaryError) {
     throw new Error(`summary upsert failed: ${summaryError.message}`, {

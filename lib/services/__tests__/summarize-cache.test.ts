@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => {
     const b = {
       select: vi.fn(() => b),
       eq: vi.fn(() => b),
+      is: vi.fn(() => b),
       maybeSingle: vi.fn(),
       single: vi.fn(),
       upsert: vi.fn(() => b),
@@ -68,9 +69,11 @@ describe("getCachedSummary", () => {
     mocks.videosBuilder.maybeSingle.mockReset();
     mocks.videosBuilder.select.mockClear();
     mocks.videosBuilder.eq.mockClear();
+    mocks.videosBuilder.is.mockClear();
     mocks.summariesBuilder.maybeSingle.mockReset();
     mocks.summariesBuilder.select.mockClear();
     mocks.summariesBuilder.eq.mockClear();
+    mocks.summariesBuilder.is.mockClear();
     vi.unstubAllEnvs();
   });
 
@@ -148,6 +151,7 @@ describe("getCachedSummary", () => {
         processing_time_seconds: 1,
         transcribe_time_seconds: 0.5,
         summarize_time_seconds: 0.5,
+        output_language: null,
       },
       error: null,
     });
@@ -183,6 +187,7 @@ describe("getCachedSummary", () => {
         processing_time_seconds: 12.5,
         transcribe_time_seconds: 7,
         summarize_time_seconds: 5.5,
+        output_language: null,
       },
       error: null,
     });
@@ -201,6 +206,7 @@ describe("getCachedSummary", () => {
       processingTimeSeconds: 12.5,
       transcribeTimeSeconds: 7,
       summarizeTimeSeconds: 5.5,
+      outputLanguage: null,
     });
   });
 
@@ -220,6 +226,7 @@ describe("getCachedSummary", () => {
         processing_time_seconds: 10,
         transcribe_time_seconds: 4,
         summarize_time_seconds: null,
+        output_language: null,
       },
       error: null,
     });
@@ -228,6 +235,71 @@ describe("getCachedSummary", () => {
     const result = await getCachedSummary("https://youtu.be/dQw4w9WgXcQ");
     expect(result?.summarizeTimeSeconds).toBe(6);
     expect(result?.transcribeTimeSeconds).toBe(4);
+  });
+
+  it("filters on output_language IS NULL by default", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.summariesBuilder.maybeSingle.mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    const { getCachedSummary } = await loadFresh();
+    await getCachedSummary("https://youtu.be/dQw4w9WgXcQ");
+
+    // `.eq("output_language", null)` would emit `col = NULL` (always false
+    // under SQL three-valued logic). The service must use `.is(col, null)`.
+    expect(mocks.summariesBuilder.is).toHaveBeenCalledWith(
+      "output_language",
+      null
+    );
+    const eqCalls = mocks.summariesBuilder.eq.mock.calls as ReadonlyArray<
+      ReadonlyArray<unknown>
+    >;
+    expect(
+      eqCalls.some((c) => c[0] === "output_language")
+    ).toBe(false);
+  });
+
+  it("filters with equality when outputLanguage is provided", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.summariesBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        transcript: "tr",
+        summary: "Hola!",
+        transcript_source: "manual_captions",
+        model: "m",
+        processing_time_seconds: 2,
+        transcribe_time_seconds: 1,
+        summarize_time_seconds: 1,
+        output_language: "es",
+      },
+      error: null,
+    });
+
+    const { getCachedSummary } = await loadFresh();
+    const result = await getCachedSummary(
+      "https://youtu.be/dQw4w9WgXcQ",
+      "es"
+    );
+
+    expect(mocks.summariesBuilder.eq).toHaveBeenCalledWith(
+      "output_language",
+      "es"
+    );
+    expect(mocks.summariesBuilder.is).not.toHaveBeenCalled();
+    expect(result?.summary).toBe("Hola!");
+    expect(result?.outputLanguage).toBe("es");
   });
 
   it("memoizes the Supabase client across calls", async () => {
@@ -303,7 +375,7 @@ describe("writeCachedSummary", () => {
     expect(videosCall[1]).toEqual({ onConflict: "url_hash" });
   });
 
-  it("upserts summaries with video_id onConflict", async () => {
+  it("upserts summaries with composite (video_id,output_language) onConflict and NULL native column", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -319,11 +391,31 @@ describe("writeCachedSummary", () => {
 
     const summariesCall = mocks.summariesBuilder.upsert.mock
       .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
-    expect(summariesCall[1]).toEqual({ onConflict: "video_id" });
+    expect(summariesCall[1]).toEqual({ onConflict: "video_id,output_language" });
     expect(summariesCall[0]).toMatchObject({
       transcribe_time_seconds: 0.5,
       summarize_time_seconds: 0.5,
+      output_language: null,
     });
+  });
+
+  it("writes explicit output_language when caller supplies one", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.summariesBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.summariesBuilder
+    );
+
+    const { writeCachedSummary } = await loadFresh();
+    await writeCachedSummary({ ...baseParams, outputLanguage: "es" });
+
+    const summariesCall = mocks.summariesBuilder.upsert.mock
+      .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
+    expect(summariesCall[0]).toMatchObject({ output_language: "es" });
   });
 
   it("skips history upsert when userId not provided", async () => {

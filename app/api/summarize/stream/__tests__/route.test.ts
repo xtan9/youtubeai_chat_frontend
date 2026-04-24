@@ -1519,6 +1519,96 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.detectLocale).not.toHaveBeenCalled();
     });
   });
+
+  describe("output_language (summary translation override)", () => {
+    it("rejects unknown codes with 400", async () => {
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL, output_language: "elvish" })
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("streams cached row matching the requested output_language without calling the LLM", async () => {
+      mocks.getCachedSummary.mockResolvedValue(
+        cachedFixture({
+          outputLanguage: "es",
+          summary: "Resumen en español",
+        })
+      );
+
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL, output_language: "es" })
+      );
+      const body = await readStream(res);
+
+      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, "es");
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      const events = parseEvents(body);
+      expect(
+        events.some((e) => e.type === "content" && e.text === "Resumen en español")
+      ).toBe(true);
+    });
+
+    it("threads output_language into the cache read + prompt builder on a miss", async () => {
+      mocks.getCachedSummary.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "Resumen" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL, output_language: "es" })
+      );
+      await readStream(res);
+
+      // Cache lookup receives the requested language so a second user
+      // hitting the same (video, es) gets an instant cached hit.
+      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, "es");
+      // Prompt builder receives the code so it can swap the
+      // "respond in same language as video" line for "Respond in Spanish."
+      expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Number),
+        "es"
+      );
+      // Write path stamps the row under the same key the read just missed.
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outputLanguage: "es" })
+      );
+    });
+
+    it("defaults to video-native (null) when output_language is omitted", async () => {
+      mocks.getCachedSummary.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      // The video-native row uses NULL as its key — not an empty string,
+      // not "en". Regression guard: a refactor that passes "en" here would
+      // split legacy rows into two cache slots.
+      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, null);
+      expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Number),
+        undefined
+      );
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outputLanguage: null })
+      );
+    });
+  });
 });
 
 function cachedFixture(overrides: Partial<CachedSummary> = {}): CachedSummary {
@@ -1534,6 +1624,7 @@ function cachedFixture(overrides: Partial<CachedSummary> = {}): CachedSummary {
     processingTimeSeconds: 10,
     transcribeTimeSeconds: 4,
     summarizeTimeSeconds: 6,
+    outputLanguage: null,
     ...overrides,
   } as CachedSummary;
 }

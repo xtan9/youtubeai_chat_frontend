@@ -3,10 +3,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
+import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { useTheme } from "next-themes";
 import { RefObject, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { usePostHog } from "posthog-js/react";
+import { LanguagePicker } from "./language-picker";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -14,6 +16,13 @@ interface SummaryContentProps {
   copied?: boolean;
   onCopySummary?: () => void;
   onNewSummary?: () => void;
+  // Language controls — only rendered when all four are provided. The
+  // detail view (standalone SummaryContent without the picker chrome) can
+  // omit these and render identically to before.
+  outputLanguage?: SupportedLanguageCode | null;
+  browserLanguage?: SupportedLanguageCode;
+  onSelectLanguage?: (code: SupportedLanguageCode) => void;
+  languageDisabled?: boolean;
 }
 
 export function SummaryContent({
@@ -21,6 +30,10 @@ export function SummaryContent({
   copied = false,
   onCopySummary,
   onNewSummary,
+  outputLanguage,
+  browserLanguage,
+  onSelectLanguage,
+  languageDisabled,
 }: SummaryContentProps) {
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -71,7 +84,16 @@ export function SummaryContent({
           </div>
 
           {onCopySummary && onNewSummary && (
-            <div className="flex gap-3 mt-2 md:mt-0">
+            <div className="flex flex-wrap gap-3 mt-2 md:mt-0">
+              {onSelectLanguage && browserLanguage && (
+                <LanguagePicker
+                  currentLanguage={outputLanguage ?? null}
+                  browserLanguage={browserLanguage}
+                  onSelect={onSelectLanguage}
+                  isDark={isDark}
+                  disabled={languageDisabled}
+                />
+              )}
               <Button
                 variant="outline"
                 onClick={onCopySummary}

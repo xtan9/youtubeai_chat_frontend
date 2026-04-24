@@ -1,6 +1,12 @@
+import {
+  getLanguage,
+  type SupportedLanguageCode,
+} from "@/lib/constants/languages";
+
 export function buildSummarizationPrompt(
   transcript: string,
-  charBudget: number
+  charBudget: number,
+  outputLanguage?: SupportedLanguageCode
 ): string {
   const truncated = transcript.slice(0, charBudget);
   // Truncation used to be the common case at 15K chars; now that charBudget
@@ -15,11 +21,20 @@ export function buildSummarizationPrompt(
       charBudget,
     });
   }
+  // Default behavior (no override): let the model match the video's
+  // language — preserves every summary in its source language.
+  // With an override: one-line swap to name the target language. Use the
+  // English name rather than the native one because the surrounding prompt
+  // is in English and Claude's multilingual routing responds more reliably
+  // to a monolingual directive than a mixed-script one.
+  const languageLine = outputLanguage
+    ? `Respond in ${getLanguage(outputLanguage).english}.`
+    : "Respond in the same language as the video.";
   return `You are the summarizer for a YouTube viewing app. Readers use your summary to decide whether to watch the full video — or to get its value without watching. A great summary saves their time without losing what made the video worth watching.
 
 Begin with a one-sentence TL;DR in bold that captures what the video is about and why it matters. Then produce the main summary.
 
-Write as if analyzing the video itself — "the video explains," "the presenter argues" — not a transcript. Respond in the same language as the video.
+Write as if analyzing the video itself — "the video explains," "the presenter argues" — not a transcript. ${languageLine}
 
 Adapt the shape of the summary to the kind of video:
 - Tutorial or lecture: thematic sections with descriptive headings, step-by-step breakdowns, key concepts.

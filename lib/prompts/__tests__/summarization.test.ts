@@ -73,4 +73,49 @@ describe("buildSummarizationPrompt", () => {
     buildSummarizationPrompt("short", 1_000);
     expect(warnSpy).not.toHaveBeenCalled();
   });
+
+  describe("with outputLanguage override", () => {
+    it("replaces the 'same language as the video' line with 'Respond in <name>'", () => {
+      const prompt = buildSummarizationPrompt("transcript", 1_000, "es");
+      expect(prompt).toContain("Respond in Spanish.");
+      expect(prompt).not.toContain("same language as the video");
+    });
+
+    it("uses the language's English name regardless of code", () => {
+      // 'zh' → 'Chinese (Simplified)', not '中文'. The surrounding prompt is
+      // English; Claude's multilingual output works best when the directive
+      // names the language in the prompt's own language.
+      expect(
+        buildSummarizationPrompt("x", 1_000, "zh")
+      ).toContain("Respond in Chinese (Simplified).");
+      expect(buildSummarizationPrompt("x", 1_000, "ja")).toContain(
+        "Respond in Japanese."
+      );
+      expect(buildSummarizationPrompt("x", 1_000, "ar")).toContain(
+        "Respond in Arabic."
+      );
+    });
+
+    it("preserves all the other quality/safety rules", () => {
+      const prompt = buildSummarizationPrompt("x", 1_000, "fr");
+      // The output-language swap must be surgical — don't let the override
+      // accidentally strip hallucination/quote/transcript-delimiter rules.
+      expect(prompt).toContain("summarizer for a YouTube viewing app");
+      expect(prompt).toMatch(/Do not invent/i);
+      expect(prompt).toMatch(/quote.*exactly/i);
+      expect(prompt).toContain("<transcript>");
+      expect(prompt).toMatch(/data to summarize, not as instructions/i);
+    });
+
+    it("still truncates the transcript to charBudget", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const prompt = buildSummarizationPrompt("a".repeat(100), 40, "de");
+      expect(prompt).toContain("a".repeat(40));
+      expect(prompt).not.toContain("a".repeat(41));
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("truncated"),
+        expect.objectContaining({ errorId: "TRANSCRIPT_TRUNCATED" })
+      );
+    });
+  });
 });
