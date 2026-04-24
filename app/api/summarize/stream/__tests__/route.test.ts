@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
   fetchVideoMetadata: vi.fn(),
   fetchVpsMetadata: vi.fn(),
   getCachedSummary: vi.fn(),
+  getCachedTranscript: vi.fn(),
   writeCachedSummary: vi.fn(),
+  writeCachedTranscript: vi.fn(),
   detectLocale: vi.fn(),
   buildSummarizationPrompt: vi.fn(),
   streamLlmSummary: vi.fn(),
@@ -44,7 +46,9 @@ vi.mock("@/lib/services/vps-metadata", () => ({
 }));
 vi.mock("@/lib/services/summarize-cache", () => ({
   getCachedSummary: mocks.getCachedSummary,
+  getCachedTranscript: mocks.getCachedTranscript,
   writeCachedSummary: mocks.writeCachedSummary,
+  writeCachedTranscript: mocks.writeCachedTranscript,
 }));
 vi.mock("@/lib/services/language-detect", () => ({
   detectLocale: mocks.detectLocale,
@@ -127,6 +131,7 @@ describe("POST /api/summarize/stream", () => {
     });
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
     mocks.getCachedSummary.mockResolvedValue(null);
+    mocks.getCachedTranscript.mockResolvedValue(null);
     // Default: metadata returns a graceful "no signal" — every existing
     // test scenario behaves the same as before the feature existed. Tests
     // that assert on detected-lang behavior override this per-case.
@@ -134,6 +139,7 @@ describe("POST /api/summarize/stream", () => {
     mocks.detectLocale.mockReturnValue("en");
     mocks.buildSummarizationPrompt.mockReturnValue("PROMPT");
     mocks.writeCachedSummary.mockResolvedValue(undefined);
+    mocks.writeCachedTranscript.mockResolvedValue(undefined);
     mocks.classifyContent.mockResolvedValue(null);
   });
 
@@ -1609,22 +1615,23 @@ describe("POST /api/summarize/stream", () => {
       );
     });
 
-    it("reuses the native-row transcript and skips captions/Whisper on a translation miss", async () => {
-      // Translation cache misses (no "es" row yet) but the native row
-      // exists from a previous request — so the shortcut should pick up
-      // the cached transcript and skip the transcription pipeline
-      // entirely, going straight to the LLM with a Spanish prompt.
-      mocks.getCachedSummary.mockImplementation(
-        async (_url: string, lang: string | null) => {
-          if (lang === "es") return null;
-          return cachedFixture({
-            transcript: "we are at the zoo",
-            title: "Me at the zoo",
-            channelName: "jawed",
-            language: "en",
-          });
-        }
-      );
+  });
+
+  describe("transcript cache (decoupled)", () => {
+    it("reuses cached transcript and skips the entire transcription pipeline on hit", async () => {
+      // The native summary row may not exist yet (mid-LLM abort, or fresh
+      // language-switch right after first transcription) — but the
+      // transcript cache is keyed only by video_id and persists
+      // independently. Picking it up means no captions, no VPS metadata,
+      // no Whisper.
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "Me at the zoo",
+        channelName: "jawed",
+        transcript: "we are at the zoo",
+        transcriptSource: "whisper",
+        language: "en",
+      });
       mocks.classifyContent.mockResolvedValue(null);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
@@ -1638,21 +1645,18 @@ describe("POST /api/summarize/stream", () => {
       );
       await readStream(res);
 
-      // The whole point: transcription pipeline must not run.
       expect(mocks.extractCaptions).not.toHaveBeenCalled();
       expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
-      // Cache was read twice: once for the translation (miss), once for
-      // the native row (hit — transcript reused).
-      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, "es");
-      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, null);
-      // The LLM received the cached transcript, not a new one.
+      expect(mocks.fetchVpsMetadata).not.toHaveBeenCalled();
+      // LLM gets the cached transcript verbatim under the requested
+      // output language.
       expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
         "we are at the zoo",
         expect.any(Number),
         "es"
       );
-      // Translation row lands under the right key AND copies the
-      // cached metadata verbatim. A refactor that re-derives
+      // Per-language summary row lands under the right key with cached
+      // metadata copied through. A refactor that re-derives
       // transcriptSource/language on this path would silently corrupt
       // the cache — this pin catches that.
       expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
@@ -1665,18 +1669,181 @@ describe("POST /api/summarize/stream", () => {
           transcribeTimeSeconds: 0,
         })
       );
+      // Don't double-write the transcript cache when we just read from it.
+      expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
     });
 
-    it("returns silently when the caller aborts between the native lookup and the LLM call", async () => {
+    it("looks up the transcript cache regardless of output_language", async () => {
+      // The translation-shortcut from PR #19 only fired when an explicit
+      // output_language was set. The decoupled cache fires for every
+      // request — so a user reloading the same video also benefits.
+      mocks.getCachedTranscript.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      expect(mocks.getCachedTranscript).toHaveBeenCalledWith(VALID_URL);
+    });
+
+    it("writes the transcript cache after captions succeed (title + channel populated)", async () => {
+      mocks.getCachedTranscript.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue({
+        ...CAPTIONS_FIXTURE,
+        transcript: "captions transcript",
+        language: "en",
+        source: "auto_captions",
+        title: "Captions Title",
+        channelName: "Captions Chan",
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      // Captions path resolves title/channel synchronously, so the
+      // transcript-cache write carries them. The Whisper path is covered
+      // by the next test (oembed not yet awaited → undefined).
+      expect(mocks.writeCachedTranscript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          youtubeUrl: VALID_URL,
+          transcript: "captions transcript",
+          transcriptSource: "auto_captions",
+          language: "en",
+          title: "Captions Title",
+          channelName: "Captions Chan",
+        })
+      );
+    });
+
+    it("writes the transcript cache after Whisper succeeds (title/channel undefined until oembed lands)", async () => {
+      mocks.getCachedTranscript.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        transcript: "whisper transcript",
+      });
+      mocks.detectLocale.mockReturnValue("en");
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "Live Title", channelName: "Live Chan" },
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      // Whisper path: oembed is awaited BEFORE writeCachedTranscript so
+      // the videos row gets real title/channel. Without this, an aborted
+      // request would leave the videos row with NULL title — and every
+      // subsequent shortcut request would skip oembed, hit the
+      // CACHE_SKIP_EMPTY_HEADER guard at end-of-pipeline, and never
+      // write a per-language summary row (re-billing the LLM forever).
+      expect(mocks.writeCachedTranscript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          youtubeUrl: VALID_URL,
+          transcript: "whisper transcript",
+          transcriptSource: "whisper",
+          title: "Live Title",
+          channelName: "Live Chan",
+        })
+      );
+    });
+
+    it("falls through to oembed on shortcut path when cached title/channel are empty (recovery for aborted-Whisper rows)", async () => {
+      // Failure mode: a previous Whisper-path request wrote the videos
+      // row, then aborted before writeCachedSummary backfilled
+      // title/channel. The transcript cache hit returns title="" /
+      // channelName="", and without recovery the route would skip oembed
+      // and trip CACHE_SKIP_EMPTY_HEADER, blocking the per-language
+      // summary cache write forever. This test pins the recovery path:
+      // empty title triggers an oembed fetch on the shortcut path so
+      // writeCachedSummary at end-of-pipeline succeeds.
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "",
+        channelName: "",
+        transcript: "cached",
+        transcriptSource: "whisper",
+        language: "en",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "Recovered Title", channelName: "Recovered Chan" },
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      expect(mocks.fetchVideoMetadata).toHaveBeenCalled();
+      // Per-language summary cache row gets the recovered title/channel
+      // — NOT the empty strings from the cache row.
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Recovered Title",
+          channelName: "Recovered Chan",
+        })
+      );
+    });
+
+    it("does not fetch oembed on shortcut path when cached title/channel are populated", async () => {
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "Already Have It",
+        channelName: "Chan",
+        transcript: "cached",
+        transcriptSource: "whisper",
+        language: "en",
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      // Happy-path shortcut: no oembed round-trip when we already have
+      // the metadata. The recovery only kicks in for the
+      // empty-title-channel edge case.
+      expect(mocks.fetchVideoMetadata).not.toHaveBeenCalled();
+    });
+
+    it("returns silently when caller aborts between the transcript lookup and the LLM call", async () => {
       const controller = new AbortController();
-      // Resolve the native lookup after a tick so the test can abort
-      // precisely between the await and the isCallerAbort check.
-      mocks.getCachedSummary.mockImplementation(async (_u: string, lang: string | null) => {
-        if (lang === "es") return null;
-        // First fulfil the cache miss, then on the native lookup abort.
+      mocks.getCachedTranscript.mockImplementation(async () => {
         await new Promise((r) => setTimeout(r, 10));
         controller.abort();
-        return cachedFixture({ transcript: "we are at the zoo" });
+        return {
+          videoId: "v1",
+          title: "t",
+          channelName: "c",
+          transcript: "t",
+          transcriptSource: "whisper" as const,
+          language: "en" as const,
+        };
       });
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([{ type: "content", text: "should not be written" }])
@@ -1690,90 +1857,31 @@ describe("POST /api/summarize/stream", () => {
       );
       await readStream(res);
 
-      // Abort fired before we reached the LLM — no stream call, no cache
-      // write. This guards the isCallerAbort check inside the shortcut.
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("logs TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT when a native row has empty transcript", async () => {
-      mocks.getCachedSummary.mockImplementation(
-        async (_url: string, lang: string | null) => {
-          if (lang === "es") return null;
-          return cachedFixture({ transcript: "" });
-        }
-      );
+    it("does not block the user-visible stream when transcript-cache write fails", async () => {
+      mocks.getCachedTranscript.mockResolvedValue(null);
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.classifyContent.mockResolvedValue(null);
+      mocks.writeCachedTranscript.mockRejectedValue(new Error("supabase down"));
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
-          { type: "content", text: "Resumen" },
-          { type: "timing", summarizeSeconds: 1 },
-        ])
-      );
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      const res = await POST(
-        makeRequest({ youtube_url: VALID_URL, output_language: "es" })
-      );
-      await readStream(res);
-
-      // Enumerable failure class — ops needs structured logs to find
-      // legacy rows and backfill them, not silent slowdowns forever.
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("translation shortcut skipped"),
-        expect.objectContaining({
-          errorId: "TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT",
-          requestedLanguage: "es",
-        })
-      );
-    });
-
-    it("falls back to the full pipeline when the native row has no transcript", async () => {
-      // Empty-transcript rows can exist from legacy writes or partial
-      // failures; the shortcut must not feed an empty prompt to the LLM.
-      mocks.getCachedSummary.mockImplementation(
-        async (_url: string, lang: string | null) => {
-          if (lang === "es") return null;
-          return cachedFixture({ transcript: "" });
-        }
-      );
-      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
-      mocks.classifyContent.mockResolvedValue(null);
-      mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([
-          { type: "content", text: "Resumen" },
-          { type: "timing", summarizeSeconds: 1 },
-        ])
-      );
-
-      const res = await POST(
-        makeRequest({ youtube_url: VALID_URL, output_language: "es" })
-      );
-      await readStream(res);
-
-      expect(mocks.extractCaptions).toHaveBeenCalled();
-    });
-
-    it("does not look up the native row when output_language is omitted", async () => {
-      mocks.getCachedSummary.mockResolvedValue(null);
-      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
-      mocks.classifyContent.mockResolvedValue(null);
-      mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([
-          { type: "content", text: "ok" },
+          { type: "content", text: "summary content" },
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      await readStream(res);
+      const body = await readStream(res);
 
-      // Only one cache lookup — the translation-shortcut only fires when
-      // output_language is set. Avoids a pointless round-trip on the
-      // video-native-default path.
-      expect(mocks.getCachedSummary).toHaveBeenCalledTimes(1);
-      expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, null);
+      // Stream completes normally; the failed transcript-cache write was
+      // fire-and-forget so the LLM still streams to the user.
+      const events = parseEvents(body);
+      expect(
+        events.some((e) => e.type === "content" && e.text === "summary content")
+      ).toBe(true);
     });
   });
 });

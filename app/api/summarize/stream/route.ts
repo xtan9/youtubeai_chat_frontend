@@ -14,7 +14,9 @@ import {
 } from "@/lib/services/vps-metadata";
 import {
   getCachedSummary,
+  getCachedTranscript,
   writeCachedSummary,
+  writeCachedTranscript,
   type TranscriptSource,
   type PromptLocale,
 } from "@/lib/services/summarize-cache";
@@ -305,51 +307,51 @@ export async function POST(request: Request) {
 
         const transcribeStart = Date.now();
 
-        // Translation shortcut: if this request targets a specific output
-        // language AND we already cached the video-native row (which owns
-        // the transcript), skip VPS metadata + captions + Whisper and go
-        // straight to the LLM with the cached transcript. Turns a
-        // language switch from a minutes-long pipeline into a seconds-long
-        // re-summarize call — which is what the user actually asked for
-        // when they picked a new language.
-        //
-        // Legacy rows with empty transcript (`native.transcript === ""`)
-        // fail the truthy guard and fall through to the full pipeline — we
-        // log them so the class is enumerable for a potential backfill
-        // rather than causing quiet slowdowns forever.
-        let reusedNativeTranscript = false;
-        if (outputLanguageCode) {
-          const native = await getCachedSummary(youtube_url, null);
-          if (isCallerAbort(request.signal)) return;
-          if (native && native.transcript) {
-            transcript = native.transcript;
-            transcriptSource = native.transcriptSource;
-            language = native.language;
-            title = native.title;
-            channelName = native.channelName;
-            reusedNativeTranscript = true;
-            sendEvent({
-              type: "status",
-              message: "Using cached transcript, translating summary...",
-              stage: "summarize",
-            });
-          } else if (native && !native.transcript) {
-            // Native cache row exists but has no transcript. Alert-level in
-            // prod so we can identify + regenerate the affected rows.
-            console.warn(
-              "[summarize/stream] translation shortcut skipped: native row has empty transcript",
-              {
-                errorId: "TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT",
-                videoId: native.videoId,
-                transcriptSource: native.transcriptSource,
-                youtubeUrl: youtube_url,
-                requestedLanguage: outputLanguageCode,
-              }
-            );
+        // Transcript cache shortcut: any request (any language) for a
+        // video we've already transcribed reuses that transcript and skips
+        // the entire transcription pipeline (VPS metadata + captions +
+        // Whisper). Independent of whether the per-language summary cache
+        // row exists — the transcript is its own first-class artifact, so
+        // a mid-LLM abort or a language switch right after summary completion
+        // both find the cached transcript here.
+        let reusedCachedTranscript = false;
+        const cachedTranscript = await getCachedTranscript(youtube_url);
+        if (isCallerAbort(request.signal)) return;
+        if (cachedTranscript) {
+          transcript = cachedTranscript.transcript;
+          transcriptSource = cachedTranscript.transcriptSource;
+          language = cachedTranscript.language;
+          title = cachedTranscript.title;
+          channelName = cachedTranscript.channelName;
+          reusedCachedTranscript = true;
+          sendEvent({
+            type: "status",
+            message: "Using cached transcript, summarizing...",
+            stage: "summarize",
+          });
+          // Recovery: a previous Whisper-path request may have written
+          // the videos row with NULL title/channel (transcript cache is
+          // written before oembed resolves) and then aborted before
+          // writeCachedSummary backfilled the metadata. Without this
+          // guard, every subsequent shortcut request would skip oembed,
+          // hit the empty-header guard at end-of-pipeline, and never
+          // write the per-language summary row — re-billing the LLM
+          // forever for a video that's already transcribed. Fetching
+          // oembed here is the only place that re-establishes the
+          // header so the cache write at the bottom can complete.
+          if (!title || !channelName) {
+            metadataPromise = Promise.resolve()
+              .then(() => fetchVideoMetadata(youtube_url, request.signal))
+              .catch(
+                (err): VideoMetadataResult =>
+                  request.signal.aborted
+                    ? { ok: false, reason: "aborted" }
+                    : { ok: false, reason: "error", error: err }
+              );
           }
         }
 
-        if (!reusedNativeTranscript) {
+        if (!reusedCachedTranscript) {
         // Ask the VPS for the video's language + available caption codes
         // up front. This drives both:
         //   - which caption track to request from /captions (avoids
@@ -478,12 +480,60 @@ export async function POST(request: Request) {
             return;
           }
         }
-        } // end !reusedNativeTranscript
+
+        // Whisper path only: resolve oembed BEFORE writing the transcript
+        // cache. The captions path already has title/channel; the Whisper
+        // path doesn't (oembed was kicked off in parallel and not yet
+        // awaited). Resolving here means the videos row written by
+        // writeCachedTranscript carries real title/channel — eliminating
+        // the race where a late transcript-cache write could clobber
+        // values that writeCachedSummary already populated, and the
+        // permanent-cache-disable bug if this request aborts before
+        // end-of-pipeline. Re-awaiting the same promise at line ~533
+        // is a no-op (resolved promises return their cached value).
+        if (metadataPromise) {
+          const result = await metadataPromise;
+          if (result.ok) {
+            title = result.data.title;
+            channelName = result.data.channelName;
+          }
+          // Don't set metadataSkipCache here — the lower await still runs
+          // and handles the failure-classification + log. We just want
+          // title/channel for the transcript-cache write; if oembed
+          // failed, we proceed with empty strings (writeCachedTranscript
+          // skips the column rather than nulling out an existing value).
+        }
+
+        // Persist transcript NOW, before the LLM call. If this request
+        // aborts mid-LLM (caller disconnect, language switch, gateway
+        // error), the next request still finds the transcript and skips
+        // re-transcription. Both the captions and Whisper paths now have
+        // title/channel resolved by this point; writeCachedTranscript
+        // sparsely upserts so empty/undefined values won't overwrite an
+        // existing populated videos row.
+        // Fire-and-forget: a transcript-cache write failure must not
+        // delay the user-visible summary stream — but the failure is
+        // alertable since it disables the cache for that video.
+        writeCachedTranscript({
+          youtubeUrl: youtube_url,
+          transcript,
+          transcriptSource,
+          language,
+          title: title || undefined,
+          channelName: channelName || undefined,
+        }).catch((err) =>
+          console.error("[summarize/stream] transcript cache write failed", {
+            errorId: "TRANSCRIPT_WRITE_FAILED",
+            youtubeUrl: youtube_url,
+            err,
+          })
+        );
+        } // end !reusedCachedTranscript
         // Only measure real transcription time. On the shortcut path we
         // didn't do transcription — attributing the cache-lookup duration
         // here poisons `transcribe_time_seconds` on the translation cache
         // row (and shows the user "Transcription: 0.02s" which is a lie).
-        const transcribeSeconds = reusedNativeTranscript
+        const transcribeSeconds = reusedCachedTranscript
           ? 0
           : (Date.now() - transcribeStart) / 1000;
 
@@ -494,7 +544,7 @@ export async function POST(request: Request) {
         // there (we'd just print the PromptLocale fallback and regress the
         // very UX this event exists to fix). The user already saw the
         // detection on their first render.
-        if (!reusedNativeTranscript) {
+        if (!reusedCachedTranscript) {
           sendEvent({
             type: "status",
             message: `Detected language: ${detectedLang ?? language}`,
