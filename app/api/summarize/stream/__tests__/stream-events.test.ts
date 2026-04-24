@@ -15,8 +15,6 @@ function baseCached(overrides: Partial<CachedSummary> = {}): CachedSummary {
     processingTimeSeconds: 10,
     transcribeTimeSeconds: 4,
     summarizeTimeSeconds: 6,
-    enableThinking: false,
-    thinking: null,
     ...overrides,
   } as CachedSummary;
 }
