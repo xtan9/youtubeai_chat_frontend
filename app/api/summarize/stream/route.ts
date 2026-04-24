@@ -314,7 +314,7 @@ export async function POST(request: Request) {
         // row exists — the transcript is its own first-class artifact, so
         // a mid-LLM abort or a language switch right after summary completion
         // both find the cached transcript here.
-        let reusedNativeTranscript = false;
+        let reusedCachedTranscript = false;
         const cachedTranscript = await getCachedTranscript(youtube_url);
         if (isCallerAbort(request.signal)) return;
         if (cachedTranscript) {
@@ -323,15 +323,35 @@ export async function POST(request: Request) {
           language = cachedTranscript.language;
           title = cachedTranscript.title;
           channelName = cachedTranscript.channelName;
-          reusedNativeTranscript = true;
+          reusedCachedTranscript = true;
           sendEvent({
             type: "status",
             message: "Using cached transcript, summarizing...",
             stage: "summarize",
           });
+          // Recovery: a previous Whisper-path request may have written
+          // the videos row with NULL title/channel (transcript cache is
+          // written before oembed resolves) and then aborted before
+          // writeCachedSummary backfilled the metadata. Without this
+          // guard, every subsequent shortcut request would skip oembed,
+          // hit the empty-header guard at end-of-pipeline, and never
+          // write the per-language summary row — re-billing the LLM
+          // forever for a video that's already transcribed. Fetching
+          // oembed here is the only place that re-establishes the
+          // header so the cache write at the bottom can complete.
+          if (!title || !channelName) {
+            metadataPromise = Promise.resolve()
+              .then(() => fetchVideoMetadata(youtube_url, request.signal))
+              .catch(
+                (err): VideoMetadataResult =>
+                  request.signal.aborted
+                    ? { ok: false, reason: "aborted" }
+                    : { ok: false, reason: "error", error: err }
+              );
+          }
         }
 
-        if (!reusedNativeTranscript) {
+        if (!reusedCachedTranscript) {
         // Ask the VPS for the video's language + available caption codes
         // up front. This drives both:
         //   - which caption track to request from /captions (avoids
@@ -461,15 +481,39 @@ export async function POST(request: Request) {
           }
         }
 
+        // Whisper path only: resolve oembed BEFORE writing the transcript
+        // cache. The captions path already has title/channel; the Whisper
+        // path doesn't (oembed was kicked off in parallel and not yet
+        // awaited). Resolving here means the videos row written by
+        // writeCachedTranscript carries real title/channel — eliminating
+        // the race where a late transcript-cache write could clobber
+        // values that writeCachedSummary already populated, and the
+        // permanent-cache-disable bug if this request aborts before
+        // end-of-pipeline. Re-awaiting the same promise at line ~533
+        // is a no-op (resolved promises return their cached value).
+        if (metadataPromise) {
+          const result = await metadataPromise;
+          if (result.ok) {
+            title = result.data.title;
+            channelName = result.data.channelName;
+          }
+          // Don't set metadataSkipCache here — the lower await still runs
+          // and handles the failure-classification + log. We just want
+          // title/channel for the transcript-cache write; if oembed
+          // failed, we proceed with empty strings (writeCachedTranscript
+          // skips the column rather than nulling out an existing value).
+        }
+
         // Persist transcript NOW, before the LLM call. If this request
         // aborts mid-LLM (caller disconnect, language switch, gateway
         // error), the next request still finds the transcript and skips
-        // re-transcription. Captions path has title/channel resolved;
-        // Whisper path has them as "" until the oembed await below — we
-        // pass undefined in that case and writeCachedSummary backfills
-        // the videos row with the real values at end of pipeline.
+        // re-transcription. Both the captions and Whisper paths now have
+        // title/channel resolved by this point; writeCachedTranscript
+        // sparsely upserts so empty/undefined values won't overwrite an
+        // existing populated videos row.
         // Fire-and-forget: a transcript-cache write failure must not
-        // delay the user-visible summary stream.
+        // delay the user-visible summary stream — but the failure is
+        // alertable since it disables the cache for that video.
         writeCachedTranscript({
           youtubeUrl: youtube_url,
           transcript,
@@ -477,13 +521,19 @@ export async function POST(request: Request) {
           language,
           title: title || undefined,
           channelName: channelName || undefined,
-        }).catch((err) => logStageError("cache", err));
-        } // end !reusedNativeTranscript
+        }).catch((err) =>
+          console.error("[summarize/stream] transcript cache write failed", {
+            errorId: "TRANSCRIPT_WRITE_FAILED",
+            youtubeUrl: youtube_url,
+            err,
+          })
+        );
+        } // end !reusedCachedTranscript
         // Only measure real transcription time. On the shortcut path we
         // didn't do transcription — attributing the cache-lookup duration
         // here poisons `transcribe_time_seconds` on the translation cache
         // row (and shows the user "Transcription: 0.02s" which is a lie).
-        const transcribeSeconds = reusedNativeTranscript
+        const transcribeSeconds = reusedCachedTranscript
           ? 0
           : (Date.now() - transcribeStart) / 1000;
 
@@ -494,7 +544,7 @@ export async function POST(request: Request) {
         // there (we'd just print the PromptLocale fallback and regress the
         // very UX this event exists to fix). The user already saw the
         // detection on their first render.
-        if (!reusedNativeTranscript) {
+        if (!reusedCachedTranscript) {
           sendEvent({
             type: "status",
             message: `Detected language: ${detectedLang ?? language}`,

@@ -501,21 +501,25 @@ export async function writeCachedTranscript(
 
   const videoKey = computeVideoKey(params.youtubeUrl);
 
-  // Upsert videos row first so the transcript row's FK is satisfiable.
-  // Title/channel may be undefined on the Whisper path — store NULL until
-  // writeCachedSummary backfills them at end of pipeline.
+  // Sparse upsert: only include title/channel in the payload when the
+  // caller actually has values. Supabase's upsert generates
+  // `INSERT ... ON CONFLICT DO UPDATE SET col = EXCLUDED.col` only for
+  // columns present in the payload, so omitting `title` here means an
+  // existing populated row is NOT clobbered with NULL. This matters
+  // because the route writes the transcript cache fire-and-forget; a
+  // late-resolving transcript write must not overwrite metadata that
+  // writeCachedSummary already persisted.
+  const videoRow: Record<string, string | null> = {
+    youtube_url: params.youtubeUrl,
+    url_hash: videoKey,
+    language: params.language,
+  };
+  if (params.title) videoRow.title = params.title;
+  if (params.channelName) videoRow.channel_name = params.channelName;
+
   const { data: video, error: videoError } = await supabase
     .from("videos")
-    .upsert(
-      {
-        youtube_url: params.youtubeUrl,
-        url_hash: videoKey,
-        title: params.title || null,
-        channel_name: params.channelName || null,
-        language: params.language,
-      },
-      { onConflict: "url_hash" }
-    )
+    .upsert(videoRow, { onConflict: "url_hash" })
     .select("id")
     .single();
 

@@ -1747,19 +1747,88 @@ describe("POST /api/summarize/stream", () => {
 
       await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
 
-      // Whisper path: by the time we write the transcript, the oembed
-      // fetch hasn't been awaited yet — so title/channel are still ""
-      // and we explicitly pass undefined. writeCachedSummary backfills
-      // the videos row with the real values at end of pipeline.
+      // Whisper path: oembed is awaited BEFORE writeCachedTranscript so
+      // the videos row gets real title/channel. Without this, an aborted
+      // request would leave the videos row with NULL title — and every
+      // subsequent shortcut request would skip oembed, hit the
+      // CACHE_SKIP_EMPTY_HEADER guard at end-of-pipeline, and never
+      // write a per-language summary row (re-billing the LLM forever).
       expect(mocks.writeCachedTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           youtubeUrl: VALID_URL,
           transcript: "whisper transcript",
           transcriptSource: "whisper",
-          title: undefined,
-          channelName: undefined,
+          title: "Live Title",
+          channelName: "Live Chan",
         })
       );
+    });
+
+    it("falls through to oembed on shortcut path when cached title/channel are empty (recovery for aborted-Whisper rows)", async () => {
+      // Failure mode: a previous Whisper-path request wrote the videos
+      // row, then aborted before writeCachedSummary backfilled
+      // title/channel. The transcript cache hit returns title="" /
+      // channelName="", and without recovery the route would skip oembed
+      // and trip CACHE_SKIP_EMPTY_HEADER, blocking the per-language
+      // summary cache write forever. This test pins the recovery path:
+      // empty title triggers an oembed fetch on the shortcut path so
+      // writeCachedSummary at end-of-pipeline succeeds.
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "",
+        channelName: "",
+        transcript: "cached",
+        transcriptSource: "whisper",
+        language: "en",
+      });
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "Recovered Title", channelName: "Recovered Chan" },
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      expect(mocks.fetchVideoMetadata).toHaveBeenCalled();
+      // Per-language summary cache row gets the recovered title/channel
+      // — NOT the empty strings from the cache row.
+      expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Recovered Title",
+          channelName: "Recovered Chan",
+        })
+      );
+    });
+
+    it("does not fetch oembed on shortcut path when cached title/channel are populated", async () => {
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "Already Have It",
+        channelName: "Chan",
+        transcript: "cached",
+        transcriptSource: "whisper",
+        language: "en",
+      });
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      await readStream(await POST(makeRequest({ youtube_url: VALID_URL })));
+
+      // Happy-path shortcut: no oembed round-trip when we already have
+      // the metadata. The recovery only kicks in for the
+      // empty-title-channel edge case.
+      expect(mocks.fetchVideoMetadata).not.toHaveBeenCalled();
     });
 
     it("returns silently when caller aborts between the transcript lookup and the LLM call", async () => {

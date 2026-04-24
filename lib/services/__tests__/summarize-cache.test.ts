@@ -755,7 +755,12 @@ describe("writeCachedTranscript", () => {
     });
   });
 
-  it("upserts videos row with NULL title/channel when caller omits them (Whisper path before oembed resolves)", async () => {
+  it("omits title/channel from the videos upsert when caller omits them (sparse upsert preserves existing values)", async () => {
+    // Critical invariant: a fire-and-forget transcript-cache write that
+    // resolves AFTER writeCachedSummary populated title/channel must NOT
+    // clobber them back to NULL. Sparse upsert: omit the column from the
+    // payload entirely, so Supabase's `DO UPDATE SET col = EXCLUDED.col`
+    // never touches it.
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -773,11 +778,41 @@ describe("writeCachedTranscript", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    expect(videosCall[0]).toMatchObject({
-      title: null,
-      channel_name: null,
-      language: "en",
+    // url_hash + language always present; title + channel_name absent.
+    expect(videosCall[0]).toEqual(
+      expect.objectContaining({
+        youtube_url: baseTranscript.youtubeUrl,
+        language: "en",
+      })
+    );
+    expect(videosCall[0]).not.toHaveProperty("title");
+    expect(videosCall[0]).not.toHaveProperty("channel_name");
+  });
+
+  it("omits empty-string title/channel from the videos upsert (treats falsy as absent)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
     });
+    mocks.transcriptsBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.transcriptsBuilder
+    );
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript({
+      ...baseTranscript,
+      title: "",
+      channelName: "",
+    });
+
+    const videosCall = mocks.videosBuilder.upsert.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(videosCall[0]).not.toHaveProperty("title");
+    expect(videosCall[0]).not.toHaveProperty("channel_name");
   });
 
   it("throws when video upsert fails (so caller's .catch logs with context)", async () => {
