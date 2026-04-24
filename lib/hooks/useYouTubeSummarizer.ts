@@ -17,7 +17,6 @@ const debugLog: (...args: unknown[]) => void =
 
 export function useYouTubeSummarizer(
   url: string,
-  enableReasoning: boolean = false,
   includeTranscript: boolean = true
 ) {
   const { user, session } = useUser();
@@ -80,12 +79,11 @@ export function useYouTubeSummarizer(
     queryKey,
     signal,
   }: QueryFunctionContext<
-    ["youtube-summary-stream", string, boolean, boolean]
+    ["youtube-summary-stream", string, boolean]
   >): AsyncIterable<SummaryResult> {
     debugLog("Fetching streaming summary:", {
       url: queryKey[1],
-      enableReasoning: queryKey[2],
-      includeTranscript: queryKey[3],
+      includeTranscript: queryKey[2],
     });
 
     // Get access token - either from user session or anonymous session
@@ -107,8 +105,7 @@ export function useYouTubeSummarizer(
         },
         body: JSON.stringify({
           youtube_url: queryKey[1],
-          enable_thinking: queryKey[2] || false,
-          include_transcript: queryKey[3] || false,
+          include_transcript: queryKey[2] || false,
         }),
         signal,
       }
@@ -166,14 +163,9 @@ export function useYouTubeSummarizer(
     SummaryResult[],
     Error,
     SummaryResult[],
-    ["youtube-summary-stream", string, boolean, boolean]
+    ["youtube-summary-stream", string, boolean]
   > = {
-    queryKey: [
-      "youtube-summary-stream",
-      url,
-      enableReasoning,
-      includeTranscript,
-    ],
+    queryKey: ["youtube-summary-stream", url, includeTranscript],
     queryFn: streamedQuery({
       streamFn: fetchStreamingSummary,
     }),
