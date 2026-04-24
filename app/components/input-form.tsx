@@ -12,7 +12,7 @@ import { usePostHog } from "posthog-js/react";
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -37,7 +37,7 @@ const [isLoading, setIsLoading] = useState(false);
   const placeholderColors = isDarkMode
     ? "placeholder:text-gray-400"
     : "placeholder:text-gray-500";
-const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
+  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
