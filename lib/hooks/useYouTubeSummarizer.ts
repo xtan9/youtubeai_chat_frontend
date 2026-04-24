@@ -105,7 +105,7 @@ export function useYouTubeSummarizer(
         },
         body: JSON.stringify({
           youtube_url: queryKey[1],
-          include_transcript: queryKey[2] || false,
+          include_transcript: queryKey[2],
         }),
         signal,
       }
