@@ -74,18 +74,30 @@ test("summary language picker regenerates the summary in Spanish", async ({
   // across dropdown reshuffles.
   await page.getByRole("menuitem", { name: /Español/i }).click();
 
-  // Regeneration replaces the summary content. Wait for the button label
-  // to update to the Spanish native name — this is the signal that the
-  // new stream completed, the backend returned a Spanish summary, and
-  // the picker state re-rendered.
-  await expect(
-    page.getByRole("button", { name: /summary language:.*Spanish/i })
-  ).toBeVisible({ timeout: SUMMARY_TIMEOUT_MS });
-
-  // Grab the summary body and check for Spanish content. The header
-  // chrome is still English UI text, so we scope to the prose area.
+  // Can't use "picker button label shows Spanish" as the completion
+  // signal: the button updates optimistically the moment setOutputLanguage
+  // fires, well before the re-stream finishes. During streaming the
+  // ResultsDisplay card (and its .prose) also briefly unmounts as the
+  // React Query result swaps from the old cache row to the new stream —
+  // a naive visibility check on `.prose` catches the empty mid-remount.
+  //
+  // Wait instead for actual Spanish content to land in the summary body.
+  // That's only true when the new stream has produced enough content for
+  // at least one Spanish anchor to surface.
   const summaryProse = page.locator(".prose").first();
-  await expect(summaryProse).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const text = await summaryProse.innerText().catch(() => "");
+        return hasSpanishAnchors(text) ? text : null;
+      },
+      { timeout: SUMMARY_TIMEOUT_MS, message: "Spanish summary never rendered" }
+    )
+    .not.toBeNull();
+
+  // At this point we know the summary re-streamed in Spanish. Assert it
+  // has substantive content (guards against a one-word false positive
+  // like "el" in a code block).
   const proseText = await summaryProse.innerText();
   expect(
     proseText.length,
