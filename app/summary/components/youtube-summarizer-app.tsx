@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { useStageTimers } from "@/lib/hooks/useStageTimers";
@@ -26,6 +27,7 @@ export function YouTubeSummarizerApp({
   initialUrl,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
@@ -194,6 +196,16 @@ export function YouTubeSummarizerApp({
     // above would pointlessly refetch and cache-hit, but it also clears the
     // rendered content briefly. Short-circuit before that.
     if (code === outputLanguage) return;
+    // Cancel the in-flight stream (if any) so a user rapidly switching
+    // Spanish → French doesn't leave an orphan `es` LLM call streaming on
+    // the backend that still writes its cache row. cancelQueries fires the
+    // AbortSignal passed into fetchStreamingSummary, which the route
+    // handler observes via request.signal.aborted and exits without
+    // writing the cache.
+    queryClient.cancelQueries({
+      queryKey: ["youtube-summary-stream", url],
+      exact: false,
+    });
     setOutputLanguage(code);
   };
 

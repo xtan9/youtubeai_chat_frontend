@@ -32,8 +32,12 @@ export const SUPPORTED_OUTPUT_LANGUAGES = [
 export type SupportedLanguage = (typeof SUPPORTED_OUTPUT_LANGUAGES)[number];
 export type SupportedLanguageCode = SupportedLanguage["code"];
 
-export const SUPPORTED_LANGUAGE_CODES: readonly SupportedLanguageCode[] =
-  SUPPORTED_OUTPUT_LANGUAGES.map((l) => l.code);
+// Kept as a tuple literal (not `readonly SupportedLanguageCode[]`) so zod's
+// `.enum()` can infer the exact string-literal union without a cast at the
+// call site. The runtime value is identical to the array form.
+export const SUPPORTED_LANGUAGE_CODES = SUPPORTED_OUTPUT_LANGUAGES.map(
+  (l) => l.code
+) as unknown as readonly [SupportedLanguageCode, ...SupportedLanguageCode[]];
 
 const BY_CODE: ReadonlyMap<SupportedLanguageCode, SupportedLanguage> = new Map(
   SUPPORTED_OUTPUT_LANGUAGES.map((l) => [l.code, l])

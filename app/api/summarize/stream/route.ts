@@ -56,9 +56,7 @@ const RequestBodySchema = z.object({
   // Optional summary-output-language override. Omitted means "video's own
   // language" (current default behavior — matches the video-native cache
   // row). An invalid code fails request validation with 400.
-  output_language: z
-    .enum(SUPPORTED_LANGUAGE_CODES as readonly [string, ...string[]])
-    .optional(),
+  output_language: z.enum(SUPPORTED_LANGUAGE_CODES).optional(),
 });
 
 // Generic user-facing messages; full error details stay in server logs.
@@ -180,14 +178,8 @@ export async function POST(request: Request) {
   const {
     youtube_url,
     include_transcript: includeTranscript,
-    output_language: outputLanguage,
+    output_language: outputLanguageCode,
   } = parsed.data;
-  // zod's `.enum(readonly[...])` widens the inferred type to string here;
-  // narrow back to the union the rest of the code expects. Validation has
-  // already restricted the value to SUPPORTED_LANGUAGE_CODES.
-  const outputLanguageCode = outputLanguage as
-    | (typeof SUPPORTED_LANGUAGE_CODES)[number]
-    | undefined;
 
   // Status codes that mean "this request is not authenticated" as opposed
   // to "the auth service is broken." AuthSessionMissingError + friends are

@@ -2,7 +2,10 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import { extractVideoId } from "./youtube-url";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
-import type { SupportedLanguageCode } from "@/lib/constants/languages";
+import {
+  SUPPORTED_LANGUAGE_CODES,
+  type SupportedLanguageCode,
+} from "@/lib/constants/languages";
 
 // PromptLocale = the VIDEO's detected language (binary — drives the classifier
 // + cache's videos.language column + legacy code paths). Distinct from
@@ -72,6 +75,11 @@ const VideoRowSchema = z.object({
   language: LocaleSchema.nullable(),
 });
 
+// output_language is a closed set — matching the LocaleSchema / TranscriptSource
+// pattern lets a corrupt row (e.g. a rogue "klingon") surface as a loud,
+// fail-open cache miss rather than silently typing as a SupportedLanguageCode.
+const OutputLanguageSchema = z.enum(SUPPORTED_LANGUAGE_CODES);
+
 const SummaryRowSchema = z.object({
   transcript: z.string().nullable(),
   summary: z.string(),
@@ -80,7 +88,7 @@ const SummaryRowSchema = z.object({
   processing_time_seconds: z.number().nullable(),
   transcribe_time_seconds: z.number().nullable(),
   summarize_time_seconds: z.number().nullable(),
-  output_language: z.string().nullable(),
+  output_language: OutputLanguageSchema.nullable(),
 });
 
 // Writes are stricter than reads (which allow nulls for historical rows).
@@ -97,7 +105,7 @@ const SummaryWriteSchema = z.object({
   processing_time_seconds: z.number().min(0),
   transcribe_time_seconds: z.number().min(0),
   summarize_time_seconds: z.number().min(0),
-  output_language: z.string().nullable(),
+  output_language: OutputLanguageSchema.nullable(),
 });
 
 /**
@@ -208,7 +216,7 @@ export async function getCachedSummary(
       processingTimeSeconds: processingTime,
       transcribeTimeSeconds: transcribeTime,
       summarizeTimeSeconds: summarizeTime,
-      outputLanguage: (s.output_language ?? null) as CachedOutputLanguage,
+      outputLanguage: s.output_language,
     };
   } catch (err) {
     console.error("[summarize-cache] read failed (fail-open)", {
