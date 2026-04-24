@@ -421,8 +421,6 @@ describe("POST /api/summarize/stream", () => {
         summary: "Live summary.",
         transcriptSource: "auto_captions",
         summarizeTimeSeconds: 4,
-        enableThinking: false,
-        thinking: null,
         userId: "user-1",
       });
     });
@@ -1536,8 +1534,6 @@ function cachedFixture(overrides: Partial<CachedSummary> = {}): CachedSummary {
     processingTimeSeconds: 10,
     transcribeTimeSeconds: 4,
     summarizeTimeSeconds: 6,
-    enableThinking: false,
-    thinking: null,
     ...overrides,
   } as CachedSummary;
 }

@@ -257,7 +257,7 @@ export async function POST(request: Request) {
       };
 
       try {
-        const cached = await getCachedSummary(youtube_url, false);
+        const cached = await getCachedSummary(youtube_url);
         if (cached) {
           streamCached(sendEvent, cached, { includeTranscript });
           return;
@@ -568,8 +568,6 @@ export async function POST(request: Request) {
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
           userId: authedUser.id,
-          enableThinking: false,
-          thinking: null,
         }).catch((err) => logStageError("cache", err));
       } catch (err) {
         if (isCallerAbort(request.signal)) return;
