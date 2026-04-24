@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
+import { useStageTimers } from "@/lib/hooks/useStageTimers";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
@@ -94,6 +95,22 @@ export function YouTubeSummarizerApp({
     };
   }, [rawData, isLoading, isFetching]);
 
+  // data.transcriptionTime/summaryTime only land with the terminal
+  // `summary` event; tick wall-clock until then.
+  const { transcriptionTime, summaryTime } = useStageTimers(
+    streamingProgress?.stage,
+    {
+      transcriptionTime: data?.transcriptionTime,
+      summaryTime: data?.summaryTime,
+    }
+  );
+
+  const dataWithLiveTimers = useMemo<SummaryResult | undefined>(
+    () =>
+      data ? { ...data, transcriptionTime, summaryTime } : undefined,
+    [data, transcriptionTime, summaryTime]
+  );
+
   // Detect if this is a cached result from query status
   useEffect(() => {
     // If we already detected it's cached from metadata, don't change it
@@ -158,9 +175,9 @@ export function YouTubeSummarizerApp({
               }
             />
           )}
-          {data && !streamError && (
+          {dataWithLiveTimers && !streamError && (
             <ResultsDisplay
-              data={data}
+              data={dataWithLiveTimers}
               copied={copied}
               onCopySummary={handleCopySummary}
               onNewSummary={handleNewSummary}
