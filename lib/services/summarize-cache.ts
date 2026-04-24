@@ -49,6 +49,31 @@ export type CacheWriteParams = VideoMetadata &
     readonly outputLanguage?: CachedOutputLanguage;
   };
 
+// Transcript-only cache shape — the per-video, per-anything-else artifact
+// that survives independently of the summary cache. Carries enough state
+// to skip the entire transcription pipeline on cache hit, but no summary
+// fields (those live on `summaries`, keyed by output_language).
+export interface CachedTranscript {
+  readonly videoId: string;
+  readonly title: string;
+  readonly channelName: string;
+  readonly transcript: string;
+  readonly transcriptSource: TranscriptSource;
+  readonly language: PromptLocale;
+}
+
+export type TranscriptWriteParams = {
+  readonly youtubeUrl: string;
+  readonly transcript: string;
+  readonly transcriptSource: TranscriptSource;
+  readonly language: PromptLocale;
+  // Captions path has these by the time it writes; Whisper path may not
+  // have resolved oembed yet — pass undefined and writeCachedSummary will
+  // overwrite the videos row with the real values when the pipeline ends.
+  readonly title?: string;
+  readonly channelName?: string;
+};
+
 /**
  * Normalized cache key. Prefer the 11-char YouTube video ID so different URL
  * shapes (`youtu.be/X`, `youtube.com/watch?v=X`, `&t=10`, `music.*`) collapse
@@ -106,6 +131,21 @@ const SummaryWriteSchema = z.object({
   transcribe_time_seconds: z.number().min(0),
   summarize_time_seconds: z.number().min(0),
   output_language: OutputLanguageSchema.nullable(),
+});
+
+const TranscriptRowSchema = z.object({
+  transcript: z.string().min(1),
+  transcript_source: TranscriptSourceSchema,
+  language: LocaleSchema,
+});
+
+// Caching an empty transcript would cement the "we tried, got nothing"
+// state forever. Better to fail-open and re-attempt on the next request.
+const TranscriptWriteSchema = z.object({
+  video_id: z.string(),
+  transcript: z.string().min(1),
+  transcript_source: TranscriptSourceSchema,
+  language: LocaleSchema,
 });
 
 /**
@@ -324,5 +364,191 @@ export async function writeCachedSummary(
         cause: historyError,
       });
     }
+  }
+}
+
+/**
+ * Read a previously-cached transcript by video URL — independent of any
+ * summary cache row. Used at the top of the summarize-stream pipeline to
+ * skip transcription whenever this video has been transcribed before, no
+ * matter which output language the current request targets.
+ *
+ * Fail-open semantics match getCachedSummary: any error/schema mismatch
+ * returns null + logs, so a broken cache means "re-transcribe this once,"
+ * not "stall forever."
+ */
+export async function getCachedTranscript(
+  youtubeUrl: string
+): Promise<CachedTranscript | null> {
+  const supabase = getServiceRoleClient();
+  if (!supabase) return null;
+
+  try {
+    const videoKey = computeVideoKey(youtubeUrl);
+    const { data: videoRaw, error: videoError } = await supabase
+      .from("videos")
+      .select("id, title, channel_name, language")
+      .eq("url_hash", videoKey)
+      .maybeSingle();
+
+    if (videoError) {
+      console.error(
+        "[summarize-cache] transcript: video lookup failed (fail-open)",
+        { errorId: "TRANSCRIPT_VIDEO_LOOKUP_ERROR", videoKey, error: videoError }
+      );
+      return null;
+    }
+    if (!videoRaw) return null;
+
+    const videoParsed = VideoRowSchema.safeParse(videoRaw);
+    if (!videoParsed.success) {
+      console.error(
+        "[summarize-cache] transcript: video row schema mismatch (fail-open)",
+        {
+          errorId: "TRANSCRIPT_VIDEO_SCHEMA_MISMATCH",
+          videoKey,
+          issues: videoParsed.error.issues,
+        }
+      );
+      return null;
+    }
+    const video = videoParsed.data;
+
+    const { data: transcriptRaw, error: transcriptError } = await supabase
+      .from("video_transcripts")
+      .select("transcript, transcript_source, language")
+      .eq("video_id", video.id)
+      .maybeSingle();
+
+    if (transcriptError) {
+      console.error(
+        "[summarize-cache] transcript: lookup failed (fail-open)",
+        {
+          errorId: "TRANSCRIPT_LOOKUP_ERROR",
+          videoId: video.id,
+          error: transcriptError,
+        }
+      );
+      return null;
+    }
+    if (!transcriptRaw) return null;
+
+    const parsed = TranscriptRowSchema.safeParse(transcriptRaw);
+    if (!parsed.success) {
+      console.error(
+        "[summarize-cache] transcript: row schema mismatch (fail-open)",
+        {
+          errorId: "TRANSCRIPT_SCHEMA_MISMATCH",
+          videoId: video.id,
+          issues: parsed.error.issues,
+        }
+      );
+      return null;
+    }
+
+    return {
+      videoId: video.id,
+      title: video.title ?? "",
+      channelName: video.channel_name ?? "",
+      transcript: parsed.data.transcript,
+      transcriptSource: parsed.data.transcript_source,
+      language: parsed.data.language,
+    };
+  } catch (err) {
+    console.error("[summarize-cache] transcript read failed (fail-open)", {
+      errorId: "TRANSCRIPT_READ_THREW",
+      youtubeUrl,
+      err,
+    });
+    return null;
+  }
+}
+
+/**
+ * Persist the transcript right after transcription succeeds — independent
+ * of LLM completion. Subsequent requests for this video skip the entire
+ * transcription pipeline (VPS metadata + captions + Whisper) regardless
+ * of the requested output language.
+ *
+ * Throws on any partial-write failure so the caller's `.catch` can log
+ * with full context. The route fires this without awaiting its result
+ * (writeCachedTranscript(...).catch(logStageError)) so the user-visible
+ * stream never waits on the transcript-cache write.
+ */
+export async function writeCachedTranscript(
+  params: TranscriptWriteParams
+): Promise<void> {
+  const supabase = getServiceRoleClient();
+  if (!supabase) {
+    const payload = {
+      errorId: "TRANSCRIPT_WRITE_SKIP_NO_CREDS",
+      hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    };
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[summarize-cache] transcript write skipped: service-role key not configured (cache disabled in production)",
+        payload
+      );
+    } else {
+      console.warn(
+        "[summarize-cache] transcript write skipped: service-role key not configured",
+        payload
+      );
+    }
+    return;
+  }
+
+  const videoKey = computeVideoKey(params.youtubeUrl);
+
+  // Upsert videos row first so the transcript row's FK is satisfiable.
+  // Title/channel may be undefined on the Whisper path — store NULL until
+  // writeCachedSummary backfills them at end of pipeline.
+  const { data: video, error: videoError } = await supabase
+    .from("videos")
+    .upsert(
+      {
+        youtube_url: params.youtubeUrl,
+        url_hash: videoKey,
+        title: params.title || null,
+        channel_name: params.channelName || null,
+        language: params.language,
+      },
+      { onConflict: "url_hash" }
+    )
+    .select("id")
+    .single();
+
+  if (videoError || !video) {
+    throw new Error(
+      `video upsert failed: ${videoError?.message ?? "no row returned"}`,
+      { cause: videoError ?? undefined }
+    );
+  }
+
+  const transcriptRow = {
+    video_id: video.id,
+    transcript: params.transcript,
+    transcript_source: params.transcriptSource,
+    language: params.language,
+  };
+
+  const writeCheck = TranscriptWriteSchema.safeParse(transcriptRow);
+  if (!writeCheck.success) {
+    throw new Error(
+      `transcript write failed schema validation: ${writeCheck.error.message}`,
+      { cause: writeCheck.error }
+    );
+  }
+
+  const { error: transcriptError } = await supabase
+    .from("video_transcripts")
+    .upsert(writeCheck.data, { onConflict: "video_id" });
+
+  if (transcriptError) {
+    throw new Error(
+      `transcript upsert failed: ${transcriptError.message}`,
+      { cause: transcriptError }
+    );
   }
 }

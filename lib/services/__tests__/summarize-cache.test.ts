@@ -15,13 +15,22 @@ const mocks = vi.hoisted(() => {
   const videosBuilder = builder();
   const summariesBuilder = builder();
   const historyBuilder = builder();
+  const transcriptsBuilder = builder();
   const from = vi.fn((table: string) => {
     if (table === "videos") return videosBuilder;
     if (table === "summaries") return summariesBuilder;
+    if (table === "video_transcripts") return transcriptsBuilder;
     return historyBuilder;
   });
   const createClient = vi.fn(() => ({ from }));
-  return { createClient, from, videosBuilder, summariesBuilder, historyBuilder };
+  return {
+    createClient,
+    from,
+    videosBuilder,
+    summariesBuilder,
+    historyBuilder,
+    transcriptsBuilder,
+  };
 });
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -524,5 +533,299 @@ describe("writeCachedSummary", () => {
       writeCachedSummary({ ...baseParams, summary: "" })
     ).rejects.toThrow(/summary write failed schema validation/);
     expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("getCachedTranscript", () => {
+  beforeEach(() => {
+    mocks.createClient.mockClear();
+    mocks.videosBuilder.maybeSingle.mockReset();
+    mocks.videosBuilder.select.mockClear();
+    mocks.videosBuilder.eq.mockClear();
+    mocks.transcriptsBuilder.maybeSingle.mockReset();
+    mocks.transcriptsBuilder.select.mockClear();
+    mocks.transcriptsBuilder.eq.mockClear();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns null when creds missing", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const { getCachedTranscript } = await loadFresh();
+    expect(await getCachedTranscript("https://youtu.be/x")).toBeNull();
+  });
+
+  it("returns null when video row missing (cache miss is the safe default)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+    // Don't query transcripts when there's no video row to FK against.
+    expect(mocks.transcriptsBuilder.select).not.toHaveBeenCalled();
+  });
+
+  it("returns null on video lookup error (fail-open)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: null,
+      error: { message: "boom" },
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+  });
+
+  it("returns null on transcript lookup error (fail-open)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: null,
+      error: { message: "boom" },
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+  });
+
+  it("returns null when transcript row schema is invalid (fail-open)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      // language "xx" violates the en|zh schema
+      data: { transcript: "tr", transcript_source: "whisper", language: "xx" },
+      error: null,
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+    expect(
+      error.mock.calls.some((c) => String(c[0]).includes("schema mismatch"))
+    ).toBe(true);
+  });
+
+  it("returns the parsed transcript on happy path", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        transcript: "the cached transcript",
+        transcript_source: "whisper",
+        language: "en",
+      },
+      error: null,
+    });
+
+    const { getCachedTranscript } = await loadFresh();
+    const result = await getCachedTranscript(
+      "https://youtu.be/dQw4w9WgXcQ"
+    );
+    expect(result).toEqual({
+      videoId: "v1",
+      title: "t",
+      channelName: "c",
+      transcript: "the cached transcript",
+      transcriptSource: "whisper",
+      language: "en",
+    });
+    expect(mocks.transcriptsBuilder.eq).toHaveBeenCalledWith(
+      "video_id",
+      "v1"
+    );
+  });
+});
+
+describe("writeCachedTranscript", () => {
+  beforeEach(() => {
+    mocks.createClient.mockClear();
+    mocks.videosBuilder.single.mockReset();
+    mocks.videosBuilder.upsert.mockClear();
+    mocks.transcriptsBuilder.upsert.mockClear();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const baseTranscript = {
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    transcript: "the transcript",
+    transcriptSource: "whisper" as const,
+    language: "en" as const,
+  };
+
+  it("warns and returns without throwing when creds missing (fail-open)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript(baseTranscript);
+    expect(warn).toHaveBeenCalled();
+    expect(mocks.videosBuilder.upsert).not.toHaveBeenCalled();
+    expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
+  });
+
+  it("upserts videos row first with url_hash onConflict, then transcripts row with video_id onConflict", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.transcriptsBuilder
+    );
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript(baseTranscript);
+
+    const videosCall = mocks.videosBuilder.upsert.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(videosCall[1]).toEqual({ onConflict: "url_hash" });
+
+    const transcriptCall = mocks.transcriptsBuilder.upsert.mock
+      .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
+    expect(transcriptCall[1]).toEqual({ onConflict: "video_id" });
+    expect(transcriptCall[0]).toMatchObject({
+      video_id: "v1",
+      transcript: "the transcript",
+      transcript_source: "whisper",
+      language: "en",
+    });
+  });
+
+  it("writes title/channel into videos row when caller provides them (captions path)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.transcriptsBuilder
+    );
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript({
+      ...baseTranscript,
+      title: "Big Buck Bunny",
+      channelName: "Blender",
+    });
+
+    const videosCall = mocks.videosBuilder.upsert.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(videosCall[0]).toMatchObject({
+      title: "Big Buck Bunny",
+      channel_name: "Blender",
+      language: "en",
+    });
+  });
+
+  it("upserts videos row with NULL title/channel when caller omits them (Whisper path before oembed resolves)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({ error: null }) as unknown as typeof mocks.transcriptsBuilder
+    );
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript(baseTranscript);
+
+    const videosCall = mocks.videosBuilder.upsert.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(videosCall[0]).toMatchObject({
+      title: null,
+      channel_name: null,
+      language: "en",
+    });
+  });
+
+  it("throws when video upsert fails (so caller's .catch logs with context)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: null,
+      error: { message: "unique violation" },
+    });
+
+    const { writeCachedTranscript } = await loadFresh();
+    await expect(writeCachedTranscript(baseTranscript)).rejects.toThrow(
+      /video upsert failed: unique violation/
+    );
+    expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
+  });
+
+  it("throws when transcript upsert fails", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.upsert.mockReturnValueOnce(
+      Promise.resolve({
+        error: { message: "transcripts upsert blew up" },
+      }) as unknown as typeof mocks.transcriptsBuilder
+    );
+
+    const { writeCachedTranscript } = await loadFresh();
+    await expect(writeCachedTranscript(baseTranscript)).rejects.toThrow(
+      /transcript upsert failed: transcripts upsert blew up/
+    );
+  });
+
+  it("rejects empty transcript (invariant: never cache an empty transcript)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.single.mockResolvedValue({
+      data: { id: "v1" },
+      error: null,
+    });
+
+    const { writeCachedTranscript } = await loadFresh();
+    await expect(
+      writeCachedTranscript({ ...baseTranscript, transcript: "" })
+    ).rejects.toThrow(/transcript write failed schema validation/);
+    expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
   });
 });
