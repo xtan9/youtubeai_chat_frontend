@@ -80,7 +80,7 @@ describe("getCachedSummary", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     const { getCachedSummary } = await loadFresh();
-    expect(await getCachedSummary("https://youtu.be/x", false)).toBeNull();
+    expect(await getCachedSummary("https://youtu.be/x")).toBeNull();
   });
 
   it("returns null on video lookup error (fail-open)", async () => {
@@ -94,7 +94,7 @@ describe("getCachedSummary", () => {
 
     const { getCachedSummary } = await loadFresh();
     expect(
-      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", false)
+      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ")
     ).toBeNull();
   });
 
@@ -109,7 +109,7 @@ describe("getCachedSummary", () => {
 
     const { getCachedSummary } = await loadFresh();
     expect(
-      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", false)
+      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ")
     ).toBeNull();
   });
 
@@ -128,43 +128,11 @@ describe("getCachedSummary", () => {
 
     const { getCachedSummary } = await loadFresh();
     expect(
-      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", false)
+      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ")
     ).toBeNull();
   });
 
-  it("logs DATA INTEGRITY when thinking invariant violated (not routine drift)", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
-    mocks.videosBuilder.maybeSingle.mockResolvedValue({
-      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
-      error: null,
-    });
-    mocks.summariesBuilder.maybeSingle.mockResolvedValue({
-      data: {
-        transcript: "t",
-        summary: "s",
-        thinking: "should-be-null",
-        transcript_source: "auto_captions",
-        enable_thinking: false,
-        model: "m",
-        processing_time_seconds: 1,
-        transcribe_time_seconds: 0.5,
-        summarize_time_seconds: 0.5,
-      },
-      error: null,
-    });
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { getCachedSummary } = await loadFresh();
-    expect(
-      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", false)
-    ).toBeNull();
-    expect(error.mock.calls.some((c) => String(c[0]).includes("DATA INTEGRITY"))).toBe(
-      true
-    );
-  });
-
-  it("logs generic schema mismatch for non-invariant drift", async () => {
+  it("logs schema mismatch on row shape drift", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.maybeSingle.mockResolvedValue({
@@ -175,9 +143,7 @@ describe("getCachedSummary", () => {
       data: {
         transcript: "t",
         summary: null, // schema expects string
-        thinking: null,
         transcript_source: "auto_captions",
-        enable_thinking: false,
         model: "m",
         processing_time_seconds: 1,
         transcribe_time_seconds: 0.5,
@@ -189,13 +155,10 @@ describe("getCachedSummary", () => {
 
     const { getCachedSummary } = await loadFresh();
     expect(
-      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", false)
+      await getCachedSummary("https://youtu.be/dQw4w9WgXcQ")
     ).toBeNull();
     expect(error.mock.calls.some((c) => String(c[0]).includes("schema mismatch"))).toBe(
       true
-    );
-    expect(error.mock.calls.some((c) => String(c[0]).includes("DATA INTEGRITY"))).toBe(
-      false
     );
   });
 
@@ -215,9 +178,7 @@ describe("getCachedSummary", () => {
       data: {
         transcript: "tr",
         summary: "su",
-        thinking: null,
         transcript_source: "whisper",
-        enable_thinking: false,
         model: "m1",
         processing_time_seconds: 12.5,
         transcribe_time_seconds: 7,
@@ -227,10 +188,7 @@ describe("getCachedSummary", () => {
     });
 
     const { getCachedSummary } = await loadFresh();
-    const result = await getCachedSummary(
-      "https://youtu.be/dQw4w9WgXcQ",
-      false
-    );
+    const result = await getCachedSummary("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({
       videoId: "v1",
       title: "My Vid",
@@ -243,8 +201,6 @@ describe("getCachedSummary", () => {
       processingTimeSeconds: 12.5,
       transcribeTimeSeconds: 7,
       summarizeTimeSeconds: 5.5,
-      enableThinking: false,
-      thinking: null,
     });
   });
 
@@ -259,9 +215,7 @@ describe("getCachedSummary", () => {
       data: {
         transcript: "tr",
         summary: "su",
-        thinking: null,
         transcript_source: "whisper",
-        enable_thinking: false,
         model: "m",
         processing_time_seconds: 10,
         transcribe_time_seconds: 4,
@@ -271,31 +225,9 @@ describe("getCachedSummary", () => {
     });
 
     const { getCachedSummary } = await loadFresh();
-    const result = await getCachedSummary(
-      "https://youtu.be/dQw4w9WgXcQ",
-      false
-    );
+    const result = await getCachedSummary("https://youtu.be/dQw4w9WgXcQ");
     expect(result?.summarizeTimeSeconds).toBe(6);
     expect(result?.transcribeTimeSeconds).toBe(4);
-  });
-
-  it("filters by enable_thinking when reading", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
-    mocks.videosBuilder.maybeSingle.mockResolvedValue({
-      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
-      error: null,
-    });
-    mocks.summariesBuilder.maybeSingle.mockResolvedValue({
-      data: null,
-      error: null,
-    });
-
-    const { getCachedSummary } = await loadFresh();
-    await getCachedSummary("https://youtu.be/dQw4w9WgXcQ", true);
-    const eqCalls = mocks.summariesBuilder.eq.mock.calls;
-    expect(eqCalls).toContainEqual(["enable_thinking", true]);
-    expect(eqCalls).toContainEqual(["video_id", "v1"]);
   });
 
   it("memoizes the Supabase client across calls", async () => {
@@ -307,8 +239,8 @@ describe("getCachedSummary", () => {
     });
 
     const { getCachedSummary } = await loadFresh();
-    await getCachedSummary("https://youtu.be/a", false);
-    await getCachedSummary("https://youtu.be/b", false);
+    await getCachedSummary("https://youtu.be/a");
+    await getCachedSummary("https://youtu.be/b");
     expect(mocks.createClient).toHaveBeenCalledTimes(1);
   });
 });
@@ -335,8 +267,6 @@ describe("writeCachedSummary", () => {
     processingTimeSeconds: 1,
     transcribeTimeSeconds: 0.5,
     summarizeTimeSeconds: 0.5,
-    enableThinking: false as const,
-    thinking: null,
   };
 
   it("warns and returns without throwing when creds missing", async () => {
@@ -373,7 +303,7 @@ describe("writeCachedSummary", () => {
     expect(videosCall[1]).toEqual({ onConflict: "url_hash" });
   });
 
-  it("upserts summaries with composite video_id,enable_thinking onConflict", async () => {
+  it("upserts summaries with video_id onConflict", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -389,7 +319,7 @@ describe("writeCachedSummary", () => {
 
     const summariesCall = mocks.summariesBuilder.upsert.mock
       .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
-    expect(summariesCall[1]).toEqual({ onConflict: "video_id,enable_thinking" });
+    expect(summariesCall[1]).toEqual({ onConflict: "video_id" });
     expect(summariesCall[0]).toMatchObject({
       transcribe_time_seconds: 0.5,
       summarize_time_seconds: 0.5,
@@ -490,57 +420,6 @@ describe("writeCachedSummary", () => {
     ).rejects.toThrow(/history upsert failed: history upsert blew up/);
   });
 
-  it("throws when the write-side invariant fails (thinking set while disabled)", async () => {
-    // TS/zod write validation: a caller that bypassed the discriminated
-    // union (e.g. via `any` cast) must not corrupt the cache.
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
-    mocks.videosBuilder.single.mockResolvedValue({
-      data: { id: "v1" },
-      error: null,
-    });
-    const { writeCachedSummary } = await loadFresh();
-
-    // Deliberate invariant bypass: enableThinking=false but thinking set.
-    const bad = {
-      ...baseParams,
-      thinking: "illegal",
-    } as unknown as Parameters<typeof writeCachedSummary>[0];
-
-    await expect(writeCachedSummary(bad)).rejects.toThrow(
-      /summary write rejected by invariant check/
-    );
-    expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
-  });
-
-  it("accepts enableThinking:true with a non-null thinking value", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
-    mocks.videosBuilder.single.mockResolvedValue({
-      data: { id: "v1" },
-      error: null,
-    });
-    mocks.summariesBuilder.upsert.mockReturnValueOnce(
-      Promise.resolve({ error: null }) as unknown as typeof mocks.summariesBuilder
-    );
-
-    const { writeCachedSummary } = await loadFresh();
-    await expect(
-      writeCachedSummary({
-        ...baseParams,
-        enableThinking: true,
-        thinking: "reasoning text",
-      })
-    ).resolves.toBeUndefined();
-
-    const summariesCall = mocks.summariesBuilder.upsert.mock
-      .calls[0] as unknown as [Record<string, unknown>];
-    expect(summariesCall[0]).toMatchObject({
-      enable_thinking: true,
-      thinking: "reasoning text",
-    });
-  });
-
   it("rejects empty summary (invariant: never cache an empty row)", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
@@ -551,7 +430,7 @@ describe("writeCachedSummary", () => {
     const { writeCachedSummary } = await loadFresh();
     await expect(
       writeCachedSummary({ ...baseParams, summary: "" })
-    ).rejects.toThrow(/summary write rejected by invariant check/);
+    ).rejects.toThrow(/summary write failed schema validation/);
     expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
   });
 });

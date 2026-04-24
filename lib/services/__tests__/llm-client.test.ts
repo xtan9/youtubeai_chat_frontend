@@ -50,7 +50,7 @@ describe("streamLlmSummary", () => {
     vi.stubEnv("LLM_GATEWAY_URL", "");
     vi.stubEnv("LLM_GATEWAY_API_KEY", "");
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY/);
   });
 
@@ -68,7 +68,7 @@ describe("streamLlmSummary", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.model).toBe(DEFAULT_LLM_MODEL);
@@ -97,7 +97,7 @@ describe("streamLlmSummary", () => {
       )
     );
 
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
     expect(
       errSpy.mock.calls.some((c) => String(c[0]).includes("LLM_MODEL unset"))
     ).toBe(false);
@@ -119,7 +119,7 @@ describe("streamLlmSummary", () => {
       )
     );
 
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
     expect(
       errSpy.mock.calls.some((c) => String(c[0]).includes("LLM_MODEL unset"))
     ).toBe(true);
@@ -143,7 +143,7 @@ describe("streamLlmSummary", () => {
       ])
     );
     vi.stubGlobal("fetch", fetchMock);
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://gw.example.com/v1/chat/completions");
     expect((init.headers as Record<string, string>).Authorization).toBe(
@@ -167,7 +167,7 @@ describe("streamLlmSummary", () => {
       ])
     );
     vi.stubGlobal("fetch", fetchMock);
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer key with spaces"
@@ -187,7 +187,7 @@ describe("streamLlmSummary", () => {
       ])
     );
     vi.stubGlobal("fetch", fetchMock);
-    await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+    await collect(streamLlmSummary({ prompt: "x" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
       model: string;
     };
@@ -202,7 +202,7 @@ describe("streamLlmSummary", () => {
     vi.stubEnv("LLM_GATEWAY_URL", "  \n  ");
     vi.stubEnv("LLM_GATEWAY_API_KEY", "key");
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY/);
   });
 
@@ -215,7 +215,7 @@ describe("streamLlmSummary", () => {
         .mockResolvedValue(new Response("upstream boom", { status: 502 }))
     );
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/LLM gateway error \(502\): upstream boom/);
   });
 
@@ -232,7 +232,7 @@ describe("streamLlmSummary", () => {
       )
     );
     const events = await collect(
-      streamLlmSummary({ prompt: "x", enableThinking: false })
+      streamLlmSummary({ prompt: "x" })
     );
     expect(events[0]).toEqual({
       type: "status",
@@ -259,44 +259,11 @@ describe("streamLlmSummary", () => {
       )
     );
     const events = await collect(
-      streamLlmSummary({ prompt: "x", enableThinking: false })
+      streamLlmSummary({ prompt: "x" })
     );
     expect(events.filter((e) => e.type === "content")).toEqual([
       { type: "content", text: "hello" },
     ]);
-  });
-
-  it("only yields reasoning when enableThinking is true", async () => {
-    stubEnv();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        sseResponse([
-          'data: {"choices":[{"delta":{"reasoning_content":"deep"}}]}\n',
-          'data: {"choices":[{"delta":{"content":"result"}}]}\n',
-          "data: [DONE]\n",
-        ])
-      )
-    );
-    const noThink = await collect(
-      streamLlmSummary({ prompt: "x", enableThinking: false })
-    );
-    expect(noThink.some((e) => e.type === "thinking")).toBe(false);
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        sseResponse([
-          'data: {"choices":[{"delta":{"reasoning_content":"deep"}}]}\n',
-          'data: {"choices":[{"delta":{"content":"result"}}]}\n',
-          "data: [DONE]\n",
-        ])
-      )
-    );
-    const withThink = await collect(
-      streamLlmSummary({ prompt: "x", enableThinking: true })
-    );
-    expect(withThink.some((e) => e.type === "thinking")).toBe(true);
   });
 
   it("throws when stream closes without producing content", async () => {
@@ -306,7 +273,7 @@ describe("streamLlmSummary", () => {
       vi.fn().mockResolvedValue(sseResponse(["data: [DONE]\n"]))
     );
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/without producing content/);
   });
 
@@ -320,7 +287,7 @@ describe("streamLlmSummary", () => {
       )
     );
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/malformed SSE chunks/);
   });
 
@@ -346,7 +313,7 @@ describe("streamLlmSummary", () => {
     );
 
     const events = await collect(
-      streamLlmSummary({ prompt: "x", enableThinking: false })
+      streamLlmSummary({ prompt: "x" })
     );
 
     const contents = events
@@ -379,7 +346,6 @@ describe("streamLlmSummary", () => {
     await collect(
       streamLlmSummary({
         prompt: "x",
-        enableThinking: false,
         signal: controller.signal,
       })
     );
@@ -412,7 +378,7 @@ describe("streamLlmSummary", () => {
     );
     let caught: unknown;
     try {
-      await collect(streamLlmSummary({ prompt: "x", enableThinking: false }));
+      await collect(streamLlmSummary({ prompt: "x" }));
     } catch (e) {
       caught = e;
     }
@@ -443,7 +409,7 @@ describe("streamLlmSummary", () => {
       vi.fn().mockResolvedValue(new Response(body, { status: 200 }))
     );
     await expect(
-      collect(streamLlmSummary({ prompt: "x", enableThinking: false }))
+      collect(streamLlmSummary({ prompt: "x" }))
     ).rejects.toThrow(/dropped after partial content/);
   });
 
@@ -462,7 +428,6 @@ describe("streamLlmSummary", () => {
     await collect(
       streamLlmSummary({
         prompt: "x",
-        enableThinking: false,
         model: "explicit-model",
       })
     );
@@ -486,7 +451,6 @@ describe("streamLlmSummary", () => {
     await collect(
       streamLlmSummary({
         prompt: "x",
-        enableThinking: false,
         // Regression: `??` alone would let "" slip through and hit the gateway.
         model: "   ",
       })

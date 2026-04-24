@@ -5,9 +5,9 @@
 Every new migration should be a single, small, forward-only DDL change:
 
 ```bash
-supabase migration new add_enable_thinking
+supabase migration new add_summary_word_count
 # then edit the file to contain ONE conceptual change, e.g.:
-#   ALTER TABLE summaries ADD COLUMN enable_thinking BOOLEAN NOT NULL DEFAULT FALSE;
+#   ALTER TABLE summaries ADD COLUMN word_count INTEGER;
 ```
 
 Do NOT write "big idempotent" migrations that try to be both "create

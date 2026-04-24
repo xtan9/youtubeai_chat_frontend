@@ -15,8 +15,6 @@ function baseCached(overrides: Partial<CachedSummary> = {}): CachedSummary {
     processingTimeSeconds: 10,
     transcribeTimeSeconds: 4,
     summarizeTimeSeconds: 6,
-    enableThinking: false,
-    thinking: null,
     ...overrides,
   } as CachedSummary;
 }
@@ -30,13 +28,11 @@ describe("forwardLlmEvent", () => {
     expect(sent).toEqual([]);
   });
 
-  it("passes through content and thinking events unchanged", () => {
+  it("passes through content events unchanged", () => {
     const sent: Record<string, unknown>[] = [];
     forwardLlmEvent({ type: "content", text: "abc" }, (d) => sent.push(d));
-    forwardLlmEvent({ type: "thinking", text: "deep" }, (d) => sent.push(d));
     expect(sent).toEqual([
       { type: "content", text: "abc" },
-      { type: "thinking", text: "deep" },
     ]);
   });
 
@@ -70,34 +66,8 @@ describe("streamCached event ordering contract", () => {
   it("emits metadata → content → summary in the minimal case", () => {
     const sent: Record<string, unknown>[] = [];
     streamCached((d) => sent.push(d), baseCached(), {
-      enableThinking: false,
       includeTranscript: false,
     });
-    expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
-  });
-
-  it("inserts thinking after metadata when both cached and requested", () => {
-    const sent: Record<string, unknown>[] = [];
-    streamCached(
-      (d) => sent.push(d),
-      baseCached({ enableThinking: true, thinking: "deep thoughts" }),
-      { enableThinking: true, includeTranscript: false }
-    );
-    expect(sent.map((e) => e.type)).toEqual([
-      "metadata",
-      "thinking",
-      "content",
-      "summary",
-    ]);
-  });
-
-  it("skips thinking when cached row has no thinking text", () => {
-    const sent: Record<string, unknown>[] = [];
-    streamCached(
-      (d) => sent.push(d),
-      baseCached({ enableThinking: true, thinking: null }),
-      { enableThinking: true, includeTranscript: false }
-    );
     expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
   });
 
@@ -106,7 +76,7 @@ describe("streamCached event ordering contract", () => {
     streamCached(
       (d) => sent.push(d),
       baseCached({ transcript: "full transcript" }),
-      { enableThinking: false, includeTranscript: true }
+      { includeTranscript: true }
     );
     expect(sent.map((e) => e.type)).toEqual([
       "metadata",
@@ -121,7 +91,7 @@ describe("streamCached event ordering contract", () => {
     streamCached(
       (d) => sent.push(d),
       baseCached({ transcript: "" }),
-      { enableThinking: false, includeTranscript: true }
+      { includeTranscript: true }
     );
     expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
   });
@@ -131,7 +101,7 @@ describe("streamCached event ordering contract", () => {
     streamCached(
       (d) => sent.push(d),
       baseCached({ title: "MyTitle", channelName: "MyChan" }),
-      { enableThinking: false, includeTranscript: false }
+      { includeTranscript: false }
     );
     expect(sent[0]).toEqual({
       type: "metadata",
@@ -147,7 +117,7 @@ describe("streamCached event ordering contract", () => {
     streamCached(
       (d) => sent.push(d),
       baseCached({ transcribeTimeSeconds: 4, summarizeTimeSeconds: 6 }),
-      { enableThinking: false, includeTranscript: false }
+      { includeTranscript: false }
     );
     expect(sent.at(-1)).toMatchObject({
       total_time: 10,
@@ -159,7 +129,6 @@ describe("streamCached event ordering contract", () => {
   it("calls sendEvent in strict order (no interleaving)", () => {
     const sendEvent = vi.fn();
     streamCached(sendEvent, baseCached(), {
-      enableThinking: false,
       includeTranscript: false,
     });
     const callTypes = sendEvent.mock.calls.map((c) => c[0].type);

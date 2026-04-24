@@ -4,7 +4,6 @@ import type { ClientStage } from "@/lib/stages";
 
 export type SseEvent =
   | { type: "status"; message: string; stage: ClientStage }
-  | { type: "thinking"; text: string }
   | { type: "content"; text: string }
   | {
       type: "metadata";
@@ -30,9 +29,6 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
     case "status":
       sendEvent({ type: "status", message: event.message, stage: event.stage });
       return;
-    case "thinking":
-      sendEvent({ type: "thinking", text: event.text });
-      return;
     case "content":
       sendEvent({ type: "content", text: event.text });
       return;
@@ -57,7 +53,7 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
 export function streamCached(
   sendEvent: SendEvent,
   cached: CachedSummary,
-  opts: { enableThinking: boolean; includeTranscript: boolean }
+  opts: { includeTranscript: boolean }
 ): void {
   sendEvent({
     type: "metadata",
@@ -66,10 +62,6 @@ export function streamCached(
     title: cached.title,
     channel: cached.channelName,
   });
-
-  if (opts.enableThinking && cached.enableThinking && cached.thinking) {
-    sendEvent({ type: "thinking", text: cached.thinking });
-  }
 
   sendEvent({ type: "content", text: cached.summary });
 

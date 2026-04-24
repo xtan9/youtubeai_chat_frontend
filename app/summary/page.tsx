@@ -12,20 +12,16 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SummaryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ url?: string; reasoning?: string }>;
+  searchParams: Promise<{ url?: string }>;
 }) {
   const params = await searchParams;
-  const useReasoning = params.reasoning === "true";
 
   return (
     <>
       <h2 className="sr-only">
         YouTube Video Summary - AI-Generated Key Points & Insights
       </h2>
-      <YouTubeSummarizerApp
-        initialUrl={params.url}
-        enableReasoning={useReasoning}
-      />
+      <YouTubeSummarizerApp initialUrl={params.url} />
     </>
   );
 }

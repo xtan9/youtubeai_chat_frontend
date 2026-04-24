@@ -12,13 +12,7 @@ export interface VideoMetadata {
   readonly language: PromptLocale;
 }
 
-// Discriminated on `enableThinking`, so the type system enforces the invariant
-// "thinking is null when thinking was not requested."
-export type ThinkingState =
-  | { readonly enableThinking: true; readonly thinking: string | null }
-  | { readonly enableThinking: false; readonly thinking: null };
-
-export type SummaryBody = ThinkingState & {
+export type SummaryBody = {
   readonly transcript: string;
   readonly summary: string;
   readonly transcriptSource: TranscriptSource;
@@ -60,51 +54,28 @@ const VideoRowSchema = z.object({
   language: LocaleSchema.nullable(),
 });
 
-const SummaryRowSchema = z
-  .object({
-    transcript: z.string().nullable(),
-    summary: z.string(),
-    thinking: z.string().nullable(),
-    transcript_source: TranscriptSourceSchema,
-    enable_thinking: z.boolean(),
-    model: z.string().nullable(),
-    processing_time_seconds: z.number().nullable(),
-    transcribe_time_seconds: z.number().nullable(),
-    summarize_time_seconds: z.number().nullable(),
-  })
-  .refine((s) => s.enable_thinking || s.thinking === null, {
-    message: "thinking must be null when enable_thinking is false",
-    path: ["thinking"],
-  });
+const SummaryRowSchema = z.object({
+  transcript: z.string().nullable(),
+  summary: z.string(),
+  transcript_source: TranscriptSourceSchema,
+  model: z.string().nullable(),
+  processing_time_seconds: z.number().nullable(),
+  transcribe_time_seconds: z.number().nullable(),
+  summarize_time_seconds: z.number().nullable(),
+});
 
 // Writes are stricter than reads (which allow nulls for historical rows).
-// Don't unify without a backfill. DB CHECK is the authoritative invariant.
-const SummaryWriteSchema = z
-  .object({
-    video_id: z.string(),
-    transcript: z.string(),
-    summary: z.string().min(1),
-    thinking: z.string().nullable(),
-    transcript_source: TranscriptSourceSchema,
-    enable_thinking: z.boolean(),
-    model: z.string(),
-    processing_time_seconds: z.number().min(0),
-    transcribe_time_seconds: z.number().min(0),
-    summarize_time_seconds: z.number().min(0),
-  })
-  .refine((s) => s.enable_thinking || s.thinking === null, {
-    message: "thinking must be null when enable_thinking is false",
-    path: ["thinking"],
-  });
-
-// Detect via structured issue fields, not the human-readable message — so
-// rewording or localization of the message doesn't silently reclassify a
-// data-integrity violation as generic schema drift.
-function isThinkingInvariantViolation(err: z.ZodError): boolean {
-  return err.issues.some(
-    (i) => i.code === "custom" && i.path[0] === "thinking"
-  );
-}
+// Don't unify without a backfill.
+const SummaryWriteSchema = z.object({
+  video_id: z.string(),
+  transcript: z.string(),
+  summary: z.string().min(1),
+  transcript_source: TranscriptSourceSchema,
+  model: z.string(),
+  processing_time_seconds: z.number().min(0),
+  transcribe_time_seconds: z.number().min(0),
+  summarize_time_seconds: z.number().min(0),
+});
 
 /**
  * Fails open (null) on any error with a log so a broken cache surfaces as
@@ -112,8 +83,7 @@ function isThinkingInvariantViolation(err: z.ZodError): boolean {
  * degradation.
  */
 export async function getCachedSummary(
-  youtubeUrl: string,
-  enableThinking: boolean
+  youtubeUrl: string
 ): Promise<CachedSummary | null> {
   const supabase = getServiceRoleClient();
   if (!supabase) return null;
@@ -145,13 +115,17 @@ export async function getCachedSummary(
     }
     const video = videoParsed.data;
 
+    // maybeSingle() trusts the DB UNIQUE(video_id) constraint installed by
+    // migration 20260423000000_drop_thinking_columns.sql. If two rows ever
+    // slipped through (constraint dropped, bad data load) PostgREST returns
+    // PGRST116 and the branch below treats it as a fail-open cache miss —
+    // the request re-bills through the LLM instead of silently picking a row.
     const { data: summaryRaw, error: summaryError } = await supabase
       .from("summaries")
       .select(
-        "transcript, summary, thinking, transcript_source, enable_thinking, model, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds"
+        "transcript, summary, transcript_source, model, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds"
       )
       .eq("video_id", video.id)
-      .eq("enable_thinking", enableThinking)
       .maybeSingle();
 
     if (summaryError) {
@@ -165,27 +139,13 @@ export async function getCachedSummary(
 
     const summaryParsed = SummaryRowSchema.safeParse(summaryRaw);
     if (!summaryParsed.success) {
-      if (isThinkingInvariantViolation(summaryParsed.error)) {
-        // DB CHECK `summaries_thinking_consistent` is supposed to make this
-        // unreachable. Reaching it means the constraint was bypassed or never
-        // applied — treat as a data-integrity incident, not routine drift.
-        console.error(
-          "[summarize-cache] DATA INTEGRITY: thinking invariant violated in DB row",
-          { videoId: video.id, issues: summaryParsed.error.issues }
-        );
-      } else {
-        console.error(
-          "[summarize-cache] summary row schema mismatch (fail-open)",
-          { videoId: video.id, issues: summaryParsed.error.issues }
-        );
-      }
+      console.error(
+        "[summarize-cache] summary row schema mismatch (fail-open)",
+        { videoId: video.id, issues: summaryParsed.error.issues }
+      );
       return null;
     }
     const s = summaryParsed.data;
-
-    const thinkingState: ThinkingState = s.enable_thinking
-      ? { enableThinking: true, thinking: s.thinking }
-      : { enableThinking: false, thinking: null };
 
     const processingTime = s.processing_time_seconds ?? 0;
     const transcribeTime = s.transcribe_time_seconds ?? 0;
@@ -207,7 +167,6 @@ export async function getCachedSummary(
       processingTimeSeconds: processingTime,
       transcribeTimeSeconds: transcribeTime,
       summarizeTimeSeconds: summarizeTime,
-      ...thinkingState,
     };
   } catch (err) {
     console.error("[summarize-cache] read failed (fail-open)", {
@@ -277,9 +236,7 @@ export async function writeCachedSummary(
     video_id: video.id,
     transcript: params.transcript,
     summary: params.summary,
-    thinking: params.thinking,
     transcript_source: params.transcriptSource,
-    enable_thinking: params.enableThinking,
     model: params.model,
     processing_time_seconds: params.processingTimeSeconds,
     transcribe_time_seconds: params.transcribeTimeSeconds,
@@ -289,14 +246,14 @@ export async function writeCachedSummary(
   const writeCheck = SummaryWriteSchema.safeParse(summaryRow);
   if (!writeCheck.success) {
     throw new Error(
-      `summary write rejected by invariant check: ${writeCheck.error.message}`,
+      `summary write failed schema validation: ${writeCheck.error.message}`,
       { cause: writeCheck.error }
     );
   }
 
   const { error: summaryError } = await supabase
     .from("summaries")
-    .upsert(writeCheck.data, { onConflict: "video_id,enable_thinking" });
+    .upsert(writeCheck.data, { onConflict: "video_id" });
 
   if (summaryError) {
     throw new Error(`summary upsert failed: ${summaryError.message}`, {

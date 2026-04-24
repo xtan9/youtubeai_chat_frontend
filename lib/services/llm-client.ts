@@ -7,7 +7,6 @@ export type LlmEvent =
       readonly message: string;
       readonly stage: ClientStage;
     }
-  | { readonly type: "thinking"; readonly text: string }
   | { readonly type: "content"; readonly text: string }
   | { readonly type: "timing"; readonly summarizeSeconds: number };
 
@@ -17,7 +16,6 @@ export function formatSseEvent(data: Record<string, unknown>): string {
 
 export interface LlmStreamOptions {
   readonly prompt: string;
-  readonly enableThinking: boolean;
   readonly signal?: AbortSignal;
   /**
    * Overrides LLM_MODEL env var when provided. `KnownModel | (string & {})`
@@ -137,7 +135,7 @@ export async function* streamLlmSummary(
 
         let chunk: {
           choices?: Array<{
-            delta?: { content?: unknown; reasoning_content?: unknown };
+            delta?: { content?: unknown };
           }>;
         };
         try {
@@ -156,14 +154,6 @@ export async function* streamLlmSummary(
 
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
-
-        if (
-          typeof delta.reasoning_content === "string" &&
-          delta.reasoning_content.length > 0 &&
-          options.enableThinking
-        ) {
-          yield { type: "thinking", text: delta.reasoning_content };
-        }
 
         if (typeof delta.content === "string" && delta.content.length > 0) {
           anyContentSeen = true;
