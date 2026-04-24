@@ -62,7 +62,13 @@ export function LanguagePicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="max-h-96 overflow-y-auto min-w-56"
+        // Tailwind v4 doesn't resolve shadcn's default `bg-popover` token
+        // without a `@config`/`@theme` bridge in globals.css, so the menu
+        // ships fully transparent and the summary bleeds through. Pin the
+        // background via arbitrary-value utilities that read the CSS vars
+        // directly — works in both light and dark because `--popover` is
+        // defined in both `:root` and `.dark`.
+        className="max-h-96 overflow-y-auto min-w-56 bg-[hsl(var(--popover))] text-[hsl(var(--popover-foreground))]"
       >
         {SUPPORTED_OUTPUT_LANGUAGES.map((lang) => {
           const isCurrent = currentLanguage !== null && lang.code === currentLanguage;

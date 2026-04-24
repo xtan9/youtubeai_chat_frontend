@@ -283,17 +283,58 @@ export async function POST(request: Request) {
           stage: "transcribe",
         });
 
-        let transcript: string;
-        let transcriptSource: TranscriptSource;
-        let language: PromptLocale;
+        // Definite-assignment assertions: the transcript-acquisition step
+        // (either the shortcut path or the captions/Whisper pipeline)
+        // assigns all three on every path the code can reach — but TS's
+        // flow analyzer can't correlate the `reusedNativeTranscript` flag
+        // with the nested if/else in the pipeline. Both paths assign;
+        // reaching the use-site with these unset is unreachable at runtime.
+        let transcript!: string;
+        let transcriptSource!: TranscriptSource;
+        let language!: PromptLocale;
         let title = "";
         let channelName = "";
+        // Populated by the VPS /metadata call inside the transcription
+        // pipeline; stays null on the translation-shortcut path (we have
+        // language from the cached native row, no /metadata round-trip).
+        let detectedLang: string | null = null;
+        let availableCaptions: readonly string[] = [];
         // Whisper-only. The .catch at construction guards against unhandled
         // rejection if the LLM path errors before we await the promise.
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
 
         const transcribeStart = Date.now();
 
+        // Translation shortcut: if this request targets a specific output
+        // language AND we already cached the video-native row (which owns
+        // the transcript), skip VPS metadata + captions + Whisper and go
+        // straight to the LLM with the cached transcript. Turns a
+        // language switch from a minutes-long pipeline into a seconds-long
+        // re-summarize call — which is what the user actually asked for
+        // when they picked a new language.
+        //
+        // `transcript = ""` on legacy rows falls back to the full pipeline
+        // rather than feeding an empty prompt to the LLM.
+        let reusedNativeTranscript = false;
+        if (outputLanguageCode) {
+          const native = await getCachedSummary(youtube_url, null);
+          if (isCallerAbort(request.signal)) return;
+          if (native && native.transcript) {
+            transcript = native.transcript;
+            transcriptSource = native.transcriptSource;
+            language = native.language;
+            title = native.title;
+            channelName = native.channelName;
+            reusedNativeTranscript = true;
+            sendEvent({
+              type: "status",
+              message: "Using cached transcript, translating summary...",
+              stage: "summarize",
+            });
+          }
+        }
+
+        if (!reusedNativeTranscript) {
         // Ask the VPS for the video's language + available caption codes
         // up front. This drives both:
         //   - which caption track to request from /captions (avoids
@@ -307,8 +348,6 @@ export async function POST(request: Request) {
         // strictly additive — never fatal.
         const vpsMeta = await fetchVpsMetadata(youtube_url, request.signal);
         if (isCallerAbort(request.signal)) return;
-        let detectedLang: string | null = null;
-        let availableCaptions: readonly string[] = [];
         if (vpsMeta.ok) {
           // Normalize to primary subtag so the "zh" short-circuit below
           // still fires when the VPS returns `zh-Hans` or similar. Also
@@ -424,6 +463,7 @@ export async function POST(request: Request) {
             return;
           }
         }
+        } // end !reusedNativeTranscript
         const transcribeSeconds = (Date.now() - transcribeStart) / 1000;
 
         // Surface the BCP-47 detectedLang (e.g. "fr", "zh-Hans") when we have

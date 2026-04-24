@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
@@ -10,6 +11,7 @@ import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import { StreamErrorBanner } from "./stream-error-banner";
+import { LanguagePicker } from "./language-picker";
 import type { SummaryResult } from "@/lib/types";
 import {
   SUPPORTED_LANGUAGE_CODES,
@@ -28,6 +30,8 @@ export function YouTubeSummarizerApp({
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
@@ -218,15 +222,32 @@ export function YouTubeSummarizerApp({
           {/* Suppress the progress indicator once the stream has errored —
               the error banner is the terminal UI, not a stalled 70% bar. */}
           {!streamError && (streamingProgress || isProcessing) && (
-            <StreamingProgressIndicator
-              progress={
-                streamingProgress || {
-                  stage: "downloading",
-                  message: "Starting summary process...",
-                  progress: 5,
+            <>
+              {/* Standalone picker above the progress indicator — lets a
+                  user switch language mid-transcription without waiting
+                  for the summary card (which only mounts once data
+                  arrives). Hidden once the summary is on screen; the
+                  summary card renders its own picker in the button row. */}
+              {!dataWithLiveTimers && (
+                <div className="flex justify-end mb-3">
+                  <LanguagePicker
+                    currentLanguage={outputLanguage ?? null}
+                    browserLanguage={browserLanguage}
+                    onSelect={handleLanguageSelect}
+                    isDark={isDark}
+                  />
+                </div>
+              )}
+              <StreamingProgressIndicator
+                progress={
+                  streamingProgress || {
+                    stage: "downloading",
+                    message: "Starting summary process...",
+                    progress: 5,
+                  }
                 }
-              }
-            />
+              />
+            </>
           )}
           {dataWithLiveTimers && !streamError && (
             <ResultsDisplay
@@ -237,7 +258,13 @@ export function YouTubeSummarizerApp({
               outputLanguage={outputLanguage}
               browserLanguage={browserLanguage}
               onSelectLanguage={handleLanguageSelect}
-              languageDisabled={isProcessing || !streamingComplete}
+              // Picker stays enabled during transcription + summarization.
+              // A mid-flight switch cancels the in-flight request (see
+              // handleLanguageSelect) and kicks off the new one with the
+              // chosen output language. No reason to lock it — letting the
+              // user change their mind is cheaper than waiting for the
+              // full pipeline they don't want.
+              languageDisabled={false}
             />
           )}
         </div>
