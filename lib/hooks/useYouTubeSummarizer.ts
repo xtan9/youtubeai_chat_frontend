@@ -2,6 +2,7 @@ import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
 
 import type { SummaryResult } from "@/lib/types";
+import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
 import {
   QueryFunctionContext,
@@ -15,9 +16,14 @@ import { useCallback, useState, useEffect } from "react";
 const debugLog: (...args: unknown[]) => void =
   process.env.NODE_ENV === "production" ? () => {} : console.log;
 
+// `outputLanguage = null` means "use the video's own language" — matches the
+// server's cache-key convention. Adding it to the queryKey means switching
+// languages auto-invalidates the cached query and re-fetches without us
+// having to orchestrate refetch manually.
 export function useYouTubeSummarizer(
   url: string,
-  includeTranscript: boolean = true
+  includeTranscript: boolean = true,
+  outputLanguage: SupportedLanguageCode | null = null
 ) {
   const { user, session } = useUser();
   const router = useRouter();
@@ -79,11 +85,18 @@ export function useYouTubeSummarizer(
     queryKey,
     signal,
   }: QueryFunctionContext<
-    ["youtube-summary-stream", string, boolean]
+    [
+      "youtube-summary-stream",
+      string,
+      boolean,
+      SupportedLanguageCode | null,
+    ]
   >): AsyncIterable<SummaryResult> {
+    const [, urlArg, includeTranscriptArg, outputLanguageArg] = queryKey;
     debugLog("Fetching streaming summary:", {
-      url: queryKey[1],
-      includeTranscript: queryKey[2],
+      url: urlArg,
+      includeTranscript: includeTranscriptArg,
+      outputLanguage: outputLanguageArg,
     });
 
     // Get access token - either from user session or anonymous session
@@ -104,8 +117,13 @@ export function useYouTubeSummarizer(
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          youtube_url: queryKey[1],
-          include_transcript: queryKey[2],
+          youtube_url: urlArg,
+          include_transcript: includeTranscriptArg,
+          // Only send the field when a translation is requested — the
+          // server treats omitted === video-native (NULL cache row).
+          ...(outputLanguageArg !== null
+            ? { output_language: outputLanguageArg }
+            : {}),
         }),
         signal,
       }
@@ -162,9 +180,19 @@ export function useYouTubeSummarizer(
     SummaryResult[],
     Error,
     SummaryResult[],
-    ["youtube-summary-stream", string, boolean]
+    [
+      "youtube-summary-stream",
+      string,
+      boolean,
+      SupportedLanguageCode | null,
+    ]
   > = {
-    queryKey: ["youtube-summary-stream", url, includeTranscript],
+    queryKey: [
+      "youtube-summary-stream",
+      url,
+      includeTranscript,
+      outputLanguage,
+    ],
     queryFn: streamedQuery({
       streamFn: fetchStreamingSummary,
     }),

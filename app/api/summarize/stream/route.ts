@@ -20,6 +20,7 @@ import {
 } from "@/lib/services/summarize-cache";
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
 import {
   CLASSIFIER_EXCERPT_CHARS,
@@ -52,6 +53,10 @@ const RequestBodySchema = z.object({
     .url()
     .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
   include_transcript: z.boolean().optional().default(false),
+  // Optional summary-output-language override. Omitted means "video's own
+  // language" (current default behavior — matches the video-native cache
+  // row). An invalid code fails request validation with 400.
+  output_language: z.enum(SUPPORTED_LANGUAGE_CODES).optional(),
 });
 
 // Generic user-facing messages; full error details stay in server logs.
@@ -170,7 +175,11 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return jsonError(400, `Invalid request body: ${parsed.error.message}`);
   }
-  const { youtube_url, include_transcript: includeTranscript } = parsed.data;
+  const {
+    youtube_url,
+    include_transcript: includeTranscript,
+    output_language: outputLanguageCode,
+  } = parsed.data;
 
   // Status codes that mean "this request is not authenticated" as opposed
   // to "the auth service is broken." AuthSessionMissingError + friends are
@@ -257,7 +266,10 @@ export async function POST(request: Request) {
       };
 
       try {
-        const cached = await getCachedSummary(youtube_url);
+        const cached = await getCachedSummary(
+          youtube_url,
+          outputLanguageCode ?? null
+        );
         if (cached) {
           streamCached(sendEvent, cached, { includeTranscript });
           return;
@@ -478,7 +490,11 @@ export async function POST(request: Request) {
         // model-routing.ts — replaces the old 15K-char cap for all models.
         const charBudget =
           decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
-        const prompt = buildSummarizationPrompt(transcript, charBudget);
+        const prompt = buildSummarizationPrompt(
+          transcript,
+          charBudget,
+          outputLanguageCode
+        );
         let fullSummary = "";
         let summarizeSeconds: number | null = null;
         const llmStart = Date.now();
@@ -568,6 +584,7 @@ export async function POST(request: Request) {
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
           userId: authedUser.id,
+          outputLanguage: outputLanguageCode ?? null,
         }).catch((err) => logStageError("cache", err));
       } catch (err) {
         if (isCallerAbort(request.signal)) return;

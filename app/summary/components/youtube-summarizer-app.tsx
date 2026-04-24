@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { useStageTimers } from "@/lib/hooks/useStageTimers";
@@ -10,6 +11,11 @@ import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import { StreamErrorBanner } from "./stream-error-banner";
 import type { SummaryResult } from "@/lib/types";
+import {
+  SUPPORTED_LANGUAGE_CODES,
+  type SupportedLanguageCode,
+} from "@/lib/constants/languages";
+import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import { parseStreamingData, type StreamingProgress } from "../utils";
 import YoutubeVideo from "./youtube-video";
 
@@ -21,13 +27,39 @@ export function YouTubeSummarizerApp({
   initialUrl,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
   const firstRenderRef = useRef(true);
 
+  // `null` until the user actively picks a translation. Null = "ask the
+  // server for the video-native summary" which reuses the existing NULL
+  // cache row — no double-billing on first load.
+  const [outputLanguage, setOutputLanguage] =
+    useState<SupportedLanguageCode | null>(null);
+
+  // Browser locale only drives the "Your language" menu hint. Computed once
+  // on mount so ref-stable across re-renders. SSR-safe: `navigator` isn't
+  // available during server render, so guard + fall back to English (the
+  // util also defaults to "en" for the same reason). React hydration will
+  // re-run this effect on the client.
+  const [browserLanguage, setBrowserLanguage] =
+    useState<SupportedLanguageCode>("en");
+  useEffect(() => {
+    const langs =
+      typeof navigator !== "undefined" && navigator.languages
+        ? Array.from(navigator.languages)
+        : [];
+    setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
+  }, []);
+
   // Use custom hooks for complex logic
-  const { summarizationQuery } = useYouTubeSummarizer(url, true);
+  const { summarizationQuery } = useYouTubeSummarizer(
+    url,
+    true,
+    outputLanguage
+  );
 
   const {
     data: rawData,
@@ -135,14 +167,17 @@ export function YouTubeSummarizerApp({
 
   const { copied, copyToClipboard } = useClipboard();
 
-  // Fetch summary when component mounts
+  // Fetch summary when component mounts or language changes. The hook uses
+  // `enabled: false`, so a queryKey change alone doesn't auto-refetch —
+  // depending on [url, outputLanguage] here gives us both the initial mount
+  // fire and the language-switch re-run without a second effect.
   useEffect(() => {
     if (url) {
       firstRenderRef.current = true;
       summarizationQuery.refetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, outputLanguage]);
 
   const handleCopySummary = async () => {
     if (!data) return;
@@ -154,6 +189,24 @@ export function YouTubeSummarizerApp({
   const handleNewSummary = () => {
     setUrl("");
     router.push("/");
+  };
+
+  const handleLanguageSelect = (code: SupportedLanguageCode) => {
+    // Picking the same code as the current state is a no-op — the effect
+    // above would pointlessly refetch and cache-hit, but it also clears the
+    // rendered content briefly. Short-circuit before that.
+    if (code === outputLanguage) return;
+    // Cancel the in-flight stream (if any) so a user rapidly switching
+    // Spanish → French doesn't leave an orphan `es` LLM call streaming on
+    // the backend that still writes its cache row. cancelQueries fires the
+    // AbortSignal passed into fetchStreamingSummary, which the route
+    // handler observes via request.signal.aborted and exits without
+    // writing the cache.
+    queryClient.cancelQueries({
+      queryKey: ["youtube-summary-stream", url],
+      exact: false,
+    });
+    setOutputLanguage(code);
   };
 
   return (
@@ -181,6 +234,10 @@ export function YouTubeSummarizerApp({
               copied={copied}
               onCopySummary={handleCopySummary}
               onNewSummary={handleNewSummary}
+              outputLanguage={outputLanguage}
+              browserLanguage={browserLanguage}
+              onSelectLanguage={handleLanguageSelect}
+              languageDisabled={isProcessing || !streamingComplete}
             />
           )}
         </div>
