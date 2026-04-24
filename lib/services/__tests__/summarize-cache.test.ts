@@ -132,7 +132,7 @@ describe("getCachedSummary", () => {
     ).toBeNull();
   });
 
-  it("logs generic schema mismatch for non-invariant drift", async () => {
+  it("logs schema mismatch on row shape drift", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.maybeSingle.mockResolvedValue({
@@ -430,7 +430,7 @@ describe("writeCachedSummary", () => {
     const { writeCachedSummary } = await loadFresh();
     await expect(
       writeCachedSummary({ ...baseParams, summary: "" })
-    ).rejects.toThrow(/summary write rejected by invariant check/);
+    ).rejects.toThrow(/summary write failed schema validation/);
     expect(mocks.summariesBuilder.upsert).not.toHaveBeenCalled();
   });
 });

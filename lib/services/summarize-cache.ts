@@ -241,7 +241,7 @@ export async function writeCachedSummary(
   const writeCheck = SummaryWriteSchema.safeParse(summaryRow);
   if (!writeCheck.success) {
     throw new Error(
-      `summary write rejected by invariant check: ${writeCheck.error.message}`,
+      `summary write failed schema validation: ${writeCheck.error.message}`,
       { cause: writeCheck.error }
     );
   }

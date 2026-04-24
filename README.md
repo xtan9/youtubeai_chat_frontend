@@ -59,7 +59,7 @@ pnpm exec tsc --noEmit
 Migrations live in `supabase/migrations/` and are applied by `.github/workflows/db-migrate.yml` on merges to `main` that touch that directory. The cache schema:
 
 - `videos` — one row per distinct YouTube video ID. `url_hash` stores the normalized 11-char video ID (falling back to an MD5 of the full URL) so different URL shapes for the same video collapse to one cache row.
-- `summaries` — one row per `(video_id, enable_thinking)`. Enforces `thinking IS NULL` when `enable_thinking = FALSE` via CHECK constraint.
+- `summaries` — one row per `video_id`. Stores the summary text, transcript, transcript source, model used, and timing columns.
 - `user_video_history` — per-user read history, RLS-scoped to the owner.
 - `rate_limits` — `(user_id, window_start)` counter mutated via `increment_rate_limit` RPC.
 
