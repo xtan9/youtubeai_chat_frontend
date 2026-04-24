@@ -17,7 +17,6 @@ import {
   writeCachedSummary,
   type TranscriptSource,
   type PromptLocale,
-  type ThinkingState,
 } from "@/lib/services/summarize-cache";
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
@@ -52,7 +51,6 @@ const RequestBodySchema = z.object({
     .string()
     .url()
     .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
-  enable_thinking: z.boolean().optional().default(false),
   include_transcript: z.boolean().optional().default(false),
 });
 
@@ -172,11 +170,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return jsonError(400, `Invalid request body: ${parsed.error.message}`);
   }
-  const {
-    youtube_url,
-    enable_thinking: enableThinking,
-    include_transcript: includeTranscript,
-  } = parsed.data;
+  const { youtube_url, include_transcript: includeTranscript } = parsed.data;
 
   // Status codes that mean "this request is not authenticated" as opposed
   // to "the auth service is broken." AuthSessionMissingError + friends are
@@ -263,9 +257,9 @@ export async function POST(request: Request) {
       };
 
       try {
-        const cached = await getCachedSummary(youtube_url, enableThinking);
+        const cached = await getCachedSummary(youtube_url, false);
         if (cached) {
-          streamCached(sendEvent, cached, { enableThinking, includeTranscript });
+          streamCached(sendEvent, cached, { includeTranscript });
           return;
         }
 
@@ -486,20 +480,17 @@ export async function POST(request: Request) {
           decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
         const prompt = buildSummarizationPrompt(transcript, charBudget);
         let fullSummary = "";
-        let fullThinking = "";
         let summarizeSeconds: number | null = null;
         const llmStart = Date.now();
 
         try {
           for await (const event of streamLlmSummary({
             prompt,
-            enableThinking,
             signal: request.signal,
             model: decision.model,
           })) {
             forwardLlmEvent(event, sendEvent);
             if (event.type === "content") fullSummary += event.text;
-            else if (event.type === "thinking") fullThinking += event.text;
             else if (event.type === "timing")
               summarizeSeconds = event.summarizeSeconds;
           }
@@ -564,10 +555,6 @@ export async function POST(request: Request) {
           return;
         }
 
-        const thinkingState: ThinkingState = enableThinking
-          ? { enableThinking: true, thinking: fullThinking || null }
-          : { enableThinking: false, thinking: null };
-
         writeCachedSummary({
           youtubeUrl: youtube_url,
           title,
@@ -581,7 +568,8 @@ export async function POST(request: Request) {
           transcribeTimeSeconds: transcribeSeconds,
           summarizeTimeSeconds: summarizeSecondsFinal,
           userId: authedUser.id,
-          ...thinkingState,
+          enableThinking: false,
+          thinking: null,
         }).catch((err) => logStageError("cache", err));
       } catch (err) {
         if (isCallerAbort(request.signal)) return;

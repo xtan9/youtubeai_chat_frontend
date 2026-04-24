@@ -725,29 +725,6 @@ describe("POST /api/summarize/stream", () => {
       expect(writeCall.summarizeTimeSeconds).toBe(2.5);
     });
 
-    it("accumulates thinking + content and persists both when enable_thinking is true", async () => {
-      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
-      mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([
-          { type: "thinking", text: "deep" },
-          { type: "thinking", text: " thoughts" },
-          { type: "content", text: "result" },
-          { type: "timing", summarizeSeconds: 2 },
-        ])
-      );
-
-      const res = await POST(
-        makeRequest({ youtube_url: VALID_URL, enable_thinking: true })
-      );
-      await readStream(res);
-
-      const writeCall = mocks.writeCachedSummary.mock
-        .calls[0][0] as CacheWriteParams;
-      expect(writeCall.enableThinking).toBe(true);
-      expect(writeCall.thinking).toBe("deep thoughts");
-      expect(writeCall.summary).toBe("result");
-    });
-
     it("returns silently on client abort during LLM stream (partial content delivered, no error, no cache)", async () => {
       const controller = new AbortController();
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
