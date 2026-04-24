@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { StreamingProgress } from "@/app/summary/utils";
 
 export interface StageTimerState {
@@ -25,17 +25,25 @@ const INITIAL_STATE: StageTimerState = {
   summarizeEndedAt: null,
 };
 
-// Pure transition: given the prior recorded timestamps, the current stage,
-// and a wall-clock `now`, return the next state. Boundaries are sticky —
-// once a stage end is captured, later transitions never overwrite it. This
-// means the very first time we see e.g. "summarizing" wins, even if a later
-// "complete" event also implies "transcribe ended."
+// Boundaries are sticky: the first transition into "summarizing" or
+// "complete" wins, so a later event can't reset transcribeEndedAt and
+// zero out the summary stopwatch. Exception: a fresh run on the same
+// component instance — detected when stage regresses to "downloading"/
+// "transcribing" after we already sealed summarizeEndedAt — must clear
+// all boundaries so the new run's stopwatch doesn't inherit the previous
+// run's startedAt.
 export function advanceStageTimerState(
   prev: StageTimerState,
   stage: StreamingProgress["stage"] | undefined,
   now: number
 ): StageTimerState {
   if (!stage) return prev;
+  const isRestart =
+    (stage === "downloading" || stage === "transcribing") &&
+    prev.summarizeEndedAt !== null;
+  if (isRestart) {
+    return { startedAt: now, transcribeEndedAt: null, summarizeEndedAt: null };
+  }
   const next: StageTimerState = { ...prev };
   if (next.startedAt === null) next.startedAt = now;
   if (
@@ -50,12 +58,10 @@ export function advanceStageTimerState(
   return next;
 }
 
-// Pure elapsed-time math, in seconds. Server-reported finals win when
-// they're positive (the SSE `summary` event fires for both live and cached
-// paths, and is more accurate than wall-clock since it excludes network
-// latency from the start). Otherwise fall back to wall-clock from the
-// recorded boundaries — using `now` for the unfrozen end so the value
-// ticks up while the stage is still in flight.
+// Server-reported timings supersede the wall-clock tick once present.
+// The upstream parser coalesces missing values to 0 (utils.ts), so we
+// treat 0 as "not reported yet" and keep the running stopwatch visible
+// until a positive number arrives.
 export function computeStageElapsed(
   state: StageTimerState,
   now: number,
@@ -70,51 +76,41 @@ export function computeStageElapsed(
       ? 0
       : ((state.summarizeEndedAt ?? now) - state.transcribeEndedAt) / 1000;
 
+  const finalTranscription = finalTimes.transcriptionTime;
+  const finalSummary = finalTimes.summaryTime;
   const transcriptionTime =
-    finalTimes.transcriptionTime && finalTimes.transcriptionTime > 0
-      ? finalTimes.transcriptionTime
+    typeof finalTranscription === "number" &&
+    Number.isFinite(finalTranscription) &&
+    finalTranscription > 0
+      ? finalTranscription
       : Math.max(0, liveTranscription);
   const summaryTime =
-    finalTimes.summaryTime && finalTimes.summaryTime > 0
-      ? finalTimes.summaryTime
+    typeof finalSummary === "number" &&
+    Number.isFinite(finalSummary) &&
+    finalSummary > 0
+      ? finalSummary
       : Math.max(0, liveSummary);
 
   return { transcriptionTime, summaryTime };
 }
 
-// React wrapper: tracks stage transitions on a single state machine and
-// ticks every 100ms while the run is in flight so the UI re-renders.
-// `finalTimes` short-circuit the live computation as soon as the server's
-// terminal `summary` event lands.
 export function useStageTimers(
   stage: StreamingProgress["stage"] | undefined,
   finalTimes: StageTimerFinals
 ): StageTimerValues {
   const [state, setState] = useState<StageTimerState>(INITIAL_STATE);
   const [now, setNow] = useState<number>(() => performance.now());
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   useEffect(() => {
     const t = performance.now();
-    const next = advanceStageTimerState(stateRef.current, stage, t);
-    if (next !== stateRef.current) {
-      // Only commit when something actually changed — referential equality
-      // from the helper means no transition happened and we'd cause a no-op
-      // render loop otherwise.
-      const changed =
-        next.startedAt !== stateRef.current.startedAt ||
-        next.transcribeEndedAt !== stateRef.current.transcribeEndedAt ||
-        next.summarizeEndedAt !== stateRef.current.summarizeEndedAt;
-      if (changed) {
-        setState(next);
-        setNow(t);
-      }
-    }
+    setState((prev) => {
+      const next = advanceStageTimerState(prev, stage, t);
+      return next === prev ? prev : next;
+    });
+    setNow(t);
   }, [stage]);
 
   const isComplete = stage === "complete";
-
   useEffect(() => {
     if (isComplete || state.startedAt === null) return;
     const id = setInterval(() => setNow(performance.now()), 100);

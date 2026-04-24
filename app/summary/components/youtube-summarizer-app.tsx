@@ -95,9 +95,8 @@ export function YouTubeSummarizerApp({
     };
   }, [rawData, isLoading, isFetching]);
 
-  // Live stopwatch for transcription + AI processing — server-reported
-  // values only land with the terminal `summary` event, so until then we
-  // tick wall-clock from the stage transitions we observe.
+  // data.transcriptionTime/summaryTime only land with the terminal
+  // `summary` event; tick wall-clock until then.
   const { transcriptionTime, summaryTime } = useStageTimers(
     streamingProgress?.stage,
     {
