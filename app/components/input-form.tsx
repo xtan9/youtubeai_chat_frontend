@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import { ArrowRight, Brain, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -12,8 +12,7 @@ import { usePostHog } from "posthog-js/react";
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [enableReasoning, setEnableReasoning] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
+const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -38,8 +37,7 @@ export function InputForm() {
   const placeholderColors = isDarkMode
     ? "placeholder:text-gray-400"
     : "placeholder:text-gray-500";
-  const secondaryTextColors = isDarkMode ? "text-gray-300" : "text-gray-800";
-  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
+const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,14 +61,11 @@ export function InputForm() {
     // Track the summary button click with PostHog
     posthog?.capture("summary_button_clicked", {
       youtube_url: formUrl,
-      reasoning_enabled: enableReasoning,
     });
 
     setError(null);
     setUrl(formUrl);
-    router.push(
-      `/summary?url=${encodeURIComponent(formUrl)}&reasoning=${enableReasoning}`
-    );
+    router.push(`/summary?url=${encodeURIComponent(formUrl)}`);
   };
 
   const handleClearUrl = () => setUrl("");
@@ -149,52 +144,6 @@ export function InputForm() {
                   )}
                 </Button>
               </div>
-            </div>
-
-            {/* Reasoning Toggle */}
-            <div className="flex flex-col items-center gap-2 text-sm mt-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={enableReasoning}
-                  onChange={(e) => setEnableReasoning(e.target.checked)}
-                  className="sr-only"
-                />
-                <div
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    enableReasoning
-                      ? "bg-gradient-to-r from-purple-500 to-cyan-500"
-                      : isDarkMode
-                      ? "bg-gray-600"
-                      : "bg-gray-300"
-                  }`}
-                  role="switch"
-                  aria-checked={enableReasoning}
-                >
-                  <div
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                      enableReasoning ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  ></div>
-                </div>
-                <span
-                  className={`flex items-center gap-2 ${secondaryTextColors} font-medium`}
-                >
-                  <Brain
-                    size={16}
-                    className={tertiaryTextColors}
-                    aria-hidden="true"
-                  />
-                  Enable Reasoning
-                </span>
-              </label>
-              <p
-                className={`text-xs text-center max-w-md font-medium ${tertiaryTextColors}`}
-              >
-                {enableReasoning
-                  ? "🧠 Reasoning mode will provide deeper insights and explanations (Free)"
-                  : "✅ Standard summary (Free, Faster response time)"}
-              </p>
             </div>
 
             {/* Error message */}
