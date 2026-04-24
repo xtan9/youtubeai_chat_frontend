@@ -62,7 +62,13 @@ export function LanguagePicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="max-h-96 overflow-y-auto min-w-56"
+        // Tailwind v4 doesn't resolve shadcn's default `bg-popover` token
+        // without a `@config`/`@theme` bridge in globals.css, so the menu
+        // ships fully transparent and the summary bleeds through. Pin the
+        // background via arbitrary-value utilities that read the CSS vars
+        // directly — works in both light and dark because `--popover` is
+        // defined in both `:root` and `.dark`.
+        className="max-h-96 overflow-y-auto min-w-56 bg-[hsl(var(--popover))] text-[hsl(var(--popover-foreground))]"
       >
         {SUPPORTED_OUTPUT_LANGUAGES.map((lang) => {
           const isCurrent = currentLanguage !== null && lang.code === currentLanguage;
@@ -74,7 +80,11 @@ export function LanguagePicker({
               onSelect={() => onSelect(lang.code)}
               data-testid={`lang-option-${lang.code}`}
               aria-current={isCurrent ? "true" : undefined}
-              className="flex items-center justify-between gap-3"
+              // Same Tailwind-v4 story as the container's bg-[hsl(var(--popover))]:
+              // shadcn's default `focus:bg-accent` doesn't resolve without a
+              // theme bridge, so keyboard nav and hover render without any
+              // highlight. Pin the focus/hover state via arbitrary values.
+              className="flex items-center justify-between gap-3 focus:bg-[hsl(var(--accent))] focus:text-[hsl(var(--accent-foreground))]"
             >
               <span className="flex flex-col">
                 <span className="font-medium">{lang.native}</span>
