@@ -5,7 +5,6 @@ export interface StreamingProgress {
   stage: "downloading" | "transcribing" | "summarizing" | "complete";
   message: string;
   progress: number;
-  elapsed?: number;
 }
 
 /**
@@ -61,8 +60,7 @@ export function parseStreamingData(rawData: string): {
             return {
               stage: "downloading" as const,
               message: data.message || "Downloading video...",
-              progress: Math.min(30, 10 + (data.elapsed || 0) * 2),
-              elapsed: data.elapsed,
+              progress: 10,
             };
           }
 
