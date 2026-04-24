@@ -206,10 +206,18 @@ export function YouTubeSummarizerApp({
     // AbortSignal passed into fetchStreamingSummary, which the route
     // handler observes via request.signal.aborted and exits without
     // writing the cache.
-    queryClient.cancelQueries({
-      queryKey: ["youtube-summary-stream", url],
-      exact: false,
-    });
+    //
+    // Fire-and-forget with an explicit catch: if React Query's internals
+    // reject, an unhandled rejection would mask the "why did I get billed
+    // twice" user report from debugging logs.
+    queryClient
+      .cancelQueries({
+        queryKey: ["youtube-summary-stream", url],
+        exact: false,
+      })
+      .catch((err) =>
+        console.error("[language-switch] cancelQueries failed", { err })
+      );
     setOutputLanguage(code);
   };
 

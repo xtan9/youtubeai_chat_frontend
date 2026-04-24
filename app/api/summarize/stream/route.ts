@@ -313,8 +313,10 @@ export async function POST(request: Request) {
         // re-summarize call — which is what the user actually asked for
         // when they picked a new language.
         //
-        // `transcript = ""` on legacy rows falls back to the full pipeline
-        // rather than feeding an empty prompt to the LLM.
+        // Legacy rows with empty transcript (`native.transcript === ""`)
+        // fail the truthy guard and fall through to the full pipeline — we
+        // log them so the class is enumerable for a potential backfill
+        // rather than causing quiet slowdowns forever.
         let reusedNativeTranscript = false;
         if (outputLanguageCode) {
           const native = await getCachedSummary(youtube_url, null);
@@ -331,6 +333,19 @@ export async function POST(request: Request) {
               message: "Using cached transcript, translating summary...",
               stage: "summarize",
             });
+          } else if (native && !native.transcript) {
+            // Native cache row exists but has no transcript. Alert-level in
+            // prod so we can identify + regenerate the affected rows.
+            console.warn(
+              "[summarize/stream] translation shortcut skipped: native row has empty transcript",
+              {
+                errorId: "TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT",
+                videoId: native.videoId,
+                transcriptSource: native.transcriptSource,
+                youtubeUrl: youtube_url,
+                requestedLanguage: outputLanguageCode,
+              }
+            );
           }
         }
 
@@ -464,18 +479,28 @@ export async function POST(request: Request) {
           }
         }
         } // end !reusedNativeTranscript
-        const transcribeSeconds = (Date.now() - transcribeStart) / 1000;
+        // Only measure real transcription time. On the shortcut path we
+        // didn't do transcription — attributing the cache-lookup duration
+        // here poisons `transcribe_time_seconds` on the translation cache
+        // row (and shows the user "Transcription: 0.02s" which is a lie).
+        const transcribeSeconds = reusedNativeTranscript
+          ? 0
+          : (Date.now() - transcribeStart) / 1000;
 
-        // Surface the BCP-47 detectedLang (e.g. "fr", "zh-Hans") when we have
-        // it — the PromptLocale is binary (en|zh) and tells the user "en" for
-        // every non-CJK video, which reads as "we think your French video is
-        // English." Fall back to PromptLocale only when /metadata didn't
-        // return a signal (e.g. VPS outage, pre-endpoint deploy).
-        sendEvent({
-          type: "status",
-          message: `Detected language: ${detectedLang ?? language}`,
-          stage: "summarize",
-        });
+        // Surface the BCP-47 detectedLang when we have it — PromptLocale is
+        // binary (en|zh) and tells the user "en" for every non-CJK video,
+        // which reads as "we think your French video is English." Skipped
+        // entirely on the shortcut path because `detectedLang` is never set
+        // there (we'd just print the PromptLocale fallback and regress the
+        // very UX this event exists to fix). The user already saw the
+        // detection on their first render.
+        if (!reusedNativeTranscript) {
+          sendEvent({
+            type: "status",
+            message: `Detected language: ${detectedLang ?? language}`,
+            stage: "summarize",
+          });
+        }
 
         if (includeTranscript) {
           sendEvent({ type: "full_transcript", text: transcript });

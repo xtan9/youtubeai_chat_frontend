@@ -1651,12 +1651,80 @@ describe("POST /api/summarize/stream", () => {
         expect.any(Number),
         "es"
       );
-      // Translation row lands under the right key.
+      // Translation row lands under the right key AND copies the
+      // cached metadata verbatim. A refactor that re-derives
+      // transcriptSource/language on this path would silently corrupt
+      // the cache — this pin catches that.
       expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
         expect.objectContaining({
           outputLanguage: "es",
           title: "Me at the zoo",
           channelName: "jawed",
+          transcriptSource: "whisper",
+          language: "en",
+          transcribeTimeSeconds: 0,
+        })
+      );
+    });
+
+    it("returns silently when the caller aborts between the native lookup and the LLM call", async () => {
+      const controller = new AbortController();
+      // Resolve the native lookup after a tick so the test can abort
+      // precisely between the await and the isCallerAbort check.
+      mocks.getCachedSummary.mockImplementation(async (_u: string, lang: string | null) => {
+        if (lang === "es") return null;
+        // First fulfil the cache miss, then on the native lookup abort.
+        await new Promise((r) => setTimeout(r, 10));
+        controller.abort();
+        return cachedFixture({ transcript: "we are at the zoo" });
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([{ type: "content", text: "should not be written" }])
+      );
+
+      const res = await POST(
+        makeRequest(
+          { youtube_url: VALID_URL, output_language: "es" },
+          { signal: controller.signal }
+        )
+      );
+      await readStream(res);
+
+      // Abort fired before we reached the LLM — no stream call, no cache
+      // write. This guards the isCallerAbort check inside the shortcut.
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("logs TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT when a native row has empty transcript", async () => {
+      mocks.getCachedSummary.mockImplementation(
+        async (_url: string, lang: string | null) => {
+          if (lang === "es") return null;
+          return cachedFixture({ transcript: "" });
+        }
+      );
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.classifyContent.mockResolvedValue(null);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "Resumen" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL, output_language: "es" })
+      );
+      await readStream(res);
+
+      // Enumerable failure class — ops needs structured logs to find
+      // legacy rows and backfill them, not silent slowdowns forever.
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("translation shortcut skipped"),
+        expect.objectContaining({
+          errorId: "TRANSLATION_SHORTCUT_EMPTY_TRANSCRIPT",
+          requestedLanguage: "es",
         })
       );
     });
