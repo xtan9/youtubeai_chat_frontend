@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
+import { Loader2, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 import { StreamingProgress } from "../utils";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
@@ -41,14 +41,14 @@ export function StreamingProgressIndicator({
   }, [progress.message]);
 
   const stageIcons = {
-    downloading: Download,
+    preparing: Loader2,
     transcribing: FileText,
     summarizing: Brain,
     complete: CheckCircle,
   };
 
   const stageColors = {
-    downloading: "from-blue-500 to-cyan-500",
+    preparing: "from-blue-500 to-cyan-500",
     transcribing: "from-yellow-500 to-orange-500",
     summarizing: "from-purple-500 to-pink-500",
     complete: "from-green-500 to-emerald-500",
@@ -70,7 +70,11 @@ export function StreamingProgressIndicator({
           <div
             className={`w-10 h-10 rounded-full bg-linear-to-r ${colorGradient} flex items-center justify-center shadow-sm`}
           >
-            <Icon className="w-5 h-5 text-white" />
+            <Icon
+              className={`w-5 h-5 text-white ${
+                progress.stage === "preparing" ? "animate-spin" : ""
+              }`}
+            />
           </div>
           <div>
             <span

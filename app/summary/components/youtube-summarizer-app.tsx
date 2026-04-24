@@ -81,7 +81,7 @@ export function YouTubeSummarizerApp({
       return {
         data: undefined,
         streamingProgress: {
-          stage: "downloading",
+          stage: "preparing",
           message: "Initializing summary process...",
           progress: 5,
         } as StreamingProgress,
@@ -249,7 +249,7 @@ export function YouTubeSummarizerApp({
               <StreamingProgressIndicator
                 progress={
                   streamingProgress || {
-                    stage: "downloading",
+                    stage: "preparing",
                     message: "Starting summary process...",
                     progress: 5,
                   }

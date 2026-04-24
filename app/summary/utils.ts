@@ -2,7 +2,7 @@ import type { SummaryResult } from "@/lib/types";
 
 // Define the StreamingProgress interface
 export interface StreamingProgress {
-  stage: "downloading" | "transcribing" | "summarizing" | "complete";
+  stage: "preparing" | "transcribing" | "summarizing" | "complete";
   message: string;
   progress: number;
 }
@@ -55,14 +55,6 @@ export function parseStreamingData(rawData: string): {
         const determineProgress = () => {
           const message = (data.message || "").toLowerCase();
           const stage = data.stage || "";
-
-          if (message.includes("download") || stage === "download") {
-            return {
-              stage: "downloading" as const,
-              message: data.message || "Downloading video...",
-              progress: 10,
-            };
-          }
 
           if (message.includes("caption") || message.includes("subtitle")) {
             return {
@@ -176,7 +168,7 @@ export function parseStreamingData(rawData: string): {
   // Fallback progress if no progress was determined
   if (!currentProgress) {
     currentProgress = {
-      stage: "downloading",
+      stage: "preparing",
       message: "Processing video...",
       progress: 10,
     };

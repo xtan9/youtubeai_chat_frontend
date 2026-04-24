@@ -17,7 +17,7 @@ export interface SummaryResult {
 }
 
 export interface StreamingStatus {
-  stage: "downloading" | "transcribing" | "summarizing" | "complete";
+  stage: "preparing" | "transcribing" | "summarizing" | "complete";
   progress?: number;
   message?: string;
 }
