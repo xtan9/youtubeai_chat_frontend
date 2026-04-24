@@ -21,10 +21,11 @@ ALTER TABLE summaries DROP CONSTRAINT IF EXISTS summaries_thinking_consistent;
 ALTER TABLE summaries DROP CONSTRAINT IF EXISTS summaries_video_id_enable_thinking_key;
 
 -- 3. Diagnostic: count rows with non-null thinking content. Should be 0
---    in prod. Emits a NOTICE; does not block the migration. If nonzero
---    appears in staging, investigate before rolling to prod — it would
---    mean the feature fired at least once historically, and the dedup
---    below picks by created_at which may not be the best row.
+--    in prod. Emits a WARNING (not NOTICE) so CI log captures surface it
+--    even on low-verbosity defaults; still does not block the migration.
+--    If nonzero appears in staging, investigate before rolling to prod —
+--    it would mean the feature fired at least once historically, and the
+--    dedup below picks by created_at which may not be the best row.
 DO $$
 DECLARE
     nonnull_thinking_count INTEGER;
@@ -33,7 +34,7 @@ BEGIN
     FROM summaries
     WHERE thinking IS NOT NULL;
     IF nonnull_thinking_count > 0 THEN
-        RAISE NOTICE 'DIAGNOSTIC: % summaries rows have non-null thinking (dropping on column-drop below)', nonnull_thinking_count;
+        RAISE WARNING 'DIAGNOSTIC: % summaries rows have non-null thinking (dropping on column-drop below)', nonnull_thinking_count;
     END IF;
 END $$;
 

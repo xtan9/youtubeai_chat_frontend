@@ -115,6 +115,11 @@ export async function getCachedSummary(
     }
     const video = videoParsed.data;
 
+    // maybeSingle() trusts the DB UNIQUE(video_id) constraint installed by
+    // migration 20260423000000_drop_thinking_columns.sql. If two rows ever
+    // slipped through (constraint dropped, bad data load) PostgREST returns
+    // PGRST116 and the branch below treats it as a fail-open cache miss —
+    // the request re-bills through the LLM instead of silently picking a row.
     const { data: summaryRaw, error: summaryError } = await supabase
       .from("summaries")
       .select(
