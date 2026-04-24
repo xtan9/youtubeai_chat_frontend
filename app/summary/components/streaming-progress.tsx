@@ -4,6 +4,7 @@ import { Download, FileText, Brain, CheckCircle, Clock } from "lucide-react";
 import { StreamingProgress } from "../utils";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
+import { shouldShowElapsed } from "./streaming-progress-helpers";
 
 /**
  * Progress indicator component that shows the current stage of the streaming process
@@ -17,9 +18,9 @@ export function StreamingProgressIndicator({
   const isDark = theme === "dark";
   const messageRef = useRef<HTMLParagraphElement>(null);
 
-  // Client-side elapsed timer. The SSE stream doesn't stamp events with
-  // timings, so we measure seconds since this indicator mounted and freeze
-  // once the stage hits "complete".
+  // Local elapsed timer: measured from mount, independent of any server-
+  // side timing events. Freezes on stage === "complete" so the final value
+  // sticks.
   const startRef = useRef<number>(performance.now());
   const [elapsed, setElapsed] = useState(0);
   const isComplete = progress.stage === "complete";
@@ -79,7 +80,7 @@ export function StreamingProgressIndicator({
             >
               {progress.stage.replace("_", " ")}
             </span>
-            {(!isComplete || elapsed > 0) && (
+            {shouldShowElapsed(isComplete, elapsed) && (
               <div
                 className={`flex items-center gap-1 text-sm ${
                   isDark ? "text-gray-200" : "text-slate-600"
