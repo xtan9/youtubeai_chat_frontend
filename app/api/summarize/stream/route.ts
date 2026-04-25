@@ -700,7 +700,30 @@ export async function POST(request: Request) {
           summarizeTimeSeconds: summarizeSecondsFinal,
           userId: authedUser.id,
           outputLanguage: outputLanguageCode ?? null,
-        }).catch((err) => logStageError("cache", err));
+        }).catch((err) => {
+          // Cache write is fire-and-forget — never propagate to the
+          // user. But each failure class warrants a different signal:
+          // 23505 is schema drift (incident — see PR #25), PGRST204 is
+          // stale PostgREST schema cache (transient), auth-class errors
+          // are creds rotation. Carry the SQLSTATE + outputLanguage so a
+          // dashboard can split the spike by class without joining log
+          // lines after the fact (every 23505 line had outputLanguage
+          // non-null on the day this incident shipped — that field
+          // alone would have flagged it).
+          const pgCode =
+            err && typeof err === "object" && "code" in err
+              ? (err as { code: unknown }).code
+              : undefined;
+          console.error("[summarize/stream] CACHE_WRITE_FAILED", {
+            errorId: "CACHE_WRITE_FAILED",
+            stage: "cache" satisfies LogStage,
+            pgCode,
+            youtubeUrl: youtube_url,
+            userId: authedUser.id,
+            outputLanguage: outputLanguageCode ?? null,
+            err,
+          });
+        });
       } catch (err) {
         if (isCallerAbort(request.signal)) return;
         logStageError("unknown", err);

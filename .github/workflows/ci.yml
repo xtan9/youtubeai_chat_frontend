@@ -107,8 +107,22 @@ jobs:
             echo "::endgroup::"
           done
       # Reproduces the cache-write upsert that broke translation caching
-      # in prod (verified 2026-04-25). Fails loud if a future migration
-      # reintroduces a constraint that blocks per-(video, output_language)
-      # rows. See the fixture file for details.
+      # in prod (verified 2026-04-25). Specifically guards against a
+      # UNIQUE that conflicts when two summaries differ only by
+      # output_language — the exact shape this PR drops. Other conflict
+      # shapes need their own fixture.
+      #
+      # Defense in depth: the assertion in the fixture uses RAISE
+      # EXCEPTION (SQLSTATE P0001) which only fails psql when
+      # ON_ERROR_STOP=1 is set. We additionally grep stdout for
+      # "REGRESSION:" so the step also fails if someone ever drops the
+      # flag, or if a future change uses RAISE WARNING by mistake.
       - name: Regression — translation cache upsert succeeds
-        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_translation_upsert.sql
+        run: |
+          set -eo pipefail
+          output=$(psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_translation_upsert.sql 2>&1)
+          echo "$output"
+          if echo "$output" | grep -q "REGRESSION:"; then
+            echo "::error::Regression fixture detected a failure — see output above" >&2
+            exit 1
+          fi

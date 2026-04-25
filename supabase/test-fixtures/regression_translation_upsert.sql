@@ -38,9 +38,12 @@ INSERT INTO summaries (
     1.0, 0.5, 0.5, NULL
 );
 
--- The translation upsert that failed pre-fix. PostgREST translates
--- supabase-js's onConflict: "video_id,output_language" into this exact
--- shape, so a green run here proves the runtime cache-write path works.
+-- The translation upsert that failed pre-fix. Reproduces the SQL shape
+-- supabase-js emits for `.upsert(..., { onConflict: "video_id,output_language" })`
+-- — exercises the post-migration constraint topology, NOT the PostgREST
+-- request compilation or schema-cache reload (those have their own
+-- failure modes; the migration's `NOTIFY pgrst` line is what guards
+-- against the cache-staleness class).
 INSERT INTO summaries (
     video_id, transcript, summary, transcript_source, model,
     processing_time_seconds, transcribe_time_seconds, summarize_time_seconds,
@@ -71,14 +74,42 @@ ON CONFLICT (video_id, output_language) DO UPDATE
     SET summary = EXCLUDED.summary;
 
 DO $$
-DECLARE row_count INTEGER;
+DECLARE
+    row_count INTEGER;
+    vi_summary TEXT;
+    native_summary TEXT;
 BEGIN
     SELECT COUNT(*) INTO row_count
     FROM summaries
     WHERE video_id = '11111111-1111-1111-1111-111111111111';
     IF row_count <> 2 THEN
         RAISE EXCEPTION
-            'translation upsert regression: expected 2 summaries rows for fixture video, got %',
+            'REGRESSION: expected 2 summaries rows for fixture video, got %',
             row_count;
+    END IF;
+
+    -- The second translation upsert (line ~60) MUST have UPDATEd in
+    -- place. Catches a regression where DO UPDATE is replaced by
+    -- DO NOTHING — the row count would still be 2 but the translation
+    -- summary would silently keep its stale value.
+    SELECT summary INTO vi_summary FROM summaries
+    WHERE video_id = '11111111-1111-1111-1111-111111111111'
+      AND output_language = 'vi';
+    IF vi_summary IS DISTINCT FROM 'vi summary v2' THEN
+        RAISE EXCEPTION
+            'REGRESSION: translation row not updated — expected ''vi summary v2'', got %',
+            vi_summary;
+    END IF;
+
+    -- The native row MUST still hold its original summary. Catches a
+    -- regression where the conflict target collapses to (video_id) and
+    -- the translation upsert clobbers the native row.
+    SELECT summary INTO native_summary FROM summaries
+    WHERE video_id = '11111111-1111-1111-1111-111111111111'
+      AND output_language IS NULL;
+    IF native_summary IS DISTINCT FROM 'native summary' THEN
+        RAISE EXCEPTION
+            'REGRESSION: native row clobbered — expected ''native summary'', got %',
+            native_summary;
     END IF;
 END $$;
