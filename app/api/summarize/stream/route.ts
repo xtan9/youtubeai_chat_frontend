@@ -284,6 +284,20 @@ export async function POST(request: Request) {
           if (includeTranscript) {
             const cachedT = await getCachedTranscript(youtube_url);
             cachedSegments = cachedT?.segments;
+            // Legacy cache rows: a summary written before the
+            // video_transcripts table existed (migration 20260424000002)
+            // has `summaries.transcript` but no segments row. Without
+            // this fallback the user would see the cached summary but
+            // an empty transcript card — a regression vs the pre-PR
+            // behavior that emitted the flat string. Synthesize one
+            // un-clickable 00:00 segment from the snapshot — same
+            // fail-soft as the migration backfill and the rollout
+            // fallback in caption-extractor / vps-client.
+            if (!cachedSegments && cached.transcript) {
+              cachedSegments = [
+                { text: cached.transcript, start: 0, duration: 0 },
+              ];
+            }
           }
           streamCached(sendEvent, cached, {
             includeTranscript,

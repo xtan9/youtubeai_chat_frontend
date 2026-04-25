@@ -38,6 +38,13 @@ const POLL_INTERVAL_MS = 250;
 // permanently disables the follow-along.
 const USER_SCROLL_GRACE_MS = 2000;
 
+// Distinguish a transient teardown reject (1-2 ticks during unmount) from
+// a permanently-broken player (every tick fails). 8 ticks ≈ 2 seconds.
+// Below that, stay quiet; at the threshold, log once with a stable errorId
+// so a YouTube IFrame API regression is alertable instead of silently
+// freezing the highlight.
+const POLL_FAILURE_LOG_THRESHOLD = 8;
+
 const TranscriptParagraphs = ({
   segments,
   playerRef,
@@ -64,6 +71,11 @@ const TranscriptParagraphs = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const paragraphRefs = useRef<Array<HTMLDivElement | null>>([]);
   const lastUserScrollAt = useRef<number>(0);
+  // Counts consecutive getCurrentTime() rejects so we can distinguish a
+  // transient teardown blip from a permanently-broken player and only log
+  // once when it tips into "really broken."
+  const consecutivePollFailures = useRef<number>(0);
+  const stuckLogged = useRef<boolean>(false);
 
   // Poll the player time and resolve which paragraph contains it. The
   // YouTube Player API is async/promise-based so we coerce both the
@@ -77,9 +89,26 @@ const TranscriptParagraphs = ({
       let now: number;
       try {
         now = await player.getCurrentTime();
-      } catch {
+        consecutivePollFailures.current = 0;
+        stuckLogged.current = false;
+      } catch (err) {
         // The player can transiently throw during teardown — treat as
         // "no update this tick" rather than poisoning the highlight.
+        // But a permanent failure (YouTube IFrame API regression, player
+        // crash) would otherwise burn silently forever; surface that
+        // case once so it's alertable in Sentry.
+        consecutivePollFailures.current += 1;
+        if (
+          consecutivePollFailures.current >= POLL_FAILURE_LOG_THRESHOLD &&
+          !stuckLogged.current
+        ) {
+          stuckLogged.current = true;
+          console.error("[transcript] TRANSCRIPT_POLL_STUCK", {
+            errorId: "TRANSCRIPT_POLL_STUCK",
+            consecutiveFailures: consecutivePollFailures.current,
+            err,
+          });
+        }
         return;
       }
       if (cancelled) return;
@@ -133,17 +162,37 @@ const TranscriptParagraphs = ({
 
   if (paragraphs.length === 0) return null;
 
+  // Legacy backfill rows arrive as `{start: 0, duration: 0}`. The active-
+  // paragraph picker uses `[start, end)` which is empty when start === end,
+  // so the highlight never fires. Detect that case and surface the reason
+  // inline — better than letting the user think the timestamps are broken.
+  const hasNoTimingData = paragraphs.every((p) => p.end === p.start);
+
   const onTimestampClick = async (start: number) => {
     const player = playerRef.current;
     if (!player) return;
+    // Split into two stages so the failure modes don't blur:
+    //   - seekTo failure means the click felt inert (cursor unchanged) —
+    //     promote to errorId-tagged error so it's alertable.
+    //   - playVideo failure (typically autoplay-policy denial) means the
+    //     cursor moved but playback is paused — recoverable, the user
+    //     can hit play themselves; warn at console-info level only.
     try {
       await player.seekTo(start, true);
+    } catch (err) {
+      console.error("[transcript] TRANSCRIPT_SEEK_FAILED", {
+        errorId: "TRANSCRIPT_SEEK_FAILED",
+        start,
+        err,
+      });
+      return;
+    }
+    try {
       await player.playVideo();
     } catch (err) {
-      // Player tear-down or browser autoplay policy can reject these — log
-      // and let the click feel inert rather than throwing into the React
-      // tree where it'd surface as an unhandled rejection.
-      console.warn("[transcript] seek/play rejected", { err });
+      console.warn("[transcript] playVideo rejected (autoplay policy?)", {
+        err,
+      });
     }
   };
 
@@ -162,6 +211,15 @@ const TranscriptParagraphs = ({
       >
         Video Transcript
       </h3>
+      {hasNoTimingData && (
+        <p
+          className={`text-xs mb-3 italic ${
+            isDark ? "text-slate-400" : "text-slate-500"
+          }`}
+        >
+          Timestamps not available for this transcript — click won&apos;t seek.
+        </p>
+      )}
       <div
         ref={containerRef}
         className="overflow-y-auto max-h-[600px] pr-2 space-y-4"

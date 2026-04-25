@@ -116,7 +116,8 @@ export function parseStreamingData(rawData: string): {
             // raw SSE text that might be partially buffered or — across a
             // future protocol drift — newly shaped.
             if (Array.isArray(data.segments)) {
-              segments = data.segments.filter(
+              const raw = data.segments;
+              const filtered = raw.filter(
                 (s: unknown): s is TranscriptSegment =>
                   typeof s === "object" &&
                   s !== null &&
@@ -124,6 +125,32 @@ export function parseStreamingData(rawData: string): {
                   typeof (s as TranscriptSegment).start === "number" &&
                   typeof (s as TranscriptSegment).duration === "number"
               );
+              // A silent filter could turn a server-side protocol drift
+              // (renamed field, type change) into "transcript card empty,
+              // no error visible." Loud-log when ANY entries got dropped
+              // so the regression is alertable; if 100% got dropped,
+              // synthesize a streamError so the user sees a banner
+              // instead of a stuck-empty card.
+              if (filtered.length < raw.length) {
+                const sample = raw.find(
+                  (s: unknown) =>
+                    !filtered.includes(s as TranscriptSegment)
+                );
+                console.error("[parseStreamingData] TRANSCRIPT_SEGMENT_FILTERED", {
+                  errorId: "TRANSCRIPT_SEGMENT_FILTERED",
+                  totalCount: raw.length,
+                  droppedCount: raw.length - filtered.length,
+                  sampleKeys:
+                    sample && typeof sample === "object"
+                      ? Object.keys(sample)
+                      : typeof sample,
+                });
+                if (filtered.length === 0 && raw.length > 0) {
+                  streamError =
+                    "Transcript couldn't be displayed. Please refresh.";
+                }
+              }
+              segments = filtered;
             }
             break;
 

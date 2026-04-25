@@ -4,6 +4,7 @@ import type {
   TranscriptSegment,
   TranscriptSource,
 } from "./summarize-cache";
+import { TranscriptSegmentSchema } from "@/lib/types";
 import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
@@ -36,15 +37,11 @@ export interface CaptionResult {
 // has been live long enough to retire the alias.
 const CaptionsResponseSchema = z
   .object({
-    segments: z
-      .array(
-        z.object({
-          text: z.string(),
-          start: z.number(),
-          duration: z.number(),
-        })
-      )
-      .optional(),
+    // `.min(1)` rules out the failure mode where the VPS returns
+    // `{segments: [], transcript: ""}` after some upstream bug. An empty
+    // array would otherwise silently fall through to the Whisper path
+    // with no errorId distinguishing it from a healthy "no captions" 404.
+    segments: z.array(TranscriptSegmentSchema).min(1).optional(),
     transcript: z.string().optional(),
     source: z.literal("auto_captions"),
     language: z.enum(["en", "zh"]),
@@ -166,12 +163,19 @@ export async function extractCaptions(
   // segment from the legacy `transcript` string for the rollout window.
   // After the cleanup PR removes the alias the second branch is dead
   // code and the schema's refine() guarantees segments is defined.
-  const segments =
-    data.segments && data.segments.length > 0
-      ? data.segments
-      : data.transcript
-      ? [{ text: data.transcript, start: 0, duration: 0 }]
-      : [];
+  let segments: readonly TranscriptSegment[] = [];
+  if (data.segments && data.segments.length > 0) {
+    segments = data.segments;
+  } else if (data.transcript) {
+    // Hot path during the deploy crossover: log once with a stable errorId
+    // so the cleanup PR has a signal that the legacy branch is no longer
+    // hit before the alias is dropped. Without this, we'd silently keep
+    // the fallback alive past its expiry.
+    console.warn("[caption-extractor] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+      errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+    });
+    segments = [{ text: data.transcript, start: 0, duration: 0 }];
+  }
 
   if (segments.length === 0) return null;
 

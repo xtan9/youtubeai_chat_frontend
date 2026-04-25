@@ -6,9 +6,13 @@ import {
   SUPPORTED_LANGUAGE_CODES,
   type SupportedLanguageCode,
 } from "@/lib/constants/languages";
-import type { TranscriptSegment } from "@/lib/types";
+import {
+  TranscriptSegmentSchema,
+  type TranscriptSegment,
+} from "@/lib/types";
 
 export type { TranscriptSegment };
+export { TranscriptSegmentSchema };
 
 // PromptLocale = the VIDEO's detected language (binary — drives the classifier
 // + cache's videos.language column + legacy code paths). Distinct from
@@ -143,14 +147,12 @@ const SummaryWriteSchema = z.object({
 });
 
 // jsonb column. Stored as a JSON array, returned by PostgREST as a JS
-// array — we still pass it through zod so a corrupt row (or a YouTube/
-// Whisper schema drift that slipped through writes) is a loud cache
-// miss rather than a silently typed `unknown[]`.
-const TranscriptSegmentSchema = z.object({
-  text: z.string(),
-  start: z.number(),
-  duration: z.number(),
-});
+// array — we still pass it through the canonical TranscriptSegmentSchema
+// (imported above from lib/types) so a corrupt row (or a YouTube/Whisper
+// schema drift that slipped through writes) is a loud cache miss rather
+// than a silently typed `unknown[]`. Centralized so the four trust
+// boundaries (VPS captions, VPS transcribe, DB read, DB write) share
+// one contract — drift between them used to be invisible.
 
 const TranscriptRowSchema = z.object({
   segments: z.array(TranscriptSegmentSchema).min(1),
