@@ -12,34 +12,51 @@
 -- re-transcription would burn compute on every legacy URL hit; the cache
 -- is meant to skip that exact pipeline.
 --
+-- Idempotency: `IF NOT EXISTS` / `IF EXISTS` on every DDL so the
+-- migration-upgrade-test job can re-apply this file without failing on
+-- "column already exists." That CI re-application is the regression
+-- guard against migrations that only work the first time they run.
+--
 -- See docs/superpowers/specs/2026-04-24-clickable-transcript-timestamps-design.md.
 
 -- 1. Add the new column. Nullable for the moment so the backfill can
 --    populate it before the NOT NULL constraint is enforced.
-ALTER TABLE video_transcripts ADD COLUMN segments jsonb;
+ALTER TABLE video_transcripts ADD COLUMN IF NOT EXISTS segments jsonb;
 
 -- 2. Backfill legacy rows with a single segment from the joined text.
 --    `start = 0, duration = 0` flags "no timing data" so a future
 --    cleanup pass could detect and re-transcribe these if desired.
-UPDATE video_transcripts
-SET segments = jsonb_build_array(
-    jsonb_build_object(
-        'text', transcript,
-        'start', 0,
-        'duration', 0
-    )
-)
-WHERE segments IS NULL;
+--    The WHERE clause makes this safe to re-apply: rows already
+--    backfilled stay untouched. The `to_regclass` guard handles the
+--    second idempotency-check pass: by then the `transcript` column has
+--    already been dropped, so referencing it would fail to parse.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_transcripts' AND column_name = 'transcript'
+    ) THEN
+        EXECUTE 'UPDATE video_transcripts
+                 SET segments = jsonb_build_array(
+                     jsonb_build_object(
+                         ''text'', transcript,
+                         ''start'', 0,
+                         ''duration'', 0
+                     )
+                 )
+                 WHERE segments IS NULL';
+    END IF;
+END $$;
 
--- 3. Lock the new column down. Reads now fail loudly if a write somehow
---    skipped segments — matches the "fail-open with logged schema
---    mismatch" pattern the cache already uses for unexpected nulls.
+-- 3. Lock the new column down. ALTER COLUMN ... SET NOT NULL is a no-op
+--    when the constraint is already in place, so this is idempotent.
 ALTER TABLE video_transcripts ALTER COLUMN segments SET NOT NULL;
 
 -- 4. Drop the old column. The frontend reads `segments` exclusively now,
 --    and the LLM-snapshot string lives on the separate summaries.transcript
---    column (untouched by this migration).
-ALTER TABLE video_transcripts DROP COLUMN transcript;
+--    column (untouched by this migration). `IF EXISTS` makes re-apply
+--    safe.
+ALTER TABLE video_transcripts DROP COLUMN IF EXISTS transcript;
 
 -- Same pattern as 20260424000001_align_legacy_columns.sql: force
 -- PostgREST to reload its cached schema so the first request after
