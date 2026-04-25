@@ -106,3 +106,9 @@ jobs:
             psql -v ON_ERROR_STOP=1 -f "$f"
             echo "::endgroup::"
           done
+      # Reproduces the cache-write upsert that broke translation caching
+      # in prod (verified 2026-04-25). Fails loud if a future migration
+      # reintroduces a constraint that blocks per-(video, output_language)
+      # rows. See the fixture file for details.
+      - name: Regression — translation cache upsert succeeds
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_translation_upsert.sql

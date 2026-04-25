@@ -38,3 +38,46 @@ CREATE TABLE IF NOT EXISTS summaries (
     summary_text TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
+
+-- Carryover from an even older schema that the cache-schema rewrite
+-- missed: production's `summaries` actually has these columns AND a
+-- multi-column UNIQUE on (video_id, summary_type, reasoning) inherited
+-- from a pre-TypeScript build. The 20260417000000_cache_schema.sql
+-- reconciliation block didn't drop them because the symptoms it was
+-- chasing were elsewhere (column-name skew on youtube_id/summary_text).
+--
+-- Verified 2026-04-25 via Playwright probe + manual SQL repro on prod:
+-- every translation upsert (output_language='vi') for a video that
+-- already had a native row failed with 23505 "duplicate key value
+-- violates unique constraint summaries_video_id_summary_type_reasoning_key"
+-- because both rows defaulted to (summary_type='standard',
+-- reasoning=false) and the multi-column UNIQUE rejected the second
+-- insert. The route's fire-and-forget .catch logged it; the per-language
+-- cache stayed empty; every translation re-billed the LLM.
+--
+-- 20260424000005_drop_legacy_summary_columns.sql is the forward-only
+-- migration that removes them. Pinning them here is what makes the
+-- migration-upgrade-test job exercise the drop.
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS summary_type VARCHAR NOT NULL DEFAULT 'standard';
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS reasoning BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'en';
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'general';
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS transcript_length INTEGER;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'summaries_video_id_summary_type_reasoning_key'
+          AND conrelid = 'public.summaries'::regclass
+    ) THEN
+        ALTER TABLE summaries
+            ADD CONSTRAINT summaries_video_id_summary_type_reasoning_key
+            UNIQUE (video_id, summary_type, reasoning);
+    END IF;
+END $$;
