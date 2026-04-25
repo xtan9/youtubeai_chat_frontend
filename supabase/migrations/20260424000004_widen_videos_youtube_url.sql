@@ -20,7 +20,15 @@
 --
 -- The matching CHECK constraint `youtube_id_length CHECK
 -- (char_length(youtube_url) >= 11)` stays — the lower bound is still
--- correct.
+-- correct. Postgres rebuilds the index on `videos_youtube_id_key
+-- UNIQUE (youtube_url)` automatically on TYPE change; varchar and text
+-- share comparison operators, so no constraint or index breaks.
+--
+-- ALTER COLUMN TYPE takes ACCESS EXCLUSIVE on the table. Safe in this
+-- case because prod's videos table is verified empty 2026-04-25 (cache
+-- writes have been failing since the cache_schema deploy, so no rows
+-- accumulated). On a fresh DB or already-TEXT column this is a no-op
+-- and CI's migration-upgrade-test re-applies cleanly.
 
 ALTER TABLE videos ALTER COLUMN youtube_url TYPE TEXT;
 
