@@ -6,6 +6,9 @@ import {
   SUPPORTED_LANGUAGE_CODES,
   type SupportedLanguageCode,
 } from "@/lib/constants/languages";
+import type { TranscriptSegment } from "@/lib/types";
+
+export type { TranscriptSegment };
 
 // PromptLocale = the VIDEO's detected language (binary — drives the classifier
 // + cache's videos.language column + legacy code paths). Distinct from
@@ -53,18 +56,24 @@ export type CacheWriteParams = VideoMetadata &
 // that survives independently of the summary cache. Carries enough state
 // to skip the entire transcription pipeline on cache hit, but no summary
 // fields (those live on `summaries`, keyed by output_language).
+//
+// `segments` carry per-line timing the frontend uses to render clickable
+// timestamps that seek the embedded YouTube player. The flat string the
+// LLM consumes is derived at the call site
+// (`segments.map(s => s.text).join(" ")`), never persisted, so the cache
+// can't drift between "what the LLM saw" and "what the user sees."
 export interface CachedTranscript {
   readonly videoId: string;
   readonly title: string;
   readonly channelName: string;
-  readonly transcript: string;
+  readonly segments: readonly TranscriptSegment[];
   readonly transcriptSource: TranscriptSource;
   readonly language: PromptLocale;
 }
 
 export type TranscriptWriteParams = {
   readonly youtubeUrl: string;
-  readonly transcript: string;
+  readonly segments: readonly TranscriptSegment[];
   readonly transcriptSource: TranscriptSource;
   readonly language: PromptLocale;
   // Captions path has these by the time it writes; Whisper path may not
@@ -133,8 +142,18 @@ const SummaryWriteSchema = z.object({
   output_language: OutputLanguageSchema.nullable(),
 });
 
+// jsonb column. Stored as a JSON array, returned by PostgREST as a JS
+// array — we still pass it through zod so a corrupt row (or a YouTube/
+// Whisper schema drift that slipped through writes) is a loud cache
+// miss rather than a silently typed `unknown[]`.
+const TranscriptSegmentSchema = z.object({
+  text: z.string(),
+  start: z.number(),
+  duration: z.number(),
+});
+
 const TranscriptRowSchema = z.object({
-  transcript: z.string().min(1),
+  segments: z.array(TranscriptSegmentSchema).min(1),
   transcript_source: TranscriptSourceSchema,
   language: LocaleSchema,
 });
@@ -143,7 +162,7 @@ const TranscriptRowSchema = z.object({
 // state forever. Better to fail-open and re-attempt on the next request.
 const TranscriptWriteSchema = z.object({
   video_id: z.string(),
-  transcript: z.string().min(1),
+  segments: z.array(TranscriptSegmentSchema).min(1),
   transcript_source: TranscriptSourceSchema,
   language: LocaleSchema,
 });
@@ -416,7 +435,7 @@ export async function getCachedTranscript(
 
     const { data: transcriptRaw, error: transcriptError } = await supabase
       .from("video_transcripts")
-      .select("transcript, transcript_source, language")
+      .select("segments, transcript_source, language")
       .eq("video_id", video.id)
       .maybeSingle();
 
@@ -450,7 +469,7 @@ export async function getCachedTranscript(
       videoId: video.id,
       title: video.title ?? "",
       channelName: video.channel_name ?? "",
-      transcript: parsed.data.transcript,
+      segments: parsed.data.segments,
       transcriptSource: parsed.data.transcript_source,
       language: parsed.data.language,
     };
@@ -532,7 +551,15 @@ export async function writeCachedTranscript(
 
   const transcriptRow = {
     video_id: video.id,
-    transcript: params.transcript,
+    // Spread the segments through the writer rather than storing a
+    // JSON.stringify result — Supabase's PostgREST encodes the value into
+    // the jsonb column itself, and pre-stringifying would land it as a
+    // quoted JSON string instead of a real array.
+    segments: params.segments.map((s) => ({
+      text: s.text,
+      start: s.start,
+      duration: s.duration,
+    })),
     transcript_source: params.transcriptSource,
     language: params.language,
   };

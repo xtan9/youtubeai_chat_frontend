@@ -1,31 +1,38 @@
+"use client";
+
+import { useRef, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
-import { Card } from "@/components/ui/card";
-import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useTheme } from "next-themes";
+import type { TranscriptSegment } from "@/lib/types";
+import TranscriptParagraphs from "./transcript-paragraphs";
+
+// next/dynamic with ssr:false because react-youtube touches `window` and
+// PropTypes during render; importing it server-side trips the Next.js
+// "ReferenceError: window is not defined" guard during the initial
+// /summary route render.
+const YouTubeNoSSR = dynamic(() => import("react-youtube"), { ssr: false });
 
 interface YoutubeVideoProps {
   url: string;
-  width: number; // This becomes the maximum width
-  transcript?: string;
+  width: number; // becomes the maximum width
+  segments?: readonly TranscriptSegment[];
   streamingComplete?: boolean;
 }
 
-const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
-  const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
+const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  // YouTubePlayer instance is captured on the IFrame Player API's `onReady`
+  // event. The transcript card uses it to seek + play on timestamp click
+  // and to poll getCurrentTime() for the active-paragraph highlight.
+  const playerRef = useRef<YouTubePlayer | null>(null);
 
-  // Calculate aspect ratio (16:9)
+  // Match the iframe to the container width up to a max. 16:9 aspect ratio
+  // for the height — that's the default YouTube embed contract.
   const height = Math.floor((containerWidth / 16) * 9);
   const videoId = getYoutubeVideoId(url);
-  const videoUrl = `https://www.youtube.com/embed/${videoId}`;
 
-  // Update container width on resize
   useEffect(() => {
     const updateWidth = () => {
       if (containerRef.current) {
@@ -33,83 +40,35 @@ const YoutubeVideo = ({ url, width, transcript }: YoutubeVideoProps) => {
         setContainerWidth(newWidth);
       }
     };
-
-    // Initial calculation
     updateWidth();
-
-    // Add resize listener
     window.addEventListener("resize", updateWidth);
-
-    // Clean up
     return () => window.removeEventListener("resize", updateWidth);
   }, [width]);
 
-  if (!url) {
+  if (!url || !videoId) {
     return null;
   }
 
   return (
     <div className="flex flex-col gap-4 w-full" ref={containerRef}>
-      <iframe
-        src={videoUrl}
-        allowFullScreen
-        loading="lazy"
-        className="rounded-lg w-full"
-        title="Youtube Video"
-        width={containerWidth}
-        height={height}
+      <YouTubeNoSSR
+        videoId={videoId}
+        iframeClassName="rounded-lg w-full"
+        opts={{
+          width: String(containerWidth),
+          height: String(height),
+          // Enable the JS Player API so `seekTo`/`playVideo`/`getCurrentTime`
+          // work. Origin matches the page so postMessage handshakes pass.
+          playerVars: {
+            playsinline: 1,
+          },
+        }}
+        onReady={(event) => {
+          playerRef.current = event.target;
+        }}
       />
-
-      {transcript && (
-        <Card
-          className={`p-4 w-full ${
-            isDark
-              ? "bg-slate-800/80 border-slate-700"
-              : "bg-white border-slate-200"
-          }`}
-        >
-          <div className="flex justify-between items-center mb-2">
-            <h3
-              className={`text-sm font-semibold ${
-                isDark ? "text-cyan-300/80" : "text-cyan-700/80"
-              }`}
-            >
-              Video Transcript
-            </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
-              className={`flex items-center gap-1 text-xs ${
-                isDark
-                  ? "text-slate-300 hover:text-white hover:bg-slate-700"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-              }`}
-            >
-              {isTranscriptExpanded ? (
-                <>
-                  <ChevronUp size={14} />
-                  Show less
-                </>
-              ) : (
-                <>
-                  <ChevronDown size={14} />
-                  Show more
-                </>
-              )}
-            </Button>
-          </div>
-          <div
-            ref={transcriptRef}
-            className={`transcript-container overflow-y-auto whitespace-pre-line text-sm ${
-              isDark ? "text-slate-300" : "text-slate-600"
-            } ${
-              isTranscriptExpanded ? "max-h-[600px]" : "max-h-[300px]"
-            } transition-all duration-300`}
-          >
-            {transcript}
-          </div>
-        </Card>
+      {segments && segments.length > 0 && (
+        <TranscriptParagraphs segments={segments} playerRef={playerRef} />
       )}
     </div>
   );

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { PromptLocale, TranscriptSource } from "./summarize-cache";
+import type {
+  PromptLocale,
+  TranscriptSegment,
+  TranscriptSource,
+} from "./summarize-cache";
 import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
@@ -9,7 +13,7 @@ export { extractVideoId };
 export type CaptionSource = Extract<TranscriptSource, "auto_captions">;
 
 export interface CaptionResult {
-  readonly transcript: string;
+  readonly segments: readonly TranscriptSegment[];
   readonly source: CaptionSource;
   readonly language: PromptLocale;
   readonly title: string;
@@ -19,13 +23,37 @@ export interface CaptionResult {
 // Matches the VPS /captions 200 contract. VPS returns `string | null` for
 // title/channelName when video metadata is unavailable; normalize to "" here
 // so the route's existing string contract holds.
-const CaptionsResponseSchema = z.object({
-  transcript: z.string(),
-  source: z.literal("auto_captions"),
-  language: z.enum(["en", "zh"]),
-  title: z.string().nullable(),
-  channelName: z.string().nullable(),
-});
+//
+// During the rollout window the schema accepts either shape:
+// - new VPS emits `segments` (canonical) plus `transcript` (back-compat
+//   for an old frontend deployment that hasn't picked up segments yet)
+// - old VPS emits only `transcript`. We synthesize a single segment from
+//   it so this frontend works during the deploy crossover. Those rows
+//   show one un-clickable paragraph at 00:00 — same fail-soft as the
+//   legacy DB migration backfill — and resolve themselves once the new
+//   VPS ships.
+// Drop the `transcript`-only branch in the cleanup PR after the service
+// has been live long enough to retire the alias.
+const CaptionsResponseSchema = z
+  .object({
+    segments: z
+      .array(
+        z.object({
+          text: z.string(),
+          start: z.number(),
+          duration: z.number(),
+        })
+      )
+      .optional(),
+    transcript: z.string().optional(),
+    source: z.literal("auto_captions"),
+    language: z.enum(["en", "zh"]),
+    title: z.string().nullable(),
+    channelName: z.string().nullable(),
+  })
+  .refine((data) => data.segments !== undefined || data.transcript !== undefined, {
+    message: "either `segments` or `transcript` is required",
+  });
 
 // Captions path is fast — a slow VPS response here is a signal to fall back
 // to Whisper, not to keep waiting. Keep well under the route's 300s budget.
@@ -134,10 +162,21 @@ export async function extractCaptions(
   }
 
   const data = parsed.data;
-  if (!data.transcript) return null;
+  // Prefer the new `segments` field; fall through to deriving a single
+  // segment from the legacy `transcript` string for the rollout window.
+  // After the cleanup PR removes the alias the second branch is dead
+  // code and the schema's refine() guarantees segments is defined.
+  const segments =
+    data.segments && data.segments.length > 0
+      ? data.segments
+      : data.transcript
+      ? [{ text: data.transcript, start: 0, duration: 0 }]
+      : [];
+
+  if (segments.length === 0) return null;
 
   return {
-    transcript: data.transcript,
+    segments,
     source: data.source,
     language: data.language,
     title: data.title ?? "",

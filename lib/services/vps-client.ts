@@ -1,12 +1,37 @@
 import { z } from "zod";
+import type { TranscriptSegment } from "./summarize-cache";
 
-const TranscribeResponseSchema = z.object({
-  transcript: z.string(),
-  language: z.string(),
-  source: z.literal("whisper"),
-});
+// During the rollout window the schema accepts either shape:
+// - new VPS emits `segments` (canonical) plus `transcript` (back-compat
+//   for an old frontend deployment that hasn't picked up segments yet).
+// - old VPS emits only `transcript`. Below we synthesize a single
+//   un-clickable segment from it so this frontend keeps working during
+//   the deploy crossover.
+// Drop the `transcript`-only branch once the service rollout is done.
+const TranscribeResponseSchema = z
+  .object({
+    segments: z
+      .array(
+        z.object({
+          text: z.string(),
+          start: z.number(),
+          duration: z.number(),
+        })
+      )
+      .optional(),
+    transcript: z.string().optional(),
+    language: z.string(),
+    source: z.literal("whisper"),
+  })
+  .refine((data) => data.segments !== undefined || data.transcript !== undefined, {
+    message: "either `segments` or `transcript` is required",
+  });
 
-export type TranscribeResult = z.infer<typeof TranscribeResponseSchema>;
+export type TranscribeResult = {
+  readonly segments: readonly TranscriptSegment[];
+  readonly language: string;
+  readonly source: "whisper";
+};
 
 // Vercel's route budget is 300s; leave ~60s headroom for the post-transcribe
 // work on the same request (LLM streaming p99 ≈ 30s, cache write + SSE
@@ -65,5 +90,21 @@ export async function transcribeViaVps(
       `VPS transcription returned unexpected shape: ${parsed.error.message}`
     );
   }
-  return parsed.data;
+  // Prefer the new `segments` field; fall through to deriving a single
+  // segment from the legacy `transcript` string for the rollout window.
+  // The schema's refine() guarantees one of the two is present.
+  const segments =
+    parsed.data.segments && parsed.data.segments.length > 0
+      ? parsed.data.segments
+      : parsed.data.transcript
+      ? [{ text: parsed.data.transcript, start: 0, duration: 0 }]
+      : [];
+  if (segments.length === 0) {
+    throw new Error("VPS transcription returned no segments");
+  }
+  return {
+    segments,
+    language: parsed.data.language,
+    source: parsed.data.source,
+  };
 }

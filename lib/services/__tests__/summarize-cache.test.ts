@@ -616,7 +616,11 @@ describe("getCachedTranscript", () => {
     });
     mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
       // language "xx" violates the en|zh schema
-      data: { transcript: "tr", transcript_source: "whisper", language: "xx" },
+      data: {
+        segments: [{ text: "tr", start: 0, duration: 1 }],
+        transcript_source: "whisper",
+        language: "xx",
+      },
       error: null,
     });
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -639,7 +643,10 @@ describe("getCachedTranscript", () => {
     });
     mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
       data: {
-        transcript: "the cached transcript",
+        segments: [
+          { text: "the cached", start: 0, duration: 1 },
+          { text: "transcript", start: 1, duration: 1 },
+        ],
         transcript_source: "whisper",
         language: "en",
       },
@@ -654,7 +661,10 @@ describe("getCachedTranscript", () => {
       videoId: "v1",
       title: "t",
       channelName: "c",
-      transcript: "the cached transcript",
+      segments: [
+        { text: "the cached", start: 0, duration: 1 },
+        { text: "transcript", start: 1, duration: 1 },
+      ],
       transcriptSource: "whisper",
       language: "en",
     });
@@ -678,7 +688,7 @@ describe("writeCachedTranscript", () => {
 
   const baseTranscript = {
     youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-    transcript: "the transcript",
+    segments: [{ text: "the transcript", start: 0, duration: 1 }],
     transcriptSource: "whisper" as const,
     language: "en" as const,
   };
@@ -720,7 +730,7 @@ describe("writeCachedTranscript", () => {
     expect(transcriptCall[1]).toEqual({ onConflict: "video_id" });
     expect(transcriptCall[0]).toMatchObject({
       video_id: "v1",
-      transcript: "the transcript",
+      segments: [{ text: "the transcript", start: 0, duration: 1 }],
       transcript_source: "whisper",
       language: "en",
     });
@@ -849,7 +859,7 @@ describe("writeCachedTranscript", () => {
     );
   });
 
-  it("rejects empty transcript (invariant: never cache an empty transcript)", async () => {
+  it("rejects empty segments array (invariant: never cache an empty transcript)", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -859,7 +869,7 @@ describe("writeCachedTranscript", () => {
 
     const { writeCachedTranscript } = await loadFresh();
     await expect(
-      writeCachedTranscript({ ...baseTranscript, transcript: "" })
+      writeCachedTranscript({ ...baseTranscript, segments: [] })
     ).rejects.toThrow(/transcript write failed schema validation/);
     expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
   });
