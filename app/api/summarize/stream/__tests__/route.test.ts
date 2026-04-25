@@ -1043,11 +1043,20 @@ describe("POST /api/summarize/stream", () => {
       // Wait for microtask-scheduled .catch to log before asserting.
       await Promise.resolve();
       await Promise.resolve();
+      // Pin the enriched payload shape (errorId + stage + outputLanguage).
+      // outputLanguage is null because this test uses the native path;
+      // its presence in the log line is the whole point — every cache
+      // write failure must carry it so a dashboard can split spikes by
+      // language class.
       expect(
         errSpy.mock.calls.some(
           (c) =>
-            String(c[0]).includes("cache failed") &&
-            (c[1] as { stage?: string } | undefined)?.stage === "cache"
+            String(c[0]).includes("CACHE_WRITE_FAILED") &&
+            (c[1] as { errorId?: string; stage?: string; outputLanguage?: unknown } | undefined)
+              ?.errorId === "CACHE_WRITE_FAILED" &&
+            (c[1] as { stage?: string } | undefined)?.stage === "cache" &&
+            "outputLanguage" in
+              ((c[1] as Record<string, unknown> | undefined) ?? {})
         )
       ).toBe(true);
     });
