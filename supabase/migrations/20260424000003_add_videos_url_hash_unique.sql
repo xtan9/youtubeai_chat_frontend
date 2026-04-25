@@ -20,7 +20,14 @@
 -- Same incident class as PR #21's column-rename drift — another
 -- reconciliation gap in the legacy-schema branch of the original
 -- cache-schema migration. Verified 2026-04-24 via Vercel runtime logs:
--- "video upsert failed" matches every cache-write attempt on prod.
+-- "video upsert failed" matches every cache-write attempt on prod
+-- since the TypeScript-stack rollout.
+--
+-- Constraint name `videos_url_hash_key` matches Postgres's column-UNIQUE
+-- convention (`<table>_<column>_key`) so a fresh DB built via
+-- CREATE TABLE ... UNIQUE has an auto-named constraint that this
+-- migration's IF NOT EXISTS guard recognizes — fresh and legacy paths
+-- converge on the same name.
 
 DO $$
 BEGIN
@@ -29,12 +36,18 @@ BEGIN
         WHERE conname = 'videos_url_hash_key'
           AND conrelid = 'public.videos'::regclass
     ) THEN
-        -- Defensive dedup: in practice the videos table is empty on
-        -- prod (writes have been failing for weeks), so this is a
-        -- no-op. Keeps the constraint add safe if the table ever
-        -- accumulated rows during a brief window where the constraint
-        -- was missing. NULL url_hash rows are tolerated by UNIQUE so
-        -- we don't delete those.
+        -- Block concurrent writers for the dedup + ADD CONSTRAINT pair.
+        -- ADD CONSTRAINT alone takes ACCESS EXCLUSIVE only at its own
+        -- call, so without this lock a writer could land a duplicate
+        -- between the DELETE below and the ADD CONSTRAINT and trip
+        -- "could not create unique index". Cheap insurance even though
+        -- prod's videos table is verified empty (cache writes have been
+        -- failing since the cache_schema deploy).
+        LOCK TABLE public.videos IN ACCESS EXCLUSIVE MODE;
+
+        -- Drop any duplicate url_hash rows so the unique add doesn't
+        -- fail. Keeps the earliest row per hash. NULL url_hash rows
+        -- aren't touched (UNIQUE allows multiple NULLs in Postgres).
         DELETE FROM videos
         WHERE id IN (
             SELECT id FROM (
@@ -52,7 +65,9 @@ BEGIN
     END IF;
 END $$;
 
--- Force PostgREST to refresh its schema cache so the next upsert call
--- sees the new constraint without waiting for the natural poll. Same
--- pattern as 20260424000001_align_legacy_columns.sql.
+-- Force PostgREST to refresh its in-memory schema cache (which carries
+-- the table/column/constraint metadata it uses to compile ON CONFLICT
+-- targets) so the next upsert call sees the new constraint without
+-- waiting for the natural ~10-minute poll. Same pattern as
+-- 20260424000001_align_legacy_columns.sql.
 NOTIFY pgrst, 'reload schema';
