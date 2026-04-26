@@ -438,7 +438,10 @@ describe("POST /api/summarize/stream", () => {
           summary: "The cached summary verbatim.",
           transcript: "legacy text without timing",
           transcribeTimeSeconds: 0,
-          summarizeTimeSeconds: 1,
+          // Distinct, non-trivial value so a swap with transcribe_time
+          // (the very bug route.ts:573-579 calls out for the live path)
+          // shows up as a structural mismatch in the assertion below.
+          summarizeTimeSeconds: 3,
         })
       );
       mocks.getCachedTranscript.mockResolvedValue(null);
@@ -474,6 +477,27 @@ describe("POST /api/summarize/stream", () => {
       expect(fullTranscript?.segments).not.toEqual([
         { text: "legacy text without timing", start: 0, duration: 0 },
       ]);
+      // The terminal summary event must reflect partial-pipeline timing:
+      // summarize_time from the cached row (LLM didn't re-run), and
+      // transcribe_time from the actual re-transcription. A swap of the
+      // two would regress the user-visible "Transcription/Summary" stats.
+      const terminal = events.find((e) => e.type === "summary") as
+        | {
+            type: "summary";
+            summarize_time: number;
+            transcribe_time: number;
+            total_time: number;
+          }
+        | undefined;
+      expect(terminal?.summarize_time).toBe(3);
+      expect(terminal?.transcribe_time).toBeGreaterThan(0);
+      expect(terminal?.total_time).toBe(
+        terminal!.summarize_time + terminal!.transcribe_time
+      );
+      // Pin the metadata-event contract: client sees cached:false because
+      // we genuinely re-transcribed (the user waited the transcribe time).
+      const metadata = events.find((e) => e.type === "metadata");
+      expect(metadata).toMatchObject({ type: "metadata", cached: false });
     });
 
     it("still serves the cache shortcut when include_transcript=false even with no transcript row", async () => {
