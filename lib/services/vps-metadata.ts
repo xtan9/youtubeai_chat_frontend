@@ -37,16 +37,15 @@ const LanguageCodeSchema = z
 // post-rollout VPS deploys: an old VPS that doesn't emit the field is
 // indistinguishable from a newer VPS that emitted `null` (live stream
 // / yt-dlp rejection). Both cases reach the orchestrator as "duration
-// unknown" and skip the too-long gate, matching the project's
-// "additive fields ship safely ahead of the consumer" pattern.
+// unknown," matching the project's "additive fields ship safely ahead
+// of the consumer" pattern.
 const VpsMetadataResponseSchema = z.object({
   language: LanguageCodeSchema,
   title: z.string(),
   description: z.string(),
   // `.finite()` rejects `Infinity` — JSON.parse("1e9999") yields
-  // Infinity, which would otherwise pass `.nonnegative()` and reach
-  // the too-long gate where the user-facing message says "Infinity
-  // minutes." Bounce at the boundary instead.
+  // Infinity, which would otherwise pass `.nonnegative()`. Bounce at
+  // the schema boundary instead of letting garbage values flow through.
   duration: z.number().finite().nonnegative().nullable().optional(),
   availableCaptions: z.array(LanguageCodeSchema),
 });
