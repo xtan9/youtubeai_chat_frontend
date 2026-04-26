@@ -45,7 +45,7 @@ test("French video produces French transcript + summary end-to-end", async ({
   // outcomes so the test fails within seconds of a banner appearing
   // instead of waiting the full 180s transcript budget.
   const errorBanner = page.getByTestId("stream-error-banner");
-  const transcript = page.locator(".transcript-container");
+  const transcript = page.getByTestId("transcript-container");
 
   await Promise.race([
     transcript.waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS }),

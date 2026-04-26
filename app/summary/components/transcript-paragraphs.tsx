@@ -222,6 +222,10 @@ const TranscriptParagraphs = ({
       )}
       <div
         ref={containerRef}
+        // Load-bearing for the prod e2e smoke (smoke-tests/e2e-summarize.spec.ts)
+        // — don't drop on refactor. The smoke waits on this node and reads
+        // innerText() to assert transcript-language correctness.
+        data-testid="transcript-container"
         className="overflow-y-auto max-h-[600px] pr-2 space-y-4"
       >
         {paragraphs.map((p, i) => {
