@@ -10,6 +10,7 @@ import {
   TranscriptSegmentSchema,
   type TranscriptSegment,
 } from "@/lib/types";
+import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
 
 export type { TranscriptSegment };
 export { TranscriptSegmentSchema };
@@ -494,8 +495,8 @@ export async function getCachedTranscript(
     //
     // Real captions/whisper output always has positive duration on at
     // least one segment, so the false-evict surface is empty in practice.
-    const segments = parsed.data.segments;
-    if (isNoTimingShape(segments)) {
+    const rawSegments = parsed.data.segments;
+    if (isNoTimingShape(rawSegments)) {
       console.warn(
         "[summarize-cache] transcript: legacy-backfill row evicted (will re-transcribe)",
         {
@@ -505,6 +506,18 @@ export async function getCachedTranscript(
       );
       return null;
     }
+
+    // Decode any XML entities that were persisted before the captions
+    // pipeline started decoding them itself. See
+    // lib/utils/decode-caption-entities for the bug class — without this
+    // pass, rows written before that fix render `I&#39;m` literally.
+    // Whisper-source rows pass through unchanged (no entities to begin
+    // with), and freshly-written caption rows are already clean, so the
+    // operation is idempotent on healthy data.
+    const segments = rawSegments.map((s) => ({
+      ...s,
+      text: decodeCaptionEntities(s.text),
+    }));
 
     return {
       videoId: video.id,

@@ -5,6 +5,7 @@ import type {
   TranscriptSource,
 } from "./summarize-cache";
 import { TranscriptSegmentSchema } from "@/lib/types";
+import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
 import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
@@ -165,7 +166,13 @@ export async function extractCaptions(
   // code and the schema's refine() guarantees segments is defined.
   let segments: readonly TranscriptSegment[] = [];
   if (data.segments && data.segments.length > 0) {
-    segments = data.segments;
+    // Defense in depth — VPS-side fix decodes captions canonically, this
+    // pass swallows any encoded entities that slip through (e.g. during
+    // VPS rollout, or future caption sources). See decode-caption-entities.
+    segments = data.segments.map((s) => ({
+      ...s,
+      text: decodeCaptionEntities(s.text),
+    }));
   } else if (data.transcript) {
     // Hot path during the deploy crossover: log once with a stable errorId
     // so the cleanup PR has a signal that the legacy branch is no longer
