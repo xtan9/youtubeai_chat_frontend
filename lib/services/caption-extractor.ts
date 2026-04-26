@@ -1,5 +1,10 @@
 import { z } from "zod";
-import type { PromptLocale, TranscriptSource } from "./summarize-cache";
+import type {
+  PromptLocale,
+  TranscriptSegment,
+  TranscriptSource,
+} from "./summarize-cache";
+import { TranscriptSegmentSchema } from "@/lib/types";
 import { extractVideoId } from "./youtube-url";
 
 export { extractVideoId };
@@ -9,7 +14,7 @@ export { extractVideoId };
 export type CaptionSource = Extract<TranscriptSource, "auto_captions">;
 
 export interface CaptionResult {
-  readonly transcript: string;
+  readonly segments: readonly TranscriptSegment[];
   readonly source: CaptionSource;
   readonly language: PromptLocale;
   readonly title: string;
@@ -19,13 +24,33 @@ export interface CaptionResult {
 // Matches the VPS /captions 200 contract. VPS returns `string | null` for
 // title/channelName when video metadata is unavailable; normalize to "" here
 // so the route's existing string contract holds.
-const CaptionsResponseSchema = z.object({
-  transcript: z.string(),
-  source: z.literal("auto_captions"),
-  language: z.enum(["en", "zh"]),
-  title: z.string().nullable(),
-  channelName: z.string().nullable(),
-});
+//
+// During the rollout window the schema accepts either shape:
+// - new VPS emits `segments` (canonical) plus `transcript` (back-compat
+//   for an old frontend deployment that hasn't picked up segments yet)
+// - old VPS emits only `transcript`. We synthesize a single segment from
+//   it so this frontend works during the deploy crossover. Those rows
+//   show one un-clickable paragraph at 00:00 — same fail-soft as the
+//   legacy DB migration backfill — and resolve themselves once the new
+//   VPS ships.
+// Drop the `transcript`-only branch in the cleanup PR after the service
+// has been live long enough to retire the alias.
+const CaptionsResponseSchema = z
+  .object({
+    // `.min(1)` rules out the failure mode where the VPS returns
+    // `{segments: [], transcript: ""}` after some upstream bug. An empty
+    // array would otherwise silently fall through to the Whisper path
+    // with no errorId distinguishing it from a healthy "no captions" 404.
+    segments: z.array(TranscriptSegmentSchema).min(1).optional(),
+    transcript: z.string().optional(),
+    source: z.literal("auto_captions"),
+    language: z.enum(["en", "zh"]),
+    title: z.string().nullable(),
+    channelName: z.string().nullable(),
+  })
+  .refine((data) => data.segments !== undefined || data.transcript !== undefined, {
+    message: "either `segments` or `transcript` is required",
+  });
 
 // Captions path is fast — a slow VPS response here is a signal to fall back
 // to Whisper, not to keep waiting. Keep well under the route's 300s budget.
@@ -134,10 +159,28 @@ export async function extractCaptions(
   }
 
   const data = parsed.data;
-  if (!data.transcript) return null;
+  // Prefer the new `segments` field; fall through to deriving a single
+  // segment from the legacy `transcript` string for the rollout window.
+  // After the cleanup PR removes the alias the second branch is dead
+  // code and the schema's refine() guarantees segments is defined.
+  let segments: readonly TranscriptSegment[] = [];
+  if (data.segments && data.segments.length > 0) {
+    segments = data.segments;
+  } else if (data.transcript) {
+    // Hot path during the deploy crossover: log once with a stable errorId
+    // so the cleanup PR has a signal that the legacy branch is no longer
+    // hit before the alias is dropped. Without this, we'd silently keep
+    // the fallback alive past its expiry.
+    console.warn("[caption-extractor] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+      errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+    });
+    segments = [{ text: data.transcript, start: 0, duration: 0 }];
+  }
+
+  if (segments.length === 0) return null;
 
   return {
-    transcript: data.transcript,
+    segments,
     source: data.source,
     language: data.language,
     title: data.title ?? "",

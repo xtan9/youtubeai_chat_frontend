@@ -17,6 +17,7 @@ import {
   getCachedTranscript,
   writeCachedSummary,
   writeCachedTranscript,
+  type TranscriptSegment,
   type TranscriptSource,
   type PromptLocale,
 } from "@/lib/services/summarize-cache";
@@ -273,7 +274,35 @@ export async function POST(request: Request) {
           outputLanguageCode ?? null
         );
         if (cached) {
-          streamCached(sendEvent, cached, { includeTranscript });
+          // The cached summary row stores only the flat string the LLM
+          // consumed; segments (with per-line timing) live on the separate
+          // video_transcripts row. Fetch them only when the client asked
+          // for the transcript so we don't pay an extra DB round-trip on
+          // include_transcript=false requests (the common path for the
+          // production summary flow).
+          let cachedSegments: readonly TranscriptSegment[] | undefined;
+          if (includeTranscript) {
+            const cachedT = await getCachedTranscript(youtube_url);
+            cachedSegments = cachedT?.segments;
+            // Legacy cache rows: a summary written before the
+            // video_transcripts table existed (migration 20260424000002)
+            // has `summaries.transcript` but no segments row. Without
+            // this fallback the user would see the cached summary but
+            // an empty transcript card — a regression vs the pre-PR
+            // behavior that emitted the flat string. Synthesize one
+            // un-clickable 00:00 segment from the snapshot — same
+            // fail-soft as the migration backfill and the rollout
+            // fallback in caption-extractor / vps-client.
+            if (!cachedSegments && cached.transcript) {
+              cachedSegments = [
+                { text: cached.transcript, start: 0, duration: 0 },
+              ];
+            }
+          }
+          streamCached(sendEvent, cached, {
+            includeTranscript,
+            segments: cachedSegments,
+          });
           return;
         }
 
@@ -291,7 +320,13 @@ export async function POST(request: Request) {
         // flow analyzer can't correlate the `reusedNativeTranscript` flag
         // with the nested if/else in the pipeline. Both paths assign;
         // reaching the use-site with these unset is unreachable at runtime.
-        let transcript!: string;
+        //
+        // `segments` is the canonical shape; the flat `transcript` string
+        // is derived once below for the LLM/classifier/cache snapshot path.
+        // Storing both representations would let them drift; deriving means
+        // "what we summarized" is provably the concatenation of "what we
+        // showed."
+        let segments!: readonly TranscriptSegment[];
         let transcriptSource!: TranscriptSource;
         let language!: PromptLocale;
         let title = "";
@@ -318,7 +353,7 @@ export async function POST(request: Request) {
         const cachedTranscript = await getCachedTranscript(youtube_url);
         if (isCallerAbort(request.signal)) return;
         if (cachedTranscript) {
-          transcript = cachedTranscript.transcript;
+          segments = cachedTranscript.segments;
           transcriptSource = cachedTranscript.transcriptSource;
           language = cachedTranscript.language;
           title = cachedTranscript.title;
@@ -431,7 +466,7 @@ export async function POST(request: Request) {
         }
 
         if (captions) {
-          transcript = captions.transcript;
+          segments = captions.segments;
           transcriptSource = captions.source;
           language = captions.language;
           title = captions.title;
@@ -460,16 +495,24 @@ export async function POST(request: Request) {
               request.signal,
               detectedLang ?? undefined
             );
-            transcript = vpsResult.transcript;
+            segments = vpsResult.segments;
             transcriptSource = "whisper";
             // PromptLocale stays binary (en|zh). If we pinned zh, trust
             // that; for every other detected language we still run
             // detectLocale on the transcript to catch CJK output from
-            // mis-detection (or legacy "no hint" calls).
+            // mis-detection (or legacy "no hint" calls). Slice the first
+            // ~500 chars of the joined text rather than streaming all
+            // segments through detectLocale — the heuristic only needs a
+            // sample.
             language =
               detectedLang === "zh"
                 ? "zh"
-                : detectLocale(transcript.slice(0, 500));
+                : detectLocale(
+                    segments
+                      .map((s) => s.text)
+                      .join(" ")
+                      .slice(0, 500)
+                  );
           } catch (err) {
             if (isCallerAbort(request.signal)) return;
             logStageError("vps", err);
@@ -516,7 +559,7 @@ export async function POST(request: Request) {
         // alertable since it disables the cache for that video.
         writeCachedTranscript({
           youtubeUrl: youtube_url,
-          transcript,
+          segments,
           transcriptSource,
           language,
           title: title || undefined,
@@ -553,7 +596,7 @@ export async function POST(request: Request) {
         }
 
         if (includeTranscript) {
-          sendEvent({ type: "full_transcript", text: transcript });
+          sendEvent({ type: "full_transcript", segments });
         }
 
         // Resolve oembed metadata NOW (not after the LLM call) so the
@@ -572,14 +615,24 @@ export async function POST(request: Request) {
           }
         }
 
+        // Derive the flat transcript string ONCE here for everything
+        // downstream that needs string text (classifier excerpt, prompt,
+        // summary cache snapshot). Storing this on a long-lived field
+        // would let it drift from `segments` — keeping it local enforces
+        // "what we summarized" === "concatenation of what we showed."
+        const transcriptText = segments.map((s) => s.text).join(" ");
+
         // Routing: compute metadata, run classifier in the middle zone,
         // pick a model via chooseModel, log the decision.
-        const metadata = getTranscriptMetadata(transcript, language);
+        const metadata = getTranscriptMetadata(transcriptText, language);
         const classifierInRange =
           metadata.tokens >= SHORT_TOKENS && metadata.tokens <= LONG_TOKENS;
         const classifier = classifierInRange
           ? await classifyContent({
-              transcriptExcerpt: transcript.slice(0, CLASSIFIER_EXCERPT_CHARS),
+              transcriptExcerpt: transcriptText.slice(
+                0,
+                CLASSIFIER_EXCERPT_CHARS
+              ),
               title,
               language,
               signal: request.signal,
@@ -606,7 +659,7 @@ export async function POST(request: Request) {
         const charBudget =
           decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
         const prompt = buildSummarizationPrompt(
-          transcript,
+          transcriptText,
           charBudget,
           outputLanguageCode
         );
@@ -691,7 +744,10 @@ export async function POST(request: Request) {
           title,
           channelName,
           language,
-          transcript,
+          // Snapshot the flat string the LLM consumed. The cache row is a
+          // record of "what we summarized" — segments live separately on
+          // video_transcripts and stay the canonical source for the UI.
+          transcript: transcriptText,
           summary: fullSummary,
           transcriptSource,
           model: decision.model,

@@ -26,7 +26,11 @@ describe("transcribeViaVps", () => {
     vi.stubEnv("VPS_API_KEY", "\tsecret  ");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({ transcript: "t", language: "en", source: "whisper" }),
+        JSON.stringify({
+          segments: [{ text: "t", start: 0, duration: 1 }],
+          language: "en",
+          source: "whisper",
+        }),
         { status: 200 }
       )
     );
@@ -90,7 +94,11 @@ describe("transcribeViaVps", () => {
     vi.stubEnv("VPS_API_KEY", "secret");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({ transcript: "t", language: "en", source: "whisper" }),
+        JSON.stringify({
+          segments: [{ text: "t", start: 0, duration: 1 }],
+          language: "en",
+          source: "whisper",
+        }),
         { status: 200 }
       )
     );
@@ -108,7 +116,11 @@ describe("transcribeViaVps", () => {
     vi.stubEnv("VPS_API_KEY", "secret");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({ transcript: "bonjour", language: "fr", source: "whisper" }),
+        JSON.stringify({
+          segments: [{ text: "bonjour", start: 0, duration: 1 }],
+          language: "fr",
+          source: "whisper",
+        }),
         { status: 200 }
       )
     );
@@ -128,7 +140,10 @@ describe("transcribeViaVps", () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            transcript: "hello world",
+            segments: [
+              { text: "hello", start: 0, duration: 1 },
+              { text: "world", start: 1, duration: 1 },
+            ],
             language: "en",
             source: "whisper",
           }),
@@ -138,10 +153,65 @@ describe("transcribeViaVps", () => {
     );
     const result = await transcribeViaVps("https://youtu.be/abc");
     expect(result).toEqual({
-      transcript: "hello world",
+      segments: [
+        { text: "hello", start: 0, duration: 1 },
+        { text: "world", start: 1, duration: 1 },
+      ],
       language: "en",
       source: "whisper",
     });
+  });
+
+  it("accepts the legacy `transcript` field alongside segments (rollout window)", async () => {
+    // The VPS still emits `transcript` next to `segments` for one rollout
+    // window so an old frontend deployment keeps working. The new schema
+    // accepts the legacy field and ignores it.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            segments: [{ text: "hi", start: 0, duration: 1 }],
+            transcript: "hi",
+            language: "en",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const result = await transcribeViaVps("https://youtu.be/abc");
+    expect(result.segments).toEqual([
+      { text: "hi", start: 0, duration: 1 },
+    ]);
+  });
+
+  it("falls back to a single segment when only legacy `transcript` is present (forward-compat)", async () => {
+    // Symmetric of the above: when the VPS hasn't deployed the new
+    // contract yet, this client still works. The synthesized segment
+    // gets start=0, duration=0 — a flag that timing data is absent —
+    // so the transcript renders as one un-clickable paragraph at 00:00.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            transcript: "legacy whisper output",
+            language: "en",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const result = await transcribeViaVps("https://youtu.be/abc");
+    expect(result.segments).toEqual([
+      { text: "legacy whisper output", start: 0, duration: 0 },
+    ]);
   });
 
   it("forwards the caller signal to fetch (composed with internal timeout)", async () => {
@@ -150,7 +220,7 @@ describe("transcribeViaVps", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          transcript: "t",
+          segments: [{ text: "t", start: 0, duration: 1 }],
           language: "en",
           source: "whisper",
         }),
@@ -214,7 +284,7 @@ describe("transcribeViaVps", () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            transcript: "t",
+            segments: [{ text: "t", start: 0, duration: 1 }],
             language: "en",
             source: "whisper",
           }),
@@ -236,7 +306,7 @@ describe("transcribeViaVps", () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            transcript: "t",
+            segments: [{ text: "t", start: 0, duration: 1 }],
             language: "en",
             source: "whisper",
           }),

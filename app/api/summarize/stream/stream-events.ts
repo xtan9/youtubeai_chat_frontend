@@ -1,4 +1,7 @@
-import type { CachedSummary } from "@/lib/services/summarize-cache";
+import type {
+  CachedSummary,
+  TranscriptSegment,
+} from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import type { ClientStage } from "@/lib/stages";
 
@@ -12,7 +15,10 @@ export type SseEvent =
       title?: string;
       channel?: string;
     }
-  | { type: "full_transcript"; text: string }
+  | {
+      type: "full_transcript";
+      segments: readonly TranscriptSegment[];
+    }
   | {
       type: "summary";
       category: "general";
@@ -50,10 +56,20 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
 
 // Event order must match a fresh run so the client accumulator renders cache
 // hits identically to live streams.
+//
+// `segments` carry the per-line playback timing the frontend uses to render
+// clickable timestamps. They live in a separate cache row (video_transcripts)
+// from the per-language summary, so the route looks them up separately and
+// passes them in. When omitted (or empty), the full_transcript event is
+// skipped — the same fail-soft behaviour as the live path when a transcript
+// was never persisted.
 export function streamCached(
   sendEvent: SendEvent,
   cached: CachedSummary,
-  opts: { includeTranscript: boolean }
+  opts: {
+    includeTranscript: boolean;
+    segments?: readonly TranscriptSegment[];
+  }
 ): void {
   sendEvent({
     type: "metadata",
@@ -65,8 +81,8 @@ export function streamCached(
 
   sendEvent({ type: "content", text: cached.summary });
 
-  if (opts.includeTranscript && cached.transcript) {
-    sendEvent({ type: "full_transcript", text: cached.transcript });
+  if (opts.includeTranscript && opts.segments && opts.segments.length > 0) {
+    sendEvent({ type: "full_transcript", segments: opts.segments });
   }
 
   sendEvent({

@@ -75,3 +75,56 @@ describe("parseStreamingData — error event handling", () => {
     expect(parsed.result.summary).toBe("Résumé partiel");
   });
 });
+
+describe("parseStreamingData — full_transcript event", () => {
+  it("collects segments from the full_transcript event into result.segments", () => {
+    // The transcript view depends on these segments — without them the
+    // YoutubeVideo card stays empty even after streaming completes. A
+    // protocol drift that renamed `segments` would silently regress this.
+    const raw = sse([
+      { type: "metadata", category: "general", cached: false },
+      {
+        type: "full_transcript",
+        segments: [
+          { text: "hello", start: 0, duration: 1.5 },
+          { text: "world", start: 1.5, duration: 2 },
+        ],
+      },
+    ]);
+    const parsed = parseStreamingData(raw);
+    expect(parsed.result.segments).toEqual([
+      { text: "hello", start: 0, duration: 1.5 },
+      { text: "world", start: 1.5, duration: 2 },
+    ]);
+  });
+
+  it("filters malformed segment entries instead of crashing", () => {
+    // Defense against a partially-buffered SSE chunk landing here with a
+    // mid-write segment object. Drop the bad ones, keep the good — better
+    // than a thrown error that takes the whole parse with it.
+    const raw = sse([
+      {
+        type: "full_transcript",
+        segments: [
+          { text: "good", start: 0, duration: 1 },
+          { text: "missing duration", start: 5 },
+          null,
+          "bad",
+        ],
+      },
+    ]);
+    const parsed = parseStreamingData(raw);
+    expect(parsed.result.segments).toEqual([
+      { text: "good", start: 0, duration: 1 },
+    ]);
+  });
+
+  it("leaves segments undefined when the event is missing the array", () => {
+    // Old protocol: `{type:"full_transcript", text:"..."}`. The new parser
+    // should not invent segments from the legacy field — let the consumer
+    // handle "no segments" the same as "no transcript event at all."
+    const raw = sse([{ type: "full_transcript", text: "legacy text" }]);
+    const parsed = parseStreamingData(raw);
+    expect(parsed.result.segments).toBeUndefined();
+  });
+});

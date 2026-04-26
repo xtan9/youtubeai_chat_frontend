@@ -280,7 +280,7 @@ export function YouTubeSummarizerApp({
           <YoutubeVideo
             url={url}
             width={600}
-            transcript={data?.transcript}
+            segments={data?.segments}
             streamingComplete={streamingComplete}
           />
         </div>

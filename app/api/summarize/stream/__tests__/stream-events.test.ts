@@ -71,13 +71,16 @@ describe("streamCached event ordering contract", () => {
     expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
   });
 
-  it("inserts full_transcript between content and summary when requested", () => {
+  it("inserts full_transcript between content and summary when segments are passed in", () => {
+    // Segments are sourced from the separate video_transcripts cache row
+    // and threaded in through the opts param — the per-language summary
+    // doesn't carry timing data, so the route looks them up and forwards
+    // them. A change here breaks the cache-hit transcript view in the UI.
     const sent: Record<string, unknown>[] = [];
-    streamCached(
-      (d) => sent.push(d),
-      baseCached({ transcript: "full transcript" }),
-      { includeTranscript: true }
-    );
+    streamCached((d) => sent.push(d), baseCached(), {
+      includeTranscript: true,
+      segments: [{ text: "hi", start: 0, duration: 1 }],
+    });
     expect(sent.map((e) => e.type)).toEqual([
       "metadata",
       "content",
@@ -86,13 +89,24 @@ describe("streamCached event ordering contract", () => {
     ]);
   });
 
-  it("skips full_transcript when cached transcript is empty", () => {
+  it("skips full_transcript when no segments are provided (no separate transcript cache hit)", () => {
     const sent: Record<string, unknown>[] = [];
-    streamCached(
-      (d) => sent.push(d),
-      baseCached({ transcript: "" }),
-      { includeTranscript: true }
-    );
+    streamCached((d) => sent.push(d), baseCached(), {
+      includeTranscript: true,
+    });
+    expect(sent.map((e) => e.type)).toEqual([
+      "metadata",
+      "content",
+      "summary",
+    ]);
+  });
+
+  it("skips full_transcript when segments array is empty", () => {
+    const sent: Record<string, unknown>[] = [];
+    streamCached((d) => sent.push(d), baseCached(), {
+      includeTranscript: true,
+      segments: [],
+    });
     expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
   });
 

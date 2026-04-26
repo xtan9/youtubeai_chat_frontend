@@ -1,12 +1,35 @@
 import { z } from "zod";
+import type { TranscriptSegment } from "./summarize-cache";
+import { TranscriptSegmentSchema } from "@/lib/types";
 
-const TranscribeResponseSchema = z.object({
-  transcript: z.string(),
-  language: z.string(),
-  source: z.literal("whisper"),
-});
+// During the rollout window the schema accepts either shape:
+// - new VPS emits `segments` (canonical) plus `transcript` (back-compat
+//   for an old frontend deployment that hasn't picked up segments yet).
+// - old VPS emits only `transcript`. Below we synthesize a single
+//   un-clickable segment from it so this frontend keeps working during
+//   the deploy crossover.
+// Drop the `transcript`-only branch once the service rollout is done.
+//
+// `.min(1)` on segments rules out the "VPS bug returns empty arrays"
+// failure mode — an empty-segments response is a real bug, not a
+// back-compat shape, and it should fail loud through the route's catch
+// instead of generating a useless empty-prompt LLM call downstream.
+const TranscribeResponseSchema = z
+  .object({
+    segments: z.array(TranscriptSegmentSchema).min(1).optional(),
+    transcript: z.string().optional(),
+    language: z.string(),
+    source: z.literal("whisper"),
+  })
+  .refine((data) => data.segments !== undefined || data.transcript !== undefined, {
+    message: "either `segments` or `transcript` is required",
+  });
 
-export type TranscribeResult = z.infer<typeof TranscribeResponseSchema>;
+export type TranscribeResult = {
+  readonly segments: readonly TranscriptSegment[];
+  readonly language: string;
+  readonly source: "whisper";
+};
 
 // Vercel's route budget is 300s; leave ~60s headroom for the post-transcribe
 // work on the same request (LLM streaming p99 ≈ 30s, cache write + SSE
@@ -54,7 +77,12 @@ export async function transcribeViaVps(
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    // Mirror caption-extractor's body-read safety: preserve the status
+    // even if `text()` rejects (chunked-transfer break, malformed
+    // content-encoding). Without the catch a body-read failure swallows
+    // the original status and surfaces as a generic "TypeError: failed
+    // to fetch body" — costs an hour in postmortem.
+    const text = await response.text().catch(() => "");
     throw new Error(`VPS transcription failed (${response.status}): ${text}`);
   }
 
@@ -65,5 +93,28 @@ export async function transcribeViaVps(
       `VPS transcription returned unexpected shape: ${parsed.error.message}`
     );
   }
-  return parsed.data;
+  // Prefer the new `segments` field; fall through to deriving a single
+  // segment from the legacy `transcript` string for the rollout window.
+  // The schema's refine() guarantees one of the two is present.
+  let segments: readonly TranscriptSegment[];
+  if (parsed.data.segments && parsed.data.segments.length > 0) {
+    segments = parsed.data.segments;
+  } else if (parsed.data.transcript) {
+    // Hot path during the deploy crossover: log once with a stable errorId
+    // so the cleanup PR has a signal the legacy branch is no longer hit
+    // before the alias is dropped.
+    console.warn("[vps-client] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+      errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+    });
+    segments = [
+      { text: parsed.data.transcript, start: 0, duration: 0 },
+    ];
+  } else {
+    throw new Error("VPS transcription returned no segments");
+  }
+  return {
+    segments,
+    language: parsed.data.language,
+    source: parsed.data.source,
+  };
 }

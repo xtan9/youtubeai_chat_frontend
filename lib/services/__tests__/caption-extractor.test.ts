@@ -51,7 +51,7 @@ describe("extractCaptions", () => {
     vi.stubEnv("VPS_API_KEY", "\tsecret  ");
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        transcript: "t",
+        segments: [{ text: "t", start: 0, duration: 1 }],
         source: "auto_captions",
         language: "en",
         title: null,
@@ -87,7 +87,10 @@ describe("extractCaptions", () => {
     stubEnv();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        transcript: "hello world",
+        segments: [
+          { text: "hello", start: 0, duration: 1 },
+          { text: "world", start: 1, duration: 1 },
+        ],
         source: "auto_captions",
         language: "en",
         title: "t",
@@ -118,7 +121,7 @@ describe("extractCaptions", () => {
     stubEnv();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        transcript: "t",
+        segments: [{ text: "t", start: 0, duration: 1 }],
         source: "auto_captions",
         language: "en",
         title: null,
@@ -141,7 +144,7 @@ describe("extractCaptions", () => {
     stubEnv();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        transcript: "bonjour",
+        segments: [{ text: "bonjour", start: 0, duration: 1 }],
         source: "auto_captions",
         language: "en",
         title: null,
@@ -322,13 +325,16 @@ describe("extractCaptions", () => {
     );
   });
 
-  it("returns null when transcript is empty", async () => {
+  it("returns null when segments array is empty", async () => {
+    // Mirror of the lib's "no captions available → fall back" semantics:
+    // a 200 response with zero segments must be classified the same as
+    // 404 (no_captions), not as a usable transcript with empty text.
     stubEnv();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          transcript: "",
+          segments: [],
           source: "auto_captions",
           language: "en",
           title: null,
@@ -348,7 +354,10 @@ describe("extractCaptions", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          transcript: "hello world",
+          segments: [
+            { text: "hello", start: 0, duration: 1 },
+            { text: "world", start: 1, duration: 1 },
+          ],
           source: "auto_captions",
           language: "en",
           title: null,
@@ -360,7 +369,10 @@ describe("extractCaptions", () => {
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     );
     expect(result).toEqual({
-      transcript: "hello world",
+      segments: [
+        { text: "hello", start: 0, duration: 1 },
+        { text: "world", start: 1, duration: 1 },
+      ],
       source: "auto_captions",
       language: "en",
       title: "",
@@ -374,7 +386,7 @@ describe("extractCaptions", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          transcript: "你好世界",
+          segments: [{ text: "你好世界", start: 0, duration: 2 }],
           source: "auto_captions",
           language: "zh",
           title: "标题",
@@ -390,11 +402,65 @@ describe("extractCaptions", () => {
     expect(result?.channelName).toBe("频道");
   });
 
+  it("accepts the legacy `transcript` field alongside segments (rollout window)", async () => {
+    // The VPS still emits `transcript` next to `segments` for one rollout
+    // window so an old frontend deployment keeps working. The new schema
+    // should accept it and ignore — a strict-reject would force lockstep
+    // deploys.
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          segments: [{ text: "hi", start: 0, duration: 1 }],
+          transcript: "hi",
+          source: "auto_captions",
+          language: "en",
+          title: null,
+          channelName: null,
+        })
+      )
+    );
+    const result = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    );
+    expect(result?.segments).toEqual([
+      { text: "hi", start: 0, duration: 1 },
+    ]);
+  });
+
+  it("falls back to a single segment when only legacy `transcript` is present (forward-compat)", async () => {
+    // Symmetric of the above: when the VPS hasn't deployed the new
+    // contract yet, this frontend still works. The synthesized segment
+    // gets start=0, duration=0 — a flag that timing data is absent —
+    // so the transcript renders as one un-clickable paragraph at 00:00.
+    // Same fail-soft behavior as the legacy DB migration backfill.
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          transcript: "legacy hi",
+          source: "auto_captions",
+          language: "en",
+          title: null,
+          channelName: null,
+        })
+      )
+    );
+    const result = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    );
+    expect(result?.segments).toEqual([
+      { text: "legacy hi", start: 0, duration: 0 },
+    ]);
+  });
+
   it("forwards the caller signal to fetch (composed with internal timeout)", async () => {
     stubEnv();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
-        transcript: "t",
+        segments: [{ text: "t", start: 0, duration: 1 }],
         source: "auto_captions",
         language: "en",
         title: "",
@@ -423,7 +489,7 @@ describe("extractCaptions", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          transcript: "t",
+          segments: [{ text: "t", start: 0, duration: 1 }],
           source: "auto_captions",
           language: "en",
           title: "",
@@ -443,7 +509,7 @@ describe("extractCaptions", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          transcript: "t",
+          segments: [{ text: "t", start: 0, duration: 1 }],
           source: "auto_captions",
           language: "en",
           title: "",

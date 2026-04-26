@@ -115,8 +115,21 @@ async function* fakeGen(events: LlmEvent[]): AsyncGenerator<LlmEvent> {
   for (const e of events) yield e;
 }
 
+// Helper to mint a TranscriptSegment array from a flat string. The test
+// suite was written when the captions API returned strings; refactoring
+// each fixture site to an array would obscure the assertion under
+// boilerplate. The helper preserves the per-test flat-string readability
+// while producing the segment shape the new contract requires.
+function segmentsOf(text: string): Array<{
+  text: string;
+  start: number;
+  duration: number;
+}> {
+  return [{ text, start: 0, duration: 1 }];
+}
+
 const CAPTIONS_FIXTURE = {
-  transcript: "captioned transcript",
+  segments: segmentsOf("captioned transcript"),
   source: "auto_captions" as const,
   language: "en" as const,
   title: "Live Title",
@@ -369,6 +382,19 @@ describe("POST /api/summarize/stream", () => {
           summarizeTimeSeconds: 3,
         })
       );
+      // Segments live on the separate video_transcripts cache row. Provide
+      // them so the route includes the full_transcript event — without
+      // segments the event is skipped, which is the right fallback when
+      // a video pre-dates the segments column but a regression here would
+      // mean cache hits never show the transcript again.
+      mocks.getCachedTranscript.mockResolvedValue({
+        videoId: "v1",
+        title: "Cached Vid",
+        channelName: "Cached Chan",
+        segments: segmentsOf("cached tr"),
+        transcriptSource: "whisper",
+        language: "en",
+      });
 
       const res = await POST(
         makeRequest({
@@ -395,6 +421,75 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("synthesizes a single legacy segment when the summary cache hits but no transcript row exists", async () => {
+      // Pre-PR cache rows (written before the video_transcripts table
+      // existed in migration 20260424000002) have `summaries.transcript`
+      // populated but no segments row. Without the route-level fallback
+      // the user would see the cached summary but an empty transcript
+      // card. The synthesized `[{text, start: 0, duration: 0}]` is the
+      // same fail-soft pattern the migration backfill and the VPS-side
+      // legacy fallback use; it renders as one un-clickable 00:00
+      // paragraph (the UI shows a "Timestamps not available" hint for
+      // exactly this case).
+      mocks.getCachedSummary.mockResolvedValue(
+        cachedFixture({
+          title: "Legacy Vid",
+          channelName: "Legacy Chan",
+          summary: "Legacy summary",
+          transcript: "legacy text without timing",
+          transcribeTimeSeconds: 0,
+          summarizeTimeSeconds: 1,
+        })
+      );
+      // No transcript row in video_transcripts for this video.
+      mocks.getCachedTranscript.mockResolvedValue(null);
+
+      const res = await POST(
+        makeRequest({
+          youtube_url: VALID_URL,
+          include_transcript: true,
+        })
+      );
+      const events = parseEvents(await readStream(res));
+
+      const fullTranscript = events.find(
+        (e) => e.type === "full_transcript"
+      ) as { type: "full_transcript"; segments: unknown[] } | undefined;
+      expect(fullTranscript).toBeDefined();
+      expect(fullTranscript?.segments).toEqual([
+        { text: "legacy text without timing", start: 0, duration: 0 },
+      ]);
+
+      // Cache-hit guarantees still hold — no LLM/VPS calls and no
+      // re-write of the per-language summary row.
+      expect(mocks.extractCaptions).not.toHaveBeenCalled();
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("skips the legacy synthesis when cached.transcript is empty (no fall-through bug)", async () => {
+      // The `cached.transcript === ""` case must NOT synthesize a
+      // segment with empty text — that would render as a phantom
+      // un-clickable paragraph with no content. Falsy check on
+      // `cached.transcript` is the guard.
+      mocks.getCachedSummary.mockResolvedValue(
+        cachedFixture({ transcript: "" })
+      );
+      mocks.getCachedTranscript.mockResolvedValue(null);
+
+      const res = await POST(
+        makeRequest({
+          youtube_url: VALID_URL,
+          include_transcript: true,
+        })
+      );
+      const events = parseEvents(await readStream(res));
+
+      // No full_transcript event when there's nothing to send.
+      expect(events.find((e) => e.type === "full_transcript")).toBeUndefined();
     });
   });
 
@@ -488,7 +583,7 @@ describe("POST /api/summarize/stream", () => {
       const MIDDLE_ZONE_TRANSCRIPT = "word ".repeat(40_000); // ~40K words → ~52K tokens
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
-        transcript: MIDDLE_ZONE_TRANSCRIPT,
+        segments: segmentsOf(MIDDLE_ZONE_TRANSCRIPT),
       });
       mocks.classifyContent.mockResolvedValue({
         density: "high",
@@ -539,7 +634,7 @@ describe("POST /api/summarize/stream", () => {
       const LONG_TRANSCRIPT = "word ".repeat(200_000); // ~260K tokens
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
-        transcript: LONG_TRANSCRIPT,
+        segments: segmentsOf(LONG_TRANSCRIPT),
       });
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
@@ -565,7 +660,7 @@ describe("POST /api/summarize/stream", () => {
       const MIDDLE_ZONE_TRANSCRIPT = "word ".repeat(40_000);
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
-        transcript: MIDDLE_ZONE_TRANSCRIPT,
+        segments: segmentsOf(MIDDLE_ZONE_TRANSCRIPT),
       });
       mocks.classifyContent.mockResolvedValue(null); // simulate classifier failure
       mocks.streamLlmSummary.mockImplementation(() =>
@@ -626,7 +721,7 @@ describe("POST /api/summarize/stream", () => {
       // load-bearing line.
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
-        transcript: ZH_MIDDLE_ZONE,
+        segments: segmentsOf(ZH_MIDDLE_ZONE),
         language: "zh" as const,
       });
       mocks.classifyContent.mockResolvedValue({
@@ -766,7 +861,7 @@ describe("POST /api/summarize/stream", () => {
         error: new Error("network down"),
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "whisper output",
+        segments: segmentsOf("whisper output"),
         language: "en",
         source: "whisper",
       });
@@ -793,7 +888,7 @@ describe("POST /api/summarize/stream", () => {
         reason: "timeout",
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -827,7 +922,7 @@ describe("POST /api/summarize/stream", () => {
         throw new Error("synthetic sync throw");
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -860,7 +955,7 @@ describe("POST /api/summarize/stream", () => {
         throw new Error("synthetic sync throw");
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -892,7 +987,7 @@ describe("POST /api/summarize/stream", () => {
         data: { title: "", channelName: "" },
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "whisper output",
+        segments: segmentsOf("whisper output"),
         language: "en",
         source: "whisper",
       });
@@ -928,7 +1023,7 @@ describe("POST /api/summarize/stream", () => {
         data: { title: "only-title", channelName: "" },
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "whisper output",
+        segments: segmentsOf("whisper output"),
         language: "en",
         source: "whisper",
       });
@@ -963,7 +1058,7 @@ describe("POST /api/summarize/stream", () => {
         data: { title: "Live Title", channelName: "Live Channel" },
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "whisper output",
+        segments: segmentsOf("whisper output"),
         language: "en",
         source: "whisper",
       });
@@ -996,7 +1091,7 @@ describe("POST /api/summarize/stream", () => {
         reason: "aborted",
       });
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -1159,7 +1254,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("en", ["en", "fr"]));
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -1182,7 +1277,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", ["ar", "es"]));
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -1206,7 +1301,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("fr", []));
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "bonjour",
+        segments: segmentsOf("bonjour"),
         language: "fr",
         source: "whisper",
       });
@@ -1367,7 +1462,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("zh-Hans", []));
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "你好",
+        segments: segmentsOf("你好"),
         language: "zh",
         source: "whisper",
       });
@@ -1404,7 +1499,7 @@ describe("POST /api/summarize/stream", () => {
         .mockResolvedValueOnce(null) // first: fr → 404
         .mockResolvedValueOnce(null); // retry: en → 404
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "bonjour",
+        segments: segmentsOf("bonjour"),
         language: "fr",
         source: "whisper",
       });
@@ -1442,7 +1537,7 @@ describe("POST /api/summarize/stream", () => {
       });
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "w",
+        segments: segmentsOf("w"),
         language: "en",
         source: "whisper",
       });
@@ -1508,7 +1603,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaOk("zh", []));
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "你好世界",
+        segments: segmentsOf("你好世界"),
         language: "zh",
         source: "whisper",
       });
@@ -1637,7 +1732,7 @@ describe("POST /api/summarize/stream", () => {
         videoId: "v1",
         title: "Me at the zoo",
         channelName: "jawed",
-        transcript: "we are at the zoo",
+        segments: segmentsOf("we are at the zoo"),
         transcriptSource: "whisper",
         language: "en",
       });
@@ -1704,7 +1799,7 @@ describe("POST /api/summarize/stream", () => {
       mocks.getCachedTranscript.mockResolvedValue(null);
       mocks.extractCaptions.mockResolvedValue({
         ...CAPTIONS_FIXTURE,
-        transcript: "captions transcript",
+        segments: segmentsOf("captions transcript"),
         language: "en",
         source: "auto_captions",
         title: "Captions Title",
@@ -1726,7 +1821,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           youtubeUrl: VALID_URL,
-          transcript: "captions transcript",
+          segments: segmentsOf("captions transcript"),
           transcriptSource: "auto_captions",
           language: "en",
           title: "Captions Title",
@@ -1739,7 +1834,9 @@ describe("POST /api/summarize/stream", () => {
       mocks.getCachedTranscript.mockResolvedValue(null);
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.transcribeViaVps.mockResolvedValue({
-        transcript: "whisper transcript",
+        segments: segmentsOf("whisper transcript"),
+        language: "en",
+        source: "whisper",
       });
       mocks.detectLocale.mockReturnValue("en");
       mocks.fetchVideoMetadata.mockResolvedValue({
@@ -1765,7 +1862,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           youtubeUrl: VALID_URL,
-          transcript: "whisper transcript",
+          segments: segmentsOf("whisper transcript"),
           transcriptSource: "whisper",
           title: "Live Title",
           channelName: "Live Chan",
@@ -1786,7 +1883,7 @@ describe("POST /api/summarize/stream", () => {
         videoId: "v1",
         title: "",
         channelName: "",
-        transcript: "cached",
+        segments: segmentsOf("cached"),
         transcriptSource: "whisper",
         language: "en",
       });
@@ -1820,7 +1917,7 @@ describe("POST /api/summarize/stream", () => {
         videoId: "v1",
         title: "Already Have It",
         channelName: "Chan",
-        transcript: "cached",
+        segments: segmentsOf("cached"),
         transcriptSource: "whisper",
         language: "en",
       });
@@ -1849,7 +1946,7 @@ describe("POST /api/summarize/stream", () => {
           videoId: "v1",
           title: "t",
           channelName: "c",
-          transcript: "t",
+          segments: segmentsOf("t"),
           transcriptSource: "whisper" as const,
           language: "en" as const,
         };
