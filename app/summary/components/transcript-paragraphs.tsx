@@ -222,6 +222,7 @@ const TranscriptParagraphs = ({
       )}
       <div
         ref={containerRef}
+        data-testid="transcript-container"
         className="overflow-y-auto max-h-[600px] pr-2 space-y-4"
       >
         {paragraphs.map((p, i) => {
