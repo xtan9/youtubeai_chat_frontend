@@ -673,6 +673,66 @@ describe("getCachedTranscript", () => {
       "v1"
     );
   });
+
+  // Regression guard: without this eviction, every video cached before
+  // per-line timing was persisted renders as one un-clickable 00:00
+  // paragraph forever — the cache shortcut returns the placeholder
+  // verbatim and the user never gets clickable timestamps.
+  it("evicts legacy backfill row (single 00:00 segment) and returns null", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        segments: [{ text: "the whole transcript at once", start: 0, duration: 0 }],
+        transcript_source: "whisper",
+        language: "en",
+      },
+      error: null,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+    expect(
+      warn.mock.calls.some((c) =>
+        String(c[1] && (c[1] as { errorId?: string }).errorId).includes(
+          "TRANSCRIPT_LEGACY_BACKFILL_EVICT"
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("does NOT evict a single real segment with positive duration", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        // One segment, but duration > 0 → real (very-short-clip) data.
+        segments: [{ text: "hi", start: 0, duration: 2 }],
+        transcript_source: "whisper",
+        language: "en",
+      },
+      error: null,
+    });
+
+    const { getCachedTranscript } = await loadFresh();
+    const result = await getCachedTranscript(
+      "https://youtu.be/dQw4w9WgXcQ"
+    );
+    expect(result?.segments).toEqual([
+      { text: "hi", start: 0, duration: 2 },
+    ]);
+  });
 });
 
 describe("writeCachedTranscript", () => {
@@ -701,6 +761,33 @@ describe("writeCachedTranscript", () => {
     const { writeCachedTranscript } = await loadFresh();
     await writeCachedTranscript(baseTranscript);
     expect(warn).toHaveBeenCalled();
+    expect(mocks.videosBuilder.upsert).not.toHaveBeenCalled();
+    expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
+  });
+
+  // Companion to the read-side eviction. Without this guard, a regressed
+  // VPS that returns only `transcript` (legacy fallback path in
+  // caption-extractor / vps-client wraps it in a single 0-duration segment)
+  // would re-create rows the reader evicts on every request — looping
+  // VPS captions/whisper compute.
+  it("refuses to persist no-timing-shape segments and skips both upserts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript({
+      ...baseTranscript,
+      segments: [{ text: "the whole thing", start: 0, duration: 0 }],
+    });
+
+    expect(
+      warn.mock.calls.some((c) =>
+        String(c[1] && (c[1] as { errorId?: string }).errorId).includes(
+          "TRANSCRIPT_LEGACY_SHAPE_NOT_PERSISTED"
+        )
+      )
+    ).toBe(true);
     expect(mocks.videosBuilder.upsert).not.toHaveBeenCalled();
     expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
   });
