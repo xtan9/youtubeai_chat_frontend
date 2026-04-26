@@ -422,6 +422,75 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
+
+    it("synthesizes a single legacy segment when the summary cache hits but no transcript row exists", async () => {
+      // Pre-PR cache rows (written before the video_transcripts table
+      // existed in migration 20260424000002) have `summaries.transcript`
+      // populated but no segments row. Without the route-level fallback
+      // the user would see the cached summary but an empty transcript
+      // card. The synthesized `[{text, start: 0, duration: 0}]` is the
+      // same fail-soft pattern the migration backfill and the VPS-side
+      // legacy fallback use; it renders as one un-clickable 00:00
+      // paragraph (the UI shows a "Timestamps not available" hint for
+      // exactly this case).
+      mocks.getCachedSummary.mockResolvedValue(
+        cachedFixture({
+          title: "Legacy Vid",
+          channelName: "Legacy Chan",
+          summary: "Legacy summary",
+          transcript: "legacy text without timing",
+          transcribeTimeSeconds: 0,
+          summarizeTimeSeconds: 1,
+        })
+      );
+      // No transcript row in video_transcripts for this video.
+      mocks.getCachedTranscript.mockResolvedValue(null);
+
+      const res = await POST(
+        makeRequest({
+          youtube_url: VALID_URL,
+          include_transcript: true,
+        })
+      );
+      const events = parseEvents(await readStream(res));
+
+      const fullTranscript = events.find(
+        (e) => e.type === "full_transcript"
+      ) as { type: "full_transcript"; segments: unknown[] } | undefined;
+      expect(fullTranscript).toBeDefined();
+      expect(fullTranscript?.segments).toEqual([
+        { text: "legacy text without timing", start: 0, duration: 0 },
+      ]);
+
+      // Cache-hit guarantees still hold — no LLM/VPS calls and no
+      // re-write of the per-language summary row.
+      expect(mocks.extractCaptions).not.toHaveBeenCalled();
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+    });
+
+    it("skips the legacy synthesis when cached.transcript is empty (no fall-through bug)", async () => {
+      // The `cached.transcript === ""` case must NOT synthesize a
+      // segment with empty text — that would render as a phantom
+      // un-clickable paragraph with no content. Falsy check on
+      // `cached.transcript` is the guard.
+      mocks.getCachedSummary.mockResolvedValue(
+        cachedFixture({ transcript: "" })
+      );
+      mocks.getCachedTranscript.mockResolvedValue(null);
+
+      const res = await POST(
+        makeRequest({
+          youtube_url: VALID_URL,
+          include_transcript: true,
+        })
+      );
+      const events = parseEvents(await readStream(res));
+
+      // No full_transcript event when there's nothing to send.
+      expect(events.find((e) => e.type === "full_transcript")).toBeUndefined();
+    });
   });
 
   describe("live captions path", () => {

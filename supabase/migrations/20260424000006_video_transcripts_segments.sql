@@ -27,9 +27,11 @@ ALTER TABLE video_transcripts ADD COLUMN IF NOT EXISTS segments jsonb;
 --    `start = 0, duration = 0` flags "no timing data" so a future
 --    cleanup pass could detect and re-transcribe these if desired.
 --    The WHERE clause makes this safe to re-apply: rows already
---    backfilled stay untouched. The `to_regclass` guard handles the
---    second idempotency-check pass: by then the `transcript` column has
---    already been dropped, so referencing it would fail to parse.
+--    backfilled stay untouched. The `information_schema.columns` guard
+--    handles the second idempotency-check pass: by then the `transcript`
+--    column has already been dropped, so referencing it from inside a
+--    static UPDATE would fail to parse — EXECUTE on a string defers the
+--    parse to runtime so the guard actually keeps the path dead.
 DO $$
 BEGIN
     IF EXISTS (
