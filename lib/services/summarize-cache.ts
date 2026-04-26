@@ -388,6 +388,23 @@ export async function writeCachedSummary(
   }
 }
 
+// True when segments carry no timing information — the placeholder shape
+// emitted by migration 20260424000006's backfill and by the rollout-window
+// VPS legacy-transcript fallback (caption-extractor.ts, vps-client.ts).
+// Used by both the read-side eviction and the write-side guard so the
+// cache invariant "all stored rows have real timing" is enforced from both
+// directions; without the writer guard, a regressed VPS could re-create
+// the same shape and the eviction would loop on every request.
+function isNoTimingShape(
+  segments: readonly TranscriptSegment[]
+): boolean {
+  return (
+    segments.length === 1 &&
+    segments[0].start === 0 &&
+    segments[0].duration === 0
+  );
+}
+
 /**
  * Read a previously-cached transcript by video URL — independent of any
  * summary cache row. Used at the top of the summarize-stream pipeline to
@@ -467,22 +484,18 @@ export async function getCachedTranscript(
       return null;
     }
 
-    // Evict the legacy-backfill shape — single segment with no timing info.
-    // Two upstream paths produce it: the migration's pre-PR-#26 backfill
-    // (`[{start:0, duration:0, text:<full>}]`), and the rollout-window VPS
-    // legacy-transcript fallback in caption-extractor / vps-client. Both are
-    // temporary states; returning null forces the route to re-run the VPS
-    // pipeline, and `writeCachedTranscript`'s upsert(onConflict: video_id)
-    // overwrites the row with real segments. Self-healing per request.
+    // Evict the no-timing-info shape — single segment with start=0,
+    // duration=0. Produced by migration 20260424000006's backfill of rows
+    // cached before per-line timing was persisted, and by the rollout-
+    // window VPS legacy fallback in caption-extractor / vps-client when
+    // the VPS returns only `transcript`. Returning null forces re-fetch;
+    // the writer below refuses to persist the same shape, so the pair
+    // converges to "cache holds only rows with real timing."
     //
-    // Real captions/whisper output always has positive duration on at least
-    // one segment, so the false-evict surface is empty in practice.
+    // Real captions/whisper output always has positive duration on at
+    // least one segment, so the false-evict surface is empty in practice.
     const segments = parsed.data.segments;
-    if (
-      segments.length === 1 &&
-      segments[0].start === 0 &&
-      segments[0].duration === 0
-    ) {
+    if (isNoTimingShape(segments)) {
       console.warn(
         "[summarize-cache] transcript: legacy-backfill row evicted (will re-transcribe)",
         {
@@ -547,6 +560,23 @@ export async function writeCachedTranscript(
   }
 
   const videoKey = computeVideoKey(params.youtubeUrl);
+
+  // Companion to the read-side eviction: refuse to persist the no-timing
+  // shape so a regressed VPS that returns only `transcript` (rollout-
+  // window legacy fallback) can't re-create rows the reader will just
+  // evict next request, looping VPS captions/whisper compute. Skipping
+  // the write keeps the user-visible stream working and the cache empty
+  // for that video — next visit re-fetches, no loop.
+  if (isNoTimingShape(params.segments)) {
+    console.warn(
+      "[summarize-cache] transcript: refusing to persist no-timing shape",
+      {
+        errorId: "TRANSCRIPT_LEGACY_SHAPE_NOT_PERSISTED",
+        videoKey,
+      }
+    );
+    return;
+  }
 
   // Sparse upsert: only include title/channel in the payload when the
   // caller actually has values. Supabase's upsert generates

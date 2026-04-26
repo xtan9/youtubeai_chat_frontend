@@ -674,12 +674,10 @@ describe("getCachedTranscript", () => {
     );
   });
 
-  // Migration 20260424000006 backfilled pre-PR-#26 rows with a single
-  // segment {start:0, duration:0, text:<full>} as a fail-soft. Same shape
-  // also produced by the rollout-window VPS legacy fallback. Both must
-  // miss the cache so the route re-transcribes and overwrites the row
-  // with real timing data — otherwise users keep seeing one un-clickable
-  // 00:00 paragraph forever for any video summarized before the migration.
+  // Regression guard: without this eviction, every video cached before
+  // per-line timing was persisted renders as one un-clickable 00:00
+  // paragraph forever — the cache shortcut returns the placeholder
+  // verbatim and the user never gets clickable timestamps.
   it("evicts legacy backfill row (single 00:00 segment) and returns null", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
@@ -763,6 +761,33 @@ describe("writeCachedTranscript", () => {
     const { writeCachedTranscript } = await loadFresh();
     await writeCachedTranscript(baseTranscript);
     expect(warn).toHaveBeenCalled();
+    expect(mocks.videosBuilder.upsert).not.toHaveBeenCalled();
+    expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
+  });
+
+  // Companion to the read-side eviction. Without this guard, a regressed
+  // VPS that returns only `transcript` (legacy fallback path in
+  // caption-extractor / vps-client wraps it in a single 0-duration segment)
+  // would re-create rows the reader evicts on every request — looping
+  // VPS captions/whisper compute.
+  it("refuses to persist no-timing-shape segments and skips both upserts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { writeCachedTranscript } = await loadFresh();
+    await writeCachedTranscript({
+      ...baseTranscript,
+      segments: [{ text: "the whole thing", start: 0, duration: 0 }],
+    });
+
+    expect(
+      warn.mock.calls.some((c) =>
+        String(c[1] && (c[1] as { errorId?: string }).errorId).includes(
+          "TRANSCRIPT_LEGACY_SHAPE_NOT_PERSISTED"
+        )
+      )
+    ).toBe(true);
     expect(mocks.videosBuilder.upsert).not.toHaveBeenCalled();
     expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
   });
