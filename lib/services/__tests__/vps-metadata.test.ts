@@ -185,6 +185,107 @@ describe("fetchVpsMetadata", () => {
     }
   );
 
+  describe("duration field", () => {
+    // The schema accepts both pre- and post-rollout VPS shapes:
+    // omitted (old VPS) and `null` (new VPS, live stream / yt-dlp
+    // rejection) reach callers as `data.duration` ∈ {undefined, null},
+    // and a finite non-negative number flows through unchanged.
+    // Coverage rationale: a regression here would either block the
+    // rollout window (reject responses without duration) or silently
+    // pass garbage values (negative / non-number) through to the
+    // too-long gate.
+    //
+    // Wire-shape note on NaN: JSON.stringify(NaN) emits "null", so
+    // sending NaN over the wire is observationally identical to
+    // sending null — covered by the "accepts duration=null" case
+    // below. There is no separate parametrized row for NaN because
+    // there is no separate code path to exercise.
+
+    function setupOk() {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+    }
+
+    it("accepts a response without `duration` (old VPS, pre-rollout)", async () => {
+      setupOk();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(okResponse(validResponse))
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.duration).toBeUndefined();
+    });
+
+    it("accepts duration=null (live stream / yt-dlp unknown)", async () => {
+      setupOk();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          okResponse({ ...validResponse, duration: null })
+        )
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.duration).toBeNull();
+    });
+
+    it.each([0, 1, 213, 86400])(
+      "accepts duration=%d (finite non-negative)",
+      async (duration) => {
+        setupOk();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            okResponse({ ...validResponse, duration })
+          )
+        );
+        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.duration).toBe(duration);
+      }
+    );
+
+    it.each([
+      ["negative", -1],
+      ["string", "213"],
+    ])(
+      "rejects duration=%s via schema",
+      async (_label, duration) => {
+        // Defense-in-depth: the VPS already collapses these to null on
+        // its side, but if a future VPS regression starts forwarding
+        // them raw, the schema here must independently reject so a
+        // bogus value can't reach the too-long gate.
+        setupOk();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            okResponse({ ...validResponse, duration })
+          )
+        );
+        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe("schema");
+      }
+    );
+
+    it("rejects duration=Infinity via .finite() (defends against `1e9999` over the wire)", async () => {
+      // JSON.parse("1e9999") returns Infinity — a payload that
+      // would otherwise pass `.nonnegative()` and reach the gate,
+      // where the user-facing message would read "Infinity
+      // minutes." Bounce at the schema boundary instead.
+      setupOk();
+      const wireBody = `{"language":"fr","title":"t","description":"d","duration":1e9999,"availableCaptions":[]}`;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(wireBody, { status: 200 }))
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toBe("schema");
+    });
+  });
+
   it("distinguishes caller-initiated aborts from timeout", async () => {
     // The distinction matters because the route's top-level catch-all
     // swallows caller aborts (user closed tab) but logs timeouts (real
