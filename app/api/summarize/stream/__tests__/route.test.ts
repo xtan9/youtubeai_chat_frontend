@@ -423,28 +423,29 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("synthesizes a single legacy segment when the summary cache hits but no transcript row exists", async () => {
-      // Pre-PR cache rows (written before the video_transcripts table
-      // existed in migration 20260424000002) have `summaries.transcript`
-      // populated but no segments row. Without the route-level fallback
-      // the user would see the cached summary but an empty transcript
-      // card. The synthesized `[{text, start: 0, duration: 0}]` is the
-      // same fail-soft pattern the migration backfill and the VPS-side
-      // legacy fallback use; it renders as one un-clickable 00:00
-      // paragraph (the UI shows a "Timestamps not available" hint for
-      // exactly this case).
+    it("re-transcribes but reuses the cached summary when summary hits and segments missing (include_transcript=true)", async () => {
+      // Companion to the read-side eviction in
+      // summarize-cache.getCachedTranscript: synthesizing a single 00:00
+      // segment from `cached.transcript` would re-create the placeholder
+      // the eviction is tearing down. The route now runs a partial
+      // pipeline — re-transcribe to get real segments, stream the cached
+      // summary verbatim — so the user sees clickable timestamps without
+      // an LLM re-bill or a non-deterministic summary clobber.
       mocks.getCachedSummary.mockResolvedValue(
         cachedFixture({
           title: "Legacy Vid",
           channelName: "Legacy Chan",
-          summary: "Legacy summary",
+          summary: "The cached summary verbatim.",
           transcript: "legacy text without timing",
           transcribeTimeSeconds: 0,
-          summarizeTimeSeconds: 1,
+          // Distinct, non-trivial value so a swap with transcribe_time
+          // (the very bug route.ts:573-579 calls out for the live path)
+          // shows up as a structural mismatch in the assertion below.
+          summarizeTimeSeconds: 3,
         })
       );
-      // No transcript row in video_transcripts for this video.
       mocks.getCachedTranscript.mockResolvedValue(null);
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
 
       const res = await POST(
         makeRequest({
@@ -454,41 +455,74 @@ describe("POST /api/summarize/stream", () => {
       );
       const events = parseEvents(await readStream(res));
 
+      // Re-transcribed: captions ran, transcript-cache was repopulated
+      // with real segments so the next request hits both shortcuts.
+      expect(mocks.extractCaptions).toHaveBeenCalled();
+      expect(mocks.writeCachedTranscript).toHaveBeenCalled();
+      // Did NOT re-bill the LLM and did NOT clobber the cached summary.
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      // The streamed summary content is the cached one verbatim.
+      const contentEvents = events.filter((e) => e.type === "content") as Array<{
+        type: "content";
+        text: string;
+      }>;
+      expect(contentEvents.map((e) => e.text).join("")).toBe(
+        "The cached summary verbatim."
+      );
+      // Real segments emitted, not the legacy synthesized 00:00.
       const fullTranscript = events.find(
         (e) => e.type === "full_transcript"
       ) as { type: "full_transcript"; segments: unknown[] } | undefined;
-      expect(fullTranscript).toBeDefined();
-      expect(fullTranscript?.segments).toEqual([
+      expect(fullTranscript?.segments).not.toEqual([
         { text: "legacy text without timing", start: 0, duration: 0 },
       ]);
-
-      // Cache-hit guarantees still hold — no LLM/VPS calls and no
-      // re-write of the per-language summary row.
-      expect(mocks.extractCaptions).not.toHaveBeenCalled();
-      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
-      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
-      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      // The terminal summary event must reflect partial-pipeline timing:
+      // summarize_time from the cached row (LLM didn't re-run), and
+      // transcribe_time from the actual re-transcription. A swap of the
+      // two would regress the user-visible "Transcription/Summary" stats.
+      const terminal = events.find((e) => e.type === "summary") as
+        | {
+            type: "summary";
+            summarize_time: number;
+            transcribe_time: number;
+            total_time: number;
+          }
+        | undefined;
+      expect(terminal?.summarize_time).toBe(3);
+      expect(terminal?.transcribe_time).toBeGreaterThan(0);
+      expect(terminal?.total_time).toBe(
+        terminal!.summarize_time + terminal!.transcribe_time
+      );
+      // Pin the metadata-event contract: client sees cached:false because
+      // we genuinely re-transcribed (the user waited the transcribe time).
+      const metadata = events.find((e) => e.type === "metadata");
+      expect(metadata).toMatchObject({ type: "metadata", cached: false });
     });
 
-    it("skips the legacy synthesis when cached.transcript is empty (no fall-through bug)", async () => {
-      // The `cached.transcript === ""` case must NOT synthesize a
-      // segment with empty text — that would render as a phantom
-      // un-clickable paragraph with no content. Falsy check on
-      // `cached.transcript` is the guard.
+    it("still serves the cache shortcut when include_transcript=false even with no transcript row", async () => {
+      // The transcript-cache miss should NOT force a re-bill when the
+      // client doesn't even want the transcript view. include_transcript
+      // toggles the round-trip; only when the client asked for it AND
+      // we don't have real segments do we fall through.
       mocks.getCachedSummary.mockResolvedValue(
-        cachedFixture({ transcript: "" })
+        cachedFixture({ transcript: "anything" })
       );
       mocks.getCachedTranscript.mockResolvedValue(null);
 
       const res = await POST(
         makeRequest({
           youtube_url: VALID_URL,
-          include_transcript: true,
+          include_transcript: false,
         })
       );
       const events = parseEvents(await readStream(res));
 
-      // No full_transcript event when there's nothing to send.
+      // No re-bill: no captions / LLM / summary-cache write.
+      expect(mocks.extractCaptions).not.toHaveBeenCalled();
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      // No transcript event since the client opted out.
       expect(events.find((e) => e.type === "full_transcript")).toBeUndefined();
     });
   });
