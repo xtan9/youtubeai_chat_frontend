@@ -2045,9 +2045,9 @@ describe("POST /api/summarize/stream", () => {
     it("emits an error event and skips transcribeViaVps when duration > cap", async () => {
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(900));
       mocks.extractCaptions.mockResolvedValue(null);
-      // Default cap is 600s — the 14-minute repro from the original
-      // bug report (https://www.youtube.com/watch?v=D-dRD6zCpbY)
-      // exercised exactly this path.
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Default cap is 600s; this case exercises a 14-minute video
+      // — the same shape as the original silent-hang bug.
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const body = await readStream(res);
       const events = parseEvents(body);
@@ -2057,25 +2057,48 @@ describe("POST /api/summarize/stream", () => {
         /too long.*15 minutes.*10 minutes/
       );
       expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      // Lock the structured log payload — alerting/dashboards key
+      // off `errorId`, and a future drop of any of these fields
+      // would silently break ops without breaking a test.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("transcribe duration exceeded"),
+        expect.objectContaining({
+          errorId: "TRANSCRIBE_DURATION_EXCEEDED",
+          stage: "vps",
+          durationSeconds: 900,
+          capSeconds: 600,
+          userId: "user-1",
+        })
+      );
     });
 
-    it("does NOT emit the no-captions 'Transcribing audio...' status before the error", async () => {
+    it("emits the gate's error before any 'Transcribing audio' status (no false-hope UX)", async () => {
       // Without the gate the user would see the optimistic
-      // "Transcribing audio..." status for ~4 minutes before the
-      // error fires. The gate must run BEFORE that status, so the
-      // user-visible state goes straight from captions-extraction
-      // to "too long" with no false-hope intermediate.
+      // "Transcribing audio..." status for the full VPS timeout
+      // before the error fires. Note: the prior "Extracting
+      // captions..." status uses the same `stage: "transcribe"`
+      // (that field is the client UI label, not a server log
+      // stage), so we must distinguish by message — checking for
+      // the specific "Transcribing audio" substring keeps the
+      // captions-stage status from masking a regression.
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(900));
       mocks.extractCaptions.mockResolvedValue(null);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const body = await readStream(res);
       const events = parseEvents(body);
-      const transcribingStatus = events.find(
+      const errorIdx = events.findIndex((e) => e.type === "error");
+      expect(errorIdx).toBeGreaterThanOrEqual(0);
+      // The route returns immediately after the error, so any
+      // "Transcribing audio" status anywhere in the stream means
+      // it leaked before the gate fired.
+      const transcribingIdx = events.findIndex(
         (e) =>
           e.type === "status" &&
-          (e as { message: string }).message.includes("Transcribing audio")
+          typeof e.message === "string" &&
+          e.message.includes("Transcribing audio")
       );
-      expect(transcribingStatus).toBeUndefined();
+      expect(transcribingIdx).toBe(-1);
     });
 
     it("falls through to transcribeViaVps when duration is exactly at the cap", async () => {
@@ -2198,6 +2221,7 @@ describe("POST /api/summarize/stream", () => {
       vi.stubEnv("MAX_TRANSCRIBE_DURATION_SECONDS", "120");
       mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(180));
       mocks.extractCaptions.mockResolvedValue(null);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const body = await readStream(res);
       const events = parseEvents(body);
@@ -2207,6 +2231,105 @@ describe("POST /api/summarize/stream", () => {
         /3 minutes.*2 minutes/
       );
       expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["empty string", ""],
+      ["zero", "0"],
+      ["negative", "-1"],
+      ["non-numeric", "abc"],
+    ])(
+      "falls back to default cap when MAX_TRANSCRIBE_DURATION_SECONDS is %s",
+      async (_label, value) => {
+        // A misconfigured operator must not silently get an unbounded
+        // gate — any invalid env collapses to the default 600s. The
+        // failure mode this prevents: somebody sets env=0 intending
+        // to disable the gate, gets default behavior anyway, and
+        // can't tell from logs whether their config was rejected or
+        // applied. The default's 600s threshold means a 7-min video
+        // (420s) still passes through; a 15-min video (900s) is
+        // still blocked.
+        vi.stubEnv("MAX_TRANSCRIBE_DURATION_SECONDS", value);
+        mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(900));
+        mocks.extractCaptions.mockResolvedValue(null);
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+        const body = await readStream(res);
+        const events = parseEvents(body);
+        const errorEvent = events.find((e) => e.type === "error");
+        expect(errorEvent).toBeDefined();
+        // 600s default → "10 minutes" in the error string.
+        expect((errorEvent as { message: string }).message).toMatch(
+          /under 10 minutes/
+        );
+      }
+    );
+
+    it("logs TRANSCRIBE_DURATION_UNKNOWN when the gate is skipped due to null duration", async () => {
+      // Diagnostic breadcrumb: a "should-have-been-blocked" video
+      // that times out at the VPS later must be distinguishable
+      // from a healthy short-video skip in postmortem logs.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(null));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("transcribe duration unknown"),
+        expect.objectContaining({
+          errorId: "TRANSCRIBE_DURATION_UNKNOWN",
+          stage: "vps",
+          vpsMetaOk: true,
+          rawDuration: null,
+        })
+      );
+    });
+
+    it("logs TRANSCRIBE_DURATION_UNKNOWN with vpsMetaOk=false when /metadata failed", async () => {
+      // Distinguishes the /metadata-failure skip from the
+      // yt-dlp-returned-null skip in logs — without that signal,
+      // the next "long video that wasn't blocked" incident is as
+      // opaque as the bug this PR is fixing.
+      mocks.fetchVpsMetadata.mockResolvedValue({
+        ok: false,
+        reason: "non_ok",
+        status: 404,
+      });
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("transcribe duration unknown"),
+        expect.objectContaining({
+          errorId: "TRANSCRIBE_DURATION_UNKNOWN",
+          stage: "vps",
+          vpsMetaOk: false,
+          rawDuration: undefined,
+        })
+      );
     });
   });
 });

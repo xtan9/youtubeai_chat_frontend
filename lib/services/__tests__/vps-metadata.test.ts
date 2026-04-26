@@ -194,6 +194,12 @@ describe("fetchVpsMetadata", () => {
     // rollout window (reject responses without duration) or silently
     // pass garbage values (negative / non-number) through to the
     // too-long gate.
+    //
+    // Wire-shape note on NaN: JSON.stringify(NaN) emits "null", so
+    // sending NaN over the wire is observationally identical to
+    // sending null — covered by the "accepts duration=null" case
+    // below. There is no separate parametrized row for NaN because
+    // there is no separate code path to exercise.
 
     function setupOk() {
       vi.stubEnv("VPS_API_URL", "https://vps.example.com");
@@ -243,24 +249,13 @@ describe("fetchVpsMetadata", () => {
     it.each([
       ["negative", -1],
       ["string", "213"],
-      ["NaN-as-null-via-JSON", "NaN-roundtrip"], // see comment below
     ])(
       "rejects duration=%s via schema",
-      async (label, duration) => {
+      async (_label, duration) => {
         // Defense-in-depth: the VPS already collapses these to null on
         // its side, but if a future VPS regression starts forwarding
-        // them raw, the schema must catch it here rather than letting
-        // a bogus number reach the too-long gate (where Number(true)
-        // would be 1, accepted, and silently bypass the cap on any
-        // truthy non-number duration).
-        if (label === "NaN-as-null-via-JSON") {
-          // JSON.stringify(NaN) → "null", so `NaN` over the wire is
-          // observationally the same as `null` — accepted by the
-          // schema as the "unknown" case. Documenting here so a
-          // future maintainer doesn't mistake the missing rejection
-          // for a coverage gap.
-          return;
-        }
+        // them raw, the schema here must independently reject so a
+        // bogus value can't reach the too-long gate.
         setupOk();
         vi.stubGlobal(
           "fetch",
@@ -273,6 +268,22 @@ describe("fetchVpsMetadata", () => {
         if (!result.ok) expect(result.reason).toBe("schema");
       }
     );
+
+    it("rejects duration=Infinity via .finite() (defends against `1e9999` over the wire)", async () => {
+      // JSON.parse("1e9999") returns Infinity — a payload that
+      // would otherwise pass `.nonnegative()` and reach the gate,
+      // where the user-facing message would read "Infinity
+      // minutes." Bounce at the schema boundary instead.
+      setupOk();
+      const wireBody = `{"language":"fr","title":"t","description":"d","duration":1e9999,"availableCaptions":[]}`;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(wireBody, { status: 200 }))
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toBe("schema");
+    });
   });
 
   it("distinguishes caller-initiated aborts from timeout", async () => {

@@ -43,7 +43,11 @@ const VpsMetadataResponseSchema = z.object({
   language: LanguageCodeSchema,
   title: z.string(),
   description: z.string(),
-  duration: z.number().nonnegative().nullable().optional(),
+  // `.finite()` rejects `Infinity` — JSON.parse("1e9999") yields
+  // Infinity, which would otherwise pass `.nonnegative()` and reach
+  // the too-long gate where the user-facing message says "Infinity
+  // minutes." Bounce at the boundary instead.
+  duration: z.number().finite().nonnegative().nullable().optional(),
   availableCaptions: z.array(LanguageCodeSchema),
 });
 
