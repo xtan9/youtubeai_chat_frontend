@@ -32,10 +32,18 @@ const LanguageCodeSchema = z
 // service's routes/metadata.ts — keep in sync. `availableCaptions` uses
 // the same per-code schema so garbage entries in the list can't flow
 // through and later be used as a `lang` hint on a caption retry.
+//
+// `duration` is `.optional()` so this schema accepts both pre- and
+// post-rollout VPS deploys: an old VPS that doesn't emit the field is
+// indistinguishable from a newer VPS that emitted `null` (live stream
+// / yt-dlp rejection). Both cases reach the orchestrator as "duration
+// unknown" and skip the too-long gate, matching the project's
+// "additive fields ship safely ahead of the consumer" pattern.
 const VpsMetadataResponseSchema = z.object({
   language: LanguageCodeSchema,
   title: z.string(),
   description: z.string(),
+  duration: z.number().nonnegative().nullable().optional(),
   availableCaptions: z.array(LanguageCodeSchema),
 });
 

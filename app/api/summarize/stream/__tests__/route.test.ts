@@ -2024,6 +2024,191 @@ describe("POST /api/summarize/stream", () => {
       ).toBe(true);
     });
   });
+
+  describe("transcribe duration cap (no-captions branch)", () => {
+    // Stops the silent 4-min "Transcribing 30%" hang for videos longer
+    // than Whisper-tiny CPU can finish in VPS_TIMEOUT_MS. These tests
+    // pin the contract end-to-end at the route boundary because the
+    // failure mode they prevent is observable only there.
+
+    const vpsMetaWithDuration = (duration: number | null | undefined) => ({
+      ok: true as const,
+      data: {
+        language: "en",
+        title: "T",
+        description: "D",
+        availableCaptions: [] as string[],
+        duration,
+      },
+    });
+
+    it("emits an error event and skips transcribeViaVps when duration > cap", async () => {
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(900));
+      mocks.extractCaptions.mockResolvedValue(null);
+      // Default cap is 600s — the 14-minute repro from the original
+      // bug report (https://www.youtube.com/watch?v=D-dRD6zCpbY)
+      // exercised exactly this path.
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const body = await readStream(res);
+      const events = parseEvents(body);
+      const errorEvent = events.find((e) => e.type === "error");
+      expect(errorEvent).toBeDefined();
+      expect((errorEvent as { message: string }).message).toMatch(
+        /too long.*15 minutes.*10 minutes/
+      );
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    });
+
+    it("does NOT emit the no-captions 'Transcribing audio...' status before the error", async () => {
+      // Without the gate the user would see the optimistic
+      // "Transcribing audio..." status for ~4 minutes before the
+      // error fires. The gate must run BEFORE that status, so the
+      // user-visible state goes straight from captions-extraction
+      // to "too long" with no false-hope intermediate.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(900));
+      mocks.extractCaptions.mockResolvedValue(null);
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const body = await readStream(res);
+      const events = parseEvents(body);
+      const transcribingStatus = events.find(
+        (e) =>
+          e.type === "status" &&
+          (e as { message: string }).message.includes("Transcribing audio")
+      );
+      expect(transcribingStatus).toBeUndefined();
+    });
+
+    it("falls through to transcribeViaVps when duration is exactly at the cap", async () => {
+      // Off-by-one defense: the cap is a strict greater-than. A
+      // video at exactly the limit was already going to succeed
+      // (or time out the same as today) — the gate should not
+      // pre-emptively reject it.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(600));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(mocks.transcribeViaVps).toHaveBeenCalled();
+    });
+
+    it("falls through to transcribeViaVps when duration is null (live stream / yt-dlp unknown)", async () => {
+      // Treating null as "too long" would block live streams and
+      // any video where yt-dlp can't determine length — a
+      // regression on the existing handling. Treating null as 0
+      // would silently pass any cap, defeating the gate. The
+      // contract is "null = unknown, fall through."
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(null));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(mocks.transcribeViaVps).toHaveBeenCalled();
+    });
+
+    it("falls through when duration field is absent (old VPS pre-rollout)", async () => {
+      // During the VPS deploy window the response shape doesn't
+      // include `duration` at all. The route must not block these
+      // requests — old VPS = no signal = legacy behavior.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(undefined));
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(mocks.transcribeViaVps).toHaveBeenCalled();
+    });
+
+    it("falls through when the VPS /metadata call itself failed", async () => {
+      // Transient /metadata flakes (404 during deploy, network
+      // blip) must NOT block valid summary requests. Without
+      // duration data we have no basis to reject — defer to the
+      // existing transcribe attempt and its 240s timeout.
+      mocks.fetchVpsMetadata.mockResolvedValue({
+        ok: false,
+        reason: "non_ok",
+        status: 404,
+      });
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.transcribeViaVps.mockResolvedValue({
+        segments: segmentsOf("w"),
+        language: "en",
+        source: "whisper",
+      });
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+      expect(mocks.transcribeViaVps).toHaveBeenCalled();
+    });
+
+    it("does not affect captioned videos of any length", async () => {
+      // Long captioned videos go through the cheap caption path,
+      // not Whisper, so the cap is irrelevant. Verify the gate
+      // does NOT fire on the captions-found branch even when the
+      // video is much longer than the cap.
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(7200));
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const body = await readStream(res);
+      const events = parseEvents(body);
+      expect(events.some((e) => e.type === "error")).toBe(false);
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    });
+
+    it("respects MAX_TRANSCRIBE_DURATION_SECONDS env override", async () => {
+      vi.stubEnv("MAX_TRANSCRIBE_DURATION_SECONDS", "120");
+      mocks.fetchVpsMetadata.mockResolvedValue(vpsMetaWithDuration(180));
+      mocks.extractCaptions.mockResolvedValue(null);
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const body = await readStream(res);
+      const events = parseEvents(body);
+      const errorEvent = events.find((e) => e.type === "error");
+      expect(errorEvent).toBeDefined();
+      expect((errorEvent as { message: string }).message).toMatch(
+        /3 minutes.*2 minutes/
+      );
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    });
+  });
 });
 
 function cachedFixture(overrides: Partial<CachedSummary> = {}): CachedSummary {

@@ -185,6 +185,96 @@ describe("fetchVpsMetadata", () => {
     }
   );
 
+  describe("duration field", () => {
+    // The schema accepts both pre- and post-rollout VPS shapes:
+    // omitted (old VPS) and `null` (new VPS, live stream / yt-dlp
+    // rejection) reach callers as `data.duration` ∈ {undefined, null},
+    // and a finite non-negative number flows through unchanged.
+    // Coverage rationale: a regression here would either block the
+    // rollout window (reject responses without duration) or silently
+    // pass garbage values (negative / non-number) through to the
+    // too-long gate.
+
+    function setupOk() {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+    }
+
+    it("accepts a response without `duration` (old VPS, pre-rollout)", async () => {
+      setupOk();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(okResponse(validResponse))
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.duration).toBeUndefined();
+    });
+
+    it("accepts duration=null (live stream / yt-dlp unknown)", async () => {
+      setupOk();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          okResponse({ ...validResponse, duration: null })
+        )
+      );
+      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.duration).toBeNull();
+    });
+
+    it.each([0, 1, 213, 86400])(
+      "accepts duration=%d (finite non-negative)",
+      async (duration) => {
+        setupOk();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            okResponse({ ...validResponse, duration })
+          )
+        );
+        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.duration).toBe(duration);
+      }
+    );
+
+    it.each([
+      ["negative", -1],
+      ["string", "213"],
+      ["NaN-as-null-via-JSON", "NaN-roundtrip"], // see comment below
+    ])(
+      "rejects duration=%s via schema",
+      async (label, duration) => {
+        // Defense-in-depth: the VPS already collapses these to null on
+        // its side, but if a future VPS regression starts forwarding
+        // them raw, the schema must catch it here rather than letting
+        // a bogus number reach the too-long gate (where Number(true)
+        // would be 1, accepted, and silently bypass the cap on any
+        // truthy non-number duration).
+        if (label === "NaN-as-null-via-JSON") {
+          // JSON.stringify(NaN) → "null", so `NaN` over the wire is
+          // observationally the same as `null` — accepted by the
+          // schema as the "unknown" case. Documenting here so a
+          // future maintainer doesn't mistake the missing rejection
+          // for a coverage gap.
+          return;
+        }
+        setupOk();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue(
+            okResponse({ ...validResponse, duration })
+          )
+        );
+        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe("schema");
+      }
+    );
+  });
+
   it("distinguishes caller-initiated aborts from timeout", async () => {
     // The distinction matters because the route's top-level catch-all
     // swallows caller aborts (user closed tab) but logs timeouts (real

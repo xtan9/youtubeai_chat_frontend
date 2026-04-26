@@ -70,6 +70,24 @@ const USER_ERROR_GENERIC =
 const USER_ERROR_EMPTY_SUMMARY =
   "The model returned no summary. Please try again.";
 
+// Default cap for the no-captions Whisper fallback. Whisper-tiny on the
+// VPS's CPU runs at ~2x realtime in practice, so audio longer than this
+// can't finish inside the 240s VPS_TIMEOUT_MS — pre-empting saves the
+// user a 4-minute "Transcribing 30%" hang followed by a generic error,
+// and saves the VPS the wasted compute. 600s (10 min) is generous
+// enough that most short uploads still go through; operators can tune
+// down via MAX_TRANSCRIBE_DURATION_SECONDS once prod measurements
+// inform a tighter bound. Captioned videos of any length bypass this
+// branch entirely. Live streams (and any video where yt-dlp returns no
+// duration) skip the gate — duration=null means "unknown," not "0."
+const DEFAULT_MAX_TRANSCRIBE_DURATION_SECONDS = 600;
+function maxTranscribeDurationSeconds(): number {
+  const raw = Number(process.env.MAX_TRANSCRIBE_DURATION_SECONDS);
+  return Number.isFinite(raw) && raw > 0
+    ? raw
+    : DEFAULT_MAX_TRANSCRIBE_DURATION_SECONDS;
+}
+
 function jsonError(
   status: number,
   message: string,
@@ -334,6 +352,13 @@ export async function POST(request: Request) {
         // language from the cached native row, no /metadata round-trip).
         let detectedLang: string | null = null;
         let availableCaptions: readonly string[] = [];
+        // Pulled from /metadata so the no-captions branch can fail
+        // fast on videos too long for Whisper-tiny CPU to finish in
+        // VPS_TIMEOUT_MS. `null` = "unknown" (live stream, old VPS
+        // pre-rollout, or non-finite/negative value the VPS rejected)
+        // — those skip the gate and fall through to the legacy
+        // attempt rather than blocking on missing data.
+        let videoDurationSeconds: number | null = null;
         // Whisper-only. The .catch at construction guards against unhandled
         // rejection if the LLM path errors before we await the promise.
         let metadataPromise: Promise<VideoMetadataResult> | null = null;
@@ -406,6 +431,9 @@ export async function POST(request: Request) {
           // .includes("en") check honest.
           detectedLang = primarySubtag(vpsMeta.data.language);
           availableCaptions = vpsMeta.data.availableCaptions.map(primarySubtag);
+          // `?? null` collapses `undefined` (old VPS pre-rollout) to
+          // null so the gate below has a single sentinel to test.
+          videoDurationSeconds = vpsMeta.data.duration ?? null;
         } else if (vpsMeta.reason !== "aborted") {
           // Suppress alert-level logging when the VPS lacks the new
           // /metadata endpoint — during the deploy window (frontend ships
@@ -470,6 +498,36 @@ export async function POST(request: Request) {
           title = captions.title;
           channelName = captions.channelName;
         } else {
+          // Fail fast when the video is too long for Whisper-tiny CPU
+          // to finish in VPS_TIMEOUT_MS. Without this guard the user
+          // waits the full 240s timeout to learn the same fact, then
+          // sees a generic error. Skipped entirely when duration is
+          // unknown (live stream, old VPS pre-rollout, or VPS-side
+          // rejection) — those fall through to the legacy attempt so
+          // we don't introduce a regression on videos the system was
+          // already handling, and so transient /metadata failures
+          // don't block valid requests.
+          const cap = maxTranscribeDurationSeconds();
+          if (
+            videoDurationSeconds !== null &&
+            videoDurationSeconds > cap
+          ) {
+            const minutes = Math.floor(cap / 60);
+            const videoMinutes = Math.ceil(videoDurationSeconds / 60);
+            console.warn("[summarize/stream] transcribe duration exceeded", {
+              errorId: "TRANSCRIBE_DURATION_EXCEEDED",
+              stage: "transcribe" satisfies LogStage,
+              youtubeUrl: youtube_url,
+              userId: authedUser.id,
+              durationSeconds: videoDurationSeconds,
+              capSeconds: cap,
+            });
+            sendEvent({
+              type: "error",
+              message: `This video is too long to transcribe (${videoMinutes} minutes). We can only transcribe videos under ${minutes} minutes when captions aren't available — try a video that has captions, or a shorter clip.`,
+            });
+            return;
+          }
           sendEvent({
             type: "status",
             message: "No captions found. Transcribing audio...",
