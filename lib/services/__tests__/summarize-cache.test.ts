@@ -673,6 +673,68 @@ describe("getCachedTranscript", () => {
       "v1"
     );
   });
+
+  // Migration 20260424000006 backfilled pre-PR-#26 rows with a single
+  // segment {start:0, duration:0, text:<full>} as a fail-soft. Same shape
+  // also produced by the rollout-window VPS legacy fallback. Both must
+  // miss the cache so the route re-transcribes and overwrites the row
+  // with real timing data — otherwise users keep seeing one un-clickable
+  // 00:00 paragraph forever for any video summarized before the migration.
+  it("evicts legacy backfill row (single 00:00 segment) and returns null", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        segments: [{ text: "the whole transcript at once", start: 0, duration: 0 }],
+        transcript_source: "whisper",
+        language: "en",
+      },
+      error: null,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { getCachedTranscript } = await loadFresh();
+    expect(
+      await getCachedTranscript("https://youtu.be/dQw4w9WgXcQ")
+    ).toBeNull();
+    expect(
+      warn.mock.calls.some((c) =>
+        String(c[1] && (c[1] as { errorId?: string }).errorId).includes(
+          "TRANSCRIPT_LEGACY_BACKFILL_EVICT"
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("does NOT evict a single real segment with positive duration", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        // One segment, but duration > 0 → real (very-short-clip) data.
+        segments: [{ text: "hi", start: 0, duration: 2 }],
+        transcript_source: "whisper",
+        language: "en",
+      },
+      error: null,
+    });
+
+    const { getCachedTranscript } = await loadFresh();
+    const result = await getCachedTranscript(
+      "https://youtu.be/dQw4w9WgXcQ"
+    );
+    expect(result?.segments).toEqual([
+      { text: "hi", start: 0, duration: 2 },
+    ]);
+  });
 });
 
 describe("writeCachedTranscript", () => {

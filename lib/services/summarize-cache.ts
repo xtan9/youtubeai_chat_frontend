@@ -467,11 +467,37 @@ export async function getCachedTranscript(
       return null;
     }
 
+    // Evict the legacy-backfill shape — single segment with no timing info.
+    // Two upstream paths produce it: the migration's pre-PR-#26 backfill
+    // (`[{start:0, duration:0, text:<full>}]`), and the rollout-window VPS
+    // legacy-transcript fallback in caption-extractor / vps-client. Both are
+    // temporary states; returning null forces the route to re-run the VPS
+    // pipeline, and `writeCachedTranscript`'s upsert(onConflict: video_id)
+    // overwrites the row with real segments. Self-healing per request.
+    //
+    // Real captions/whisper output always has positive duration on at least
+    // one segment, so the false-evict surface is empty in practice.
+    const segments = parsed.data.segments;
+    if (
+      segments.length === 1 &&
+      segments[0].start === 0 &&
+      segments[0].duration === 0
+    ) {
+      console.warn(
+        "[summarize-cache] transcript: legacy-backfill row evicted (will re-transcribe)",
+        {
+          errorId: "TRANSCRIPT_LEGACY_BACKFILL_EVICT",
+          videoId: video.id,
+        }
+      );
+      return null;
+    }
+
     return {
       videoId: video.id,
       title: video.title ?? "",
       channelName: video.channel_name ?? "",
-      segments: parsed.data.segments,
+      segments,
       transcriptSource: parsed.data.transcript_source,
       language: parsed.data.language,
     };
