@@ -112,6 +112,42 @@ describe("extractCaptions", () => {
     );
   });
 
+  it("decodes XML entities in incoming VPS segment text (defense in depth)", async () => {
+    // Without this, a single un-decoded `&#39;` from the VPS reaches the
+    // cache and the user sees "I&#39;m" verbatim — the bug class this
+    // PR addresses. The canonical VPS-side fix decodes too; this site
+    // catches anything that slips through (rollout window, hex/decimal
+    // entities the library skips, double-encoding).
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          segments: [
+            { text: "I&#39;m here", start: 0, duration: 1 },
+            { text: "Tom &amp; Jerry", start: 1, duration: 1 },
+            // Double-encoded: youtube-transcript-plus passes through `&#39;`,
+            // VPS-side single decode of `&amp;` leaves us with `&#39;`,
+            // this pass takes it home.
+            { text: "don&amp;#39;t", start: 2, duration: 1 },
+          ],
+          source: "auto_captions",
+          language: "en",
+          title: null,
+          channelName: null,
+        })
+      )
+    );
+    const result = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    );
+    expect(result?.segments.map((s) => s.text)).toEqual([
+      "I'm here",
+      "Tom & Jerry",
+      "don't",
+    ]);
+  });
+
   it("omits `lang` in the request body when no lang provided (back-compat)", async () => {
     // Existing VPS and consumers rely on the exact pre-PR body shape for
     // lang-less calls. Injecting `lang: undefined` would stringify as

@@ -674,6 +674,43 @@ describe("getCachedTranscript", () => {
     );
   });
 
+  // Regression guard for the user-reported "I&#39;m" rendering bug:
+  // rows persisted before the captions-pipeline decode landed kept their
+  // encoded entities. Decoding on read makes those rows display clean
+  // immediately — without forcing a re-transcription that the eviction
+  // path can't trigger because the row already has real timing.
+  it("decodes XML entities in cached segment text on read", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+    mocks.videosBuilder.maybeSingle.mockResolvedValue({
+      data: { id: "v1", title: "t", channel_name: "c", language: "en" },
+      error: null,
+    });
+    mocks.transcriptsBuilder.maybeSingle.mockResolvedValue({
+      data: {
+        segments: [
+          { text: "I&#39;m here", start: 0, duration: 1 },
+          { text: "Tom &amp; Jerry", start: 1, duration: 1 },
+          // Double-encoded — the canonical user-reported bug.
+          { text: "don&amp;#39;t go", start: 2, duration: 1 },
+        ],
+        transcript_source: "auto_captions",
+        language: "en",
+      },
+      error: null,
+    });
+
+    const { getCachedTranscript } = await loadFresh();
+    const result = await getCachedTranscript(
+      "https://youtu.be/dQw4w9WgXcQ"
+    );
+    expect(result?.segments.map((s) => s.text)).toEqual([
+      "I'm here",
+      "Tom & Jerry",
+      "don't go",
+    ]);
+  });
+
   // Regression guard: without this eviction, every video cached before
   // per-line timing was persisted renders as one un-clickable 00:00
   // paragraph forever — the cache shortcut returns the placeholder
