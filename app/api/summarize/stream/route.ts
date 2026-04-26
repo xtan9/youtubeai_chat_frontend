@@ -284,26 +284,24 @@ export async function POST(request: Request) {
           if (includeTranscript) {
             const cachedT = await getCachedTranscript(youtube_url);
             cachedSegments = cachedT?.segments;
-            // Legacy cache rows: a summary written before the
-            // video_transcripts table existed (migration 20260424000002)
-            // has `summaries.transcript` but no segments row. Without
-            // this fallback the user would see the cached summary but
-            // an empty transcript card — a regression vs the pre-PR
-            // behavior that emitted the flat string. Synthesize one
-            // un-clickable 00:00 segment from the snapshot — same
-            // fail-soft as the migration backfill and the rollout
-            // fallback in caption-extractor / vps-client.
-            if (!cachedSegments && cached.transcript) {
-              cachedSegments = [
-                { text: cached.transcript, start: 0, duration: 0 },
-              ];
-            }
           }
-          streamCached(sendEvent, cached, {
-            includeTranscript,
-            segments: cachedSegments,
-          });
-          return;
+          // Honor the cache only when the client doesn't need a
+          // transcript, or we have one with real per-line timing.
+          // Synthesizing a single `[{start:0, duration:0}]` from
+          // `cached.transcript` would re-create the exact placeholder
+          // the read-side eviction in summarize-cache.getCachedTranscript
+          // is tearing down — the user keeps seeing one un-clickable
+          // 00:00 paragraph forever. Falling through re-runs the VPS
+          // pipeline; one re-bill per affected video, after which both
+          // caches hold real segments + summary and subsequent visits
+          // are fast.
+          if (!includeTranscript || cachedSegments !== undefined) {
+            streamCached(sendEvent, cached, {
+              includeTranscript,
+              segments: cachedSegments,
+            });
+            return;
+          }
         }
 
         const overallStart = Date.now();
