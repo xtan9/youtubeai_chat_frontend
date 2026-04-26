@@ -423,34 +423,26 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
 
-    it("falls through to the full pipeline when summary cache hits but no transcript segments cached (include_transcript=true)", async () => {
+    it("re-transcribes but reuses the cached summary when summary hits and segments missing (include_transcript=true)", async () => {
       // Companion to the read-side eviction in
       // summarize-cache.getCachedTranscript: synthesizing a single 00:00
-      // segment from `cached.transcript` would re-create the exact
-      // placeholder the eviction is tearing down, leaving users stuck on
-      // one un-clickable paragraph forever for any video summarized
-      // before per-line timing was persisted. Honor the summary cache
-      // only when we also have real segments; otherwise re-run the
-      // pipeline so the next request hits both caches with real data.
+      // segment from `cached.transcript` would re-create the placeholder
+      // the eviction is tearing down. The route now runs a partial
+      // pipeline — re-transcribe to get real segments, stream the cached
+      // summary verbatim — so the user sees clickable timestamps without
+      // an LLM re-bill or a non-deterministic summary clobber.
       mocks.getCachedSummary.mockResolvedValue(
         cachedFixture({
           title: "Legacy Vid",
           channelName: "Legacy Chan",
-          summary: "Legacy summary",
+          summary: "The cached summary verbatim.",
           transcript: "legacy text without timing",
           transcribeTimeSeconds: 0,
           summarizeTimeSeconds: 1,
         })
       );
       mocks.getCachedTranscript.mockResolvedValue(null);
-      // Full pipeline must succeed — provide real captions + LLM output.
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
-      mocks.streamLlmSummary.mockImplementation(() =>
-        fakeGen([
-          { type: "content", text: "Re-summarized." },
-          { type: "timing", summarizeSeconds: 2 },
-        ])
-      );
 
       const res = await POST(
         makeRequest({
@@ -460,12 +452,22 @@ describe("POST /api/summarize/stream", () => {
       );
       const events = parseEvents(await readStream(res));
 
-      // The full pipeline ran — captions + LLM + summary write.
+      // Re-transcribed: captions ran, transcript-cache was repopulated
+      // with real segments so the next request hits both shortcuts.
       expect(mocks.extractCaptions).toHaveBeenCalled();
-      expect(mocks.streamLlmSummary).toHaveBeenCalled();
-      expect(mocks.writeCachedSummary).toHaveBeenCalled();
-      // The streamed transcript is the freshly-extracted one, not the
-      // synthesized 00:00 placeholder.
+      expect(mocks.writeCachedTranscript).toHaveBeenCalled();
+      // Did NOT re-bill the LLM and did NOT clobber the cached summary.
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      // The streamed summary content is the cached one verbatim.
+      const contentEvents = events.filter((e) => e.type === "content") as Array<{
+        type: "content";
+        text: string;
+      }>;
+      expect(contentEvents.map((e) => e.text).join("")).toBe(
+        "The cached summary verbatim."
+      );
+      // Real segments emitted, not the legacy synthesized 00:00.
       const fullTranscript = events.find(
         (e) => e.type === "full_transcript"
       ) as { type: "full_transcript"; segments: unknown[] } | undefined;

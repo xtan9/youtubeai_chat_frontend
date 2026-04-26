@@ -597,6 +597,26 @@ export async function POST(request: Request) {
           sendEvent({ type: "full_transcript", segments });
         }
 
+        // Partial-pipeline shortcut: if the per-language summary cache hit
+        // earlier but we re-transcribed because segments were missing
+        // (read-side eviction in summarize-cache or never persisted),
+        // stream the cached summary verbatim instead of re-billing the
+        // LLM. The transcript cache write already happened above on the
+        // !reusedCachedTranscript branch, so the next request hits both
+        // shortcuts. Skipping the LLM also avoids clobbering the existing
+        // summary row with a non-deterministic re-run.
+        if (cached) {
+          sendEvent({ type: "content", text: cached.summary });
+          sendEvent({
+            type: "summary",
+            category: "general",
+            total_time: cached.summarizeTimeSeconds + transcribeSeconds,
+            summarize_time: cached.summarizeTimeSeconds,
+            transcribe_time: transcribeSeconds,
+          });
+          return;
+        }
+
         // Resolve oembed metadata NOW (not after the LLM call) so the
         // classifier sees a real title on the Whisper path. By this point
         // VPS transcription already took minutes, so the oembed fetch has
