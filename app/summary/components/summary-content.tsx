@@ -135,13 +135,13 @@ export function SummaryContent({
                 : "bg-white border-slate-300"
             } rounded-xl p-6 border shadow-inner overflow-auto max-h-[calc(100vh-300px)]`}
           >
-            <div className="prose prose-lg max-w-none dark:prose-invert">
+            <div className="prose max-w-none dark:prose-invert">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
                   h1: ({ children }) => (
                     <h1
-                      className={`text-2xl font-bold ${
+                      className={`text-xl font-bold ${
                         isDark
                           ? "text-white border-cyan-400/30"
                           : "text-slate-900 border-cyan-600/30"
@@ -152,7 +152,7 @@ export function SummaryContent({
                   ),
                   h2: ({ children }) => (
                     <h2
-                      className={`text-xl font-semibold ${
+                      className={`text-lg font-semibold ${
                         isDark ? "text-cyan-400" : "text-cyan-700"
                       } mt-6 mb-3`}
                     >
@@ -161,7 +161,7 @@ export function SummaryContent({
                   ),
                   h3: ({ children }) => (
                     <h3
-                      className={`text-lg font-medium ${
+                      className={`text-base font-medium ${
                         isDark ? "text-purple-400" : "text-purple-700"
                       } mt-4 mb-2`}
                     >
@@ -172,7 +172,7 @@ export function SummaryContent({
                     <p
                       className={`${
                         isDark ? "text-white" : "text-slate-800"
-                      } leading-relaxed mb-4 text-lg`}
+                      } leading-relaxed mb-4 text-base`}
                     >
                       {children}
                     </p>
