@@ -35,7 +35,7 @@ describe("usePersistedUrl", () => {
   it("savePendingUrl writes to localStorage and updates state", async () => {
     const { result } = renderHook(() => usePersistedUrl());
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
-    act(() => {
+    await act(async () => {
       result.current.savePendingUrl("https://youtu.be/xyz");
     });
     expect(result.current.pendingUrl).toBe("https://youtu.be/xyz");
@@ -48,7 +48,7 @@ describe("usePersistedUrl", () => {
     localStorage.setItem(KEY, JSON.stringify({ url: "https://youtu.be/abc" }));
     const { result } = renderHook(() => usePersistedUrl());
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
-    act(() => {
+    await act(async () => {
       result.current.clearPendingUrl();
     });
     expect(result.current.pendingUrl).toBeNull();
@@ -76,7 +76,7 @@ describe("usePersistedUrl", () => {
       });
     const { result } = renderHook(() => usePersistedUrl());
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
-    act(() => {
+    await act(async () => {
       result.current.savePendingUrl("https://youtu.be/xyz");
     });
     // In-memory state still updates so the UI isn't blocked
