@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   hasArabicChars,
   hasFrenchAnchors,
+  loadAdminCreds,
   loadSmokeCreds,
   parseEnvFile,
 } from "../helpers";
@@ -109,5 +110,34 @@ describe("loadSmokeCreds", () => {
 
     const creds = await loadSmokeCreds();
     expect(creds).toBeNull();
+  });
+});
+
+describe("loadAdminCreds", () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("returns null when SUPABASE_URL or SECRET key missing AND file absent", async () => {
+    process.env.TEST_USER_EMAIL = "x@example.com";
+    process.env.TEST_USER_PASSWORD = "x";
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SECRET_KEY;
+    process.env.HOME = "/nonexistent-test-home-xyz";
+    const r = await loadAdminCreds();
+    expect(r).toBeNull();
+  });
+
+  it("returns admin creds when both env vars are set", async () => {
+    process.env.TEST_USER_EMAIL = "x@example.com";
+    process.env.TEST_USER_PASSWORD = "x";
+    process.env.SUPABASE_URL = "https://supabase.example.com";
+    process.env.SUPABASE_SECRET_KEY = "sb_secret_test";
+    const r = await loadAdminCreds();
+    expect(r).not.toBeNull();
+    expect(r!.supabaseUrl).toBe("https://supabase.example.com");
+    expect(r!.secretKey).toBe("sb_secret_test");
+    expect(r!.email).toBe("x@example.com");
   });
 });
