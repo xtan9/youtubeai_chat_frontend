@@ -52,11 +52,10 @@ test("password reset: forgot → recovery link → update → re-login", async (
 
   // --- Update password to a known temp value (Supabase blocks same-password updates) ---
   await page.locator("#password").fill(tempPassword);
-  await page.getByRole("button", { name: /update password|save/i }).click();
-
-  // The update-password form calls router.push("/protected") on success.
-  // /protected has no Next.js page so Next.js 404s, but the navigation does happen.
-  await page.waitForURL(/\/protected/, { timeout: 10_000 });
+  await Promise.all([
+    page.waitForURL(`${PROD_URL}/`, { timeout: 10_000 }),
+    page.getByRole("button", { name: /update password|save/i }).click(),
+  ]);
 
   // --- Sanity: log out then re-login with the temp password to confirm it works ---
   await context.clearCookies();
