@@ -150,13 +150,23 @@ export async function getAdminClient(creds: AdminCreds): Promise<SupabaseClient>
 }
 
 /**
- * Generate a recovery (password-reset) action link for an existing
- * user. Bypasses real email — the link is returned directly so the
- * E2E driver can navigate to it.
+ * Generate a recovery (password-reset) confirm URL for an existing user.
+ * Bypasses real email — instead of following the Supabase action_link (which
+ * uses the implicit hash flow and can lose the token on www↔non-www redirects),
+ * we extract the hashed_token and build a direct link to the app's
+ * /auth/confirm route. That route uses verifyOtp (PKCE-compatible) and
+ * redirects to `next`.
+ *
+ * @param creds    Admin credentials (includes supabaseUrl + secretKey)
+ * @param email    The account to generate a recovery token for
+ * @param appRoot  The app origin (e.g. "https://www.youtubeai.chat")
+ * @param next     Path to redirect to after token exchange (default "/auth/update-password")
  */
 export async function generateRecoveryLink(
   creds: AdminCreds,
-  email: string
+  email: string,
+  appRoot?: string,
+  next: string = "/auth/update-password"
 ): Promise<string> {
   const admin = await getAdminClient(creds);
   const { data, error } = await admin.auth.admin.generateLink({
@@ -164,9 +174,10 @@ export async function generateRecoveryLink(
     email,
   });
   if (error) throw error;
-  const link = data?.properties?.action_link;
-  if (!link) throw new Error("admin.generateLink returned no action_link");
-  return link;
+  const hashedToken = data?.properties?.hashed_token;
+  if (!hashedToken) throw new Error("admin.generateLink returned no hashed_token");
+  const root = appRoot?.replace(/\/$/, "") ?? "https://www.youtubeai.chat";
+  return `${root}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}&type=recovery&next=${encodeURIComponent(next)}`;
 }
 
 /**
