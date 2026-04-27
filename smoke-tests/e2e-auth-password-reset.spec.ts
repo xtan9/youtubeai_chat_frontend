@@ -1,9 +1,61 @@
 import { test, expect } from "@playwright/test";
-import { loadAdminCreds, generateRecoveryLink, getAdminClient } from "./helpers";
+import { loadAdminCreds, generateRecoveryLink, getAdminClient, loadSmokeCreds } from "./helpers";
 
 const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
+
+// Network-level regression for the recovery redirect URL the form sends to
+// Supabase. Production bug we hit in 2026-04: the form passed the live www
+// origin (https://www.youtubeai.chat/auth/update-password), which is NOT in
+// the Supabase Auth allowlist for this project. Supabase silently fell back
+// to the Site URL (https://youtubeai.chat/) and recovery clickers landed on
+// the home page logged-in instead of the update-password form. The fix
+// canonicalizes to the apex origin and routes through /auth/callback so the
+// PKCE code can be exchanged. We intercept the recover request rather than
+// completing it because (a) the test account is shared with manual QA and
+// burning real recovery tokens during automation locks future sessions out,
+// and (b) the meaningful assertion is what the form *requested*, not how
+// Supabase handled it. Skip when login creds are absent (CI without secrets).
+test("password reset form requests the apex /auth/callback redirectTo", async ({
+  page,
+}) => {
+  const creds = await loadSmokeCreds();
+  test.skip(!creds, "TEST_USER_EMAIL/PASSWORD required");
+  if (!creds) return;
+
+  let observedRedirectTo: string | undefined;
+
+  await page.route("**/auth/v1/recover**", async (route) => {
+    // Supabase JS sends redirect_to as a URL query param, not in the body.
+    const url = new URL(route.request().url());
+    observedRedirectTo = url.searchParams.get("redirect_to") ?? undefined;
+    // 200 with empty body matches Supabase's success shape closely enough
+    // for the form to flip into its "Check Your Email" success state.
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({}),
+    });
+  });
+
+  await page.goto(`${PROD_URL}/auth/forgot-password`);
+  await page.fill("#email", creds.email);
+  await page.getByRole("button", { name: /send reset|reset password/i }).click();
+  await expect(page.getByText(/check your email|sent/i).first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // The recovery request only matters to Supabase's allowlist when the
+  // origin is the production www host; on local dev the URL would be
+  // http://localhost:3000/auth/callback?next=... and that's expected.
+  // The shared invariants regardless of env: never www, route through
+  // /auth/callback, carry next=/auth/update-password.
+  expect(observedRedirectTo, "form must call resetPasswordForEmail").toBeDefined();
+  expect(observedRedirectTo).toContain("/auth/callback?next=/auth/update-password");
+  expect(observedRedirectTo).not.toMatch(/^https?:\/\/www\./i);
+  expect(new URL(observedRedirectTo!).pathname).toBe("/auth/callback");
+});
 
 // A stable temp password used during the reset flow. Must be different from
 // the real password (Supabase blocks same-password updates via the UI). The
