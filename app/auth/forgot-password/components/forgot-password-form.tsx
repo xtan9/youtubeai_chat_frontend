@@ -32,13 +32,10 @@ export function ForgotPasswordForm({
     setError(null);
 
     try {
-      // redirectTo is canonicalized via buildRecoveryRedirectUrl: Supabase
-      // Auth's allowlist is exact-match per entry, and only the apex
-      // origin (https://youtubeai.chat/**) carries a wildcard for this
-      // project. Passing a www-origin URL with a `?next=` suffix gets
-      // silently rejected and falls back to the Site URL — which is what
-      // dropped recovery clickers on the home page in production. See
-      // lib/auth/recovery-redirect.ts for the full rationale.
+      // redirectTo is canonicalized via buildRecoveryRedirectUrl so the
+      // recovery email link lands users on the update-password form.
+      // See lib/auth/recovery-redirect.ts for the allowlist + implicit-grant
+      // reasoning.
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: buildRecoveryRedirectUrl(window.location.origin),
       });

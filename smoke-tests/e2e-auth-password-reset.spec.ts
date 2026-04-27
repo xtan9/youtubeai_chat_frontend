@@ -9,15 +9,17 @@ const PROD_URL = (
 // The form previously passed the live www origin
 // (https://www.youtubeai.chat/auth/update-password), which is NOT in the
 // Supabase Auth allowlist for this project. Supabase silently fell back to
-// the Site URL (https://youtubeai.chat/) and recovery clickers landed on the
-// home page logged-in instead of the update-password form. The fix
-// canonicalizes to the apex origin and routes through /auth/callback so the
-// PKCE code can be exchanged. We intercept the recover request rather than
-// completing it because (a) the test account is shared with manual QA and
-// burning real recovery tokens during automation locks future sessions out,
-// and (b) the meaningful assertion is what the form *requested*, not how
-// Supabase handled it. Skip when login creds are absent (CI without secrets).
-test("password reset form requests the apex /auth/callback redirectTo", async ({
+// the Site URL and recovery clickers landed on the home page logged-in
+// instead of the update-password form. The fix canonicalizes to the apex
+// origin and points directly at /auth/update-password — recovery in this
+// project goes through Supabase's legacy verify endpoint (implicit grant,
+// access token in fragment), not PKCE, so /auth/callback is the wrong
+// destination. We intercept the recover request rather than completing it
+// because (a) the test account is shared with manual QA and burning real
+// recovery tokens during automation locks future sessions out, and (b) the
+// meaningful assertion is what the form *requested*, not how Supabase
+// handled it. Skip when login creds are absent (CI without secrets).
+test("password reset form requests the apex /auth/update-password redirectTo", async ({
   page,
 }) => {
   const creds = await loadSmokeCreds();
@@ -50,15 +52,14 @@ test("password reset form requests the apex /auth/callback redirectTo", async ({
     timeout: 10_000,
   });
 
-  // The recovery request only matters to Supabase's allowlist when the
-  // origin is the production www host; on local dev the URL would be
-  // http://localhost:3000/auth/callback?next=... and that's expected.
-  // The shared invariants regardless of env: never www, route through
-  // /auth/callback, carry next=/auth/update-password.
+  // Shared invariants regardless of env: apex (no www), targets the
+  // update-password page directly, no extra query string. On local dev the
+  // origin is http://localhost:3000 (no www to strip); the same path
+  // assertions still hold.
   expect(observedRedirectTo, "form must call resetPasswordForEmail").toBeDefined();
-  expect(observedRedirectTo).toContain("/auth/callback?next=/auth/update-password");
   expect(observedRedirectTo).not.toMatch(/^https?:\/\/www\./i);
-  expect(new URL(observedRedirectTo!).pathname).toBe("/auth/callback");
+  expect(new URL(observedRedirectTo!).pathname).toBe("/auth/update-password");
+  expect(new URL(observedRedirectTo!).search).toBe("");
 });
 
 // A stable temp password used during the reset flow. Must be different from
