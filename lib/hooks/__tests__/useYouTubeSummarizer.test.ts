@@ -161,6 +161,12 @@ describe("useYouTubeSummarizer", () => {
     const data = refetchResult!.data;
     expect(Array.isArray(data)).toBe(true);
     expect(data!.at(-1)?.summary).toBe("partial-1 partial-2");
+    // Two chunks → two intermediate yields (catches a regression to
+    // batch-yielding the full string at the end).
+    expect(data).toHaveLength(2);
+    expect(data![0].summary).toBe("partial-1 ");
+    // signal must thread through to fetch — drops would silently break abort.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("includes output_language in body only when provided", async () => {
@@ -238,11 +244,124 @@ describe("useYouTubeSummarizer", () => {
       expect(r.isError).toBe(true);
     });
 
-    // The hook schedules push via setTimeout with 3000ms delay (from getAuthErrorInfo for 401)
+    // Push must be scheduled, not fired synchronously.
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // The hook schedules push via setTimeout; advance to fire it.
     await act(async () => {
       vi.advanceTimersByTime(3_000);
     });
     expect(mockPush).toHaveBeenCalledWith("/auth/login");
+    // retry:false is honored despite the hook's retry:1 — the QueryClient
+    // defaultOptions take precedence when the test client overrides them.
+    // Pin the count so a future change to retry policy is visible here.
+    expect(mockPush).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+
+  it("does NOT redirect on 403 (only 401 redirects per getAuthErrorInfo)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ message: "forbidden" }),
+            { status: 403 }
+          )
+        )
+      )
+    );
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.message).toBe("forbidden");
+    });
+
+    // Advance well past any conceivable redirect delay.
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("falls back to default message when error response has no message field", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify({}), { status: 500 }))
+      )
+    );
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.message).toBe(
+        "Failed to start streaming summarization"
+      );
+    });
+  });
+
+  it("throws 'Failed to get response reader' when response body is null", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+    );
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.message).toBe("Failed to get response reader");
+    });
+  });
+
+  it("logs error when signInAnonymously returns an error and stays unauthenticated", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+    mockSignInAnonymously.mockResolvedValue({
+      data: { session: null },
+      error: new Error("anon sign-in failed"),
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false));
+    expect(result.current.isAnonymous).toBe(false);
+    expect(errSpy).toHaveBeenCalledWith(
+      "Anonymous sign-in error:",
+      expect.any(Error)
+    );
   });
 });
