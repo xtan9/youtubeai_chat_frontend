@@ -34,10 +34,15 @@ test("signup creates a new account and redirects to sign-up-success", async ({
       page.getByText(/check your email|confirmation/i).first()
     ).toBeVisible();
   } finally {
-    // Always clean up — even on test failure — so randomized users
-    // don't accumulate in the project.
-    await deleteUserByEmail(creds, email).catch((err) => {
-      console.warn("[e2e-auth-signup] teardown deleteUser failed:", err);
-    });
+    // Cleanup is mandatory — if it fails, the test must fail too so the
+    // accumulating-orphans condition is visible (otherwise auth.users
+    // grows monotonically and degrades pagination on every run). We log
+    // first to give the assertion failure context, then re-throw.
+    try {
+      await deleteUserByEmail(creds, email);
+    } catch (err) {
+      console.error("[e2e-auth-signup] teardown deleteUser failed:", err);
+      throw err;
+    }
   }
 });

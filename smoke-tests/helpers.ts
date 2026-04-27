@@ -2,6 +2,8 @@
 // e2e spec. Keep free of runtime-specific imports so both environments can
 // load this module without bundling surprises.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 // Arabic block + Arabic Supplement + Arabic Extended-A + Presentation
 // Forms A/B. YouTube captions have been observed to use presentation
 // forms (shaped glyphs) on older content, so catching just the basic
@@ -93,8 +95,6 @@ export function parseEnvFile(raw: string): Record<string, string> {
 
 // --- Admin helpers (E2E auth specs) -----------------------------------
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 export type AdminCreds = SmokeCreds & {
   supabaseUrl: string;
   secretKey: string;
@@ -122,14 +122,30 @@ export async function loadAdminCreds(): Promise<AdminCreds | null> {
       os.homedir(),
       ".config/claude-test-creds/youtubeai.env"
     );
+    let raw: string;
     try {
-      const raw = await readFile(credPath, "utf8");
-      const parsed = parseEnvFile(raw);
-      supabaseUrl = supabaseUrl || parsed.SUPABASE_URL?.trim();
-      secretKey = secretKey || parsed.SUPABASE_SECRET_KEY?.trim();
-    } catch {
+      raw = await readFile(credPath, "utf8");
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      // ENOENT (file genuinely absent) is the silent-skip path. Anything
+      // else (EACCES, EISDIR, ...) deserves a warning so devs know why
+      // their auth tests are skipping — without surfacing the path users
+      // are configuring permissions wrong on, debugging is hopeless.
+      if (code !== "ENOENT") {
+        console.warn(
+          `[loadAdminCreds] could not read ${credPath}: ${
+            code ?? "unknown"
+          } — ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       return null;
     }
+    // parseEnvFile is synchronous and pure; intentionally outside the
+    // catch above so a parser bug surfaces as an exception instead of
+    // being swallowed as "file absent".
+    const parsed = parseEnvFile(raw);
+    supabaseUrl = supabaseUrl || parsed.SUPABASE_URL?.trim();
+    secretKey = secretKey || parsed.SUPABASE_SECRET_KEY?.trim();
   }
 
   if (!supabaseUrl || !secretKey) return null;
@@ -182,22 +198,27 @@ export async function generateRecoveryLink(
 
 /**
  * Delete a user by email. Used in test teardown to keep randomized
- * signup users from accumulating. No-op if the user does not exist.
+ * signup users from accumulating. Paginates listUsers since admin
+ * doesn't expose getUserByEmail. No-op if the user does not exist
+ * after exhausting all pages.
  */
 export async function deleteUserByEmail(
   creds: AdminCreds,
   email: string
 ): Promise<void> {
   const admin = await getAdminClient(creds);
-  // listUsers is paginated; filter manually since admin.getUserByEmail
-  // is not exposed in v2.
-  const { data, error } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 200,
-  });
-  if (error) throw error;
-  const match = data.users.find((u) => u.email === email);
-  if (!match) return;
-  const { error: delErr } = await admin.auth.admin.deleteUser(match.id);
-  if (delErr) throw delErr;
+  for (let pg = 1; ; pg++) {
+    const { data, error } = await admin.auth.admin.listUsers({
+      page: pg,
+      perPage: 1000,
+    });
+    if (error) throw error;
+    const match = data.users.find((u) => u.email === email);
+    if (match) {
+      const { error: delErr } = await admin.auth.admin.deleteUser(match.id);
+      if (delErr) throw delErr;
+      return;
+    }
+    if (data.users.length < 1000) return; // exhausted all pages
+  }
 }

@@ -40,6 +40,13 @@ test("login → logout round-trip", async ({ page }) => {
     logout.click(),
   ]);
 
-  // Unauthenticated state: account menu must be gone
+  // Unauthenticated state: account menu must be gone AND sign-in CTA visible.
+  // Both checks together guard against a refactor that hides Sign Out via
+  // CSS without actually logging out.
   await expect(accountMenu).not.toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: /sign in|log in/i })
+      .or(page.getByRole("link", { name: /sign in|log in/i }))
+  ).toBeVisible();
 });
