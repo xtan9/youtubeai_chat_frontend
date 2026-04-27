@@ -62,6 +62,10 @@ describe("useYouTubeSummarizer", () => {
   });
 
   afterEach(() => {
+    // Always restore real timers — useFakeTimers() is opt-in per test,
+    // but if a test throws before its inline useRealTimers() runs, fake
+    // timers leak and subsequent tests hang. No-op when real already.
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -226,10 +230,16 @@ describe("useYouTubeSummarizer", () => {
       user: { id: "u1" },
       session: { access_token: "user-token" },
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ message: "session expired" }),
-        { status: 401 }
+    // mockImplementation (not mockResolvedValue) so each fetch call
+    // gets a fresh Response — Response bodies are read-once, and the
+    // hook's retry:1 (which wins over the test QueryClient's
+    // retry:false default) means fetch fires twice on a 401.
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ message: "session expired" }),
+          { status: 401 }
+        )
       )
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -252,11 +262,21 @@ describe("useYouTubeSummarizer", () => {
       vi.advanceTimersByTime(3_000);
     });
     expect(mockPush).toHaveBeenCalledWith("/auth/login");
-    // retry:false is honored despite the hook's retry:1 — the QueryClient
-    // defaultOptions take precedence when the test client overrides them.
-    // Pin the count so a future change to retry policy is visible here.
-    expect(mockPush).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
+    // retry:1 on the hook overrides retry:false on the test QueryClient
+    // default (per-query options win in TanStack v5 merge order), so
+    // fetch fires twice on a 401. Pinning the count documents the retry
+    // behavior — a future tweak to the hook's retry policy must update
+    // this assertion deliberately.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // mockPush fires once because only the FIRST 401 reaches
+    // handleAuthError; the retry's response.json() throws on the second
+    // call (body already consumed in first), so the second error is a
+    // generic body-read error, not a 401, and it doesn't re-enter the
+    // redirect path. With mockImplementation above, both calls get fresh
+    // Responses, so the second 401 ALSO reaches handleAuthError and
+    // schedules a SECOND setTimeout. Both push calls land at the same
+    // 3000ms tick.
+    expect(mockPush).toHaveBeenCalledTimes(2);
   });
 
   it("does NOT redirect on 403 (only 401 redirects per getAuthErrorInfo)", async () => {
