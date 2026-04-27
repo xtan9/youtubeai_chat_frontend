@@ -5,12 +5,12 @@ const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
 
-// Network-level regression for the recovery redirect URL the form sends to
-// Supabase. Production bug we hit in 2026-04: the form passed the live www
-// origin (https://www.youtubeai.chat/auth/update-password), which is NOT in
-// the Supabase Auth allowlist for this project. Supabase silently fell back
-// to the Site URL (https://youtubeai.chat/) and recovery clickers landed on
-// the home page logged-in instead of the update-password form. The fix
+// Regression guard for the recovery redirect URL the form sends to Supabase.
+// The form previously passed the live www origin
+// (https://www.youtubeai.chat/auth/update-password), which is NOT in the
+// Supabase Auth allowlist for this project. Supabase silently fell back to
+// the Site URL (https://youtubeai.chat/) and recovery clickers landed on the
+// home page logged-in instead of the update-password form. The fix
 // canonicalizes to the apex origin and routes through /auth/callback so the
 // PKCE code can be exchanged. We intercept the recover request rather than
 // completing it because (a) the test account is shared with manual QA and
@@ -31,7 +31,11 @@ test("password reset form requests the apex /auth/callback redirectTo", async ({
     const url = new URL(route.request().url());
     observedRedirectTo = url.searchParams.get("redirect_to") ?? undefined;
     // 200 with empty body matches Supabase's success shape closely enough
-    // for the form to flip into its "Check Your Email" success state.
+    // for the form to flip into its "Check Your Email" success state. If a
+    // future supabase-js validates a field on this response (today the
+    // success path only checks for absence of `error`), update the body
+    // here to match — the failure mode would be the success-text wait
+    // timing out before the redirectTo assertion runs.
     await route.fulfill({
       status: 200,
       contentType: "application/json",
