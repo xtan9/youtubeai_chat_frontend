@@ -32,7 +32,8 @@ CI enforces coverage floors defined in `vitest.config.ts`. The floor is a *regre
 ### Mocking altitude
 
 - **E2E** (Playwright): real Supabase auth, real VPS, real LLM on the happy path. Use `page.route()` only for conditions the real stack cannot reliably reproduce (network errors, rate-limit responses, malformed upstream payloads).
-- **Integration** (Vitest): real route handlers, real Zod schemas, real composition. Mock at the `fetch` boundary using `vi.stubGlobal("fetch", vi.fn())`. Mock the Supabase admin client when used.
+- **Integration — API routes** (Vitest): real handler, real Zod, real composition. Mock the service modules the route composes via `vi.mock()`.
+- **Integration — service modules** (Vitest): real composition. Mock `globalThis.fetch` via `vi.stubGlobal("fetch", vi.fn())`. Mock the Supabase admin client when used.
 - **Unit** (Vitest): pure logic only. Mock everything else.
 
 ### Activating happy-dom for hook tests
