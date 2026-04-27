@@ -192,8 +192,7 @@ describe("fetchVpsMetadata", () => {
     // and a finite non-negative number flows through unchanged.
     // Coverage rationale: a regression here would either block the
     // rollout window (reject responses without duration) or silently
-    // pass garbage values (negative / non-number) through to the
-    // too-long gate.
+    // pass garbage values (negative / non-number) through to callers.
     //
     // Wire-shape note on NaN: JSON.stringify(NaN) emits "null", so
     // sending NaN over the wire is observationally identical to
@@ -255,7 +254,7 @@ describe("fetchVpsMetadata", () => {
         // Defense-in-depth: the VPS already collapses these to null on
         // its side, but if a future VPS regression starts forwarding
         // them raw, the schema here must independently reject so a
-        // bogus value can't reach the too-long gate.
+        // bogus value can't flow to callers.
         setupOk();
         vi.stubGlobal(
           "fetch",
@@ -271,9 +270,8 @@ describe("fetchVpsMetadata", () => {
 
     it("rejects duration=Infinity via .finite() (defends against `1e9999` over the wire)", async () => {
       // JSON.parse("1e9999") returns Infinity — a payload that
-      // would otherwise pass `.nonnegative()` and reach the gate,
-      // where the user-facing message would read "Infinity
-      // minutes." Bounce at the schema boundary instead.
+      // would otherwise pass `.nonnegative()`. Bounce at the schema
+      // boundary instead of letting it flow to callers.
       setupOk();
       const wireBody = `{"language":"fr","title":"t","description":"d","duration":1e9999,"availableCaptions":[]}`;
       vi.stubGlobal(
