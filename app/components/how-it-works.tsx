@@ -1,32 +1,35 @@
-"use client";
-
 import { Card, CardContent } from "@/components/ui/card";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PlayCircle } from "lucide-react";
 import Image from "next/image";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+
+const cardBase =
+  "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
+const description = "text-gray-700 dark:text-gray-300 font-medium";
+const badgeGradient = "bg-gradient-to-r from-purple-500 to-cyan-500";
+
+const STEPS = [
+  {
+    title: "Drop Your Video Link",
+    body: "Find any YouTube video you want to analyze and copy the URL. Our system works with any public video regardless of length or complexity.",
+  },
+  {
+    title: "Activate AI Analysis",
+    body: "Hit the summarize button and watch our advanced AI engine spring into action. No configuration needed—we've optimized the settings for you.",
+  },
+  {
+    title: "Smart Processing Begins",
+    body: "Our system downloads the video, extracts the audio, transcribes the content, and applies natural language processing to identify key themes and insights.",
+  },
+  {
+    title: "Explore Your Results",
+    body: "Receive a comprehensive breakdown with key points, timestamps, and thematic analysis. Share, save, or export your results in multiple formats.",
+  },
+];
 
 export function HowItWorks() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Mount after hydration to prevent mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Safe theme detection
-  const isDarkMode = mounted && resolvedTheme === "dark";
-
-  // Theme-specific styles
-  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
-  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
-  const descriptionText = isDarkMode ? "text-gray-300" : "text-gray-700";
-  const badgeGradient = "bg-gradient-to-r from-purple-500 to-cyan-500";
-
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
@@ -35,82 +38,22 @@ export function HowItWorks() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="space-y-8">
-          <div className="flex gap-4">
-            <Badge
-              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
-            >
-              1
-            </Badge>
-            <div>
-              <h3 className="text-xl font-semibold mb-2">
-                Drop Your Video Link
-              </h3>
-              <p className={`${descriptionText} font-medium`}>
-                Find any YouTube video you want to analyze and copy the URL. Our
-                system works with any public video regardless of length or
-                complexity.
-              </p>
+          {STEPS.map((step, i) => (
+            <div key={step.title} className="flex gap-4">
+              <Badge
+                className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
+              >
+                {i + 1}
+              </Badge>
+              <div>
+                <h3 className="text-xl font-semibold mb-2">{step.title}</h3>
+                <p className={description}>{step.body}</p>
+              </div>
             </div>
-          </div>
-
-          <div className="flex gap-4">
-            <Badge
-              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
-            >
-              2
-            </Badge>
-            <div>
-              <h3 className="text-xl font-semibold mb-2">
-                Activate AI Analysis
-              </h3>
-              <p className={`${descriptionText} font-medium`}>
-                Hit the summarize button and watch our advanced AI engine spring
-                into action. No configuration needed—we&apos;ve optimized the
-                settings for you.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <Badge
-              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
-            >
-              3
-            </Badge>
-            <div>
-              <h3 className="text-xl font-semibold mb-2">
-                Smart Processing Begins
-              </h3>
-              <p className={`${descriptionText} font-medium`}>
-                Our system downloads the video, extracts the audio, transcribes
-                the content, and applies natural language processing to identify
-                key themes and insights.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <Badge
-              className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
-            >
-              4
-            </Badge>
-            <div>
-              <h3 className="text-xl font-semibold mb-2">
-                Explore Your Results
-              </h3>
-              <p className={`${descriptionText} font-medium`}>
-                Receive a comprehensive breakdown with key points, timestamps,
-                and thematic analysis. Share, save, or export your results in
-                multiple formats.
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} overflow-hidden shadow-sm`}
-        >
+        <Card className={`${cardBase} overflow-hidden`}>
           <CardContent className="p-4">
             <div className="relative">
               <AspectRatio
@@ -122,16 +65,6 @@ export function HowItWorks() {
                   alt="YouTube Summary Demo"
                   fill
                   className="object-cover"
-                  onError={(
-                    e: React.SyntheticEvent<HTMLImageElement, Event>
-                  ) => {
-                    const fallbackSvg =
-                      "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2'%3E%3Crect width='20' height='16' x='2' y='4' rx='2'/%3E%3Cpath d='m10 9 5 3-5 3z'/%3E%3C/svg%3E";
-                    const target = e.currentTarget as HTMLImageElement;
-                    target.src = fallbackSvg;
-                    target.style.padding = "20%";
-                    target.style.background = "#0f172a";
-                  }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-16 h-16 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center">

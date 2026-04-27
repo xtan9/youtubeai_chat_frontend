@@ -1,5 +1,3 @@
-"use client";
-
 import { Clock, Brain, Sparkles, Zap } from "lucide-react";
 import {
   Card,
@@ -7,27 +5,16 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+// Theme-conditional class strings replaced with Tailwind `dark:` prefixes
+// so this section renders fully on the server and ships zero JS for the
+// theme swap.
+const cardBase =
+  "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
+const description = "text-gray-700 dark:text-gray-300 font-medium";
 
 export function Benefits() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Mount after hydration to prevent mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Safe theme detection
-  const isDarkMode = mounted && resolvedTheme === "dark";
-
-  // Theme-specific styles
-  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
-  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
-  const descriptionText = isDarkMode ? "text-gray-300" : "text-gray-700";
-
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
@@ -36,7 +23,7 @@ export function Benefits() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-purple-500/30 transition-colors shadow-sm`}
+          className={`${cardBase} hover:border-purple-500/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -49,7 +36,7 @@ export function Benefits() {
                 <CardTitle className="text-xl font-semibold mb-2">
                   Rapid Knowledge Extraction
                 </CardTitle>
-                <CardDescription className={`${descriptionText} font-medium`}>
+                <CardDescription className={description}>
                   Extract core insights from lengthy videos in minutes, not
                   hours. Our AI distills hours of content into concise,
                   actionable summaries.
@@ -60,7 +47,7 @@ export function Benefits() {
         </Card>
 
         <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-cyan-500/30 transition-colors shadow-sm`}
+          className={`${cardBase} hover:border-cyan-500/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -73,7 +60,7 @@ export function Benefits() {
                 <CardTitle className="text-xl font-semibold mb-2">
                   Watch Smarter, Not Longer
                 </CardTitle>
-                <CardDescription className={`${descriptionText} font-medium`}>
+                <CardDescription className={description}>
                   Skip the fluff and focus on what matters. Perfect for
                   researchers, students, and professionals who need information
                   without the time investment.
@@ -84,7 +71,7 @@ export function Benefits() {
         </Card>
 
         <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-pink-500/30 transition-colors shadow-sm`}
+          className={`${cardBase} hover:border-pink-500/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -97,7 +84,7 @@ export function Benefits() {
                 <CardTitle className="text-xl font-semibold mb-2">
                   Deep Insight Extraction
                 </CardTitle>
-                <CardDescription className={`${descriptionText} font-medium`}>
+                <CardDescription className={description}>
                   Our advanced AI doesn&apos;t just transcribe—it analyzes
                   context, identifies key arguments, and structures information
                   for maximum comprehension.
@@ -108,7 +95,7 @@ export function Benefits() {
         </Card>
 
         <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-amber-500/30 transition-colors shadow-sm`}
+          className={`${cardBase} hover:border-amber-500/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -121,7 +108,7 @@ export function Benefits() {
                 <CardTitle className="text-xl font-semibold mb-2">
                   Effortless Experience
                 </CardTitle>
-                <CardDescription className={`${descriptionText} font-medium`}>
+                <CardDescription className={description}>
                   No complicated setup or learning curve. Paste a URL, click
                   once, and receive your comprehensive summary in seconds—all
                   with our intuitive interface.
@@ -133,16 +120,10 @@ export function Benefits() {
       </div>
 
       <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-10">
-        <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} text-center shadow-sm`}
-        >
+        <Card className={`${cardBase} text-center`}>
           <CardContent className="pt-6">
             <div className="flex justify-center mb-6">
               <Avatar className="h-24 w-24">
-                <AvatarImage
-                  src="/enhance-productivity.svg"
-                  alt="Enhance Productivity"
-                />
                 <AvatarFallback>
                   <Zap className="w-12 h-12 text-blue-500" />
                 </AvatarFallback>
@@ -151,20 +132,17 @@ export function Benefits() {
             <CardTitle className="text-xl font-semibold mb-2">
               Supercharge Your Workflow
             </CardTitle>
-            <CardDescription className={`${descriptionText} font-medium`}>
+            <CardDescription className={description}>
               Transform how you consume video content with AI-powered efficiency
               tools
             </CardDescription>
           </CardContent>
         </Card>
 
-        <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} text-center shadow-sm`}
-        >
+        <Card className={`${cardBase} text-center`}>
           <CardContent className="pt-6">
             <div className="flex justify-center mb-6">
               <Avatar className="h-24 w-24">
-                <AvatarImage src="/save-time.svg" alt="Save Time" />
                 <AvatarFallback>
                   <Clock className="w-12 h-12 text-blue-500" />
                 </AvatarFallback>
@@ -173,23 +151,17 @@ export function Benefits() {
             <CardTitle className="text-xl font-semibold mb-2">
               Reclaim Your Hours
             </CardTitle>
-            <CardDescription className={`${descriptionText} font-medium`}>
+            <CardDescription className={description}>
               Process 10x more content in the same amount of time with smart
               summarization
             </CardDescription>
           </CardContent>
         </Card>
 
-        <Card
-          className={`${cardBg} backdrop-blur-sm ${cardBorder} text-center shadow-sm`}
-        >
+        <Card className={`${cardBase} text-center`}>
           <CardContent className="pt-6">
             <div className="flex justify-center mb-6">
               <Avatar className="h-24 w-24">
-                <AvatarImage
-                  src="/retain-knowledge.svg"
-                  alt="Retain Knowledge"
-                />
                 <AvatarFallback>
                   <Brain className="w-12 h-12 text-blue-500" />
                 </AvatarFallback>
@@ -198,7 +170,7 @@ export function Benefits() {
             <CardTitle className="text-xl font-semibold mb-2">
               Optimize Learning
             </CardTitle>
-            <CardDescription className={`${descriptionText} font-medium`}>
+            <CardDescription className={description}>
               Boost information retention with structured summaries and key
               point extraction
             </CardDescription>

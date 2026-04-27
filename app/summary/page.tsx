@@ -1,5 +1,7 @@
 import { YouTubeSummarizerApp } from "@/app/summary/components/youtube-summarizer-app";
 import { Metadata } from "next";
+import { JsonLd } from "@/components/seo/json-ld";
+import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 
 type SearchParams = Promise<{ url?: string }>;
 
@@ -38,6 +40,13 @@ export default async function SummaryPage({
         YouTube Video Summary - AI-Generated Key Points & Insights
       </h1>
       <YouTubeSummarizerApp initialUrl={params.url} />
+      <JsonLd
+        id="structured-data-breadcrumb"
+        data={buildBreadcrumbSchema([
+          { name: "Home", path: "/" },
+          { name: "Summary", path: "/summary" },
+        ])}
+      />
     </>
   );
 }

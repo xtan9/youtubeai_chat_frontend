@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { JsonLd } from "@/components/seo/json-ld";
+import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 
 export const metadata: Metadata = {
   title: "Terms of Service - YouTubeAI.chat",
@@ -12,6 +14,13 @@ export const metadata: Metadata = {
 export default function TermsOfService() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <JsonLd
+        id="structured-data-breadcrumb"
+        data={buildBreadcrumbSchema([
+          { name: "Home", path: "/" },
+          { name: "Terms of Service", path: "/terms" },
+        ])}
+      />
       <h1 className="text-3xl font-bold mb-8">Terms of Service</h1>
 
       <section className="mb-8">

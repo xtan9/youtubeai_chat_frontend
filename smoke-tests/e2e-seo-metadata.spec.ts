@@ -50,17 +50,38 @@ async function snapshot(page: import("@playwright/test").Page, path: string) {
 }
 
 test.describe("SEO metadata contract", () => {
-  test("home renders absolute og/twitter images and three inline JSON-LD blocks (WebApplication, Service, FAQPage)", async ({
+  test("home renders five inline JSON-LD blocks, absolute og/twitter images, and 0 same-origin 4xx", async ({
     page,
   }) => {
+    const same = new URL(BASE_URL);
+    const sameOrigin4xx: string[] = [];
+    page.on("response", (r) => {
+      try {
+        const u = new URL(r.url());
+        if (u.host === same.host && r.status() >= 400) {
+          sameOrigin4xx.push(`${r.status()} ${r.url()}`);
+        }
+      } catch {
+        // ignore non-URL targets (data:, etc.)
+      }
+    });
+
     const snap = await snapshot(page, "/");
     expect(snap.canonical).toMatch(/\/$/);
     expect(snap.h1Count).toBe(1);
     expect(snap.ogImage).toMatch(/^https?:\/\/.+\.(png|jpg|jpeg|webp)$/i);
     expect(snap.twitterImage).toMatch(/^https?:\/\/.+\.(png|jpg|jpeg|webp)$/i);
     expect(snap.jsonLdTypes).toEqual(
-      expect.arrayContaining(["WebApplication", "Service", "FAQPage"]),
+      expect.arrayContaining([
+        "WebApplication",
+        "Service",
+        "Organization",
+        "FAQPage",
+        "HowTo",
+      ]),
     );
+    // Catches reintroduction of broken /avatars/*.jpg, /*.svg etc.
+    expect(sameOrigin4xx).toEqual([]);
   });
 
   test("bare /summary is indexable with a self-canonical and exactly one h1", async ({
@@ -87,6 +108,13 @@ test.describe("SEO metadata contract", () => {
       const snap = await snapshot(page, path);
       expect(snap.canonical).toContain(path);
       expect(snap.robots ?? "").not.toMatch(/noindex/i);
+    });
+  }
+
+  for (const path of ["/summary", "/terms", "/privacy"]) {
+    test(`${path} emits BreadcrumbList JSON-LD`, async ({ page }) => {
+      const snap = await snapshot(page, path);
+      expect(snap.jsonLdTypes).toContain("BreadcrumbList");
     });
   }
 
