@@ -80,7 +80,7 @@ describe("transcribeViaVps", () => {
     // Also pin the typed shape — a regression to bare `Error` would still
     // satisfy the message regex above, but would silently strip the
     // structured `.status` field the route's catch site logs as
-    // `vpsStatus`.
+    // `status`.
     const error = await transcribeViaVps("https://youtu.be/abc").catch(
       (e) => e
     );
@@ -99,8 +99,9 @@ describe("transcribeViaVps", () => {
         new Response(JSON.stringify({ transcript: "hi" }), { status: 200 })
       )
     );
-    // Schema-failure path uses the synthetic "schema" status so the
-    // route catch can branch on it without parsing the message.
+    // Schema-failure path uses the synthetic "schema" status so log-search
+    // alerts can branch on the structured field rather than substring-matching
+    // the freeform .message.
     const error = await transcribeViaVps("https://youtu.be/abc").catch(
       (e) => e
     );
@@ -113,7 +114,7 @@ describe("transcribeViaVps", () => {
   it("throws VpsTranscribeError (not bare Error) so the route can fingerprint upstream status", async () => {
     // Pinning the typed shape: a regression that returned to bare
     // `throw new Error(...)` would silently strip the structured
-    // .status field that the route's catch site logs as `vpsStatus`,
+    // .status field that the route's catch site logs as `status`,
     // and Sentry / log-alert fingerprinting on 503 (Groq quota
     // exhaustion) would silently break.
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
@@ -390,6 +391,65 @@ describe("transcribeViaVps", () => {
       "fetch failed: ECONNRESET"
     );
   });
+
+  it("re-throws original (non-AbortError) error when caller signal is aborted", async () => {
+    // Pins the order: signal-first gate runs BEFORE error-type translation.
+    // A future refactor that tightened the gate to AbortError-only would
+    // silently translate a caller-abort+TypeError race into VpsTranscribeError("network"),
+    // mis-classifying user-cancels as phantom network failures in alerting.
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+
+    const callerController = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        // Abort caller, then have fetch reject with a TypeError (not an AbortError).
+        callerController.abort();
+        const tErr = new TypeError("ECONNRESET during cancellation");
+        return Promise.reject(tErr);
+      })
+    );
+
+    await expect(
+      transcribeViaVps("https://youtu.be/abc", callerController.signal)
+    ).rejects.toBeInstanceOf(TypeError);
+    // Most importantly: NOT instanceof VpsTranscribeError — the caller-abort
+    // gate must re-throw the original.
+    await expect(
+      transcribeViaVps("https://youtu.be/abc", callerController.signal)
+    ).rejects.not.toBeInstanceOf(VpsTranscribeError);
+  });
+
+  it.each([
+    ["AbortError", new Error("timed out")],
+    ["TimeoutError", new DOMException("timed out", "TimeoutError")],
+  ])(
+    "translates internal-timeout via err.name=%s to status:'timeout'",
+    async (_name, err) => {
+      // Both names are accepted because Node 18 emitted plain Error+AbortError
+      // for AbortSignal.timeout while modern Node emits DOMException+TimeoutError.
+      // A regression dropping one branch would silently mis-translate that flavor.
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      // Force the name we want
+      if ((err as { name?: string }).name !== _name) {
+        Object.defineProperty(err, "name", { value: _name });
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(err))
+      );
+
+      try {
+        await transcribeViaVps("https://youtu.be/abc");
+        throw new Error("should have thrown");
+      } catch (caught) {
+        expect(caught).toBeInstanceOf(VpsTranscribeError);
+        expect((caught as VpsTranscribeError).status).toBe("timeout");
+      }
+    }
+  );
 
   it("passes VPS_TIMEOUT_MS override through to AbortSignal.timeout", async () => {
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");

@@ -72,6 +72,7 @@ vi.mock("@/lib/services/vps-client", async () => {
   return {
     transcribeViaVps: mocks.transcribeViaVps,
     VpsTranscribeError: actual.VpsTranscribeError,
+    vpsErrorId: actual.vpsErrorId,
   };
 });
 vi.mock("@/lib/services/video-metadata", () => ({
@@ -1401,10 +1402,13 @@ describe("POST /api/summarize/stream", () => {
     it("stamps status + errorId on the vps log when VPS rejects with a typed VpsTranscribeError", async () => {
       // The binding contract this PR creates: a 503 from the VPS's
       // GROQ_FAILED_NO_FALLBACK gate must surface as a top-level
-      // `status: 503` + `errorId: VPS_TRANSCRIBE_FAILED_503` log
+      // `status: 503` + `errorId: VPS_TRANSCRIBE_FAILED_HTTP_503` log
       // field so log-search alerts can fingerprint Groq quota
       // exhaustion vs. WHISPER_EMPTY_RESULT (500) vs. timeout
-      // ("timeout" tag) without regex-matching `err.message`.
+      // ("timeout" tag) without regex-matching `err.message`. The
+      // HTTP_ namespace separates numeric HTTP statuses from string
+      // tags (NETWORK / TIMEOUT / SCHEMA) — a `5\d{2}` regex grouping
+      // would otherwise silently miss the string-tag variants.
       const { VpsTranscribeError } = await import(
         "@/lib/services/vps-client"
       );
@@ -1427,7 +1431,7 @@ describe("POST /api/summarize/stream", () => {
         expect.objectContaining({
           stage: "vps",
           status: 503,
-          errorId: "VPS_TRANSCRIBE_FAILED_503",
+          errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
           bodyExcerpt: "rate limited",
           youtubeUrl: VALID_URL,
           userId: "user-1",

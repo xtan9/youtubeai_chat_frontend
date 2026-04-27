@@ -3,26 +3,49 @@ import type { TranscriptSegment } from "./summarize-cache";
 import { TranscriptSegmentSchema } from "@/lib/types";
 
 // Discriminated error shape so the route's catch can log a structured
-// `vpsStatus` field that alert tooling can fingerprint. `number` covers
+// `status` field that alert tooling can fingerprint. `number` covers
 // HTTP statuses; the string variants cover the network / timeout
 // failures `fetch` represents as thrown errors and the synthetic
 // "schema" we raise on Zod parse failures. Mirrors GroqTranscribeError
 // in the VPS service so both layers expose the same shape upward.
 export class VpsTranscribeError extends Error {
+  public readonly bodyExcerpt?: string;
   constructor(
     public readonly status:
       | number
       | "network"
       | "timeout"
       | "schema",
-    public readonly bodyExcerpt?: string
+    bodyExcerpt?: string
   ) {
+    // Truncate at construction so the bounded-length invariant lives in one
+    // place. Consumers (logger, error.message) can read .bodyExcerpt without
+    // worrying about whether it's been pre-truncated.
+    const truncated = bodyExcerpt?.slice(0, 200);
     super(
-      `VPS transcription failed (${status})${
-        bodyExcerpt ? `: ${bodyExcerpt.slice(0, 200)}` : ""
-      }`
+      `VPS transcription failed (${status})${truncated ? `: ${truncated}` : ""}`
     );
+    this.bodyExcerpt = truncated;
     this.name = "VpsTranscribeError";
+  }
+}
+
+// Stable errorId for log-search alerts. Add a `case` here whenever
+// VpsTranscribeError's status union grows — the assertNever default
+// will fail the build until the new variant has an explicit decision.
+export function vpsErrorId(status: VpsTranscribeError["status"]): string {
+  if (typeof status === "number") {
+    return `VPS_TRANSCRIBE_FAILED_HTTP_${status}`;
+  }
+  switch (status) {
+    case "network":
+    case "timeout":
+    case "schema":
+      return `VPS_TRANSCRIBE_FAILED_${status.toUpperCase()}`;
+    default: {
+      const _exhaustive: never = status;
+      return `VPS_TRANSCRIBE_FAILED_UNKNOWN_${String(_exhaustive)}`;
+    }
   }
 }
 
@@ -128,10 +151,30 @@ export async function transcribeViaVps(
     // Everything else (DNS, connection-reset, TLS, "fetch failed") —
     // surface as "network" so 502/503 from the VPS proxy can be told
     // apart from "we never reached the VPS at all".
-    throw new VpsTranscribeError(
-      "network",
-      err instanceof Error ? err.message : String(err)
-    );
+    // Defensive: callers may throw non-Error values (rare but legal in JS).
+    // String(err) on a plain object produces "[object Object]" which pollutes
+    // log aggregation and masks the real failure. Stamp typeof + JSON so
+    // logs stay distinguishable.
+    let bodyExcerpt: string;
+    if (err instanceof Error) {
+      bodyExcerpt = err.message || err.name || "Error";
+    } else if (err === null || err === undefined) {
+      bodyExcerpt = `non-Error throw: ${String(err)}`;
+    } else {
+      // Avoid "[object Object]" — try JSON, fall back to typeof.
+      // (Symbol throws on String() so JSON.stringify is the safer first attempt;
+      // it returns undefined for Symbols, which we detect.)
+      try {
+        const json = JSON.stringify(err);
+        bodyExcerpt =
+          json === undefined
+            ? `non-Error throw (${typeof err})`
+            : `non-Error throw (${typeof err}): ${json.slice(0, 200)}`;
+      } catch {
+        bodyExcerpt = `non-Error throw (${typeof err})`;
+      }
+    }
+    throw new VpsTranscribeError("network", bodyExcerpt);
   }
 
   if (!response.ok) {

@@ -3,7 +3,11 @@ import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
-import { transcribeViaVps, VpsTranscribeError } from "@/lib/services/vps-client";
+import {
+  transcribeViaVps,
+  VpsTranscribeError,
+  vpsErrorId,
+} from "@/lib/services/vps-client";
 import {
   fetchVideoMetadata,
   type VideoMetadataResult,
@@ -269,9 +273,7 @@ export async function POST(request: Request) {
         // `errorId` is a stable token so dashboards can group by it.
         const isVpsTyped = err instanceof VpsTranscribeError;
         const status = isVpsTyped ? err.status : undefined;
-        const errorId = isVpsTyped
-          ? `VPS_TRANSCRIBE_FAILED_${err.status}`
-          : undefined;
+        const errorId = isVpsTyped ? vpsErrorId(err.status) : undefined;
         console.error(`[summarize/stream] ${stage} failed`, {
           stage,
           youtubeUrl: youtube_url,
@@ -280,7 +282,7 @@ export async function POST(request: Request) {
           ...(status !== undefined && { status }),
           ...(errorId !== undefined && { errorId }),
           ...(isVpsTyped &&
-            err.bodyExcerpt && { bodyExcerpt: err.bodyExcerpt.slice(0, 200) }),
+            err.bodyExcerpt && { bodyExcerpt: err.bodyExcerpt }),
         });
       };
 
