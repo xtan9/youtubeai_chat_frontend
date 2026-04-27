@@ -5,28 +5,39 @@ import type {
   CacheWriteParams,
 } from "@/lib/services/summarize-cache";
 
-const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
-  extractCaptions: vi.fn(),
-  transcribeViaVps: vi.fn(),
-  fetchVideoMetadata: vi.fn(),
-  fetchVpsMetadata: vi.fn(),
-  getCachedSummary: vi.fn(),
-  getCachedTranscript: vi.fn(),
-  writeCachedSummary: vi.fn(),
-  writeCachedTranscript: vi.fn(),
-  detectLocale: vi.fn(),
-  buildSummarizationPrompt: vi.fn(),
-  streamLlmSummary: vi.fn(),
-  checkRateLimit: vi.fn(),
-  classifyContent: vi.fn(),
-  // Spy proxy for next/server's after() — invokes the callback synchronously
-  // so existing assertions on writeCachedSummary observe the call within the
-  // test's microtask window. Exposed as a mock so tests can pin "the route
-  // uses after() to defer the cache write" — the property the prod fix
-  // depends on.
-  after: vi.fn((fn: () => unknown) => fn()),
-}));
+// Default implementation for the next/server after() proxy — invokes the
+// callback synchronously so existing assertions on writeCachedSummary
+// observe the call within the test's microtask window. Defined once and
+// referenced by both the hoisted-mock construction and the beforeEach
+// restore so the two can't drift (a divergence would silently make all
+// 22+ writeCachedSummary-was-called assertions pass without the cache
+// write actually running).
+const { mocks, afterPassthrough } = vi.hoisted(() => {
+  const afterPassthrough = (fn: () => unknown) => fn();
+  return {
+    afterPassthrough,
+    mocks: {
+      getUser: vi.fn(),
+      extractCaptions: vi.fn(),
+      transcribeViaVps: vi.fn(),
+      fetchVideoMetadata: vi.fn(),
+      fetchVpsMetadata: vi.fn(),
+      getCachedSummary: vi.fn(),
+      getCachedTranscript: vi.fn(),
+      writeCachedSummary: vi.fn(),
+      writeCachedTranscript: vi.fn(),
+      detectLocale: vi.fn(),
+      buildSummarizationPrompt: vi.fn(),
+      streamLlmSummary: vi.fn(),
+      checkRateLimit: vi.fn(),
+      classifyContent: vi.fn(),
+      // Spy proxy for next/server's after(). Exposed as a mock so tests
+      // can pin "the route uses after() to defer the cache write" —
+      // the property the prod fix depends on.
+      after: vi.fn(afterPassthrough),
+    },
+  };
+});
 
 // next/server's after() defers callbacks until the response is delivered;
 // in unit tests there's no Next.js request scope, so we run the callback
@@ -176,7 +187,7 @@ describe("POST /api/summarize/stream", () => {
     mocks.classifyContent.mockResolvedValue(null);
     // Restore after's passthrough implementation — mockReset above wipes
     // the original implementation set at hoisted-mock construction.
-    mocks.after.mockImplementation((fn: () => unknown) => fn());
+    mocks.after.mockImplementation(afterPassthrough);
   });
 
   afterEach(() => {
@@ -1214,14 +1225,12 @@ describe("POST /api/summarize/stream", () => {
     });
 
     it("schedules the cache write through next/server after() (not fire-and-forget)", async () => {
-      // Pins the prod fix for the CACHE_WRITE_FAILED / fetch-failed incident
-      // (3 events for as3SgPXRRC4 on 2026-04-27, plus a longer tail of
-      // "summary lands minutes after the videos row" healing-on-retry
-      // patterns visible in the videos × summaries timing). The race was
-      // writeCachedSummary's videos upsert dying mid-handshake when Lambda
-      // froze the container after controller.close(). Reverting to
-      // `writeCachedSummary({...}).catch(...)` (fire-and-forget) re-introduces
-      // the bug — this test forces an explicit decision to drop after().
+      // Pins the regression-prevention property the prod fix relies on.
+      // See route.ts comment block above the after() call for the
+      // originating incident. Reverting the route to
+      // `writeCachedSummary({...}).catch(...)` (fire-and-forget) would
+      // re-introduce the freeze-mid-fetch bug; this test forces an
+      // explicit decision to drop after().
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
         fakeGen([
@@ -1231,8 +1240,8 @@ describe("POST /api/summarize/stream", () => {
       );
       // Capture-only: don't invoke the callback. If route.ts wrote
       // `writeCachedSummary(...).catch(...)` directly, writeCachedSummary
-      // would still be called during stream-handler execution and this
-      // assertion would fail-loud below.
+      // would still be called during stream-handler execution and the
+      // not-yet-called assertion below would fail loudly.
       const captured: Array<() => unknown> = [];
       mocks.after.mockImplementation((fn: () => unknown) => {
         captured.push(fn);
@@ -1252,6 +1261,100 @@ describe("POST /api/summarize/stream", () => {
       // through after().
       await captured[0]();
       expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
+    });
+
+    it("after() callback resolves (does not reject) when the cache write throws — try/catch must stay inside the deferred body", async () => {
+      // Defends against a future refactor that hoists the `await
+      // writeCachedSummary(...)` out of its inner try/catch. Without the
+      // try/catch, after() sees a rejected callback Promise and reports
+      // it via the platform's error logger WITHOUT our structured
+      // CACHE_WRITE_FAILED payload (errorId / pgCode / outputLanguage /
+      // userId / youtubeUrl), silently breaking the dashboard slicing
+      // that the catch block exists to feed.
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      mocks.writeCachedSummary.mockRejectedValue(
+        Object.assign(new Error("upsert blew up"), { code: "23505" })
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const captured: Array<() => unknown> = [];
+      mocks.after.mockImplementation((fn: () => unknown) => {
+        captured.push(fn);
+      });
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      // Critical: awaiting the captured callback must NOT throw — that's
+      // the property the inner try/catch protects. If the await in
+      // route.ts ever escapes the try, this resolves to a rejection and
+      // the test fails.
+      await expect(captured[0]()).resolves.toBeUndefined();
+
+      // And the structured-payload contract still holds: pgCode flows
+      // through from the Postgres error so the dashboard can split 23505
+      // (schema drift) from PGRST204 (PostgREST cache) from network.
+      const failureLog = errSpy.mock.calls.find(
+        (c) => String(c[0]).includes("CACHE_WRITE_FAILED")
+      );
+      expect(failureLog).toBeDefined();
+      expect(
+        (failureLog?.[1] as { errorId?: string; pgCode?: unknown }) ?? {}
+      ).toMatchObject({ errorId: "CACHE_WRITE_FAILED", pgCode: "23505" });
+    });
+
+    it("logs CACHE_WRITE_SCHEDULE_FAILED and does NOT emit a user-facing error event when after() itself throws", async () => {
+      // Defensive: if a future Next.js version (or a hosting regression)
+      // ever throws synchronously from after() — e.g., "after was called
+      // outside a request scope" if the AsyncLocalStorage chain through
+      // ReadableStream construction breaks — the throw must NOT escape
+      // to the outer handler. Doing so would emit USER_ERROR_GENERIC
+      // AFTER the user already received their terminal `summary` event,
+      // which the client renders as a failed run despite a complete
+      // answer.
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      mocks.after.mockImplementation(() => {
+        throw new Error("after called outside a request scope");
+      });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      // User still got their summary; no spurious error event tacked on.
+      expect(events.find((e) => e.type === "error")).toBeUndefined();
+      expect(events.filter((e) => e.type === "summary")).toHaveLength(1);
+
+      // And the schedule-failure is logged under its own errorId so a
+      // dashboard can separate "scheduling the cache write failed"
+      // (Next.js / runtime contract regression) from "the cache write
+      // itself failed" (Supabase / network).
+      const scheduleFailureLog = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("CACHE_WRITE_SCHEDULE_FAILED")
+      );
+      expect(scheduleFailureLog).toBeDefined();
+      expect(
+        (scheduleFailureLog?.[1] as { errorId?: string }) ?? {}
+      ).toMatchObject({ errorId: "CACHE_WRITE_SCHEDULE_FAILED" });
+
+      // And a CACHE_WRITE_FAILED log did NOT fire — the two errorIds
+      // are mutually exclusive per request, so a dashboard summing
+      // them isn't double-counting a single incident.
+      const writeFailureLog = errSpy.mock.calls.find((c) =>
+        String(c[0]).includes("CACHE_WRITE_FAILED")
+      );
+      expect(writeFailureLog).toBeUndefined();
     });
 
     it("emits generic error event when unhandled exception bubbles to outer catch", async () => {
