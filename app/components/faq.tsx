@@ -47,24 +47,27 @@ export function FAQ() {
           defaultValue="item-1"
           className="w-full"
         >
-          {faqItems.map((item) => (
-            <AccordionItem
-              key={item.value}
-              value={item.value}
-              className={itemBorder}
-            >
-              <AccordionTrigger
-                className={`py-6 px-6 hover:no-underline ${hoverBg}`}
+          {faqItems.map((item, index) => {
+            const value = `item-${index + 1}`;
+            return (
+              <AccordionItem
+                key={value}
+                value={value}
+                className={itemBorder}
               >
-                <h3 className="text-lg font-medium text-left">
-                  {item.question}
-                </h3>
-              </AccordionTrigger>
-              <AccordionContent className="px-6 pb-6 pt-2">
-                <p className={`${answerText} font-medium`}>{item.answer}</p>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
+                <AccordionTrigger
+                  className={`py-6 px-6 hover:no-underline ${hoverBg}`}
+                >
+                  <h3 className="text-lg font-medium text-left">
+                    {item.question}
+                  </h3>
+                </AccordionTrigger>
+                <AccordionContent className="px-6 pb-6 pt-2">
+                  <p className={`${answerText} font-medium`}>{item.answer}</p>
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })}
         </Accordion>
       </div>
 
