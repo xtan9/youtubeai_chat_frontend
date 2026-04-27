@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
+import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
 export const metadata: Metadata = {
   title: "Terms of Service - YouTubeAI.chat",
@@ -20,6 +21,15 @@ export default function TermsOfService() {
           { name: "Home", path: "/" },
           { name: "Terms of Service", path: "/terms" },
         ])}
+      />
+      <JsonLd
+        id="structured-data-webpage"
+        data={buildWebPageSchema({
+          name: "Terms of Service",
+          description:
+            "Terms and conditions for using YouTubeAI.chat video summarization service",
+          path: "/terms",
+        })}
       />
       <h1 className="text-3xl font-bold mb-8">Terms of Service</h1>
 

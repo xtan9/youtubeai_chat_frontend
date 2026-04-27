@@ -90,6 +90,10 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#000000" />
+        {/* Global structured data renders inside <head> — Google's preferred
+            placement. Page-specific schemas (FAQ, HowTo, BreadcrumbList,
+            WebPage) stay in body since they live with their pages. */}
+        <StructuredData />
       </head>
       <body className={`${geist.className} flex min-h-screen flex-col`}>
         <PostHogProvider>
@@ -98,7 +102,6 @@ export default function RootLayout({
               <UserProvider>
                 <PostHogUserIdentifier />
                 <Header />
-                <StructuredData />
                 <main className="flex-1">{children}</main>
                 <Footer />
                 <Sonner />

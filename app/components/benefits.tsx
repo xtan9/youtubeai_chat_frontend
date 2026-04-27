@@ -16,7 +16,7 @@ const description = "text-gray-700 dark:text-gray-300 font-medium";
 
 export function Benefits() {
   return (
-    <section className="w-full max-w-6xl mx-auto py-20">
+    <section id="benefits" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold">Why Choose Our AI Video Analysis</h2>
       </div>

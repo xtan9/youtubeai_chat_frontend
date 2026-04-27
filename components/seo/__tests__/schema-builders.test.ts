@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 import { buildOrganizationSchema } from "@/components/seo/organization-schema";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
+import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
 describe("buildHowToSchema", () => {
   const schema = buildHowToSchema();
@@ -68,5 +69,32 @@ describe("buildBreadcrumbSchema", () => {
   it("handles empty crumbs without throwing", () => {
     const schema = buildBreadcrumbSchema([]);
     expect(schema.itemListElement).toEqual([]);
+  });
+});
+
+describe("buildWebPageSchema", () => {
+  const schema = buildWebPageSchema({
+    name: "Privacy Policy",
+    description: "Privacy policy and data handling practices.",
+    path: "/privacy",
+  });
+
+  it("declares WebPage with absolute url and the input fields", () => {
+    expect(schema["@type"]).toBe("WebPage");
+    expect(schema.name).toBe("Privacy Policy");
+    expect(schema.description).toMatch(/.+/);
+    expect(schema.url).toBe("https://www.youtubeai.chat/privacy");
+  });
+
+  it("nests an absolute-URL WebSite as isPartOf and Organization as publisher", () => {
+    expect(schema.isPartOf).toMatchObject({
+      "@type": "WebSite",
+      url: "https://www.youtubeai.chat",
+    });
+    expect(schema.publisher).toMatchObject({
+      "@type": "Organization",
+      name: "YouTubeAI Summary",
+      url: "https://www.youtubeai.chat",
+    });
   });
 });

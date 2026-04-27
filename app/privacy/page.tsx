@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
+import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
 export const metadata: Metadata = {
   title: "Privacy Policy - YouTubeAI.chat",
@@ -19,6 +20,15 @@ export default function PrivacyPolicy() {
           { name: "Home", path: "/" },
           { name: "Privacy Policy", path: "/privacy" },
         ])}
+      />
+      <JsonLd
+        id="structured-data-webpage"
+        data={buildWebPageSchema({
+          name: "Privacy Policy",
+          description:
+            "Privacy policy and data handling practices for YouTubeAI.chat",
+          path: "/privacy",
+        })}
       />
       <h1 className="text-3xl font-bold mb-8">Privacy Policy</h1>
 
