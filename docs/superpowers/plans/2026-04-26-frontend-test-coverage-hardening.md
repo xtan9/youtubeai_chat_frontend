@@ -129,10 +129,10 @@ EOF
 - [ ] **Step 2.1: Install testing library + DOM env**
 
 ```bash
-pnpm add -D @testing-library/react@^16.1.0 @testing-library/jest-dom@^6.6.3 happy-dom@^15.11.7
+pnpm add -D @testing-library/react@^16.1.0 happy-dom@^15.11.7
 ```
 
-Expected: three packages added; `pnpm-lock.yaml` updated.
+Expected: two packages added; `pnpm-lock.yaml` updated.
 
 - [ ] **Step 2.2: Smoke-check imports load**
 
