@@ -90,3 +90,103 @@ export function parseEnvFile(raw: string): Record<string, string> {
   }
   return out;
 }
+
+// --- Admin helpers (E2E auth specs) -----------------------------------
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export type AdminCreds = SmokeCreds & {
+  supabaseUrl: string;
+  secretKey: string;
+};
+
+/**
+ * Same as `loadSmokeCreds` but additionally requires SUPABASE_URL +
+ * SUPABASE_SECRET_KEY (Supabase's new API key system; the legacy
+ * SUPABASE_SERVICE_ROLE_KEY is being deprecated). Returns null if
+ * either is missing — auth E2E specs should `test.skip` in that case.
+ */
+export async function loadAdminCreds(): Promise<AdminCreds | null> {
+  const base = await loadSmokeCreds();
+  if (!base) return null;
+
+  const fromEnv = (k: string) => process.env[k]?.trim();
+  let supabaseUrl = fromEnv("SUPABASE_URL");
+  let secretKey = fromEnv("SUPABASE_SECRET_KEY");
+
+  if (!supabaseUrl || !secretKey) {
+    const { readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const credPath = path.join(
+      os.homedir(),
+      ".config/claude-test-creds/youtubeai.env"
+    );
+    try {
+      const raw = await readFile(credPath, "utf8");
+      const parsed = parseEnvFile(raw);
+      supabaseUrl = supabaseUrl || parsed.SUPABASE_URL?.trim();
+      secretKey = secretKey || parsed.SUPABASE_SECRET_KEY?.trim();
+    } catch {
+      return null;
+    }
+  }
+
+  if (!supabaseUrl || !secretKey) return null;
+  return { ...base, supabaseUrl, secretKey };
+}
+
+// Cached admin client. Built lazily so test files that don't need it
+// never construct it.
+let cachedAdmin: SupabaseClient | null = null;
+
+export async function getAdminClient(creds: AdminCreds): Promise<SupabaseClient> {
+  if (cachedAdmin) return cachedAdmin;
+  const { createClient } = await import("@supabase/supabase-js");
+  cachedAdmin = createClient(creds.supabaseUrl, creds.secretKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  return cachedAdmin;
+}
+
+/**
+ * Generate a recovery (password-reset) action link for an existing
+ * user. Bypasses real email — the link is returned directly so the
+ * E2E driver can navigate to it.
+ */
+export async function generateRecoveryLink(
+  creds: AdminCreds,
+  email: string
+): Promise<string> {
+  const admin = await getAdminClient(creds);
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+  });
+  if (error) throw error;
+  const link = data?.properties?.action_link;
+  if (!link) throw new Error("admin.generateLink returned no action_link");
+  return link;
+}
+
+/**
+ * Delete a user by email. Used in test teardown to keep randomized
+ * signup users from accumulating. No-op if the user does not exist.
+ */
+export async function deleteUserByEmail(
+  creds: AdminCreds,
+  email: string
+): Promise<void> {
+  const admin = await getAdminClient(creds);
+  // listUsers is paginated; filter manually since admin.getUserByEmail
+  // is not exposed in v2.
+  const { data, error } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  if (error) throw error;
+  const match = data.users.find((u) => u.email === email);
+  if (!match) return;
+  const { error: delErr } = await admin.auth.admin.deleteUser(match.id);
+  if (delErr) throw delErr;
+}
