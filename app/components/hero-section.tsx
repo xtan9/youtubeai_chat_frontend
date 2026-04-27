@@ -1,7 +1,7 @@
-"use client";
-
 import { Brain, Sparkles, Clock } from "lucide-react";
 
+// Animation keyframes live in app/globals.css (`.animate-float*`) so this
+// component renders server-side and ships zero JS.
 export function HeroSection() {
   return (
     <section className="w-full max-w-6xl mx-auto py-16 text-center">
@@ -62,45 +62,6 @@ export function HeroSection() {
           </div>
         </div>
       </div>
-
-      <style jsx global>{`
-        @keyframes float {
-          0%,
-          100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-10px);
-          }
-        }
-        @keyframes float-delay {
-          0%,
-          100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-15px);
-          }
-        }
-        @keyframes float-slow {
-          0%,
-          100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-8px);
-          }
-        }
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
-        .animate-float-delay {
-          animation: float-delay 8s ease-in-out infinite;
-        }
-        .animate-float-slow {
-          animation: float-slow 10s ease-in-out infinite;
-        }
-      `}</style>
     </section>
   );
 }

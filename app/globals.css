@@ -111,3 +111,42 @@
 .animation-delay-4000 {
   animation-delay: 4s;
 }
+
+/* Hero-section floating accents — moved out of <style jsx> so the
+   component can render server-side. */
+@keyframes hero-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@keyframes hero-float-delay {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+@keyframes hero-float-slow {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.animate-float {
+  animation: hero-float 6s ease-in-out infinite;
+}
+.animate-float-delay {
+  animation: hero-float-delay 8s ease-in-out infinite;
+}
+.animate-float-slow {
+  animation: hero-float-slow 10s ease-in-out infinite;
+}

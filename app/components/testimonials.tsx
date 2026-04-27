@@ -1,60 +1,40 @@
-"use client";
-
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+const cardBase =
+  "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
+const muted = "text-gray-500 dark:text-gray-400";
+const body = "text-gray-700 dark:text-gray-300 font-medium";
+const footerBorder = "border-gray-100 dark:border-white/10";
+
+const testimonials = [
+  {
+    id: 1,
+    name: "Alex Rivera",
+    handle: "@AlexTeaches",
+    rating: 5,
+    text: "As a university professor, I've integrated this tool into my teaching workflow. It helps me quickly digest research videos and create more effective lecture materials. My students love that I can recommend specific video segments rather than entire lectures.",
+    date: "May 12, 2023",
+  },
+  {
+    id: 2,
+    name: "Sophia Chen",
+    handle: "@SophiaTechLead",
+    rating: 5,
+    text: "Game-changer for my engineering team. We process dozens of technical talks weekly to stay current with industry developments. This tool cuts our research time by 70% and helps us identify the most relevant information for our projects.",
+    date: "June 8, 2023",
+  },
+  {
+    id: 3,
+    name: "Marcus Johnson",
+    handle: "@ContentWithMarcus",
+    rating: 5,
+    text: "As a content creator, I need to stay on top of trends without spending hours watching videos. This summarizer gives me the perfect balance of depth and efficiency. The key points extraction is surprisingly insightful—it catches nuances that other tools miss.",
+    date: "July 15, 2023",
+  },
+];
 
 export function Testimonials() {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Mount after hydration to prevent mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Safe theme detection
-  const isDarkMode = mounted && resolvedTheme === "dark";
-
-  // Theme-specific styles
-  const cardBg = isDarkMode ? "bg-white/5" : "bg-white";
-  const cardBorder = isDarkMode ? "border-white/10" : "border-gray-100";
-  const testimonialText = isDarkMode ? "text-gray-300" : "text-gray-700";
-  const dateText = isDarkMode ? "text-gray-400" : "text-gray-500";
-  const handleText = isDarkMode ? "text-gray-400" : "text-gray-500";
-  const footerBorder = isDarkMode ? "border-white/10" : "border-gray-100";
-
-  const testimonials = [
-    {
-      id: 1,
-      name: "Alex Rivera",
-      handle: "@AlexTeaches",
-      avatar: "/avatars/alex.jpg",
-      rating: 5,
-      text: "As a university professor, I've integrated this tool into my teaching workflow. It helps me quickly digest research videos and create more effective lecture materials. My students love that I can recommend specific video segments rather than entire lectures.",
-      date: "May 12, 2023",
-    },
-    {
-      id: 2,
-      name: "Sophia Chen",
-      handle: "@SophiaTechLead",
-      avatar: "/avatars/sophia.jpg",
-      rating: 5,
-      text: "Game-changer for my engineering team. We process dozens of technical talks weekly to stay current with industry developments. This tool cuts our research time by 70% and helps us identify the most relevant information for our projects.",
-      date: "June 8, 2023",
-    },
-    {
-      id: 3,
-      name: "Marcus Johnson",
-      handle: "@ContentWithMarcus",
-      avatar: "/avatars/marcus.jpg",
-      rating: 5,
-      text: "As a content creator, I need to stay on top of trends without spending hours watching videos. This summarizer gives me the perfect balance of depth and efficiency. The key points extraction is surprisingly insightful—it catches nuances that other tools miss.",
-      date: "July 15, 2023",
-    },
-  ];
-
   return (
     <section className="w-full max-w-6xl mx-auto py-20">
       <div className="text-center mb-16">
@@ -65,24 +45,18 @@ export function Testimonials() {
         {testimonials.map((testimonial) => (
           <Card
             key={testimonial.id}
-            className={`${cardBg} backdrop-blur-sm ${cardBorder} hover:border-purple-500/30 transition-colors shadow-sm`}
+            className={`${cardBase} hover:border-purple-500/30 transition-colors`}
           >
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <Avatar className="h-12 w-12 border-2 border-purple-500/50">
-                  <AvatarImage
-                    src={testimonial.avatar}
-                    alt={testimonial.name}
-                  />
-                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500">
+                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white">
                     {testimonial.name.substring(0, 2)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <div className="font-semibold">{testimonial.name}</div>
-                  <div className={`text-sm ${handleText}`}>
-                    {testimonial.handle}
-                  </div>
+                  <div className={`text-sm ${muted}`}>{testimonial.handle}</div>
                 </div>
               </div>
 
@@ -103,12 +77,10 @@ export function Testimonials() {
                 ))}
               </div>
 
-              <p className={`${testimonialText} font-medium mb-4`}>
-                {testimonial.text}
-              </p>
+              <p className={`${body} mb-4`}>{testimonial.text}</p>
             </CardContent>
             <CardFooter className={`px-6 py-3 border-t ${footerBorder}`}>
-              <div className={`text-xs ${dateText}`}>{testimonial.date}</div>
+              <div className={`text-xs ${muted}`}>{testimonial.date}</div>
             </CardFooter>
           </Card>
         ))}
