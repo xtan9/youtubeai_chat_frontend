@@ -33,7 +33,7 @@ export function FAQ() {
   const itemBorder = isDarkMode ? "border-white/10" : "border-gray-200";
 
   return (
-    <section className="w-full max-w-6xl mx-auto py-20">
+    <section id="faq" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold">Common Questions</h2>
       </div>

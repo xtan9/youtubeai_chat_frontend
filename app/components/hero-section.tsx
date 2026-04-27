@@ -40,7 +40,7 @@ export function HeroSection() {
             no restrictions or hidden costs.
           </p>
 
-          <div className="flex flex-wrap justify-center gap-4 mb-12">
+          <div className="flex flex-wrap justify-center gap-4 mb-8">
             <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
               <Brain className="w-5 h-5 text-purple-500 dark:text-purple-400" />
               <span className="text-sm text-foreground">
@@ -60,6 +60,20 @@ export function HeroSection() {
               </span>
             </div>
           </div>
+
+          {/* Anchor nav — gives crawlers explicit section links (eligible
+              for Google "skip-to-content" SERP sublinks) and lets users
+              jump straight to the section they care about. */}
+          <nav
+            aria-label="Page sections"
+            className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground mb-12"
+          >
+            <a href="#benefits" className="hover:text-foreground transition-colors">Benefits</a>
+            <a href="#use-cases" className="hover:text-foreground transition-colors">Use Cases</a>
+            <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
+            <a href="#testimonials" className="hover:text-foreground transition-colors">Testimonials</a>
+            <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
+          </nav>
         </div>
       </div>
     </section>

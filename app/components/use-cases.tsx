@@ -13,7 +13,7 @@ const description = "text-gray-700 dark:text-gray-300 font-medium";
 
 export function UseCases() {
   return (
-    <section className="w-full max-w-6xl mx-auto py-20">
+    <section id="use-cases" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold">Perfect For Your Needs</h2>
       </div>

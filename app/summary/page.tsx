@@ -34,11 +34,29 @@ export default async function SummaryPage({
 }) {
   const params = await searchParams;
 
+  const isResultsView = Boolean(params.url);
+
   return (
     <>
       <h1 className="sr-only">
         YouTube Video Summary - AI-Generated Key Points & Insights
       </h1>
+      {/* Server-rendered intro for the bare /summary landing — gives crawlers
+          something to index since the YouTubeSummarizerApp is client-only.
+          Hidden in the results view so submitted summaries aren't pushed
+          below the fold. */}
+      {!isResultsView && (
+        <section className="w-full max-w-3xl mx-auto px-4 pt-12 pb-6 text-center">
+          <p className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 dark:from-purple-400 dark:via-pink-400 dark:to-cyan-400 bg-clip-text text-transparent">
+            Free AI Summary for any YouTube Video
+          </p>
+          <p className="text-base md:text-lg text-muted-foreground">
+            Paste a YouTube URL below and our AI extracts the key points,
+            themes, and insights in seconds. Works with any public video, in 30+
+            languages, with no signup or paywall.
+          </p>
+        </section>
+      )}
       <YouTubeSummarizerApp initialUrl={params.url} />
       <JsonLd
         id="structured-data-breadcrumb"

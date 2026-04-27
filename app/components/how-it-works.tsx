@@ -31,7 +31,7 @@ const STEPS = [
 
 export function HowItWorks() {
   return (
-    <section className="w-full max-w-6xl mx-auto py-20">
+    <section id="how-it-works" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold">Your Video Insights in 4 Steps</h2>
       </div>
