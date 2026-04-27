@@ -1,6 +1,6 @@
 // `WebPage` is the right schema for static legal/info pages — `Article`
 // implies editorial content with an author and dateline, which legal docs
-// aren't. Pulls inOrganization as the publisher so brand-query SERP
+// aren't. Pulls in Organization as the publisher so brand-query SERP
 // features stay consistent.
 type WebPageInput = {
   name: string;

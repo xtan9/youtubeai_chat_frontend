@@ -152,6 +152,13 @@ test.describe("SEO metadata contract", () => {
     });
   }
 
+  for (const path of ["/terms", "/privacy"]) {
+    test(`${path} emits WebPage JSON-LD`, async ({ page }) => {
+      const snap = await snapshot(page, path);
+      expect(snap.jsonLdTypes).toContain("WebPage");
+    });
+  }
+
   for (const path of [
     "/auth/forgot-password",
     "/auth/update-password",
