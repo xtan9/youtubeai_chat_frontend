@@ -197,6 +197,37 @@ export async function generateRecoveryLink(
 }
 
 /**
+ * Generate the actual Supabase verify URL the recovery email would contain.
+ * Unlike `generateRecoveryLink` (which builds a synthetic /auth/confirm
+ * URL using the hashed_token + token_hash verifyOtp path), this returns
+ * `data.properties.action_link` — the same `<supabase>/auth/v1/verify?token=...&type=recovery&redirect_to=<...>`
+ * URL Supabase embeds in the production email. Following it exercises the
+ * real implicit-grant flow: Supabase verify → 303 to <redirectTo> with
+ * `#access_token=...` in the fragment → page mount → browser SDK detects
+ * fragment → session active. The redirectTo is what we'd produce in code:
+ * apex origin + /auth/update-password.
+ *
+ * Calling this consumes a real recovery token for the user. Wrap the test
+ * in try/finally with an admin password restore.
+ */
+export async function getProductionRecoveryActionLink(
+  creds: AdminCreds,
+  email: string,
+  redirectTo: string
+): Promise<string> {
+  const admin = await getAdminClient(creds);
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo },
+  });
+  if (error) throw error;
+  const actionLink = data?.properties?.action_link;
+  if (!actionLink) throw new Error("admin.generateLink returned no action_link");
+  return actionLink;
+}
+
+/**
  * Delete a user by email. Used in test teardown to keep randomized
  * signup users from accumulating. Paginates listUsers since admin
  * doesn't expose getUserByEmail. No-op if the user does not exist
