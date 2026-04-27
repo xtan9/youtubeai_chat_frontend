@@ -1,4 +1,11 @@
 import { UpdatePasswordForm } from "./components/update-password-form";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Update Password - YouTubeAI.chat",
+  description: "Set a new password for your YouTubeAI account.",
+  robots: { index: false, follow: false },
+};
 
 export default function Page() {
   return (

@@ -17,4 +17,15 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
+  // Auto-start `pnpm dev` for specs that target local (e.g. e2e-seo-metadata).
+  // Skipped when BASE_URL is set — the caller has already pointed at a
+  // running env. Specs that hit prod via PROD_URL are unaffected either way.
+  webServer: process.env.BASE_URL
+    ? undefined
+    : {
+        command: "pnpm dev",
+        url: "http://localhost:3000",
+        reuseExistingServer: true,
+        timeout: 120_000,
+      },
 });

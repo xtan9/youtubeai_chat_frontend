@@ -4,6 +4,9 @@ export const metadata: Metadata = {
   title: "Terms of Service - YouTubeAI.chat",
   description:
     "Terms and conditions for using YouTubeAI.chat video summarization service",
+  alternates: {
+    canonical: "/terms",
+  },
 };
 
 export default function TermsOfService() {

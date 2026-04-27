@@ -3,6 +3,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Privacy Policy - YouTubeAI.chat",
   description: "Privacy policy and data handling practices for YouTubeAI.chat",
+  alternates: {
+    canonical: "/privacy",
+  },
 };
 
 export default function PrivacyPolicy() {
