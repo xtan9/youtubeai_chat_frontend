@@ -22,12 +22,15 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
 
+  // Mirror the real prod 429 payload from app/api/summarize/stream/route.ts.
+  // If prod's wording diverges in the future, update both this mock and
+  // the assertion regex below in lockstep.
   await page.route("**/api/summarize/stream", (route) =>
     route.fulfill({
       status: 429,
       contentType: "application/json",
       body: JSON.stringify({
-        message: "Rate limit exceeded. Please upgrade or try again later.",
+        message: "Rate limit exceeded. Please try again later.",
       }),
     })
   );
@@ -37,6 +40,8 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
     { waitUntil: "domcontentloaded" }
   );
 
-  const limitUi = page.getByText(/rate.?limit|upgrade|too many requests/i);
+  // Specific match on the rate-limit phrase. Avoids false-positives on
+  // unrelated "upgrade" copy elsewhere in the chrome.
+  const limitUi = page.getByText(/rate.?limit|too many requests/i);
   await expect(limitUi).toBeVisible({ timeout: 30_000 });
 });

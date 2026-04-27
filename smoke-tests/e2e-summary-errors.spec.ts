@@ -57,8 +57,9 @@ test("upstream summary failure (intercepted) surfaces error UI", async ({
     { waitUntil: "domcontentloaded" }
   );
 
-  const errorBanner = page
-    .getByTestId("stream-error-banner")
-    .or(page.getByText(/error|failed|try again/i));
+  // Match the specific intercepted message text we just mocked. Avoids
+  // false-positives on unrelated "error/failed" copy that may appear
+  // elsewhere on the page (e.g. error-state headers).
+  const errorBanner = page.getByText(/intercepted.*simulated upstream 502/i);
   await expect(errorBanner).toBeVisible({ timeout: 30_000 });
 });
