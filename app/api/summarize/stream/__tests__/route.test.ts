@@ -61,9 +61,19 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/services/caption-extractor", () => ({
   extractCaptions: mocks.extractCaptions,
 }));
-vi.mock("@/lib/services/vps-client", () => ({
-  transcribeViaVps: mocks.transcribeViaVps,
-}));
+vi.mock("@/lib/services/vps-client", async () => {
+  // Use the real VpsTranscribeError class so the route's
+  // `instanceof VpsTranscribeError` branch fires from injected
+  // rejections — re-mocking the class would break the typed-error
+  // log path the route depends on.
+  const actual = await vi.importActual<
+    typeof import("@/lib/services/vps-client")
+  >("@/lib/services/vps-client");
+  return {
+    transcribeViaVps: mocks.transcribeViaVps,
+    VpsTranscribeError: actual.VpsTranscribeError,
+  };
+});
 vi.mock("@/lib/services/video-metadata", () => ({
   fetchVideoMetadata: mocks.fetchVideoMetadata,
 }));
@@ -1386,6 +1396,71 @@ describe("POST /api/summarize/stream", () => {
       const events = parseEvents(await readStream(res));
       expect(events.find((e) => e.type === "error")).toBeDefined();
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+    });
+
+    it("stamps status + errorId on the vps log when VPS rejects with a typed VpsTranscribeError", async () => {
+      // The binding contract this PR creates: a 503 from the VPS's
+      // GROQ_FAILED_NO_FALLBACK gate must surface as a top-level
+      // `status: 503` + `errorId: VPS_TRANSCRIBE_FAILED_503` log
+      // field so log-search alerts can fingerprint Groq quota
+      // exhaustion vs. WHISPER_EMPTY_RESULT (500) vs. timeout
+      // ("timeout" tag) without regex-matching `err.message`.
+      const { VpsTranscribeError } = await import(
+        "@/lib/services/vps-client"
+      );
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "", channelName: "" },
+      });
+      mocks.transcribeViaVps.mockRejectedValue(
+        new VpsTranscribeError(503, "rate limited")
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+      expect(events.find((e) => e.type === "error")).toBeDefined();
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] vps failed",
+        expect.objectContaining({
+          stage: "vps",
+          status: 503,
+          errorId: "VPS_TRANSCRIBE_FAILED_503",
+          bodyExcerpt: "rate limited",
+          youtubeUrl: VALID_URL,
+          userId: "user-1",
+        })
+      );
+    });
+
+    it("does not stamp status/errorId for non-VpsTranscribeError rejections", async () => {
+      // Negative pin: a bare Error from somewhere upstream of the
+      // VPS client (e.g. a programmer-error throw at the
+      // env-missing path) must NOT be stamped with an `errorId`,
+      // otherwise log-search alerts grouping by errorId would
+      // silently bucket programmer errors under VPS_TRANSCRIBE_FAILED_*
+      // and operators would chase a phantom VPS regression.
+      mocks.extractCaptions.mockResolvedValue(null);
+      mocks.fetchVideoMetadata.mockResolvedValue({
+        ok: true,
+        data: { title: "", channelName: "" },
+      });
+      mocks.transcribeViaVps.mockRejectedValue(new Error("env missing"));
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+      expect(events.find((e) => e.type === "error")).toBeDefined();
+      const vpsCall = errSpy.mock.calls.find(
+        (c) => c[0] === "[summarize/stream] vps failed"
+      );
+      expect(vpsCall).toBeDefined();
+      const payload = vpsCall![1] as Record<string, unknown>;
+      expect(payload).not.toHaveProperty("status");
+      expect(payload).not.toHaveProperty("errorId");
+      expect(payload).not.toHaveProperty("bodyExcerpt");
     });
   });
 
