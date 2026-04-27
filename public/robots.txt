@@ -1,39 +1,10 @@
 # https://www.youtubeai.chat robots.txt
 
-# Allow all crawlers
+# Default policy for all crawlers
 User-agent: *
 Allow: /
 Allow: /sitemap.xml
 Allow: /manifest.json
-
-# Block auth and protected routes
-Disallow: /auth/callback
-Disallow: /auth/confirm
-Disallow: /auth/error
-Disallow: /protected/
-Disallow: /api/
-
-# Block non-html resources from being indexed
-Disallow: /favicon.ico
-Disallow: /*.ico$
-Disallow: /_next/
-
-# Add longer crawl delay for GPTBot to prevent OpenAI from overloading your server
-User-agent: GPTBot
-Crawl-delay: 10
-
-# Add longer crawl delay for CCBot
-User-agent: CCBot
-Crawl-delay: 10
-
-# Specify sitemap location
-Sitemap: https://www.youtubeai.chat/sitemap.xml
-
-# Rate limiting for other bots
-User-agent: *
-Crawl-delay: 1
-
-# Allow all bots to access CSS, JS, and image files
 Allow: /*.css$
 Allow: /*.js$
 Allow: /*.jpg$
@@ -42,10 +13,28 @@ Allow: /*.gif$
 Allow: /*.png$
 Allow: /*.svg$
 Allow: /*.webp$
-
-# Disallow specific paths
+Disallow: /api/
+Disallow: /auth/callback
+Disallow: /auth/callback/
+Disallow: /auth/confirm
+Disallow: /auth/confirm/
+Disallow: /auth/error
+Disallow: /auth/error/
+Disallow: /auth/forgot-password
+Disallow: /auth/update-password
+Disallow: /auth/sign-up-success
+Disallow: /protected/
 Disallow: /_next/
 Disallow: /static/
-Disallow: /auth/error/
-Disallow: /auth/callback/
-Disallow: /auth/confirm/ 
+Disallow: /favicon.ico
+Disallow: /*.ico$
+Crawl-delay: 1
+
+# Heavy AI crawlers — slow them down to protect upstream costs
+User-agent: GPTBot
+Crawl-delay: 10
+
+User-agent: CCBot
+Crawl-delay: 10
+
+Sitemap: https://www.youtubeai.chat/sitemap.xml

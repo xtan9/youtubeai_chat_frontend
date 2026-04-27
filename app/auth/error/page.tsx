@@ -1,4 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Authentication Error - YouTubeAI.chat",
+  description: "An error occurred during authentication.",
+  robots: { index: false, follow: false },
+};
 
 export default async function Page({
   searchParams,

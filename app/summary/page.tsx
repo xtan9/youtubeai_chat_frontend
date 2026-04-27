@@ -6,6 +6,9 @@ export async function generateMetadata(): Promise<Metadata> {
     title: "YouTube Video Summary - AI-Generated Key Points & Insights",
     description:
       "Instant AI-generated summary with key points and insights from your YouTube video. Save time with our free YouTube summarizer tool.",
+    alternates: {
+      canonical: "/summary",
+    },
   };
 }
 
@@ -18,9 +21,9 @@ export default async function SummaryPage({
 
   return (
     <>
-      <h2 className="sr-only">
+      <h1 className="sr-only">
         YouTube Video Summary - AI-Generated Key Points & Insights
-      </h2>
+      </h1>
       <YouTubeSummarizerApp initialUrl={params.url} />
     </>
   );

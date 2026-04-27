@@ -24,9 +24,10 @@ export const metadata: Metadata = {
   title: "100% Free AI YouTube Video Summarizer - YouTubeAI.chat",
   description:
     "Get instant AI summaries of any YouTube video. Extract key points and main ideas in seconds - 100% free tool for faster video comprehension.",
-  keywords:
-    "youtube summarizer, video summary, AI video summary, youtube transcript, free youtube summary tool, video key points extractor, youtube video summary, AI summary generator",
   authors: [{ name: "YouTubeAI" }],
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "AI YouTube Video Summarizer - Get Quick Video Summaries for Free",
     description:
@@ -35,6 +36,14 @@ export const metadata: Metadata = {
     siteName: "YouTubeAI Summary",
     type: "website",
     locale: "en_US",
+    images: [
+      {
+        url: "/youtube-summary-demo.png",
+        width: 1919,
+        height: 1244,
+        alt: "YouTubeAI Summary — instant AI summaries of YouTube videos",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
@@ -42,6 +51,7 @@ export const metadata: Metadata = {
     description:
       "Get instant AI summaries of any YouTube video. Extract key points and main ideas in seconds.",
     creator: "@YouTubeAI",
+    images: ["/youtube-summary-demo.png"],
   },
   robots: {
     index: true,
@@ -92,7 +102,6 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <link rel="canonical" href="https://www.youtubeai.chat" />
         <meta name="theme-color" content="#000000" />
       </head>
       <body className={`${geist.className} flex min-h-screen flex-col`}>

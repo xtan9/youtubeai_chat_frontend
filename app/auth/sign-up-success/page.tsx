@@ -5,6 +5,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Sign Up Success - YouTubeAI.chat",
+  description: "Confirm your email to finish creating your YouTubeAI account.",
+  robots: { index: false, follow: false },
+};
 
 export default function Page() {
   return (

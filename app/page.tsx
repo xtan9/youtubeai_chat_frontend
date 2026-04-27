@@ -7,6 +7,7 @@ import { HowItWorks } from "./components/how-it-works";
 import { Testimonials } from "./components/testimonials";
 import { FAQ } from "./components/faq";
 import { HeroSection } from "./components/hero-section";
+import FaqJsonLd from "@/components/seo/faq-jsonld";
 
 export default function Home() {
   return (
@@ -22,6 +23,7 @@ export default function Home() {
       <HowItWorks />
       <Testimonials />
       <FAQ />
+      <FaqJsonLd />
     </main>
   );
 }
