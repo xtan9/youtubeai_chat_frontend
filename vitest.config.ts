@@ -28,6 +28,8 @@ export default defineConfig({
         "components/ui/**",
         "app/**/page.tsx",
         "app/**/layout.tsx",
+        "app/auth/**/route.ts",
+        "app/sitemap.ts",
         "smoke-tests/**",
         ".next/**",
       ],
