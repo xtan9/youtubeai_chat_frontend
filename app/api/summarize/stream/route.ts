@@ -3,7 +3,11 @@ import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
-import { transcribeViaVps } from "@/lib/services/vps-client";
+import {
+  transcribeViaVps,
+  VpsTranscribeError,
+  vpsErrorId,
+} from "@/lib/services/vps-client";
 import {
   fetchVideoMetadata,
   type VideoMetadataResult,
@@ -261,11 +265,24 @@ export async function POST(request: Request) {
       };
 
       const logStageError = (stage: LogStage, err: unknown) => {
+        // Pull `.status` off typed VPS errors so log-search alerts can
+        // fingerprint failure classes (503-from-VPS = Groq quota /
+        // GROQ_FAILED_NO_FALLBACK gate, 500 = WHISPER_EMPTY_RESULT, the
+        // string-tagged variants = pre-HTTP fetch failures the frontend
+        // saw) without regex-substring-matching on err.message. The
+        // `errorId` is a stable token so dashboards can group by it.
+        const isVpsTyped = err instanceof VpsTranscribeError;
+        const status = isVpsTyped ? err.status : undefined;
+        const errorId = isVpsTyped ? vpsErrorId(err.status) : undefined;
         console.error(`[summarize/stream] ${stage} failed`, {
           stage,
           youtubeUrl: youtube_url,
           userId: authedUser.id,
           err,
+          ...(status !== undefined && { status }),
+          ...(errorId !== undefined && { errorId }),
+          ...(isVpsTyped &&
+            err.bodyExcerpt && { bodyExcerpt: err.bodyExcerpt }),
         });
       };
 
@@ -514,6 +531,14 @@ export async function POST(request: Request) {
                   );
           } catch (err) {
             if (isCallerAbort(request.signal)) return;
+            // logStageError extracts `.status` and stamps a stable
+            // `errorId: VPS_TRANSCRIBE_FAILED_<status>` when err is a
+            // VpsTranscribeError, so log-search alerts can fingerprint
+            // 503 (Groq quota / GROQ_FAILED_NO_FALLBACK gate) vs. 500
+            // (WHISPER_EMPTY_RESULT) vs. timeout/network without
+            // regex-matching err.message. User-visible behavior is
+            // unchanged — still emits the generic
+            // USER_ERROR_PROCESS_FAILED SSE event.
             logStageError("vps", err);
             sendEvent({
               type: "error",
