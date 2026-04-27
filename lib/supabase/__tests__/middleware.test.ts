@@ -51,11 +51,15 @@ describe("updateSession", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
-  it("redirects unauthenticated request for a protected path to /auth/login", async () => {
+  it("redirects unauthenticated request for a protected path to /auth/login (full URL pinned)", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const response = await updateSession(req("/dashboard"));
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toMatch(/\/auth\/login$/);
+    // Pin the full URL — catches accidental path leakage, query-string
+    // injection, or a regression to the legacy `/login` route.
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/auth/login"
+    );
   });
 
   it("allows authenticated request to a protected path", async () => {
@@ -68,14 +72,30 @@ describe("updateSession", () => {
   });
 
   it("short-circuits without calling supabase when hasEnvVars is false", async () => {
+    // vi.isolateModulesAsync is not available in this Vitest version, so we
+    // use vi.resetModules + try/finally. We re-mock @supabase/ssr inside the
+    // isolated block so the dynamically-imported middleware binds to the same
+    // mockCreateServerClient spy — making the not-called assertion meaningful
+    // (vs the old form which let the import bind to a fresh instance the spy
+    // didn't see).
     vi.resetModules();
-    vi.doMock("../../utils", () => ({ hasEnvVars: false }));
-    const { updateSession: updateSessionNoEnv } = await import("../middleware");
-    const response = await updateSessionNoEnv(req("/dashboard"));
-    expect(response.status).toBe(200);
-    // createServerClient should not have been called this run
-    expect(mockCreateServerClient).not.toHaveBeenCalled();
-    vi.doUnmock("../../utils");
+    try {
+      vi.doMock("../../utils", () => ({ hasEnvVars: false }));
+      vi.doMock("@supabase/ssr", () => ({
+        createServerClient: mockCreateServerClient,
+      }));
+      mockCreateServerClient.mockClear();
+      const { updateSession: updateSessionNoEnv } = await import(
+        "../middleware"
+      );
+      const response = await updateSessionNoEnv(req("/dashboard"));
+      expect(response.status).toBe(200);
+      expect(mockCreateServerClient).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../../utils");
+      vi.doUnmock("@supabase/ssr");
+      vi.resetModules();
+    }
   });
 
   it("trims env vars before passing them to createServerClient", async () => {
@@ -89,4 +109,23 @@ describe("updateSession", () => {
       expect.any(Object)
     );
   });
+
+  it.each([
+    ["/loginx", "extends /login prefix"],
+    ["/summary-fake", "extends /summary prefix"],
+    ["/authxyz", "extends /auth prefix"],
+  ])(
+    "currently treats prefix-extending path %s as public (%s) — startsWith over-acceptance",
+    async (pathname) => {
+      // Documents the current behavior of the public-path predicate
+      // (startsWith semantics): paths that EXTEND a public prefix are
+      // also public. If a future PR tightens the predicate to an exact
+      // match or adds a "/" suffix guard, this test will fail and force
+      // a deliberate decision about the new boundary.
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const response = await updateSession(req(pathname));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+    }
+  );
 });
