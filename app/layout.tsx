@@ -67,25 +67,12 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     capable: true,
   },
-  icons: {
-    icon: [
-      { url: "/favicon.ico", type: "image/x-icon" },
-      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
-    ],
-    apple: [
-      { url: "/apple-icon-57x57.png", sizes: "57x57", type: "image/png" },
-      { url: "/apple-icon-60x60.png", sizes: "60x60", type: "image/png" },
-      { url: "/apple-icon-72x72.png", sizes: "72x72", type: "image/png" },
-      { url: "/apple-icon-76x76.png", sizes: "76x76", type: "image/png" },
-      { url: "/apple-icon-114x114.png", sizes: "114x114", type: "image/png" },
-      { url: "/apple-icon-120x120.png", sizes: "120x120", type: "image/png" },
-      { url: "/apple-icon-144x144.png", sizes: "144x144", type: "image/png" },
-      { url: "/apple-icon-152x152.png", sizes: "152x152", type: "image/png" },
-      { url: "/apple-icon-180x180.png", sizes: "180x180", type: "image/png" },
-    ],
-  },
+  // No `icons` config — `app/favicon.ico` is auto-served by Next.js' file
+  // convention, so an explicit override is unnecessary. The previous list
+  // declared 12 size-specific PNG variants (favicon-16/32/96 + 9 apple-icon
+  // sizes) that didn't exist in /public, generating 12× 404s on every page
+  // load. If we want size-specific icons, ship the files and re-add the
+  // entries; otherwise let the convention handle it.
 };
 
 const geist = Geist({

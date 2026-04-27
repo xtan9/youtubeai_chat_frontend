@@ -50,22 +50,9 @@ async function snapshot(page: import("@playwright/test").Page, path: string) {
 }
 
 test.describe("SEO metadata contract", () => {
-  test("home renders five inline JSON-LD blocks, absolute og/twitter images, and 0 same-origin 4xx", async ({
+  test("home renders five inline JSON-LD blocks and absolute og/twitter images", async ({
     page,
   }) => {
-    const same = new URL(BASE_URL);
-    const sameOrigin4xx: string[] = [];
-    page.on("response", (r) => {
-      try {
-        const u = new URL(r.url());
-        if (u.host === same.host && r.status() >= 400) {
-          sameOrigin4xx.push(`${r.status()} ${r.url()}`);
-        }
-      } catch {
-        // ignore non-URL targets (data:, etc.)
-      }
-    });
-
     const snap = await snapshot(page, "/");
     expect(snap.canonical).toMatch(/\/$/);
     expect(snap.h1Count).toBe(1);
@@ -80,8 +67,55 @@ test.describe("SEO metadata contract", () => {
         "HowTo",
       ]),
     );
-    // Catches reintroduction of broken /avatars/*.jpg, /*.svg etc.
-    expect(sameOrigin4xx).toEqual([]);
+  });
+
+  test("every same-origin <link> in <head> resolves 2xx (catches broken icons / manifest)", async ({
+    page,
+    request,
+  }) => {
+    // Headless Chromium doesn't actually fetch `<link rel="icon">` or
+    // `<link rel="manifest">` resources from the parsed HTML, so a
+    // `page.on("response")` listener never sees their 404s. Instead, parse
+    // the head for every link href and probe each via `request.get`. This
+    // is the assertion that would have caught (a) the 12 broken size-
+    // specific favicons declared in `metadata.icons` against an empty
+    // /public, and (b) /manifest.json being redirected to /auth/login by
+    // unauthenticated middleware.
+    await page.goto(`${BASE_URL}/`);
+    const sameHost = new URL(BASE_URL).host;
+    const linkHrefs = await page.$$eval("head link[href]", (els) =>
+      (els as HTMLLinkElement[]).map((l) => ({
+        rel: l.rel,
+        href: l.href,
+      })),
+    );
+    const sameOrigin = linkHrefs.filter((l) => {
+      try {
+        return new URL(l.href).host === sameHost;
+      } catch {
+        return false;
+      }
+    });
+    expect(sameOrigin.length).toBeGreaterThan(0);
+
+    const failures: string[] = [];
+    for (const { rel, href } of sameOrigin) {
+      // Follow redirects so a 3xx → 2xx chain still passes; a 3xx that
+      // ends in HTML (the manifest-to-login bug) lands as 200 but with
+      // wrong content-type, which we check separately for known types.
+      const res = await request.get(href);
+      if (res.status() >= 400) {
+        failures.push(`${res.status()} [${rel}] ${href}`);
+      } else if (rel === "manifest") {
+        const ct = res.headers()["content-type"] ?? "";
+        if (!ct.includes("json")) {
+          failures.push(
+            `manifest content-type "${ct}" (likely redirected to HTML) ${href}`,
+          );
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 
   test("bare /summary is indexable with a self-canonical and exactly one h1", async ({
