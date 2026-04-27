@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
@@ -757,47 +758,94 @@ export async function POST(request: Request) {
           return;
         }
 
-        writeCachedSummary({
-          youtubeUrl: youtube_url,
-          title,
-          channelName,
-          language,
-          // Snapshot the flat string the LLM consumed. The cache row is a
-          // record of "what we summarized" — segments live separately on
-          // video_transcripts and stay the canonical source for the UI.
-          transcript: transcriptText,
-          summary: fullSummary,
-          transcriptSource,
-          model: decision.model,
-          processingTimeSeconds,
-          transcribeTimeSeconds: transcribeSeconds,
-          summarizeTimeSeconds: summarizeSecondsFinal,
-          userId: authedUser.id,
-          outputLanguage: outputLanguageCode ?? null,
-        }).catch((err) => {
-          // Cache write is fire-and-forget — never propagate to the
-          // user. But each failure class warrants a different signal:
-          // 23505 is schema drift (incident — see PR #25), PGRST204 is
-          // stale PostgREST schema cache (transient), auth-class errors
-          // are creds rotation. Carry the SQLSTATE + outputLanguage so a
-          // dashboard can split the spike by class without joining log
-          // lines after the fact (every 23505 line had outputLanguage
-          // non-null on the day this incident shipped — that field
-          // alone would have flagged it).
-          const pgCode =
-            err && typeof err === "object" && "code" in err
-              ? (err as { code: unknown }).code
-              : undefined;
-          console.error("[summarize/stream] CACHE_WRITE_FAILED", {
-            errorId: "CACHE_WRITE_FAILED",
+        // Defer to next/server's after() so Vercel keeps the function alive
+        // until the cache write resolves. The previous fire-and-forget
+        // `.catch` raced the controller.close() in the finally block —
+        // Lambda freezes the container shortly after the response stream
+        // ends, killing the in-flight HTTP fetch to PostgREST and surfacing
+        // as `TypeError: fetch failed` on the videos upsert (observed 3×
+        // for as3SgPXRRC4 on 2026-04-27, plus a longer tail across other
+        // videos that healed only on a later retry). after() is the
+        // supported primitive for this exact post-response work;
+        // writeCachedTranscript above doesn't need it because it fires
+        // before the LLM streams and settles during that window.
+        //
+        // The await INSIDE the try is load-bearing: after() reports a
+        // rejected callback Promise to the platform's error logger
+        // without our structured fields (errorId, pgCode, outputLanguage,
+        // youtubeUrl, userId), which breaks the dashboard slicing the
+        // catch payload feeds. Keep the await wrapped — don't hoist.
+        //
+        // The outer try/catch around the after() registration itself
+        // guards a synchronous throw from Next.js (e.g., "after was
+        // called outside a request scope" if the runtime ever loses the
+        // AsyncLocalStorage chain through the ReadableStream construction).
+        // Without it, the throw escapes to the outer handler at the
+        // bottom of start(), which would emit a generic error event AFTER
+        // the user already received their terminal `summary` event.
+        try {
+          after(async () => {
+            try {
+              await writeCachedSummary({
+                youtubeUrl: youtube_url,
+                title,
+                channelName,
+                language,
+                // Snapshot the flat string the LLM consumed. The cache row is a
+                // record of "what we summarized" — segments live separately on
+                // video_transcripts and stay the canonical source for the UI.
+                transcript: transcriptText,
+                summary: fullSummary,
+                transcriptSource,
+                model: decision.model,
+                processingTimeSeconds,
+                transcribeTimeSeconds: transcribeSeconds,
+                summarizeTimeSeconds: summarizeSecondsFinal,
+                userId: authedUser.id,
+                outputLanguage: outputLanguageCode ?? null,
+              });
+            } catch (err) {
+              // Cache write is best-effort — never propagate to the user.
+              // But each failure class warrants a different signal:
+              // 23505 is schema drift (incident — see PR #25), PGRST204 is
+              // stale PostgREST schema cache (transient), auth-class errors
+              // are creds rotation. Carry the SQLSTATE + outputLanguage so a
+              // dashboard can split the spike by class without joining log
+              // lines after the fact (every 23505 line had outputLanguage
+              // non-null on the day this incident shipped — that field
+              // alone would have flagged it).
+              const pgCode =
+                err && typeof err === "object" && "code" in err
+                  ? (err as { code: unknown }).code
+                  : undefined;
+              console.error("[summarize/stream] CACHE_WRITE_FAILED", {
+                errorId: "CACHE_WRITE_FAILED",
+                stage: "cache" satisfies LogStage,
+                pgCode,
+                youtubeUrl: youtube_url,
+                userId: authedUser.id,
+                outputLanguage: outputLanguageCode ?? null,
+                err,
+              });
+            }
+          });
+        } catch (err) {
+          // after() registration itself failed (sync throw from Next.js).
+          // Distinct errorId so dashboards can separate "scheduling
+          // failed" (runtime contract regression) from "cache write
+          // failed" (Supabase / network). Don't re-throw — the user
+          // already has their summary; emitting a generic error event
+          // here would land AFTER the terminal `summary` event and look
+          // to the client like a failed run despite a complete answer.
+          console.error("[summarize/stream] CACHE_WRITE_SCHEDULE_FAILED", {
+            errorId: "CACHE_WRITE_SCHEDULE_FAILED",
             stage: "cache" satisfies LogStage,
-            pgCode,
             youtubeUrl: youtube_url,
             userId: authedUser.id,
             outputLanguage: outputLanguageCode ?? null,
             err,
           });
-        });
+        }
       } catch (err) {
         if (isCallerAbort(request.signal)) return;
         logStageError("unknown", err);
