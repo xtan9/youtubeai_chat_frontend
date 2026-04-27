@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetUser = vi.fn();
-const mockCreateServerClient = vi.fn(() => ({
+// Rest param is intentional: the test asserts on the recorded call args
+// via mock.calls, but the implementation body doesn't use them.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const mockCreateServerClient = vi.fn((..._args: unknown[]) => ({
   auth: { getUser: mockGetUser },
 }));
 
