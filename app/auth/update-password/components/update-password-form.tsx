@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { parseRecoveryFragment } from "@/lib/auth/recovery-redirect";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function UpdatePasswordForm({
   className,
@@ -23,6 +24,38 @@ export function UpdatePasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+
+  // Recovery emails redirect here with `#access_token=...&type=recovery` in
+  // a hash fragment (Supabase's legacy implicit-grant flow). The
+  // @supabase/ssr browser client is PKCE-configured and only auto-processes
+  // `?code=` queries — implicit-grant hashes pass through untouched. We
+  // extract the tokens ourselves and call setSession so the form has a
+  // session to act against. Without this, updateUser fails for every
+  // user clicking the recovery link, because they're authenticated at the
+  // Supabase server level (the audit log shows the login event) but the
+  // browser SDK never picked up the session.
+  useEffect(() => {
+    const tokens = parseRecoveryFragment(window.location.hash);
+    if (!tokens) return;
+    const supabase = createClient();
+    void supabase.auth
+      .setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      })
+      .then(({ error: setErr }) => {
+        if (setErr) {
+          setError(
+            "Recovery link is invalid or has expired. Request a new email."
+          );
+          return;
+        }
+        // Strip the fragment so a refresh doesn't try to re-set an already-
+        // consumed token, and so the access token doesn't sit in browser
+        // history any longer than needed.
+        window.history.replaceState(null, "", window.location.pathname);
+      });
+  }, []);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();

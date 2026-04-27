@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// The recovery redirect fix routes the recovery email through this handler
-// (with `?code=&next=/auth/update-password`), and the redirect path here is
-// load-bearing for whether the user reaches the password-update form. These
-// tests pin the exchange + redirect contract so a refactor of the route
-// can't silently regress recovery — `redirect_to` would still be allowlisted
-// by Supabase but the user would land somewhere unexpected after exchange.
+// /auth/callback handles the PKCE code-exchange landing for OAuth and email
+// confirmation flows (signup, magic-link). Recovery does NOT route through
+// this handler — see lib/auth/recovery-redirect.ts for why (Supabase's
+// recovery email path uses implicit grant, not PKCE, in this project).
+// These tests pin the exchange + redirect contract so a refactor of the
+// route can't silently regress sign-in/signup flows after Vercel's edge
+// 307 from non-www to www.
 
 const exchangeCodeForSession = vi.fn();
 const createClient = vi.fn(async () => ({
@@ -36,12 +37,12 @@ describe("GET /auth/callback", () => {
     vi.restoreAllMocks();
   });
 
-  it("exchanges code and redirects to next when both are present (recovery happy path)", async () => {
+  it("exchanges code and redirects to next when both are present (OAuth/signup happy path)", async () => {
     exchangeCodeForSession.mockResolvedValue({ error: null });
 
     const res = await GET(
       req(
-        "https://www.youtubeai.chat/auth/callback?next=/auth/update-password&code=abc123",
+        "https://www.youtubeai.chat/auth/callback?next=/account&code=abc123",
         { "x-forwarded-host": "www.youtubeai.chat" }
       )
     );
@@ -49,7 +50,7 @@ describe("GET /auth/callback", () => {
     expect(exchangeCodeForSession).toHaveBeenCalledWith("abc123");
     expect(res.status).toBe(307); // NextResponse.redirect default
     expect(res.headers.get("location")).toBe(
-      "https://www.youtubeai.chat/auth/update-password"
+      "https://www.youtubeai.chat/account"
     );
   });
 
@@ -79,21 +80,21 @@ describe("GET /auth/callback", () => {
   });
 
   it("prefers x-forwarded-host over origin in production (Vercel sets it)", async () => {
-    // Recovery enters this handler via the apex origin (the allowlisted
-    // form), but the production app lives on www. Vercel's edge sets
+    // OAuth providers (e.g. Google) sometimes redirect through the apex
+    // origin while the production app lives on www. Vercel's edge sets
     // x-forwarded-host so the post-exchange redirect lands the user on
     // the canonical www host where their session cookies are scoped.
     exchangeCodeForSession.mockResolvedValue({ error: null });
 
     const res = await GET(
       req(
-        "https://youtubeai.chat/auth/callback?code=abc&next=/auth/update-password",
+        "https://youtubeai.chat/auth/callback?code=abc&next=/account",
         { "x-forwarded-host": "www.youtubeai.chat" }
       )
     );
 
     expect(res.headers.get("location")).toBe(
-      "https://www.youtubeai.chat/auth/update-password"
+      "https://www.youtubeai.chat/account"
     );
   });
 
@@ -103,14 +104,14 @@ describe("GET /auth/callback", () => {
 
     const res = await GET(
       req(
-        "http://localhost:3000/auth/callback?code=abc&next=/auth/update-password",
+        "http://localhost:3000/auth/callback?code=abc&next=/account",
         // x-forwarded-host present but should be ignored in dev
         { "x-forwarded-host": "www.youtubeai.chat" }
       )
     );
 
     expect(res.headers.get("location")).toBe(
-      "http://localhost:3000/auth/update-password"
+      "http://localhost:3000/account"
     );
   });
 
@@ -142,7 +143,7 @@ describe("GET /auth/callback", () => {
 
     const res = await GET(
       req(
-        "https://www.youtubeai.chat/auth/callback?code=stale&next=/auth/update-password"
+        "https://www.youtubeai.chat/auth/callback?code=stale&next=/account"
       )
     );
 
