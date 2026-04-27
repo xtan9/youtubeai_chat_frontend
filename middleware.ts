@@ -9,14 +9,16 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * - sitemap.xml (for search engines)
-     * - robots.txt (for search engines)
-     * Feel free to modify this pattern to include more paths.
+     * - _next/static, _next/image (Next internals)
+     * - favicon.ico, sitemap.xml, robots.txt, manifest.json (static endpoints
+     *   that crawlers and PWA installers fetch unauthenticated)
+     * - any path ending in a static asset extension
+     *
+     * Without manifest.json in this list, Supabase auth was redirecting
+     * /manifest.json to /auth/login, breaking PWA installability and
+     * generating a "Manifest: Line 1, column 1, Syntax error" in every
+     * browser console.
      */
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
