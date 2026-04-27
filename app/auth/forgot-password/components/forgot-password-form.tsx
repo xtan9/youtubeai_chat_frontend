@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { buildRecoveryRedirectUrl } from "@/lib/auth/recovery-redirect";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,9 +32,15 @@ export function ForgotPasswordForm({
     setError(null);
 
     try {
-      // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
+      // redirectTo is canonicalized via buildRecoveryRedirectUrl: Supabase
+      // Auth's allowlist is exact-match per entry, and only the apex
+      // origin (https://youtubeai.chat/**) carries a wildcard for this
+      // project. Passing a www-origin URL with a `?next=` suffix gets
+      // silently rejected and falls back to the Site URL — which is what
+      // dropped recovery clickers on the home page in production. See
+      // lib/auth/recovery-redirect.ts for the full rationale.
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+        redirectTo: buildRecoveryRedirectUrl(window.location.origin),
       });
       if (error) throw error;
       setSuccess(true);
