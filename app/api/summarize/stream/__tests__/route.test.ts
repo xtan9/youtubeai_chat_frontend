@@ -20,7 +20,27 @@ const mocks = vi.hoisted(() => ({
   streamLlmSummary: vi.fn(),
   checkRateLimit: vi.fn(),
   classifyContent: vi.fn(),
+  // Spy proxy for next/server's after() — invokes the callback synchronously
+  // so existing assertions on writeCachedSummary observe the call within the
+  // test's microtask window. Exposed as a mock so tests can pin "the route
+  // uses after() to defer the cache write" — the property the prod fix
+  // depends on.
+  after: vi.fn((fn: () => unknown) => fn()),
 }));
+
+// next/server's after() defers callbacks until the response is delivered;
+// in unit tests there's no Next.js request scope, so we run the callback
+// synchronously and propagate its return so test awaits see the cache-write
+// completion (or rejection) before assertions.
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>(
+    "next/server"
+  );
+  return {
+    ...actual,
+    after: mocks.after,
+  };
+});
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
@@ -154,6 +174,9 @@ describe("POST /api/summarize/stream", () => {
     mocks.writeCachedSummary.mockResolvedValue(undefined);
     mocks.writeCachedTranscript.mockResolvedValue(undefined);
     mocks.classifyContent.mockResolvedValue(null);
+    // Restore after's passthrough implementation — mockReset above wipes
+    // the original implementation set at hoisted-mock construction.
+    mocks.after.mockImplementation((fn: () => unknown) => fn());
   });
 
   afterEach(() => {
@@ -1188,6 +1211,47 @@ describe("POST /api/summarize/stream", () => {
               ((c[1] as Record<string, unknown> | undefined) ?? {})
         )
       ).toBe(true);
+    });
+
+    it("schedules the cache write through next/server after() (not fire-and-forget)", async () => {
+      // Pins the prod fix for the CACHE_WRITE_FAILED / fetch-failed incident
+      // (3 events for as3SgPXRRC4 on 2026-04-27, plus a longer tail of
+      // "summary lands minutes after the videos row" healing-on-retry
+      // patterns visible in the videos × summaries timing). The race was
+      // writeCachedSummary's videos upsert dying mid-handshake when Lambda
+      // froze the container after controller.close(). Reverting to
+      // `writeCachedSummary({...}).catch(...)` (fire-and-forget) re-introduces
+      // the bug — this test forces an explicit decision to drop after().
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "ok" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+      // Capture-only: don't invoke the callback. If route.ts wrote
+      // `writeCachedSummary(...).catch(...)` directly, writeCachedSummary
+      // would still be called during stream-handler execution and this
+      // assertion would fail-loud below.
+      const captured: Array<() => unknown> = [];
+      mocks.after.mockImplementation((fn: () => unknown) => {
+        captured.push(fn);
+      });
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readStream(res);
+
+      expect(mocks.after).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(1);
+      expect(typeof captured[0]).toBe("function");
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+
+      // Invoke the deferred callback — this is what Next.js's runtime
+      // does after the response is delivered. writeCachedSummary must
+      // run from inside it, proving the route routes the cache write
+      // through after().
+      await captured[0]();
+      expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
     });
 
     it("emits generic error event when unhandled exception bubbles to outer catch", async () => {

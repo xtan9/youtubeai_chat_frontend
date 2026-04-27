@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractCaptions } from "@/lib/services/caption-extractor";
@@ -757,46 +758,61 @@ export async function POST(request: Request) {
           return;
         }
 
-        writeCachedSummary({
-          youtubeUrl: youtube_url,
-          title,
-          channelName,
-          language,
-          // Snapshot the flat string the LLM consumed. The cache row is a
-          // record of "what we summarized" — segments live separately on
-          // video_transcripts and stay the canonical source for the UI.
-          transcript: transcriptText,
-          summary: fullSummary,
-          transcriptSource,
-          model: decision.model,
-          processingTimeSeconds,
-          transcribeTimeSeconds: transcribeSeconds,
-          summarizeTimeSeconds: summarizeSecondsFinal,
-          userId: authedUser.id,
-          outputLanguage: outputLanguageCode ?? null,
-        }).catch((err) => {
-          // Cache write is fire-and-forget — never propagate to the
-          // user. But each failure class warrants a different signal:
-          // 23505 is schema drift (incident — see PR #25), PGRST204 is
-          // stale PostgREST schema cache (transient), auth-class errors
-          // are creds rotation. Carry the SQLSTATE + outputLanguage so a
-          // dashboard can split the spike by class without joining log
-          // lines after the fact (every 23505 line had outputLanguage
-          // non-null on the day this incident shipped — that field
-          // alone would have flagged it).
-          const pgCode =
-            err && typeof err === "object" && "code" in err
-              ? (err as { code: unknown }).code
-              : undefined;
-          console.error("[summarize/stream] CACHE_WRITE_FAILED", {
-            errorId: "CACHE_WRITE_FAILED",
-            stage: "cache" satisfies LogStage,
-            pgCode,
-            youtubeUrl: youtube_url,
-            userId: authedUser.id,
-            outputLanguage: outputLanguageCode ?? null,
-            err,
-          });
+        // Defer to next/server's after() so Vercel keeps the function alive
+        // until the cache write resolves. The previous fire-and-forget
+        // `.catch` raced the controller.close() in the finally block: on
+        // production we observed `TypeError: fetch failed` on the videos
+        // upsert (3 events for as3SgPXRRC4 on 2026-04-27, plus a longer
+        // tail across other videos that healed only on a later retry).
+        // Lambda freezes the container shortly after the response stream
+        // ends, killing the in-flight HTTP fetch to PostgREST. after()
+        // is the supported primitive for this exact post-response work;
+        // writeCachedTranscript above doesn't need it because it fires
+        // before the LLM streams and settles during that window.
+        after(async () => {
+          try {
+            await writeCachedSummary({
+              youtubeUrl: youtube_url,
+              title,
+              channelName,
+              language,
+              // Snapshot the flat string the LLM consumed. The cache row is a
+              // record of "what we summarized" — segments live separately on
+              // video_transcripts and stay the canonical source for the UI.
+              transcript: transcriptText,
+              summary: fullSummary,
+              transcriptSource,
+              model: decision.model,
+              processingTimeSeconds,
+              transcribeTimeSeconds: transcribeSeconds,
+              summarizeTimeSeconds: summarizeSecondsFinal,
+              userId: authedUser.id,
+              outputLanguage: outputLanguageCode ?? null,
+            });
+          } catch (err) {
+            // Cache write is best-effort — never propagate to the user.
+            // But each failure class warrants a different signal:
+            // 23505 is schema drift (incident — see PR #25), PGRST204 is
+            // stale PostgREST schema cache (transient), auth-class errors
+            // are creds rotation. Carry the SQLSTATE + outputLanguage so a
+            // dashboard can split the spike by class without joining log
+            // lines after the fact (every 23505 line had outputLanguage
+            // non-null on the day this incident shipped — that field
+            // alone would have flagged it).
+            const pgCode =
+              err && typeof err === "object" && "code" in err
+                ? (err as { code: unknown }).code
+                : undefined;
+            console.error("[summarize/stream] CACHE_WRITE_FAILED", {
+              errorId: "CACHE_WRITE_FAILED",
+              stage: "cache" satisfies LogStage,
+              pgCode,
+              youtubeUrl: youtube_url,
+              userId: authedUser.id,
+              outputLanguage: outputLanguageCode ?? null,
+              err,
+            });
+          }
         });
       } catch (err) {
         if (isCallerAbort(request.signal)) return;
