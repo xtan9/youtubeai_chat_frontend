@@ -1,0 +1,198 @@
+# AlertDialog
+
+A modal that demands an explicit action from the user — typically a
+destructive confirmation ("Delete this video summary?", "Sign out of
+all devices?"). Backed by `@radix-ui/react-alert-dialog`. The semantic
+contract is stricter than [Dialog](./dialog.mdx): the user **must**
+choose Action or Cancel; there is no built-in close X, and clicking
+the backdrop or pressing Escape does **not** dismiss by default.
+
+## When to reach for AlertDialog vs Dialog
+
+| Scenario                                                                    | Use                       |
+| --------------------------------------------------------------------------- | ------------------------- |
+| Confirm a destructive / irreversible action ("delete", "discard", "sign out") | **AlertDialog** (this)    |
+| Confirm a reversible action ("you have unsaved changes — keep editing?")    | [Dialog](./dialog.mdx)    |
+| Collect input via a form inside a modal                                     | [Dialog](./dialog.mdx)    |
+| Show informational content the user can dismiss freely                      | [Dialog](./dialog.mdx) or [Sheet](./sheet.mdx) |
+
+The semantic difference is exposed in the ARIA role: AlertDialog
+uses `role="alertdialog"` and is meant to interrupt the user with a
+decision they cannot defer.
+
+## Import
+
+```tsx
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+```
+
+## Anatomy
+
+- `AlertDialog` — root state machine.
+- `AlertDialogTrigger` — opens the dialog.
+- `AlertDialogContent` — the centered modal panel. **No built-in
+  close button** (unlike Dialog) — the user must click `AlertDialogAction`
+  or `AlertDialogCancel`.
+- `AlertDialogHeader` — vertical stack for title + description.
+- `AlertDialogTitle` — accessible name (required).
+- `AlertDialogDescription` — accessible description (required for
+  this primitive — alertdialog must have a description).
+- `AlertDialogFooter` — bottom action row (column-reversed on small
+  viewports so the primary action stays at the bottom).
+- `AlertDialogAction` — the **confirm** button. Pre-styled with
+  `buttonVariants()` (default = primary). Wire `onClick` to your
+  destructive handler.
+- `AlertDialogCancel` — the **cancel** button. Pre-styled with
+  `buttonVariants({ variant: "outline" })`. Closing-on-click is
+  automatic via Radix.
+
+## Props
+
+| Slot                      | Element                | Notable props                                                |
+| ------------------------- | ---------------------- | ------------------------------------------------------------ |
+| `AlertDialog`             | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`                        |
+| `AlertDialogTrigger`      | `Radix.Trigger`        | `asChild`                                                    |
+| `AlertDialogContent`      | `Radix.Content`        | `onEscapeKeyDown` (Radix DOES dismiss on Escape by default — override here if you need to lock the user in until they decide) |
+| `AlertDialogTitle`        | `Radix.Title`          | All `<h2>` props                                             |
+| `AlertDialogDescription`  | `Radix.Description`    | All `<p>` props                                              |
+| `AlertDialogAction`       | `Radix.Action`         | `onClick` (the confirm handler); auto-closes after click     |
+| `AlertDialogCancel`       | `Radix.Cancel`         | Auto-closes on click                                         |
+
+## Variants
+
+```tsx
+// Destructive confirm (the canonical AlertDialog usage)
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive">Delete account</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+      <AlertDialogDescription>
+        This is permanent. All summaries and transcripts will be removed.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        className={buttonVariants({ variant: "destructive" })}
+        onClick={onDelete}
+      >
+        Delete account
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+```tsx
+// Sign-out-of-all-devices confirm
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="outline">Sign out everywhere</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Sign out of all devices?</AlertDialogTitle>
+      <AlertDialogDescription>
+        You'll need to sign in again on each device.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+      <AlertDialogAction onClick={signOutEverywhere}>
+        Sign out
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-alert-dialog` — emits
+  `role="alertdialog"` (not `role="dialog"`). Screen readers
+  announce it differently and treat it as more interruptive.
+- **`AlertDialogTitle` AND `AlertDialogDescription` are required.**
+  axe will fail without both. The description provides the
+  decision context the user needs.
+- **No built-in close button** — the dialog is intentionally hard to
+  dismiss by accident. Users must click Action or Cancel.
+- Escape *does* dismiss by default (Radix behavior). To force the
+  user to choose, override `onEscapeKeyDown` on `AlertDialogContent`
+  with `(e) => e.preventDefault()`. Use sparingly — disabling
+  Escape is hostile to keyboard-only users.
+- Click-outside does **not** dismiss (Radix
+  `onPointerDownOutside` is no-op'd by the alert-dialog primitive).
+- Focus is trapped inside content; first focusable child receives
+  focus on open. By Radix convention, the **Cancel** button is the
+  default focused control — destructive Action should not be the
+  default.
+
+## Composition examples
+
+```tsx
+// Controlled — disable Action while async work runs
+const [open, setOpen] = useState(false);
+const [busy, setBusy] = useState(false);
+const onConfirm = async () => {
+  setBusy(true);
+  await deleteThing();
+  setBusy(false);
+  setOpen(false);
+};
+
+<AlertDialog open={open} onOpenChange={setOpen}>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive">Delete</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete this summary?</AlertDialogTitle>
+      <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        className={buttonVariants({ variant: "destructive" })}
+        disabled={busy}
+        onClick={(e) => { e.preventDefault(); onConfirm(); }}
+      >
+        {busy ? "Deleting…" : "Delete"}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+> **Important:** when running async work on Action, call
+> `e.preventDefault()` to stop Radix from closing the dialog
+> immediately, then close manually after the work completes (or on
+> error, leave it open so the user can retry).
+
+## Token usage
+
+- Background: `--color-background`
+- Overlay: `bg-black/50`
+- Border: default border
+- Radius: `rounded-lg`
+- Shadow: `shadow-lg`
+- Spacing: `gap-4` content; `p-6` content padding
+- Action button: `buttonVariants()` (inherits all Button tokens)
+- Cancel button: `buttonVariants({ variant: "outline" })`
+- Animation: `data-[state=open]:fade-in-0 zoom-in-95` /
+  `data-[state=closed]:fade-out-0 zoom-out-95`
+- Z-index: `z-50`

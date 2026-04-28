@@ -1,0 +1,148 @@
+# Popover
+
+A lightweight floating panel anchored to a trigger. Backed by
+`@radix-ui/react-popover`. Reach for it for non-modal supplementary UI:
+filter forms, color pickers, contextual help that the user can interact
+with without losing the underlying surface. For a modal that demands
+full attention, use [Dialog](./dialog.mdx); for hover-driven preview
+content, use [HoverCard](./hover-card.mdx); for tip text only, use
+[Tooltip](./tooltip.mdx).
+
+## Import
+
+```tsx
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverAnchor,
+} from "@/components/ui/popover";
+```
+
+## Anatomy
+
+- `Popover` — root state machine. Forwards to `Radix.Root`.
+- `PopoverTrigger` — clickable that opens the popover. Use `asChild`
+  to forward semantics onto a custom button.
+- `PopoverAnchor` — optional separate element to anchor positioning to,
+  if it should differ from the trigger.
+- `PopoverContent` — the floating panel. Auto-portaled. Defaults:
+  `align="center"`, `sideOffset={4}`, width `w-72`.
+
+## Props
+
+| Slot              | Element                | Notable props                                                                                  |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `Popover`         | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`, `modal`                                                 |
+| `PopoverTrigger`  | `Radix.Trigger`        | `asChild`                                                                                      |
+| `PopoverAnchor`   | `Radix.Anchor`         | `asChild` (positions content relative to this element instead of the trigger)                  |
+| `PopoverContent`  | `Radix.Content`        | `side`, `sideOffset` (default `4`), `align` (default `"center"`), `alignOffset`, `collisionPadding`, `avoidCollisions`, `onOpenAutoFocus`, `onCloseAutoFocus`, `onEscapeKeyDown`, `onPointerDownOutside`, `onInteractOutside` |
+
+## Variants
+
+```tsx
+// Filter form popover
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="outline">Filters</Button>
+  </PopoverTrigger>
+  <PopoverContent>
+    <div className="grid gap-3">
+      <Label htmlFor="from">From</Label>
+      <Input id="from" type="date" />
+      <Label htmlFor="to">To</Label>
+      <Input id="to" type="date" />
+    </div>
+  </PopoverContent>
+</Popover>
+```
+
+```tsx
+// Side & align overrides
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="ghost" size="icon" aria-label="Help">
+      <HelpCircleIcon />
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent side="top" align="end">
+    Click here for hints, not just hover.
+  </PopoverContent>
+</Popover>
+```
+
+```tsx
+// Anchored to a different element
+<Popover>
+  <PopoverAnchor asChild>
+    <div className="h-32 w-32 bg-muted" />
+  </PopoverAnchor>
+  <PopoverTrigger asChild>
+    <Button>Toggle</Button>
+  </PopoverTrigger>
+  <PopoverContent>Anchored to the gray box, not the button.</PopoverContent>
+</Popover>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-popover` (WAI-ARIA `dialog` pattern, but
+  non-modal). Focus is moved into the content on open and returned to
+  the trigger on close.
+- **`PopoverContent` renders with `role="dialog"` and therefore
+  requires an accessible name.** Pass either `aria-label="…"` or
+  `aria-labelledby="<id-of-heading-inside-content>"` on
+  `PopoverContent`. axe will fail otherwise; the popover a11y test
+  pins this contract.
+- Escape closes by default; click-outside closes by default.
+- Unlike [Dialog](./dialog.mdx) the page beneath stays interactive
+  unless the consumer passes `modal`.
+- The trigger gets `aria-expanded` and `aria-controls` automatically
+  via Radix.
+- For tooltip-style hover content (no interaction), prefer
+  [Tooltip](./tooltip.mdx) — popovers require an explicit click to
+  open which is wrong for tooltip semantics.
+
+## Composition examples
+
+```tsx
+// Date range picker
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="outline">
+      <CalendarIcon />
+      {range ? formatRange(range) : "Pick a date range"}
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent className="w-auto p-0" align="start">
+    <Calendar mode="range" selected={range} onSelect={setRange} />
+  </PopoverContent>
+</Popover>
+```
+
+```tsx
+// Account menu without role=menu (a Popover, not a DropdownMenu)
+<Popover>
+  <PopoverTrigger asChild>
+    <Avatar>{/* ... */}</Avatar>
+  </PopoverTrigger>
+  <PopoverContent align="end" className="w-56">
+    <p className="text-sm font-medium">{user.email}</p>
+    <Separator className="my-2" />
+    <Button variant="ghost" className="w-full justify-start" onClick={signOut}>
+      Sign out
+    </Button>
+  </PopoverContent>
+</Popover>
+```
+
+## Token usage
+
+- Background: `--color-popover`, `--color-popover-foreground`
+- Border: default border
+- Radius: `rounded-md`
+- Shadow: `shadow-md`
+- Spacing: `p-4` content padding; `w-72` default width
+- Animation: Radix `data-[state]` transitions (fade + zoom + side-aware
+  slide-in)
+- Z-index: `z-50`

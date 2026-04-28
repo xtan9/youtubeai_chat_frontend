@@ -1,0 +1,162 @@
+# Card
+
+A surface primitive for grouping related content into a bordered, padded
+block. Pure semantic HTML — no Radix wrapper. Reach for it whenever a
+section needs visual containment (a video summary, a settings group, a
+testimonial). For overlay UI (modals, side panels) reach for
+[Dialog](./dialog.mdx), [Sheet](./sheet.mdx), or [Drawer](./drawer.mdx)
+instead.
+
+## Import
+
+```tsx
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardAction,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
+```
+
+## Anatomy
+
+`Card` is a vertical flex container with seven optional slots:
+
+- `Card` — root `<div>` with border, rounded corners, shadow, vertical
+  padding, and a default 6-unit gap between children.
+- `CardHeader` — a CSS-grid header that auto-lays out a title + optional
+  description on the left and an optional `CardAction` on the right.
+- `CardTitle` — semantic title text (semibold, tight leading). Wrap in
+  an `<h2>`/`<h3>` via `asChild`-style composition (the slot itself is
+  a `<div>` so the consumer chooses the heading level).
+- `CardDescription` — subtitle/explanatory text in muted color.
+- `CardAction` — top-right action slot inside the header (e.g., a
+  menu trigger, a close button).
+- `CardContent` — main body region with horizontal padding. The
+  primary content slot.
+- `CardFooter` — bottom action region. Adds a top border via the
+  `[.border-t]:pt-6` selector when a `border-t` class is present.
+
+All slots are plain `<div>`s with `data-slot` attributes — no ARIA is
+imposed. The consumer decides semantics.
+
+## Props
+
+Every slot accepts the full `React.ComponentProps<"div">` (`className`,
+`id`, event handlers, etc.) and forwards them to the underlying `<div>`.
+There are no slot-specific props beyond `className`.
+
+| Slot              | Element  | data-slot           | Notes                                                                |
+| ----------------- | -------- | ------------------- | -------------------------------------------------------------------- |
+| `Card`            | `div`    | `card`              | Root surface; flex column with `gap-6`, `rounded-xl`, `shadow-sm`.   |
+| `CardHeader`      | `div`    | `card-header`       | Grid; switches to two-column when a `CardAction` child is present.   |
+| `CardTitle`       | `div`    | `card-title`        | Bold, tight leading. Use a real heading via `asChild`-style nesting. |
+| `CardDescription` | `div`    | `card-description`  | Muted, small text.                                                   |
+| `CardAction`      | `div`    | `card-action`       | Auto-positioned top-right inside the header grid.                    |
+| `CardContent`     | `div`    | `card-content`      | Body; horizontal padding only.                                       |
+| `CardFooter`      | `div`    | `card-footer`       | Footer; horizontal padding + flex row.                               |
+
+## Variants
+
+```tsx
+// Minimal: title + body
+<Card>
+  <CardHeader>
+    <CardTitle>Recent summaries</CardTitle>
+    <CardDescription>Last 7 days</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <ul>{/* ... */}</ul>
+  </CardContent>
+</Card>
+```
+
+```tsx
+// With action and footer
+<Card>
+  <CardHeader>
+    <CardTitle>Subscription</CardTitle>
+    <CardDescription>You are on the Free plan.</CardDescription>
+    <CardAction>
+      <Button variant="outline" size="sm">Manage</Button>
+    </CardAction>
+  </CardHeader>
+  <CardContent>
+    <p>30 summaries / month included.</p>
+  </CardContent>
+  <CardFooter className="border-t">
+    <Button>Upgrade</Button>
+  </CardFooter>
+</Card>
+```
+
+```tsx
+// Promote a heading: replace the CardTitle div with an h2 by nesting
+<Card>
+  <CardHeader>
+    <h2 className="text-lg font-semibold leading-none">Heading is an h2</h2>
+    <CardDescription>Description sits beneath it.</CardDescription>
+  </CardHeader>
+</Card>
+```
+
+## Accessibility
+
+- Pure semantic HTML — no role or ARIA is auto-applied. `Card` is a
+  visual grouping, not a landmark.
+- For navigation landmarks, wrap a `Card` in `<section aria-labelledby="…">`
+  or use a real `<article>` element with `asChild` patterns.
+- Heading semantics are the consumer's responsibility. `CardTitle`
+  renders a `<div>` so the heading level (`h2`/`h3`/etc.) is chosen by
+  the surrounding page hierarchy. Don't ship a card with no heading at
+  all if it represents a discrete page region.
+- `CardHeader`'s grid layout works with screen-magnifier flow because
+  it preserves DOM order — the title appears before the action in the
+  reading order regardless of visual right-alignment.
+
+## Composition examples
+
+```tsx
+// Video info card (production usage)
+<Card className="w-full max-w-2xl">
+  <CardHeader>
+    <CardTitle>{video.title}</CardTitle>
+    <CardDescription>{video.channelName} · {video.duration}</CardDescription>
+    <CardAction>
+      <Button variant="ghost" size="icon" aria-label="Open menu">
+        <MoreHorizontalIcon />
+      </Button>
+    </CardAction>
+  </CardHeader>
+  <CardContent>
+    <p>{video.summary}</p>
+  </CardContent>
+  <CardFooter className="border-t">
+    <Button variant="outline">View transcript</Button>
+    <Button>Re-summarize</Button>
+  </CardFooter>
+</Card>
+```
+
+```tsx
+// Plain content block — no header, no footer
+<Card>
+  <CardContent className="py-6">
+    <p>Sometimes a card is just a padded surface.</p>
+  </CardContent>
+</Card>
+```
+
+## Token usage
+
+- Background: `--color-card`, `--color-card-foreground`
+- Border: default border color (`--color-border` via Tailwind's `border`)
+- Radius: `rounded-xl`
+- Shadow: `shadow-sm`
+- Spacing: `gap-6` between slots, `px-6` horizontal padding, `py-6`
+  vertical padding on root
+- Typography: title uses semibold + `leading-none`; description uses
+  `text-sm` + `--color-muted-foreground`
