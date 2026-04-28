@@ -1,5 +1,176 @@
 @import "tailwindcss";
 
+/* Class-based dark mode bridge for Tailwind 4. Replaces the legacy
+   `darkMode: "class"` setting from `tailwind.config.ts`, which Tailwind 4
+   no longer reads. `next-themes` toggles `.dark` on `<html>`; this variant
+   lets `dark:*` utilities respond to that class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+ * Design system tokens (B PR 1 — token foundation)
+ *
+ * Tailwind 4 ships sensible defaults for spacing (`--spacing: 0.25rem`),
+ * radius (`--radius-{xs,sm,md,lg,xl,2xl,3xl,4xl}`),
+ * shadow (`--shadow-{2xs,xs,sm,md,lg,xl,2xl}`),
+ * blur (`--blur-{xs,sm,md,lg,xl,2xl,3xl}`),
+ * text (`--text-{xs,sm,base,lg,xl,2xl..9xl}`), and easings
+ * (`--ease-{in,out,in-out}`). Those become our radius/shadow/blur/spacing
+ * vocabulary directly — see `docs/design-system/tokens/` for the catalogue.
+ *
+ * The `@theme` block below defines additions on top of those defaults:
+ * semantic typography aliases, named motion durations, custom easings,
+ * and gradient variables. `@utility` rules expose the gradients as
+ * first-class `.bg-gradient-*` utility classes (Tailwind 4 has no
+ * built-in `--gradient-*` namespace — see Step 2 research note in
+ * docs/design-system/tokens/gradient.mdx).
+ * ------------------------------------------------------------------------- */
+
+@theme {
+  /* --------------------------------------------------------------------
+   * Semantic typography scale — pairs `--text-*` with `--text-*--line-height`.
+   * Backed by the modular Tailwind 4 type scale; aliases name *intent*
+   * (display / h1–h6 / body sizes / caption) so docs and components can
+   * reach for meaning rather than raw t-shirt sizes.
+   * -------------------------------------------------------------------- */
+
+  /* Display — hero headlines */
+  --text-display: 3.75rem; /* 60px */
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 700;
+
+  /* Headings */
+  --text-h1: 3rem; /* 48px */
+  --text-h1--line-height: 1.1;
+  --text-h1--letter-spacing: -0.025em;
+  --text-h1--font-weight: 700;
+
+  --text-h2: 2.25rem; /* 36px */
+  --text-h2--line-height: 1.2;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h2--font-weight: 700;
+
+  --text-h3: 1.875rem; /* 30px */
+  --text-h3--line-height: 1.25;
+  --text-h3--letter-spacing: -0.015em;
+  --text-h3--font-weight: 600;
+
+  --text-h4: 1.5rem; /* 24px */
+  --text-h4--line-height: 1.3;
+  --text-h4--font-weight: 600;
+
+  --text-h5: 1.25rem; /* 20px */
+  --text-h5--line-height: 1.4;
+  --text-h5--font-weight: 600;
+
+  --text-h6: 1.125rem; /* 18px */
+  --text-h6--line-height: 1.5;
+  --text-h6--font-weight: 600;
+
+  /* Body sizes */
+  --text-body-lg: 1.125rem; /* 18px */
+  --text-body-lg--line-height: 1.6;
+
+  --text-body-md: 1rem; /* 16px */
+  --text-body-md--line-height: 1.6;
+
+  --text-body-sm: 0.875rem; /* 14px */
+  --text-body-sm--line-height: 1.5;
+
+  --text-body-xs: 0.75rem; /* 12px */
+  --text-body-xs--line-height: 1.5;
+
+  /* Caption — small supportive text */
+  --text-caption: 0.75rem; /* 12px */
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: 0.025em;
+
+  /* --------------------------------------------------------------------
+   * Motion — named durations + soft easings.
+   *
+   * The 75/150/250/400/600 ms ladder gives Claude a clear default mental
+   * model: instant for state flips, fast for hovers, base for menus, slow
+   * for backdrops, slower for orchestrated reveals.
+   * -------------------------------------------------------------------- */
+  --duration-instant: 75ms;
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+  --duration-slower: 600ms;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* --------------------------------------------------------------------
+   * Brand gradients (preserves the original purple/pink/cyan accent that
+   * shipped pre-tokens). These live as plain custom properties because
+   * Tailwind 4's `@theme` namespace table does not include `--gradient-*`.
+   * The matching `@utility` rules below turn them into `.bg-gradient-*`
+   * utility classes so consumer code never needs `bg-[image:var(...)]`.
+   * Hex values match the oklch defaults Tailwind 4 ships for purple-500,
+   * pink-500, cyan-500 — preserving the exact pre-token visual identity.
+   * -------------------------------------------------------------------- */
+  --gradient-brand-primary: linear-gradient(
+    to right,
+    var(--color-purple-500),
+    var(--color-cyan-500)
+  );
+  --gradient-brand-primary-hover: linear-gradient(
+    to right,
+    var(--color-purple-600),
+    var(--color-cyan-600)
+  );
+  --gradient-brand-accent: linear-gradient(
+    to right,
+    var(--color-purple-500),
+    var(--color-pink-500),
+    var(--color-cyan-500)
+  );
+  --gradient-brand-soft: linear-gradient(
+    to right,
+    color-mix(in oklch, var(--color-purple-500) 20%, transparent),
+    color-mix(in oklch, var(--color-cyan-500) 20%, transparent)
+  );
+  --gradient-error: linear-gradient(
+    to right,
+    var(--color-red-500),
+    var(--color-orange-500)
+  );
+  --gradient-success: linear-gradient(
+    to right,
+    var(--color-emerald-500),
+    var(--color-teal-500)
+  );
+}
+
+/* Gradient utility classes — see Tailwind 4 @utility directive. */
+@utility bg-gradient-brand-primary {
+  background-image: var(--gradient-brand-primary);
+}
+@utility bg-gradient-brand-primary-hover {
+  background-image: var(--gradient-brand-primary-hover);
+}
+@utility bg-gradient-brand-accent {
+  background-image: var(--gradient-brand-accent);
+}
+@utility bg-gradient-brand-soft {
+  background-image: var(--gradient-brand-soft);
+}
+@utility bg-gradient-error {
+  background-image: var(--gradient-error);
+}
+@utility bg-gradient-success {
+  background-image: var(--gradient-success);
+}
+
+/* ---------------------------------------------------------------------------
+ * Color system — legacy shadcn HSL variables.
+ *
+ * Kept as-is during PR 1 to avoid color-system churn while we land the new
+ * token surfaces. PRs 2-6 may migrate these into `@theme` `--color-*` form
+ * if it falls naturally out of cluster work; a brand redesign is explicitly
+ * out of scope for B (see spec §9).
+ * ------------------------------------------------------------------------- */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -35,8 +206,6 @@
     --sidebar-accent-foreground: hsl(0 0% 3.9%);
     --sidebar-border: hsl(0 0% 89.8%);
     --sidebar-ring: hsl(217.2 91.2% 59.8%);
-    --spacing-4: 1rem;
-    --spacing-8: 2rem;
   }
 
   .dark {

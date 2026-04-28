@@ -1,0 +1,33 @@
+# Border radius tokens
+
+Tailwind 4 ships a complete radius scale by default. We adopt it as-is
+and document the meaning here.
+
+## Scale
+
+| Token | Utility | Value | When to reach for |
+|-------|---------|-------|-------------------|
+| _(none)_ | `rounded-none` | 0 | Rectangular elements (default reset) |
+| `--radius-xs` | `rounded-xs` | 0.125rem (2px) | Inline marks, dense UI |
+| `--radius-sm` | `rounded-sm` | 0.25rem (4px) | Small chips, compact form controls |
+| `--radius-md` | `rounded-md` | 0.375rem (6px) | Default buttons, inputs |
+| `--radius-lg` | `rounded-lg` | 0.5rem (8px) | Cards, dialogs |
+| `--radius-xl` | `rounded-xl` | 0.75rem (12px) | Featured cards, callout containers |
+| `--radius-2xl` | `rounded-2xl` | 1rem (16px) | Hero containers, large surfaces |
+| `--radius-3xl` | `rounded-3xl` | 1.5rem (24px) | Marketing surfaces (e.g. input-form container) |
+| `--radius-4xl` | `rounded-4xl` | 2rem (32px) | Oversized hero/marketing |
+| _(special)_ | `rounded-full` | 9999px | Pills, avatars, fully-round pictograms |
+
+Full sides (`rounded-*`) and per-corner (`rounded-tl-*`, `rounded-br-*`)
+variants both work.
+
+## Legacy `--radius` variable
+
+`app/globals.css` still defines `--radius: 0.5rem` inside `:root` for
+shadcn legacy compatibility. New code should reference the
+`--radius-{xs..4xl}` scale instead — it's the canonical Tailwind 4
+contract and will outlive any future shadcn migration.
+
+## Tokens reference
+
+Source: Tailwind 4 default theme (no overrides in `app/globals.css`).

@@ -1,7 +1,11 @@
 import type { Config } from "tailwindcss";
 
+// Tailwind 4 reads most config from CSS (`@theme`, `@custom-variant`) in
+// `app/globals.css`. The dark-mode strategy lives there as
+// `@custom-variant dark (&:where(.dark, .dark *))`. The `theme.extend` block
+// below is also v3-shaped and largely ignored by v4; it's kept only because
+// the plugins still load via this file. See `docs/design-system/README.md`.
 export default {
-  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
