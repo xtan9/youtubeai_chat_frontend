@@ -1,0 +1,178 @@
+# Tooltip
+
+A small label that appears on focus or hover, attached to a control
+that has no visible text. Backed by `@radix-ui/react-tooltip`. Reach
+for it for icon buttons, abbreviation expansion, and shortcut hints.
+For richer **interactive** preview content, use [HoverCard](./hover-card.mdx);
+for **clickable** floating UI (forms, menus), use
+[Popover](./popover.mdx).
+
+## Tooltip vs HoverCard — when to reach for which
+
+| You want…                                            | Reach for                       |
+| ---------------------------------------------------- | ------------------------------- |
+| Short text label for an icon button or shortcut hint | **Tooltip** (this)              |
+| Rich preview UI on hover (avatar card, link unfurl)  | [HoverCard](./hover-card.mdx)   |
+| Interactive content the user clicks into             | [Popover](./popover.mdx)        |
+
+The interaction model differs:
+
+- **Tooltip** — appears on **keyboard focus** OR **hover**. Tooltip
+  content is purely informational (no buttons, links, or form fields).
+  Required: a focusable trigger element.
+- **HoverCard** — appears on **hover** OR **focus**. Content can be
+  interactive (links, buttons), but the user must move their cursor
+  into the card before it dismisses. Useful for "preview a thing that's
+  also a clickable link."
+
+## Import
+
+```tsx
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+```
+
+The `TooltipProvider` is included automatically by the `Tooltip`
+component for ergonomics; you only need to render `TooltipProvider`
+explicitly if you want to share `delayDuration` across many tooltips
+or wrap a whole section with non-default provider config.
+
+## Anatomy
+
+- `TooltipProvider` — context that controls hover/focus delay across
+  many tooltips. Auto-rendered by `Tooltip`; can wrap your app at the
+  root for shared timing.
+- `Tooltip` — root state machine. Wraps `TooltipPrimitive.Root` in a
+  default provider for ergonomics.
+- `TooltipTrigger` — the focusable element that activates the tooltip.
+  Must be focusable (a button, link, or any element with `tabindex`).
+- `TooltipContent` — the floating label. Auto-portaled. Includes a
+  small arrow pointing at the trigger.
+
+## Props
+
+| Slot              | Element                | Notable props                                                                                  |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `TooltipProvider` | `Radix.Provider`       | `delayDuration` (default `0` — show immediately), `skipDelayDuration`, `disableHoverableContent` |
+| `Tooltip`         | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`, `delayDuration`                                         |
+| `TooltipTrigger`  | `Radix.Trigger`        | `asChild`                                                                                      |
+| `TooltipContent`  | `Radix.Content`        | `side`, `sideOffset` (default `0`), `align`, `alignOffset`, `collisionPadding`, `avoidCollisions` |
+
+## Variants
+
+```tsx
+// Icon button hint (the canonical tooltip usage)
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Button variant="ghost" size="icon" aria-label="Refresh">
+      <RefreshIcon />
+    </Button>
+  </TooltipTrigger>
+  <TooltipContent>Refresh</TooltipContent>
+</Tooltip>
+```
+
+```tsx
+// Keyboard shortcut hint
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Button variant="outline">Save</Button>
+  </TooltipTrigger>
+  <TooltipContent>
+    Save <kbd>⌘S</kbd>
+  </TooltipContent>
+</Tooltip>
+```
+
+```tsx
+// Custom side and align
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Button>?</Button>
+  </TooltipTrigger>
+  <TooltipContent side="right" align="start">
+    Help text on the right.
+  </TooltipContent>
+</Tooltip>
+```
+
+```tsx
+// Shared provider with longer delay (less aggressive than default 0ms)
+<TooltipProvider delayDuration={500}>
+  {/* many <Tooltip>s in this region get a 500ms delay */}
+</TooltipProvider>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-tooltip` (WAI-ARIA tooltip pattern).
+  The trigger gets `aria-describedby` pointing at the tooltip
+  content, so screen readers announce the tooltip on focus.
+- **Tooltip content must be text only — no interactive elements.**
+  Buttons or links inside `TooltipContent` are unreachable to
+  keyboard-only users (the tooltip dismisses when focus leaves the
+  trigger). For interactive content, use
+  [HoverCard](./hover-card.mdx) or [Popover](./popover.mdx).
+- The trigger **must be focusable**. Use `asChild` with a real
+  button/link, or render the default `<button>`. Tooltip on a
+  non-focusable `<span>` is invisible to keyboard users.
+- Tooltip is **not** a replacement for the trigger's accessible name.
+  Icon buttons must still have `aria-label="…"` — the tooltip only
+  augments. Without `aria-label`, the icon button has no name on
+  initial focus before the tooltip appears.
+- Escape dismisses the tooltip while still keeping focus on the
+  trigger.
+- Hover delay defaults to `0ms` in this design system (hover-feels-
+  responsive over keyboard-discovery). Override via
+  `delayDuration` on the root.
+
+## Composition examples
+
+```tsx
+// Icon-only toolbar
+<TooltipProvider delayDuration={300}>
+  <div className="flex gap-1">
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Bold"><BoldIcon /></Button>
+      </TooltipTrigger>
+      <TooltipContent>Bold (⌘B)</TooltipContent>
+    </Tooltip>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Italic"><ItalicIcon /></Button>
+      </TooltipTrigger>
+      <TooltipContent>Italic (⌘I)</TooltipContent>
+    </Tooltip>
+  </div>
+</TooltipProvider>
+```
+
+```tsx
+// Disabled-button hint (must use a wrapper because disabled buttons aren't focusable)
+<Tooltip>
+  <TooltipTrigger asChild>
+    <span tabIndex={0}>
+      <Button disabled aria-disabled>Submit</Button>
+    </span>
+  </TooltipTrigger>
+  <TooltipContent>Fill required fields to enable</TooltipContent>
+</Tooltip>
+```
+
+## Token usage
+
+- Background: `--color-primary` (inverted from typical popover; matches
+  shadcn's tooltip baseline)
+- Foreground: `--color-primary-foreground`
+- Radius: `rounded-md`
+- Padding: `px-3 py-1.5`
+- Typography: `text-xs text-balance`
+- Arrow: 2.5x2.5 rounded square rotated 45deg (decorative)
+- Animation: `data-[state=open]:fade-in-0 zoom-in-95` /
+  `data-[state=closed]:fade-out-0 zoom-out-95` + side-aware slide-in
+- Z-index: `z-50`

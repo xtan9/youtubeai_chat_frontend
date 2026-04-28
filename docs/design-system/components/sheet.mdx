@@ -1,0 +1,175 @@
+# Sheet
+
+A side-mounted modal panel — a Dialog that slides in from one of the
+four edges. Backed by `@radix-ui/react-dialog` (same primitive as
+[Dialog](./dialog.mdx)), with side-aware Tailwind animation classes
+that swap based on the `side` prop. Reach for it for **utility panels**:
+filters, settings, navigation drawers on desktop, secondary forms that
+shouldn't take over the whole viewport. For full-attention modals, use
+[Dialog](./dialog.mdx); for mobile-first bottom drawers with snap-points
+and gesture dismiss, use [Drawer](./drawer.mdx).
+
+## Import
+
+```tsx
+import {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+```
+
+## Anatomy
+
+- `Sheet` — root state machine (Radix Dialog `Root`).
+- `SheetTrigger` — opens the sheet. `asChild` to forward semantics.
+- `SheetContent` — the side-mounted panel. Auto-portaled. Accepts
+  `side` (`"top" | "right" | "bottom" | "left"`, default `"right"`).
+  Renders a built-in close X in the top-right corner.
+- `SheetHeader`, `SheetFooter` — title block and bottom action region.
+- `SheetTitle` — accessible name (required).
+- `SheetDescription` — accessible description.
+- `SheetClose` — any clickable that closes the sheet.
+
+## Sheet vs Dialog vs Drawer — when to reach for which
+
+| You want…                                                                | Reach for                       |
+| ------------------------------------------------------------------------ | ------------------------------- |
+| A modal that demands attention before continuing                         | [Dialog](./dialog.mdx)          |
+| A confirmation for a destructive / irreversible action                   | [AlertDialog](./alert-dialog.mdx) |
+| A side-mounted panel for filters, settings, or supplementary forms       | **Sheet** (this)                |
+| A mobile-first bottom panel with swipe-to-dismiss and snap points        | [Drawer](./drawer.mdx)          |
+| Lightweight non-modal floating UI (the page beneath stays interactive)   | [Popover](./popover.mdx)        |
+
+Sheet and Dialog share the same Radix primitive; the difference is
+**positioning + intent**, not behavior. Sheet content slides from an
+edge and is taller/narrower; Dialog content centers and is wider.
+
+## Props
+
+| Slot                  | Element                | Notable props                                                                  |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------ |
+| `Sheet`               | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`, `modal`                                 |
+| `SheetTrigger`        | `Radix.Trigger`        | `asChild`                                                                      |
+| `SheetContent`        | `Radix.Content`        | `side` (default `"right"`); plus `onEscapeKeyDown`, `onPointerDownOutside`, `onInteractOutside` |
+| `SheetTitle`          | `Radix.Title`          | All `<h2>` props                                                               |
+| `SheetDescription`    | `Radix.Description`    | All `<p>` props                                                                |
+| `SheetClose`          | `Radix.Close`          | `asChild`                                                                      |
+
+## Variants
+
+```tsx
+// Default: right-side sheet
+<Sheet>
+  <SheetTrigger asChild>
+    <Button variant="outline">Open settings</Button>
+  </SheetTrigger>
+  <SheetContent>
+    <SheetHeader>
+      <SheetTitle>Settings</SheetTitle>
+      <SheetDescription>Manage notifications and account.</SheetDescription>
+    </SheetHeader>
+    {/* form */}
+    <SheetFooter>
+      <SheetClose asChild>
+        <Button variant="outline">Close</Button>
+      </SheetClose>
+      <Button>Save</Button>
+    </SheetFooter>
+  </SheetContent>
+</Sheet>
+```
+
+```tsx
+// Left side (good for nav drawers)
+<Sheet>
+  <SheetTrigger asChild>
+    <Button variant="ghost" size="icon" aria-label="Menu">
+      <MenuIcon />
+    </Button>
+  </SheetTrigger>
+  <SheetContent side="left">
+    <SheetHeader>
+      <SheetTitle>Navigation</SheetTitle>
+    </SheetHeader>
+    <nav>{/* ... */}</nav>
+  </SheetContent>
+</Sheet>
+```
+
+```tsx
+// Top side (banner-style flow)
+<Sheet>
+  <SheetContent side="top">
+    <SheetTitle>Quick actions</SheetTitle>
+  </SheetContent>
+</Sheet>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-dialog` (WAI-ARIA `dialog` pattern).
+  Focus trap, focus return, scroll lock are all automatic.
+- **`SheetTitle` is required** for an accessible name. Wrap in
+  `sr-only` if visually hiding.
+- Escape dismisses; click-outside dismisses (override via
+  `onPointerDownOutside`).
+- Built-in close button has `<span className="sr-only">Close</span>`.
+- The slide-in side comes from a content visual change; assistive tech
+  treats all four sides identically — no aria changes per side.
+
+## Composition examples
+
+```tsx
+// Filter sheet on desktop, drawer on mobile
+const isDesktop = useMediaQuery("(min-width: 768px)");
+return isDesktop ? (
+  <Sheet open={open} onOpenChange={setOpen}>
+    <SheetContent>
+      <SheetHeader><SheetTitle>Filters</SheetTitle></SheetHeader>
+      <FilterForm />
+    </SheetContent>
+  </Sheet>
+) : (
+  <Drawer open={open} onOpenChange={setOpen}>
+    <DrawerContent>
+      <DrawerHeader><DrawerTitle>Filters</DrawerTitle></DrawerHeader>
+      <FilterForm />
+    </DrawerContent>
+  </Drawer>
+);
+```
+
+```tsx
+// Sidebar-as-sheet on mobile (collapses behind a hamburger)
+<Sheet>
+  <SheetTrigger asChild>
+    <Button className="lg:hidden" variant="ghost" size="icon" aria-label="Open menu">
+      <MenuIcon />
+    </Button>
+  </SheetTrigger>
+  <SheetContent side="left" className="w-72">
+    <SheetTitle className="sr-only">Site navigation</SheetTitle>
+    {/* nav links */}
+  </SheetContent>
+</Sheet>
+```
+
+## Token usage
+
+- Background: `--color-background`
+- Overlay: `bg-black/50`
+- Border: side-aware (`border-l` for right, `border-r` for left,
+  `border-b` for top, `border-t` for bottom)
+- Width: `w-3/4 sm:max-w-sm` for left/right; `h-auto` for top/bottom
+- Shadow: `shadow-lg`
+- Spacing: `gap-4` content; `p-4` header/footer
+- Animation: `data-[state=open]:slide-in-from-<side>` /
+  `data-[state=closed]:slide-out-to-<side>` (Tailwind animate
+  utilities)
+- Z-index: `z-50`

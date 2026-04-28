@@ -1,0 +1,159 @@
+# Drawer
+
+A bottom-mounted (or side-mounted) panel with native-feeling drag-to-dismiss
+gestures. Backed by [`vaul`](https://vaul.emilkowal.ski/), not Radix —
+chosen for its iOS/Android-style velocity-tracked dismiss and smooth
+spring animations. Reach for it on **mobile-first** flows where a
+modal that slides up from the bottom feels right (compose menu,
+filters tray, share sheet). For desktop-first overlays, use
+[Dialog](./dialog.mdx); for side-mounted utility panels (sidebars on
+mobile, settings panes), use [Sheet](./sheet.mdx).
+
+## Import
+
+```tsx
+import {
+  Drawer,
+  DrawerTrigger,
+  DrawerPortal,
+  DrawerOverlay,
+  DrawerContent,
+  DrawerHeader,
+  DrawerFooter,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerClose,
+} from "@/components/ui/drawer";
+```
+
+## Anatomy
+
+- `Drawer` — root state machine (vaul `Drawer.Root`). Supports
+  `direction` for top / bottom / left / right.
+- `DrawerTrigger` — opens the drawer. `asChild` to forward semantics
+  onto a custom element.
+- `DrawerOverlay` — semi-transparent backdrop. Auto-emitted by
+  `DrawerContent`.
+- `DrawerContent` — the panel itself. Auto-portaled. The visual handle
+  ("grabber" pill) is rendered automatically when the drawer is
+  bottom-mounted.
+- `DrawerHeader`, `DrawerFooter` — vertical regions for title/desc and
+  action buttons respectively.
+- `DrawerTitle` — accessible name (required).
+- `DrawerDescription` — accessible description.
+- `DrawerClose` — any clickable that closes the drawer.
+
+## Props
+
+| Slot                  | Element                  | Notable props                                                                  |
+| --------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| `Drawer`              | `vaul.Drawer.Root`       | `open`, `defaultOpen`, `onOpenChange`, `direction` (`"top" \| "bottom" \| "left" \| "right"`, default `"bottom"`), `dismissible`, `modal`, `shouldScaleBackground`, `snapPoints`, `activeSnapPoint`, `onAnimationEnd` |
+| `DrawerTrigger`       | `vaul.Drawer.Trigger`    | `asChild`                                                                      |
+| `DrawerContent`       | `vaul.Drawer.Content`    | `onOpenAutoFocus`, `onCloseAutoFocus`, `onEscapeKeyDown`, `onInteractOutside`  |
+| `DrawerTitle`         | `vaul.Drawer.Title`      | All `<h2>` props                                                               |
+| `DrawerDescription`   | `vaul.Drawer.Description`| All `<p>` props                                                                |
+
+## Variants
+
+```tsx
+// Bottom drawer (the default — feels right on mobile)
+<Drawer>
+  <DrawerTrigger asChild>
+    <Button variant="outline">Filters</Button>
+  </DrawerTrigger>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Filter videos</DrawerTitle>
+      <DrawerDescription>Refine the list by date, channel, or length.</DrawerDescription>
+    </DrawerHeader>
+    {/* filter form */}
+    <DrawerFooter>
+      <Button>Apply</Button>
+      <DrawerClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DrawerClose>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+```
+
+```tsx
+// Right-side drawer (vaul direction="right")
+<Drawer direction="right">
+  <DrawerTrigger asChild>
+    <Button>Open notifications</Button>
+  </DrawerTrigger>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Notifications</DrawerTitle>
+    </DrawerHeader>
+    {/* list */}
+  </DrawerContent>
+</Drawer>
+```
+
+```tsx
+// Snap points (vaul lets you suspend the drawer at intermediate heights)
+<Drawer snapPoints={["148px", "355px", 1]}>
+  <DrawerTrigger>Open</DrawerTrigger>
+  <DrawerContent>
+    <DrawerTitle>Snap-able sheet</DrawerTitle>
+    {/* ... */}
+  </DrawerContent>
+</Drawer>
+```
+
+## Accessibility
+
+- Backed by vaul, which implements WAI-ARIA `dialog` semantics and
+  manages focus trap + return-focus-on-close like Radix Dialog does.
+- **`DrawerTitle` is required** for an accessible name. Wrap in
+  `sr-only` if visually hiding.
+- Escape dismisses by default. `dismissible={false}` disables click-outside
+  and gesture dismissal (keep Escape; handle programmatic close
+  yourself).
+- The drag handle (small pill at the top when bottom-mounted) is purely
+  decorative for assistive tech (`aria-hidden`).
+- Drag-to-dismiss is keyboard-equivalent via Escape; users on screen
+  readers and switch devices get full coverage without needing the
+  gesture.
+
+## Composition examples
+
+```tsx
+// Compose-tweet-style flow on mobile, dialog on desktop
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
+
+const isDesktop = useMediaQuery("(min-width: 640px)");
+const Container = isDesktop ? Dialog : Drawer;
+const Content = isDesktop ? DialogContent : DrawerContent;
+const Header = isDesktop ? DialogHeader : DrawerHeader;
+const Title = isDesktop ? DialogTitle : DrawerTitle;
+// etc.
+```
+
+```tsx
+// Modal form with snap points: collapsed → list, expanded → details
+<Drawer snapPoints={[0.4, 0.9]} activeSnapPoint={snap} setActiveSnapPoint={setSnap}>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Pick a video</DrawerTitle>
+    </DrawerHeader>
+    {/* ... */}
+  </DrawerContent>
+</Drawer>
+```
+
+## Token usage
+
+- Background: `--color-background`
+- Overlay: `bg-black/50`
+- Border: side-aware (`border-t` for bottom-mounted, `border-l` for
+  right-mounted, etc.)
+- Radius: side-aware (`rounded-t-lg` for bottom-mounted; left/right
+  drawers don't round the inner edge)
+- Shadow: vaul handles its own panel shadow
+- Spacing: `p-4` header/footer; `gap-0.5`/`gap-1.5` heading stack
+- Animation: vaul-driven spring physics (no Tailwind classes — vaul
+  controls transform/opacity on its own elements)
+- Z-index: `z-50` (overlay and content)

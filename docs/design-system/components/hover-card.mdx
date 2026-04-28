@@ -1,0 +1,167 @@
+# HoverCard
+
+A floating preview card that appears on **hover** or **focus**. Backed
+by `@radix-ui/react-hover-card`. Reach for it when the user can preview
+a thing without committing to clicking — link unfurls, user-mention
+profile previews, video thumbnail expansions. Content can be richer
+than a [Tooltip](./tooltip.mdx) (multi-line, images, links) but **must
+not require clicking through to dismiss** — the card disappears when
+the user moves their pointer away.
+
+## HoverCard vs Tooltip vs Popover — when to reach for which
+
+| You want…                                                                | Reach for                       |
+| ------------------------------------------------------------------------ | ------------------------------- |
+| Short text label for an icon button or shortcut                          | [Tooltip](./tooltip.mdx)        |
+| Rich preview UI on hover (avatar, link unfurl, thumbnail)                | **HoverCard** (this)            |
+| Interactive content the user clicks into (forms, menus, color pickers)   | [Popover](./popover.mdx)        |
+
+The interaction model:
+
+- **HoverCard** appears on hover/focus and dismisses when the pointer
+  leaves; it stays open while the cursor is over the card itself, so
+  the user can read or click into a link inside the preview. Keyboard
+  users get the card on focus.
+- **Tooltip** appears on hover/focus but cannot contain interactive
+  elements — keyboard users can't reach buttons inside a tooltip.
+- **Popover** appears only on click and stays open until explicitly
+  dismissed.
+
+## Import
+
+```tsx
+import {
+  HoverCard,
+  HoverCardTrigger,
+  HoverCardContent,
+} from "@/components/ui/hover-card";
+```
+
+## Anatomy
+
+- `HoverCard` — root state machine. Forwards to `Radix.Root`.
+- `HoverCardTrigger` — the focusable/hoverable element that activates
+  the card. Use `asChild` to forward semantics onto a custom element.
+- `HoverCardContent` — the floating preview panel. Auto-portaled.
+  Defaults: `align="center"`, `sideOffset={4}`, width `w-64`.
+
+## Props
+
+| Slot              | Element                | Notable props                                                                                  |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `HoverCard`       | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`, `openDelay` (default 700ms), `closeDelay` (default 300ms) |
+| `HoverCardTrigger`| `Radix.Trigger`        | `asChild`                                                                                      |
+| `HoverCardContent`| `Radix.Content`        | `side`, `sideOffset` (default `4`), `align` (default `"center"`), `alignOffset`, `collisionPadding`, `avoidCollisions` |
+
+## Variants
+
+```tsx
+// Username preview (the canonical hover-card usage)
+<HoverCard>
+  <HoverCardTrigger asChild>
+    <a href={`/u/${user.handle}`}>@{user.handle}</a>
+  </HoverCardTrigger>
+  <HoverCardContent>
+    <div className="flex gap-3">
+      <Avatar>{/* ... */}</Avatar>
+      <div>
+        <p className="text-sm font-semibold">{user.name}</p>
+        <p className="text-xs text-muted-foreground">{user.bio}</p>
+      </div>
+    </div>
+  </HoverCardContent>
+</HoverCard>
+```
+
+```tsx
+// Slower delay for a less-aggressive preview
+<HoverCard openDelay={1000} closeDelay={300}>
+  <HoverCardTrigger asChild>
+    <Button variant="link">Show preview</Button>
+  </HoverCardTrigger>
+  <HoverCardContent>Content here.</HoverCardContent>
+</HoverCard>
+```
+
+```tsx
+// Custom side
+<HoverCard>
+  <HoverCardTrigger asChild>
+    <a href="/help">Help</a>
+  </HoverCardTrigger>
+  <HoverCardContent side="right" align="start">
+    Hover for help; click the link to read the full article.
+  </HoverCardContent>
+</HoverCard>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-hover-card`. Focus on the trigger opens
+  the card (keyboard parity with mouse hover). The content is *not*
+  focused on open — keyboard users tab through the page normally
+  and the card disappears when focus moves on.
+- **Content can include interactive elements (links, buttons)** —
+  unlike Tooltip. The card stays open while the pointer or focus is
+  inside it.
+- The trigger should be a meaningful interactive element (link,
+  button) on its own — the hover-card preview is supplementary, not
+  the primary action.
+- Escape dismisses while focus is on the trigger; tabbing past the
+  trigger also dismisses naturally.
+- For users on touch devices, hover doesn't fire — they reach the
+  trigger's main behavior (e.g. tapping a link) without ever seeing
+  the preview. Don't put unique information in the card that's not
+  reachable elsewhere.
+
+## Composition examples
+
+```tsx
+// Channel preview on a link
+<HoverCard>
+  <HoverCardTrigger asChild>
+    <Link href={`/channel/${channel.id}`}>{channel.name}</Link>
+  </HoverCardTrigger>
+  <HoverCardContent className="w-80">
+    <div className="flex gap-4">
+      <Avatar className="size-12">
+        <AvatarImage src={channel.avatar} alt="" />
+        <AvatarFallback>{channel.initials}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1 space-y-1">
+        <h4 className="text-sm font-semibold">{channel.name}</h4>
+        <p className="text-xs text-muted-foreground">
+          {channel.subscriberCount} subscribers · {channel.videoCount} videos
+        </p>
+        <p className="text-xs">{channel.bio}</p>
+      </div>
+    </div>
+  </HoverCardContent>
+</HoverCard>
+```
+
+```tsx
+// Footnote preview (link unfurl)
+<p>
+  Per the <HoverCard>
+    <HoverCardTrigger asChild>
+      <a href="/cite/1">[1]</a>
+    </HoverCardTrigger>
+    <HoverCardContent>
+      <p className="text-sm font-semibold">Source</p>
+      <p className="text-xs text-muted-foreground">Author, "Title", 2025.</p>
+    </HoverCardContent>
+  </HoverCard>, the result holds.
+</p>
+```
+
+## Token usage
+
+- Background: `--color-popover`, `--color-popover-foreground`
+- Border: default border
+- Radius: `rounded-md`
+- Shadow: `shadow-md`
+- Padding: `p-4`; default width `w-64`
+- Animation: `data-[state=open]:fade-in-0 zoom-in-95` /
+  `data-[state=closed]:fade-out-0 zoom-out-95` + side-aware slide-in
+- Z-index: `z-50`

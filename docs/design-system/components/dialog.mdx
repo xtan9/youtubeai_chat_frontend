@@ -1,0 +1,186 @@
+# Dialog
+
+A modal overlay anchored to the viewport center. Backed by
+`@radix-ui/react-dialog`, which handles focus trap, scroll lock,
+return-focus-on-close, escape-key dismissal, and click-outside dismissal.
+Reach for it when an action requires the user's full attention but is
+*not* destructive — for destructive confirmations, use
+[AlertDialog](./alert-dialog.mdx); for side-mounted panels, use
+[Sheet](./sheet.mdx) or [Drawer](./drawer.mdx).
+
+## Import
+
+```tsx
+import {
+  Dialog,
+  DialogTrigger,
+  DialogPortal,
+  DialogOverlay,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from "@/components/ui/dialog";
+```
+
+## Anatomy
+
+- `Dialog` — root state machine (controlled or uncontrolled). Forwards
+  to `Radix.Root`.
+- `DialogTrigger` — the element that opens the dialog. Use `asChild`
+  to forward the trigger semantics onto your own button.
+- `DialogPortal` — renders content into `document.body` (avoids stacking
+  context bugs). `DialogContent` already wraps in a portal — only use
+  this directly if you need custom portal placement.
+- `DialogOverlay` — semi-transparent backdrop. Auto-emitted by
+  `DialogContent`.
+- `DialogContent` — the centered modal panel. Accepts an optional
+  `showCloseButton` (default `true`) which renders a top-right X.
+- `DialogHeader` — vertical stack for title + description.
+- `DialogTitle` — the dialog's accessible name (required for a11y).
+- `DialogDescription` — the dialog's accessible description.
+- `DialogFooter` — bottom action row, reverses to column on small
+  viewports.
+- `DialogClose` — any clickable inside content that closes the dialog.
+
+## Props
+
+The Radix-backed parts (`Dialog`, `DialogTrigger`, `DialogContent`,
+`DialogTitle`, `DialogDescription`, `DialogClose`) accept all native
+Radix props. `DialogContent` adds one design-system-specific prop:
+
+| Slot              | Element                | Notable props                                                                                                  |
+| ----------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `Dialog`          | `Radix.Root`           | `open`, `defaultOpen`, `onOpenChange`, `modal`                                                                 |
+| `DialogTrigger`   | `Radix.Trigger`        | `asChild` to forward styling onto a custom button                                                              |
+| `DialogContent`   | `Radix.Content`        | `showCloseButton` (boolean, default `true`); plus `onEscapeKeyDown`, `onPointerDownOutside`, `onInteractOutside` |
+| `DialogTitle`     | `Radix.Title`          | All `<h2>` props (Radix renders an h2 by default)                                                              |
+| `DialogDescription` | `Radix.Description`  | All `<p>` props                                                                                                |
+| `DialogClose`     | `Radix.Close`          | `asChild` to put close-on-click behavior on a custom button                                                    |
+| `DialogHeader`    | `div`                  | All `React.ComponentProps<"div">`                                                                              |
+| `DialogFooter`    | `div`                  | All `React.ComponentProps<"div">`                                                                              |
+
+## Variants
+
+```tsx
+// Uncontrolled (most common)
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Edit profile</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Edit profile</DialogTitle>
+      <DialogDescription>Update your display name and avatar.</DialogDescription>
+    </DialogHeader>
+    {/* form content */}
+    <DialogFooter>
+      <DialogClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DialogClose>
+      <Button type="submit">Save</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+```tsx
+// Controlled — drive open from outside state
+const [open, setOpen] = useState(false);
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent>
+    <DialogTitle>Programmatic dialog</DialogTitle>
+    {/* ... */}
+  </DialogContent>
+</Dialog>
+```
+
+```tsx
+// Hide the built-in close button (e.g., long required flow)
+<Dialog>
+  <DialogContent showCloseButton={false}>
+    <DialogTitle>Step 1 of 3</DialogTitle>
+    {/* footer must include its own DialogClose or programmatic dismiss */}
+  </DialogContent>
+</Dialog>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-dialog` (WAI-ARIA `dialog` pattern).
+  Focus is trapped inside the content while open and returned to the
+  trigger on close.
+- **`DialogTitle` is required** for an accessible name. If a visible
+  title doesn't fit the design, wrap the title in a visually-hidden
+  span (`<span className="sr-only">`) — never omit the element.
+- Escape key dismisses by default. Override via `onEscapeKeyDown` on
+  `DialogContent`.
+- Click-outside (overlay click) dismisses by default. Override via
+  `onPointerDownOutside` / `onInteractOutside`.
+- The overlay receives `aria-hidden` and is unfocusable; the close
+  button has `<span className="sr-only">Close</span>` for screen
+  readers.
+- `modal={false}` on the root disables focus trap and overlay; use
+  only for non-modal informational popovers (in which case
+  [Popover](./popover.mdx) is usually a better fit).
+
+## Composition examples
+
+```tsx
+// Confirm-before-discard pattern (non-destructive — for destructive use AlertDialog)
+<Dialog>
+  <DialogTrigger asChild>
+    <Button variant="outline">Discard changes</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Discard unsaved changes?</DialogTitle>
+      <DialogDescription>You'll lose any edits made since last save.</DialogDescription>
+    </DialogHeader>
+    <DialogFooter>
+      <DialogClose asChild>
+        <Button variant="outline">Keep editing</Button>
+      </DialogClose>
+      <Button onClick={onDiscard}>Discard</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+```tsx
+// Form-in-dialog (controlled; close after success)
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Create new playlist</DialogTitle>
+    </DialogHeader>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(async (vals) => {
+        await createPlaylist(vals);
+        setOpen(false);
+      })}>
+        {/* fields */}
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button type="submit">Create</Button>
+        </DialogFooter>
+      </form>
+    </Form>
+  </DialogContent>
+</Dialog>
+```
+
+## Token usage
+
+- Background: `--color-background`
+- Overlay: `bg-black/50` (semi-transparent black; not yet tokenized)
+- Border: default border
+- Radius: `rounded-lg`
+- Shadow: `shadow-lg`
+- Spacing: `gap-4` between header/content/footer; `p-6` content padding
+- Animation: `data-[state=open]:animate-in / data-[state=closed]:animate-out`
+  + `fade-in-0 / fade-out-0` + `zoom-in-95 / zoom-out-95` (driven by
+  Radix data attributes)
+- Z-index: `z-50` for both overlay and content

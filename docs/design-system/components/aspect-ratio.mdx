@@ -1,0 +1,101 @@
+# AspectRatio
+
+A layout primitive that pins its child to a fixed width/height ratio.
+Backed by `@radix-ui/react-aspect-ratio`. Reach for it for image and
+video thumbnails, embedded media (iframes), and any responsive box that
+must hold a known aspect ratio while its width changes. Pure layout —
+no a11y semantics, no focus, no interaction.
+
+## Import
+
+```tsx
+import { AspectRatio } from "@/components/ui/aspect-ratio";
+```
+
+## Anatomy
+
+A single root element. The Radix primitive renders a wrapper `<div>`
+with CSS that uses `padding-bottom` (or `aspect-ratio` in modern
+browsers) to enforce the ratio; the child is positioned absolutely to
+fill it.
+
+## Props
+
+| Prop      | Type     | Default | Description                                                              |
+| --------- | -------- | ------- | ------------------------------------------------------------------------ |
+| `ratio`   | `number` | `1`     | width / height. Common values: `16 / 9`, `4 / 3`, `1`, `21 / 9`, `3 / 4`. |
+| `className` | `string` | `undefined` | Forwarded to the wrapper element.                                |
+| `...props`| `React.ComponentProps<"div">` | — | All other native div props spread onto the wrapper.             |
+
+## Variants
+
+```tsx
+// 16:9 video thumbnail
+<AspectRatio ratio={16 / 9}>
+  <img src={video.thumbnail} alt={video.title} className="h-full w-full object-cover rounded-md" />
+</AspectRatio>
+```
+
+```tsx
+// 1:1 avatar/poster
+<AspectRatio ratio={1}>
+  <img src={user.avatar} alt="" className="h-full w-full object-cover rounded-full" />
+</AspectRatio>
+```
+
+```tsx
+// 4:3 legacy media
+<AspectRatio ratio={4 / 3}>
+  <iframe src={legacyEmbedUrl} className="h-full w-full" />
+</AspectRatio>
+```
+
+```tsx
+// Tall portrait for vertical video
+<AspectRatio ratio={9 / 16} className="max-w-xs">
+  <video src={shortVideoUrl} className="h-full w-full" />
+</AspectRatio>
+```
+
+## Accessibility
+
+- AspectRatio is a pure layout primitive. It applies no role, no
+  aria, and no focus management.
+- a11y is **the consumer's responsibility** for whatever lives
+  inside: provide `alt` text on `<img>`, `title` / `aria-label` on
+  `<iframe>`, real captions on `<video>`, etc.
+- The wrapper element does not block tab order — focusable children
+  remain focusable in DOM order.
+
+## Composition examples
+
+```tsx
+// Inside a Card
+<Card>
+  <CardContent className="p-0">
+    <AspectRatio ratio={16 / 9}>
+      <img src={video.thumbnail} alt={video.title} className="h-full w-full rounded-t-xl object-cover" />
+    </AspectRatio>
+  </CardContent>
+  <CardFooter>
+    <p>{video.title}</p>
+  </CardFooter>
+</Card>
+```
+
+```tsx
+// Responsive grid of square thumbnails
+<div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+  {items.map((it) => (
+    <AspectRatio key={it.id} ratio={1}>
+      <img src={it.thumbnail} alt={it.title} className="h-full w-full object-cover" />
+    </AspectRatio>
+  ))}
+</div>
+```
+
+## Token usage
+
+- No design tokens consumed. AspectRatio applies only CSS for
+  ratio-locking; visual styling (radius, border, shadow, color)
+  belongs on the child or a surrounding [Card](./card.mdx).

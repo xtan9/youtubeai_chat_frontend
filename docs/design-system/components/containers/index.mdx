@@ -1,0 +1,110 @@
+# Containers
+
+The containers cluster groups the nine components used to organize
+content into surfaces and overlays. Eight of the nine are
+Radix-backed (or vaul-backed for Drawer); `AspectRatio` is a pure
+layout primitive. Each component ships a Vitest behavior test, a
+jest-axe a11y test (zero violations across every variant + edge
+state), and a per-component MDX doc with prop tables, variants, and
+composition examples.
+
+## Members
+
+### Inline surfaces
+
+- [Card](../card.mdx) — bordered, padded surface with optional
+  header / title / description / action / content / footer slots.
+  Pure semantic HTML, no Radix wrapper.
+- [AspectRatio](../aspect-ratio.mdx) — layout primitive that pins a
+  child to a fixed width/height ratio. Pure layout, no a11y.
+
+### Modal overlays (demand attention)
+
+- [Dialog](../dialog.mdx) — centered modal for non-destructive
+  attention-demanding flows. Backed by `@radix-ui/react-dialog`.
+- [AlertDialog](../alert-dialog.mdx) — destructive-confirm modal.
+  `role="alertdialog"`, no built-in close button, requires explicit
+  Action / Cancel choice.
+- [Sheet](../sheet.mdx) — side-mounted modal (top / right / bottom /
+  left). Same Radix primitive as Dialog, different layout.
+- [Drawer](../drawer.mdx) — bottom-mounted modal with native-feeling
+  drag-to-dismiss. Backed by [vaul](https://vaul.emilkowal.ski/), not
+  Radix. Mobile-first.
+
+### Floating utility overlays
+
+- [Popover](../popover.mdx) — non-modal floating panel. Click to
+  open. `role="dialog"`. Reach for filter forms, color pickers.
+- [Tooltip](../tooltip.mdx) — short text label on focus or hover.
+  Content is text-only; no interactive elements.
+- [HoverCard](../hover-card.mdx) — rich preview card on focus or
+  hover. Content can include links and buttons. Reach for link
+  unfurls, profile previews.
+
+## When to reach for which overlay
+
+The choice depends on **interaction model** and **dismissibility**:
+
+| Scenario                                                                 | Reach for                       |
+| ------------------------------------------------------------------------ | ------------------------------- |
+| Confirm a destructive / irreversible action                              | [AlertDialog](../alert-dialog.mdx) |
+| Modal that demands attention but isn't destructive (form, info)          | [Dialog](../dialog.mdx)         |
+| Side-mounted utility panel (filters, settings, secondary nav on desktop) | [Sheet](../sheet.mdx)           |
+| Mobile-first bottom panel with snap points and swipe-to-dismiss          | [Drawer](../drawer.mdx)         |
+| Non-modal floating panel — page beneath stays interactive (filters)      | [Popover](../popover.mdx)       |
+| Short text label for an icon button or shortcut hint                     | [Tooltip](../tooltip.mdx)       |
+| Rich preview UI on hover (avatar, link unfurl, thumbnail)                | [HoverCard](../hover-card.mdx)  |
+| Bordered, padded inline surface for grouping related content             | [Card](../card.mdx)             |
+| Lock a child to a known width/height ratio (16:9 thumbs, 1:1 avatars)    | [AspectRatio](../aspect-ratio.mdx) |
+
+## Modal vs non-modal — the contract
+
+- **Modal overlays** (Dialog, AlertDialog, Sheet, Drawer) trap focus
+  inside the content while open, dim the background, and lock
+  page scroll. The user must dismiss before continuing.
+- **Non-modal overlays** (Popover, Tooltip, HoverCard) leave the page
+  beneath interactive. They dismiss on outside-click, blur, or
+  pointer-leave (HoverCard / Tooltip) — never block the user.
+
+If a flow can be interrupted (notification arrives, user navigates
+away), use a non-modal overlay. If the user must answer first,
+use a modal.
+
+## Accessibility patterns
+
+- **Every modal overlay needs an accessible name and description.**
+  `DialogTitle` / `AlertDialogTitle` / `SheetTitle` / `DrawerTitle`
+  is required by axe (and by the underlying Radix/vaul primitives).
+  `*Description` provides context and is required for AlertDialog.
+  Use `<span className="sr-only">` if you need to hide the title
+  visually.
+- **PopoverContent requires an accessible name.** Radix renders it
+  with `role="dialog"`; pass `aria-label` or `aria-labelledby`.
+  See the popover doc.
+- **Tooltip content cannot be interactive.** Buttons or links inside
+  TooltipContent are unreachable to keyboard users — switch to
+  HoverCard if interactivity is needed.
+- **HoverCard preview must be supplementary, not primary.** Touch
+  device users never see the card; don't put unique information
+  there.
+- **AlertDialog default focus is the Cancel button.** Don't subvert
+  this by forcing focus to the destructive Action — users hitting
+  Enter immediately should *not* delete their account.
+
+## Tested via
+
+- `components/ui/__tests__/<name>.test.tsx` — behavior (variants,
+  prop spreading, controlled/uncontrolled, data-slot wiring,
+  keyboard dismissal, ratio computation for AspectRatio).
+- `components/ui/__tests__/<name>.a11y.test.tsx` — jest-axe (zero
+  violations across variants + edge states).
+- Shared helpers:
+  - `tests-utils/renderWithProviders.tsx` — wraps with ThemeProvider
+    + automatic cleanup.
+  - `tests-utils/axe.ts` — three configured runners:
+    - `axe` — default (WCAG 2.1 A + AA, all rules).
+    - `axeOverlay` — disables `aria-hidden-focus` for Radix focus
+      guards (Dialog, AlertDialog, Sheet, Drawer, Popover).
+    - `axePortal` — disables the `region` rule for portaled
+      non-landmark overlays (Tooltip, HoverCard) where the popper
+      wrapper lives outside any landmark.
