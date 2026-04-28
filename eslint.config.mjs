@@ -44,6 +44,40 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-require-imports": "off",
     },
   },
+  {
+    // Design system enforcement (C follow-up): ban raw Tailwind colorful-
+    // palette classes (bg-purple-500, text-red-400, border-cyan-300, etc.)
+    // so every brand/accent reference goes through a semantic accent token
+    // from app/globals.css's @theme block. See docs/design-system/tokens/color.mdx
+    // for the mapping. Genuine third-party brand colors (e.g. a YouTube
+    // logo recreation) should disable per-line with a
+    // TODO(design-followup) comment naming the missing semantic token.
+    //
+    // Scope is colorful-only: neutral palette names (slate, gray, zinc,
+    // neutral, stone) are not blocked here because legacy `isDark` ternary
+    // code in app/summary/* still uses them. Cleaning those up requires
+    // restructuring (see TODO(design-followup) notes in those files) and
+    // is tracked as its own cycle. New code should still prefer
+    // `bg-surface-*`, `text-text-*`, `border-border-*` over raw greys.
+    files: ["**/*.{ts,tsx,js,jsx}"],
+    ignores: [
+      "**/__tests__/**",
+      "tests-utils/**",
+      "vitest.config.ts",
+      "tailwind.config.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "Literal[value=/\\b(?:from|via|to|bg|text|border|ring|outline|fill|stroke|caret|accent|decoration|divide|placeholder|shadow)-(?:purple|cyan|pink|blue|fuchsia|violet|indigo|rose|emerald|amber|red|orange|yellow|green|teal|sky|lime)-(?:50|100|200|300|400|500|600|700|800|900|950)\\b/]",
+          message:
+            "Use semantic accent tokens (bg-accent-brand, text-accent-success, border-accent-danger, etc.) — not raw Tailwind palette classes. See docs/design-system/tokens/color.mdx for the mapping. Third-party brand colors (e.g. logo recreations): disable per-line with `// eslint-disable-next-line no-restricted-syntax` and a `// TODO(design-followup):` comment naming the missing semantic token.",
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

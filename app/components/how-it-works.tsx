@@ -74,10 +74,11 @@ export function HowItWorks() {
               </AspectRatio>
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {/* TODO(C-followup): YouTube logo red is a third-party brand color
-                      and doesn't map to a semantic token. Consider introducing a
-                      `--color-brand-youtube` token or sourcing the official YouTube
-                      asset instead of recreating it here. */}
+                  {/* TODO(design-followup): YouTube logo red is a third-party
+                      brand color and doesn't map to a semantic token. Consider
+                      introducing a `--color-brand-youtube` token or sourcing the
+                      official YouTube asset instead of recreating it here. */}
+                  {/* eslint-disable-next-line no-restricted-syntax */}
                   <Avatar className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600">
                     <AvatarFallback className="text-xs text-white font-bold">
                       YT

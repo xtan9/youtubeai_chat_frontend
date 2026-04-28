@@ -4,100 +4,254 @@ Source of truth for every design decision in `youtubeai_chat_frontend`.
 Tokens, components, and patterns live here so that humans and Claude (the
 agent) read the same contract.
 
-## Structure
+## What's here
 
-- [`tokens/`](./tokens/) — design token vocabulary (color, typography,
-  spacing, shadow, radius, blur, motion, gradient). See
-  [`tokens/color.mdx`](./tokens/color.mdx) for the semantic color
-  taxonomy introduced in milestone C.
-- `components/` _(planned, PRs 2-6)_ — per-component documentation
-  (overview, props, variants, accessibility, composition examples,
-  token usage).
-- `patterns/` _(planned, future cycle)_ — composition patterns and
-  accessibility patterns that span multiple components.
+- [`tokens/`](./tokens/) — design token vocabulary. One MDX per category:
+  - [`color.mdx`](./tokens/color.mdx) — semantic color taxonomy (surfaces,
+    text, borders, accents, interaction states)
+  - [`typography.mdx`](./tokens/typography.mdx) — display / heading / body
+    / caption sizes
+  - [`motion.mdx`](./tokens/motion.mdx) — duration + easing tokens
+  - [`gradient.mdx`](./tokens/gradient.mdx) — brand and stage gradients
+  - [`spacing.mdx`](./tokens/spacing.mdx) — base unit (Tailwind 4 idiom)
+  - [`radius.mdx`](./tokens/radius.mdx) — corner radius
+  - [`shadow.mdx`](./tokens/shadow.mdx) — elevation
+  - [`blur.mdx`](./tokens/blur.mdx) — backdrop blur
+- [`components/`](./components/) — per-cluster MDX docs. 5 cluster index
+  files (forms, containers, navigation, data-display, composites) and 47
+  component MDX files. Each component doc covers prop API, variants,
+  accessibility, composition examples, token usage.
+
+## Visual reference
+
+`pnpm dev` then visit:
+
+- [`/design-system`](http://localhost:3000/design-system) — landing page
+- [`/design-system/tokens`](http://localhost:3000/design-system/tokens) —
+  every token rendered as swatches and type specimens
+- `/design-system/forms`, `/containers`, `/navigation`, `/data-display`,
+  `/composites` — components rendered with variants, paired by cluster
+
+The showcase route is for browsing, not authoring. If a component is
+missing or a token is wrong on the showcase, fix it where it lives
+(component or token definition) and the showcase reflects automatically.
 
 ## Audience
 
-- **Humans:** read the MDX/Markdown directly, or render via a future
-  Next.js MDX route (out of scope for B).
-- **Claude (the agent):** reads MDX as source. Token names and component
-  prop APIs are the contract — Claude should never need to invent values
-  or guess at the canonical pattern.
+- **Claude (the agent):** reads the MDX files directly; the prop API,
+  token vocabulary, and accessibility patterns are the contract. Never
+  invent values or guess. Reach for `git grep` to find similar usages
+  before writing new code.
+- **Humans:** read the MDX, or browse the showcase route. The MDX files
+  are the canonical reference; the showcase is the visual companion.
 
-## Status
-
-| Area | PR | Status |
-|------|----|--------|
-| Tokens (typography, spacing, radius, shadow, gradient, blur, motion) | B PR 1 | Defined in `app/globals.css` `@theme` directive + `@utility` rules |
-| `app/components/input-form.tsx` retrofit | B PR 1 | Uses only token-backed classes |
-| Forms cluster (button, input, label, form, checkbox, radio-group, switch, textarea) | B PR 2 | Planned |
-| Containers cluster (card, dialog, popover, drawer, sheet, alert-dialog, tooltip, hover-card, aspect-ratio) | B PR 3 | Planned |
-| Navigation cluster (navigation-menu, menubar, tabs, breadcrumb, pagination, command, dropdown-menu) | B PR 4 | Planned |
-| Data display cluster (table, badge, avatar, alert, progress, skeleton, separator, scroll-area, sonner, chart, google-icon) | B PR 5 | Planned |
-| Composites cluster (sidebar, calendar, accordion, collapsible, carousel, slider, toggle, toggle-group, context-menu, input-otp, resizable, select) | B PR 6 | Planned |
-
-47 components total — see the
-[B spec](../superpowers/specs/2026-04-27-design-system-rebuild-b-design.md)
-for the full pipeline.
-
-## Tailwind 4 conventions used here
+## Tailwind 4 conventions
 
 The token vocabulary is built on Tailwind 4's
-[`@theme` directive](https://tailwindcss.com/docs/theme). When you define
-`--text-h1: 3rem;` in `@theme`, Tailwind generates a `.text-h1` utility.
-Most categories follow that 1:1 mapping:
+[`@theme` directive](https://tailwindcss.com/docs/theme). Defining
+`--text-h1: 3rem;` in `@theme` auto-generates a `.text-h1` utility class.
 
 | Category | Convention | Example |
 |----------|-----------|---------|
-| Colors | `--color-*` | `--color-purple-500` → `.bg-purple-500`, `.text-purple-500` |
-| Font sizes | `--text-*` (with paired `--text-*--line-height`, `--text-*--letter-spacing`, `--text-*--font-weight`) | `--text-h1` → `.text-h1` |
-| Tracking | `--tracking-*` | `--tracking-tight` → `.tracking-tight` |
-| Leading | `--leading-*` | `--leading-tight` → `.leading-tight` |
-| Spacing/sizing | `--spacing` (single base unit) | `--spacing: 0.25rem` → `.p-4` (4 × 0.25rem) |
+| Colors | `--color-*` | `--color-surface-raised` → `.bg-surface-raised`, `.text-surface-raised`, `.border-surface-raised` |
+| Font sizes | `--text-*` with paired `--text-*--line-height`, `--text-*--letter-spacing`, `--text-*--font-weight` | `--text-h1` → `.text-h1` |
+| Spacing | `--spacing` single base unit | `--spacing: 0.25rem` → `.p-4` (= 4 × 0.25rem = 1rem) |
 | Radius | `--radius-*` | `--radius-lg` → `.rounded-lg` |
 | Shadow | `--shadow-*` | `--shadow-md` → `.shadow-md` |
 | Blur | `--blur-*` | `--blur-md` → `.blur-md` |
-| Easings | `--ease-*` | `--ease-out-soft` → `.ease-out-soft` |
-| Durations | `--duration-*` | `--duration-base` → `.duration-base` |
+| Easing | `--ease-*` | `--ease-out` → `.ease-out` |
+| Duration | `--duration-*` | `--duration-base` → `.duration-base` |
 
 **Gradients are different.** Tailwind 4 has no native `--gradient-*`
-namespace; `@theme` won't auto-generate `.bg-gradient-*` utilities from
-`--gradient-*` declarations. We use the
-[`@utility` directive](https://tailwindcss.com/docs/adding-custom-styles#adding-custom-utilities)
-to register the gradient utility classes ourselves. See
-[`tokens/gradient.mdx`](./tokens/gradient.mdx).
+namespace, so `@theme { --gradient-brand-primary: …; }` does NOT
+auto-generate a `.bg-gradient-brand-primary` utility. We bridge the gap
+with the [`@utility` directive](https://tailwindcss.com/docs/adding-custom-styles#adding-custom-utilities)
+in `app/globals.css`. See [`tokens/gradient.mdx`](./tokens/gradient.mdx).
 
-**Class-based dark mode** is configured via `@custom-variant dark
-(&:where(.dark, .dark *));` in `app/globals.css`. Tailwind 4 no longer
-reads `darkMode: "class"` from `tailwind.config.ts`, so the
-`@custom-variant` directive is the bridge that lets `dark:*` utilities
-respond to the `.dark` class that `next-themes` toggles on `<html>`.
+**Class-based dark mode** uses `@custom-variant dark (&:where(.dark, .dark *));`
+in `app/globals.css`. Tailwind 4 ignores `darkMode: "class"` in
+`tailwind.config.ts`. The `@custom-variant` directive is the bridge.
 
-## Vitest coverage scope (rollout note)
+**Token overrides for dark mode** are class-scoped, declared outside
+`@theme`:
 
-Per the [B plan](../superpowers/plans/2026-04-27-design-system-rebuild-b.md)
-Task 1 §8, `components/ui/**` is **excluded** from `vitest.config.ts`
-coverage in B PR 1 because no component tests exist yet. Each cluster PR
-(2-6) will:
+```css
+@theme {
+  --color-surface-base: hsl(0 0% 100%);  /* light value */
+}
+.dark {
+  --color-surface-base: hsl(0 0% 3.9%);  /* dark value */
+}
+```
 
-1. Add behavior + axe a11y tests for its cluster's components.
-2. Remove that cluster's components from the coverage exclusion (or, in
-   PR 2, remove the blanket exclusion once the testing infrastructure
-   is in place).
+## Lint enforcement
 
-The 50/40/50/50 floor is unchanged. By PR 6, expect coverage on
-`components/ui/**` in the 70-90% range.
+ESLint blocks raw palette classes (`bg-purple-500`, `text-red-400`, etc.)
+in source files. Configured in `eslint.config.mjs` via
+`no-restricted-syntax`. Exceptions are documented per-call-site with
+`// eslint-disable-next-line no-restricted-syntax` and a
+`// TODO(design-followup):` comment naming the missing semantic token.
 
-## Out of scope (B)
+The legacy shadcn token classes (`bg-card`, `bg-popover`, `text-foreground`,
+`text-muted-foreground`, `border-input`, `border-border`, `bg-primary`,
+`bg-secondary`, `bg-muted`, `bg-accent`, `bg-destructive`,
+`*-foreground` of any of those) are not blocked at lint time but the
+underlying CSS variables don't exist anymore. Using them silently produces
+no styling. If you grep one of those class names in this repo and find a
+hit outside `**/__tests__/**`, that's a bug to fix.
 
-- **Brand identity decisions** — colors, typography family. Current
-  visual identity (shadcn neutrals + purple/cyan/pink accent gradient)
-  is preserved and *formalized* in tokens.
-- **Storybook** — chose MDX (Claude reads files; MDX renders for humans).
-- **Visual regression testing** — chose behavior + a11y only.
-- **Component additions/removals beyond 47** — only governing what
-  exists.
-- **Marketing-component refactor** beyond `input-form.tsx`.
+---
 
-See the [B spec §9](../superpowers/specs/2026-04-27-design-system-rebuild-b-design.md)
-for the full out-of-scope list.
+## Contributing
+
+### Adding a component
+
+A component is a primitive in `components/ui/*.tsx` (e.g.,
+`button.tsx`, `dialog.tsx`). Most are shadcn-derived; some are local.
+
+**1. Decide the cluster.** New components go into one of the 5 clusters:
+forms, containers, navigation, data-display, composites. The cluster
+membership determines which showcase page renders the component and which
+MDX cluster file documents it.
+
+**2. Write the component.** Follow the patterns in existing cluster
+peers:
+
+- Use `cva` from `class-variance-authority` for variants.
+- Set `data-slot="component-name"` on the root element so consumers can
+  target sub-parts via `[data-slot=…]` selectors.
+- Use `cn()` from `@/lib/utils` for class merging.
+- Wrap Radix primitives where applicable (`@radix-ui/react-*`).
+- Use semantic tokens only (see CLAUDE.md or the lint rule).
+- Forward `className` and other native props.
+
+**3. Write tests.** Two test files per component, both in
+`components/ui/__tests__/`:
+
+- `<name>.test.tsx` — behavior tests using
+  `tests-utils/renderWithProviders`. Cover variant rendering, default
+  state, keyboard interaction (where Radix supports it in happy-dom),
+  controlled/uncontrolled state if applicable.
+- `<name>.a11y.test.tsx` — axe a11y test. Pick the right runner from
+  `tests-utils/axe.ts`:
+  - `axe` — default (most components)
+  - `axeOverlay` — Radix focus guards (Dialog, Sheet, Drawer)
+  - `axePortal` — portaled non-landmark content
+  - `axePortalOverlay` — Radix menu family (DropdownMenu, ContextMenu,
+    Menubar, NavigationMenu, Popover, HoverCard, Select, Tooltip)
+  - `axeCommand` / `axeCommandDialog` — cmdk Command primitive
+  - `axeResizable` — react-resizable-panels v4 separators
+  - Add a new runner only if a documented axe rule needs suppression
+    with rationale.
+
+  Both test files should hit at least:
+  - 1 default-render assertion
+  - 1 variant assertion (if cva variants exist)
+  - 1 disabled-state assertion (if applicable)
+  - 1 keyboard-interaction smoke (focus + Tab) where the component
+    accepts focus
+  - 1 axe assertion in the a11y file
+
+**4. Write MDX docs.** Two files in `docs/design-system/components/`:
+
+- `<name>.mdx` — overview, prop table, variants, a11y notes, token
+  references, composition example. Match the shape of an existing peer
+  in the same cluster.
+- The cluster index (`cluster-{cluster-name}.mdx`) gets a row added
+  pointing to the new component.
+
+**5. Add to the showcase.** Edit the cluster page at
+`app/(design-system)/design-system/<cluster>/page.tsx`. Add a
+`<ComponentShowcase>` block with at least 3 representative variants. Use
+the existing forms cluster as the template.
+
+**6. Pre-PR gates.** All four must pass:
+
+```bash
+pnpm test --run    # unit + a11y suite
+pnpm lint
+pnpm exec tsc --noEmit
+```
+
+Plus a Playwright e2e on the showcase route to confirm the component
+renders without console errors.
+
+### Adding a token
+
+The token vocabulary is *closed by intent* — adding a token means a real
+new use case the existing 22 colors / 16 typography / 8 motion / etc.
+tokens don't cover. Before adding one, try to find an existing token
+that fits.
+
+**1. Decide the category.** Color (surfaces / text / borders / accents /
+states) or one of the other categories (typography, motion, gradient,
+spacing, radius, shadow, blur).
+
+**2. Add to `app/globals.css`.**
+
+For colors and typography, declare the token in the `@theme` block:
+
+```css
+@theme {
+  --color-accent-tertiary: var(--color-pink-500);
+}
+```
+
+For dark-mode color overrides, add to the `.dark` block (outside `@theme`):
+
+```css
+.dark {
+  --color-accent-tertiary: var(--color-pink-400);
+}
+```
+
+For gradients, follow the two-step pattern in
+[`tokens/gradient.mdx`](./tokens/gradient.mdx) — declare in `@theme`, then
+register a matching `@utility` rule.
+
+**3. Document in MDX.** Update the relevant
+`docs/design-system/tokens/<category>.mdx` to add a row to the token
+table with: token name, utility class, light/dark values, when to reach
+for it.
+
+**4. Render in the showcase.** Edit
+`app/(design-system)/design-system/tokens/page.tsx` to add a
+`<TokenSwatch>` (for colors and gradients) or `<TypeSpecimen>` (for
+typography) under the appropriate section.
+
+**5. Test.** No new tests required for token addition itself, but if
+you're using the new token in a component, that component's tests should
+exercise it.
+
+### Adding a variant to an existing component
+
+**1. Edit the component's `cva` block** to add the new variant. Match
+the prefix/keying convention of existing variants in the same component.
+
+**2. Update the MDX prop table** in `docs/design-system/components/<name>.mdx`.
+
+**3. Add to the showcase** if visually distinct — the cluster page's
+`<ComponentShowcase>` block for this component should render the new
+variant alongside the existing ones.
+
+**4. Add a behavior test** for the variant in
+`components/ui/__tests__/<name>.test.tsx`.
+
+### Removing a component or token
+
+Don't, unless it's verified unused. Run:
+
+```bash
+git grep -n "<ComponentName>\|tokenName" -- 'app/**' 'components/**' ':!**/__tests__/**'
+```
+
+If empty, deletion is safe. Update CLAUDE.md, MDX docs, the showcase
+route, and tests in the same PR.
+
+### Marketing components
+
+`app/components/*.tsx` (hero-section, faq, etc.) follow the same token
+contract as `components/ui/*` but are not part of the showcase. They're
+product-specific page sections, not reusable primitives. If a marketing
+section grows reusable patterns, consider promoting them to
+`components/ui/*` and a cluster.
