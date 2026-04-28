@@ -1,0 +1,137 @@
+# Collapsible
+
+A single show/hide region. Backed by `@radix-ui/react-collapsible`.
+Reach for it when you have one piece of secondary content (a "more
+details" block, a kebab menu of advanced options) that belongs near
+its trigger but doesn't justify a Dialog or Accordion.
+
+For a stack of related disclosures, use [Accordion](./accordion.mdx)
+instead — it groups multiple Collapsible-like items with shared
+behaviour and ARIA wiring.
+
+## Import
+
+```tsx
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
+```
+
+## Anatomy
+
+- `Collapsible` — root. Carries `data-slot="collapsible"`. Manages
+  the open/closed state.
+- `CollapsibleTrigger` — toggles the disclosure. Carries
+  `data-slot="collapsible-trigger"`. Defaults to a `<button>`; pass
+  `asChild` to render around your own clickable element.
+- `CollapsibleContent` — the content shown when open. Carries
+  `data-slot="collapsible-content"`.
+
+The wrappers are thin `data-slot` decorators around Radix; all
+behaviour and ARIA wiring live in the underlying Radix primitives.
+
+## Props
+
+| Slot                  | Notable props                                                  |
+| --------------------- | -------------------------------------------------------------- |
+| `Collapsible`         | `open`, `defaultOpen`, `onOpenChange`, `disabled`              |
+| `CollapsibleTrigger`  | `asChild`, all native `<button>` props                         |
+| `CollapsibleContent`  | `forceMount`, all native `<div>` props                         |
+
+## Variants
+
+```tsx
+// Uncontrolled — state lives inside the component.
+<Collapsible>
+  <CollapsibleTrigger className="text-sm font-medium underline">
+    Show advanced options
+  </CollapsibleTrigger>
+  <CollapsibleContent className="mt-2 space-y-2">
+    {/* the secondary content */}
+  </CollapsibleContent>
+</Collapsible>
+```
+
+```tsx
+// Controlled — sync to external state.
+const [open, setOpen] = React.useState(false);
+<Collapsible open={open} onOpenChange={setOpen}>
+  <CollapsibleTrigger>Toggle</CollapsibleTrigger>
+  <CollapsibleContent>…</CollapsibleContent>
+</Collapsible>;
+```
+
+```tsx
+// Default-open — open on first render, then user-controlled.
+<Collapsible defaultOpen>
+  <CollapsibleTrigger>Hide</CollapsibleTrigger>
+  <CollapsibleContent>Pre-expanded content</CollapsibleContent>
+</Collapsible>
+```
+
+```tsx
+// asChild — render trigger as a custom element.
+<Collapsible>
+  <CollapsibleTrigger asChild>
+    <Button variant="ghost" size="sm">
+      Details
+    </Button>
+  </CollapsibleTrigger>
+  <CollapsibleContent>{/* … */}</CollapsibleContent>
+</Collapsible>
+```
+
+## Accessibility
+
+- Trigger is a `<button>` with `aria-expanded` reflecting open state
+  and `aria-controls` linking to the content region. Both are
+  managed by Radix.
+- Content carries `data-state` (`"open"` / `"closed"`) and a
+  matching `hidden` attribute when closed; assistive tech sees only
+  the content currently in scope.
+- Keyboard: Tab focuses the trigger, Enter/Space toggles.
+- For Disabled state, pass `disabled` on the root — Radix forwards
+  it to the trigger and the content stays hidden.
+
+## Composition examples
+
+```tsx
+// "Read more" pattern.
+<article>
+  <p>{summary}</p>
+  <Collapsible>
+    <CollapsibleTrigger asChild>
+      <Button variant="link" size="sm">
+        Read more
+      </Button>
+    </CollapsibleTrigger>
+    <CollapsibleContent>
+      <p>{rest}</p>
+    </CollapsibleContent>
+  </Collapsible>
+</article>
+```
+
+```tsx
+// Advanced filter row in a search UI.
+<div role="search">
+  <Input placeholder="Search…" />
+  <Collapsible>
+    <CollapsibleTrigger className="text-xs text-muted-foreground">
+      Advanced filters
+    </CollapsibleTrigger>
+    <CollapsibleContent className="grid grid-cols-2 gap-2 pt-2">
+      {/* filter inputs */}
+    </CollapsibleContent>
+  </Collapsible>
+</div>
+```
+
+## Token usage
+
+Collapsible itself ships no styling — the wrappers add only `data-slot`
+attributes for tooling. All visual styling (typography, spacing,
+animation) is the consumer's job. Pair with the design system's
+button or link styles for the trigger.

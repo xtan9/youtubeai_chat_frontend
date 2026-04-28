@@ -1,0 +1,204 @@
+# Carousel
+
+Horizontal or vertical content carousel with prev/next nav and
+keyboard support. Backed by
+[`embla-carousel-react`](https://www.embla-carousel.com/). Reach
+for it for image galleries, "card row" sections that overflow on
+mobile, and onboarding step decks.
+
+## Import
+
+```tsx
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+  type CarouselApi,
+} from "@/components/ui/carousel";
+```
+
+## Anatomy
+
+- `Carousel` — root context. Carries `role="region"`,
+  `aria-roledescription="carousel"`, `data-slot="carousel"`. Owns
+  the embla API and the `canScrollPrev`/`canScrollNext` derived
+  state. Captures ArrowLeft/Right at the root for keyboard nav.
+- `CarouselContent` — overflow viewport (carries
+  `data-slot="carousel-content"`). Wraps the consumer's items in a
+  sliding `flex` container; `-ml-4` (horizontal) or `-mt-4
+  flex-col` (vertical) cancels the per-item gap.
+- `CarouselItem` — one slide. Carries `role="group"`,
+  `aria-roledescription="slide"`, `data-slot="carousel-item"`.
+  `min-w-0 shrink-0 grow-0 basis-full` makes each item the full
+  viewport width by default.
+- `CarouselPrevious` / `CarouselNext` — round nav buttons.
+  Carry `data-slot="carousel-previous"` / `…-next`. Reuse `Button`'s
+  CVA variants (default `outline` + `icon`). Disabled when there's
+  nothing to scroll. Include `<span className="sr-only">` labels
+  for AT.
+
+`CarouselApi` is the embla API type re-exported for `setApi`
+callbacks.
+
+## Props
+
+| Slot                | Notable props                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| `Carousel`          | `orientation` (`"horizontal"` / `"vertical"`), `opts` (embla `EmblaOptionsType`), `plugins` (embla plugins), `setApi` callback |
+| `CarouselContent`   | All native `<div>` props (rendered on the sliding inner element)                           |
+| `CarouselItem`      | All native `<div>` props                                                                   |
+| `CarouselPrevious`  | All `Button` props; defaults to `variant="outline"` `size="icon"`                          |
+| `CarouselNext`      | All `Button` props; defaults to `variant="outline"` `size="icon"`                          |
+
+## Variants
+
+```tsx
+// Horizontal carousel with overflow-aware nav.
+<Carousel className="w-full max-w-xs">
+  <CarouselContent>
+    {items.map((item, i) => (
+      <CarouselItem key={i}>
+        <Card>
+          <CardContent className="p-6">{item}</CardContent>
+        </Card>
+      </CarouselItem>
+    ))}
+  </CarouselContent>
+  <CarouselPrevious />
+  <CarouselNext />
+</Carousel>
+```
+
+```tsx
+// Three-up — each item shows 1/3 the viewport.
+<Carousel className="w-full">
+  <CarouselContent>
+    {items.map((item, i) => (
+      <CarouselItem key={i} className="md:basis-1/3">
+        {item}
+      </CarouselItem>
+    ))}
+  </CarouselContent>
+  <CarouselPrevious />
+  <CarouselNext />
+</Carousel>
+```
+
+```tsx
+// Vertical carousel — explicit height required.
+<Carousel orientation="vertical" className="h-64">
+  <CarouselContent>
+    {items.map((item, i) => (
+      <CarouselItem key={i}>{item}</CarouselItem>
+    ))}
+  </CarouselContent>
+  <CarouselPrevious />
+  <CarouselNext />
+</Carousel>
+```
+
+```tsx
+// Auto-loop + auto-play via embla plugins.
+import Autoplay from "embla-carousel-autoplay";
+
+<Carousel
+  opts={{ loop: true }}
+  plugins={[Autoplay({ delay: 4000 })]}
+>
+  …
+</Carousel>;
+```
+
+```tsx
+// External API access — drive scroll from elsewhere on the page.
+const [api, setApi] = React.useState<CarouselApi>();
+React.useEffect(() => {
+  if (!api) return;
+  api.on("select", () => {
+    /* update a separate "1 / 5" indicator */
+  });
+}, [api]);
+
+<Carousel setApi={setApi}>{/* … */}</Carousel>;
+<Button onClick={() => api?.scrollTo(0)}>Reset</Button>;
+```
+
+## Accessibility
+
+- The carousel root advertises itself as a region with the
+  `carousel` role description; AT users can land on it via
+  landmark navigation.
+- Each slide is a `group` with `slide` role description; AT
+  announces "slide N of M" when the embla API exposes index info
+  (we don't currently render a "slide N of M" — pair with a live
+  region in the consumer if that disclosure matters).
+- Keyboard: focus the carousel root, then ArrowLeft / ArrowRight
+  scroll prev / next. Prev/Next buttons receive their own focus
+  ring via the underlying `Button`.
+- Prev/Next buttons disable when there's nothing to scroll
+  (`canScrollPrev` / `canScrollNext` returns false).
+- `<span className="sr-only">Previous slide</span>` and
+  `Next slide` give the icon-only buttons accessible names.
+- happy-dom limitation: the carousel relies on real layout
+  measurements to compute scrollability. In Vitest tests both nav
+  buttons start disabled because layout returns 0; live behaviour
+  is verified by Playwright smoke tests.
+
+## Composition examples
+
+```tsx
+// Image gallery with scrollable indicator.
+<figure>
+  <Carousel className="w-full">
+    <CarouselContent>
+      {photos.map((p) => (
+        <CarouselItem key={p.id}>
+          <img src={p.src} alt={p.alt} className="rounded-md" />
+        </CarouselItem>
+      ))}
+    </CarouselContent>
+    <CarouselPrevious />
+    <CarouselNext />
+  </Carousel>
+  <figcaption className="sr-only">Gallery of latest photos</figcaption>
+</figure>
+```
+
+```tsx
+// "Card row" of features — auto-fits 1/2/3 per breakpoint.
+<Carousel opts={{ align: "start" }} className="w-full">
+  <CarouselContent>
+    {features.map((f) => (
+      <CarouselItem key={f.id} className="basis-full sm:basis-1/2 lg:basis-1/3">
+        <FeatureCard feature={f} />
+      </CarouselItem>
+    ))}
+  </CarouselContent>
+  <CarouselPrevious />
+  <CarouselNext />
+</Carousel>
+```
+
+## Token usage
+
+- Root: `relative` so nav buttons can absolute-position themselves.
+- Content viewport: `overflow-hidden`.
+- Sliding inner: `flex` with `-ml-4` (horizontal) or `-mt-4
+  flex-col` (vertical) so per-item `pl-4` / `pt-4` produces a
+  uniform 1rem gap that doesn't blow the first item's leading
+  edge.
+- Item: full-viewport size by default (`basis-full shrink-0
+  grow-0`); override `basis-*` for multi-up layouts.
+- Nav buttons: `size-8 rounded-full` on top of `Button`'s outline
+  variant. Positioned `-left-12` / `-right-12` for horizontal; `-top-12`
+  / `-bottom-12` with a 90° rotation for vertical.
+
+## Lint hygiene
+
+Carousel's external-store synchronization (`canScrollPrev` /
+`canScrollNext`) uses `useSyncExternalStore` so `setState` is never
+called inside an effect. This keeps the file lint-clean under
+`react-hooks/set-state-in-effect`. The embla API events
+(`"select"`, `"reInit"`) are the subscription source.

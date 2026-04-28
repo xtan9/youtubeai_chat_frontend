@@ -1,0 +1,166 @@
+# Resizable
+
+Two or more resizable panels separated by a draggable handle.
+Backed by [`react-resizable-panels`](https://react-resizable-panels.vercel.app/)
+v4. Reach for it for IDE-style layouts (file tree + editor +
+inspector), split views (markdown editor + preview), and any UI
+where the user benefits from owning the layout proportions.
+
+The v4 migration (A1 PR 4) renamed the underlying primitives to
+`Group` and `Separator`. Our public wrappers (`ResizablePanelGroup`,
+`ResizablePanel`, `ResizableHandle`) keep the same names and
+behaviour as before; only the imports inside the wrapper changed.
+
+## Import
+
+```tsx
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+```
+
+## Anatomy
+
+- `ResizablePanelGroup` — root flex container. Carries
+  `data-slot="resizable-panel-group"`. Owns the panel layout
+  state via `direction` (`"horizontal"` / `"vertical"`).
+  v4 sets the flex-direction inline based on `direction`, so the
+  wrapper does NOT toggle a Tailwind class.
+- `ResizablePanel` — one resizable region. Carries
+  `data-slot="resizable-panel"`. `defaultSize` (percent), `minSize`,
+  `maxSize`, `collapsible`, `collapsedSize` are forwarded to v4.
+- `ResizableHandle` — the draggable splitter between two panels.
+  Carries `data-slot="resizable-handle"`, `role="separator"`,
+  `tabindex="0"`, and `aria-orientation`. Direction-aware styling
+  reads off `aria-orientation` (v4 carries it instead of a
+  `data-orientation` attribute). Pass `withHandle` to render the
+  centered grip dots for a more "discoverable" splitter.
+
+## Props
+
+| Slot                 | Notable props                                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `ResizablePanelGroup`| `direction` (required), `autoSaveId` (persists layout to `localStorage`), `id`, `onLayout`, `storage`                  |
+| `ResizablePanel`     | `defaultSize`, `minSize`, `maxSize`, `collapsible`, `collapsedSize`, `order`, `onCollapse`, `onExpand`, `onResize`, `id` |
+| `ResizableHandle`    | `withHandle`, `disabled`, `hitAreaMargins`, all native `<div>` props                                                  |
+
+## Variants
+
+```tsx
+// Two-panel horizontal split.
+<ResizablePanelGroup direction="horizontal" className="h-64">
+  <ResizablePanel defaultSize={50}>
+    <p>Left content</p>
+  </ResizablePanel>
+  <ResizableHandle />
+  <ResizablePanel defaultSize={50}>
+    <p>Right content</p>
+  </ResizablePanel>
+</ResizablePanelGroup>
+```
+
+```tsx
+// Vertical split with the discoverable grip handle.
+<ResizablePanelGroup direction="vertical" className="h-96">
+  <ResizablePanel defaultSize={70}>
+    <p>Top</p>
+  </ResizablePanel>
+  <ResizableHandle withHandle />
+  <ResizablePanel defaultSize={30}>
+    <p>Bottom</p>
+  </ResizablePanel>
+</ResizablePanelGroup>
+```
+
+```tsx
+// Three-panel layout (sidebar + main + inspector).
+<ResizablePanelGroup direction="horizontal" className="h-screen">
+  <ResizablePanel defaultSize={20} minSize={10} collapsible>
+    {/* sidebar */}
+  </ResizablePanel>
+  <ResizableHandle withHandle />
+  <ResizablePanel defaultSize={55}>
+    {/* main */}
+  </ResizablePanel>
+  <ResizableHandle withHandle />
+  <ResizablePanel defaultSize={25} minSize={10}>
+    {/* inspector */}
+  </ResizablePanel>
+</ResizablePanelGroup>
+```
+
+```tsx
+// Persisted layout — autoSaveId scopes layout to a key in localStorage.
+<ResizablePanelGroup direction="horizontal" autoSaveId="docs-layout">
+  <ResizablePanel defaultSize={25}>{/* nav */}</ResizablePanel>
+  <ResizableHandle />
+  <ResizablePanel defaultSize={75}>{/* article */}</ResizablePanel>
+</ResizablePanelGroup>
+```
+
+## Accessibility
+
+- The handle is `role="separator"` with `tabindex="0"` — it's
+  focusable and semantically an "ARIA window splitter."
+- Keyboard: focus the handle (Tab), then ArrowLeft/Right (horizontal
+  group) or ArrowUp/Down (vertical group) to nudge by 10%; Home/End
+  jump to `minSize` / `maxSize`; F6 cycles focus between panels;
+  Enter on a collapsible handle toggles collapse.
+- v4 emits `aria-valuenow` / `aria-valuemin` / `aria-valuemax` on
+  the focused handle so AT can announce the live percentage. (These
+  are layout-driven; in test environments without real layout the
+  values are absent — see `axeResizable` runner in `tests-utils/axe.ts`.)
+- Collapsible panels report `data-state="collapsed"` /
+  `"expanded"`; the handle's value attributes change in lockstep.
+- Pair with a labelled landmark (`<section aria-label="Editor">`)
+  if the panels host distinct app regions — the handle's
+  accessible name is the implicit "splitter".
+
+## Composition examples
+
+```tsx
+// IDE layout: file tree + editor + tools panel, with collapsible tools.
+<ResizablePanelGroup direction="horizontal" className="h-screen">
+  <ResizablePanel defaultSize={20} minSize={15} collapsible collapsedSize={4}>
+    <FileTree />
+  </ResizablePanel>
+  <ResizableHandle withHandle />
+  <ResizablePanel defaultSize={55}>
+    <Editor />
+  </ResizablePanel>
+  <ResizableHandle withHandle />
+  <ResizablePanel defaultSize={25} minSize={15}>
+    <ToolsPanel />
+  </ResizablePanel>
+</ResizablePanelGroup>
+```
+
+```tsx
+// Markdown split: source + preview.
+<ResizablePanelGroup direction="horizontal">
+  <ResizablePanel defaultSize={50}>
+    <Textarea aria-label="Markdown source" value={src} onChange={…} />
+  </ResizablePanel>
+  <ResizableHandle />
+  <ResizablePanel defaultSize={50}>
+    <article dangerouslySetInnerHTML={{ __html: html }} />
+  </ResizablePanel>
+</ResizablePanelGroup>
+```
+
+## Token usage
+
+- Group: `flex h-full w-full` (and v4 sets `flex-direction` inline
+  based on `direction`).
+- Handle: `bg-border w-px relative flex items-center justify-center`.
+- Direction-aware via `aria-[orientation=vertical]:h-px
+  aria-[orientation=vertical]:w-full` (and matching ::after pseudo
+  for the hit area).
+- Focus ring: `focus-visible:ring-ring focus-visible:ring-1
+  focus-visible:ring-offset-1`.
+- Decorative grip (when `withHandle`): `bg-border h-4 w-3
+  rounded-xs border` wrapping a `GripVerticalIcon`. The grip
+  rotates 90° in vertical groups via the
+  `[&[aria-orientation=vertical]>div]:rotate-90` selector.

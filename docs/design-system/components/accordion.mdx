@@ -1,0 +1,152 @@
+# Accordion
+
+Vertical stack of expand/collapse disclosures. Backed by
+`@radix-ui/react-accordion`. Reach for it when a group of small
+sections share a topic and the user benefits from scanning headings
+without seeing every body — FAQs, settings groups, terms & conditions.
+
+## Import
+
+```tsx
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+```
+
+## Anatomy
+
+- `Accordion` — root. Carries `data-slot="accordion"`. Mode is set
+  via `type="single"` (one item open at a time) or `type="multiple"`
+  (any combination).
+- `AccordionItem` — one disclosure. Carries `data-slot="accordion-item"`
+  with a bottom border that drops on the last child. The `value` prop
+  identifies the item for controlled and uncontrolled state.
+- `AccordionTrigger` — the clickable header. Wrapped in Radix's
+  `<h3>` `AccordionPrimitive.Header` for landmark semantics. Carries
+  `data-slot="accordion-trigger"` and rotates a `ChevronDownIcon`
+  when `data-state="open"`.
+- `AccordionContent` — the disclosed body. Animates open/close via
+  the `data-[state=closed]:animate-accordion-up` /
+  `data-[state=open]:animate-accordion-down` Tailwind utilities. The
+  consumer's children sit inside a `<div className="pt-0 pb-4">`.
+
+## Props
+
+`Accordion`, `AccordionItem`, `AccordionTrigger`, `AccordionContent`
+all forward Radix's full prop surface. Notable:
+
+| Slot                | Notable props                                                                  |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `Accordion`         | `type` (`"single"` / `"multiple"`), `value`/`defaultValue`, `collapsible`, `onValueChange`, `disabled` |
+| `AccordionItem`     | `value` (required), `disabled`                                                 |
+| `AccordionTrigger`  | All native `<button>` props                                                    |
+| `AccordionContent`  | All native `<div>` props (consumer wrapper)                                    |
+
+## Variants
+
+```tsx
+// Single — at most one open. `collapsible` lets the user close the open one.
+<Accordion type="single" collapsible>
+  <AccordionItem value="item-1">
+    <AccordionTrigger>Is it accessible?</AccordionTrigger>
+    <AccordionContent>Yes. It follows the WAI-ARIA pattern.</AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="item-2">
+    <AccordionTrigger>Is it animated?</AccordionTrigger>
+    <AccordionContent>Yes. Uses the accordion-up / down keyframes.</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+```tsx
+// Multiple — any combination open at once.
+<Accordion type="multiple" defaultValue={["item-1"]}>
+  <AccordionItem value="item-1">
+    <AccordionTrigger>Section 1</AccordionTrigger>
+    <AccordionContent>…</AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="item-2">
+    <AccordionTrigger>Section 2</AccordionTrigger>
+    <AccordionContent>…</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+```tsx
+// Controlled — sync to external state.
+const [value, setValue] = React.useState<string | undefined>(undefined);
+<Accordion type="single" collapsible value={value} onValueChange={setValue}>
+  …
+</Accordion>;
+```
+
+```tsx
+// Disabled item — Radix sets `disabled` on the underlying button and
+// `data-disabled` on the item; clicks are ignored.
+<Accordion type="single" collapsible>
+  <AccordionItem value="x" disabled>
+    <AccordionTrigger>Coming soon</AccordionTrigger>
+    <AccordionContent>Wait for it.</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+## Accessibility
+
+- Trigger is a `<button>` inside an `<h3>` heading (Radix's
+  `AccordionPrimitive.Header`). Place an explicit `<h2>` ahead of the
+  accordion to keep heading order valid in your page.
+- `aria-expanded` reflects open state; `aria-controls` links to the
+  content region. Radix manages both automatically.
+- Keyboard: Tab moves focus across triggers; Enter/Space toggles the
+  focused item; ArrowUp/Down move focus between triggers; Home/End
+  jump to first/last.
+- Disabled items report `aria-disabled="true"` and refuse keyboard
+  activation.
+
+## Composition examples
+
+```tsx
+// FAQ section.
+<section aria-labelledby="faq-heading">
+  <h2 id="faq-heading">Frequently asked questions</h2>
+  <Accordion type="single" collapsible>
+    {faqs.map((qa) => (
+      <AccordionItem key={qa.id} value={qa.id}>
+        <AccordionTrigger>{qa.question}</AccordionTrigger>
+        <AccordionContent>{qa.answer}</AccordionContent>
+      </AccordionItem>
+    ))}
+  </Accordion>
+</section>
+```
+
+```tsx
+// Settings group with multiple-open behaviour.
+<Accordion type="multiple" defaultValue={["account"]}>
+  <AccordionItem value="account">
+    <AccordionTrigger>Account</AccordionTrigger>
+    <AccordionContent>{/* form fields */}</AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="notifications">
+    <AccordionTrigger>Notifications</AccordionTrigger>
+    <AccordionContent>{/* form fields */}</AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+## Token usage
+
+- Trigger: `text-sm font-medium`, `rounded-md`, `py-4`, focus ring
+  via `focus-visible:border-ring focus-visible:ring-ring/50
+  focus-visible:ring-[3px]`.
+- Item: `border-b last:border-b-0` for stack division.
+- Content: `text-sm` body copy, `pt-0 pb-4` inner padding, animated
+  height via `animate-accordion-up` / `animate-accordion-down`
+  keyframes.
+- Chevron icon: `text-muted-foreground size-4`, rotates 180° when
+  open via `[&[data-state=open]>svg]:rotate-180` and
+  `transition-transform duration-200`.

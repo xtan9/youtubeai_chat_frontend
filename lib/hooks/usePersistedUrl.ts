@@ -9,11 +9,15 @@ export function usePersistedUrl() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Only run on client side after hydration
+    // Only run on client side after hydration.
+    // TODO(B-followup): migrate to `useSyncExternalStore` over a
+    // `storage` event listener so the hook never calls setState
+    // inside an effect (lint: react-hooks/set-state-in-effect).
     try {
       const stored = localStorage.getItem("pending-youtube-data");
       if (stored) {
         const data: PersistedUrlData = JSON.parse(stored);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setPendingUrl(data.url);
       }
     } catch (error) {

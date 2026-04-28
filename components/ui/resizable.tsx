@@ -8,8 +8,17 @@ import { cn } from "@/lib/utils"
 
 function ResizablePanelGroup({
   className,
+  direction,
+  orientation,
   ...props
-}: React.ComponentProps<typeof ResizablePrimitive.Group>) {
+}: React.ComponentProps<typeof ResizablePrimitive.Group> & {
+  /**
+   * Legacy alias for `orientation`. Accepted for backward
+   * compatibility with the pre-v4 shadcn API. New code should use
+   * `orientation`. When both are passed, `orientation` wins.
+   */
+  direction?: "horizontal" | "vertical"
+}) {
   // react-resizable-panels v4 sets flex-direction on the Group element itself
   // via inline style based on the `orientation` prop, so we don't need an
   // orientation-conditional Tailwind class here. The Group's own
@@ -17,6 +26,7 @@ function ResizablePanelGroup({
   return (
     <ResizablePrimitive.Group
       data-slot="resizable-panel-group"
+      orientation={orientation ?? direction}
       className={cn("flex h-full w-full", className)}
       {...props}
     />

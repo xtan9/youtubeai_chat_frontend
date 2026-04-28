@@ -1,0 +1,168 @@
+# Calendar
+
+A month-view date picker. Backed by
+[`react-day-picker`](https://daypicker.dev/) v9. Reach for it for
+date-of-birth pickers, scheduling UIs, and any flow where the user
+chooses one or more dates from a finite range. For embedded date +
+time selection, pair with a `<Popover>` containing the calendar.
+
+## Import
+
+```tsx
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
+```
+
+## Anatomy
+
+- `Calendar` — the day-picker root with our shadcn theming applied.
+  Carries `data-slot="calendar"` on the outer wrapper. Owns nav
+  (prev/next month), caption (month label or month/year dropdowns),
+  weekdays row, and the days grid.
+- `CalendarDayButton` — the per-day button. Reads the day's
+  modifiers (selected, range_start, range_middle, range_end,
+  focused) and emits matching `data-*` attributes for theme
+  styling. Reused as `components.DayButton` inside the Calendar so
+  external consumers don't usually mount it directly.
+
+react-day-picker 9 supplies the heavy lifting (date math, locale,
+keyboard nav). Our wrapper supplies the visual identity.
+
+## Props
+
+`Calendar` accepts every `react-day-picker` v9 prop plus one
+extension. Highlights:
+
+| Prop                | Type                                        | Default       | Description                                                           |
+| ------------------- | ------------------------------------------- | ------------- | --------------------------------------------------------------------- |
+| `mode`              | `"single"` / `"multiple"` / `"range"`       | unset         | Selection model. **Without `mode`, day cells are non-interactive.**   |
+| `selected`          | `Date` / `Date[]` / `DateRange`             | uncontrolled  | Controlled selection.                                                 |
+| `onSelect`          | `(value) => void`                           | —             | Fires on selection change. Type matches `mode`.                       |
+| `defaultMonth`      | `Date`                                      | today         | Uncontrolled month to focus initially.                                |
+| `month`             | `Date`                                      | uncontrolled  | Controlled focused month.                                             |
+| `onMonthChange`     | `(month: Date) => void`                     | —             | Fires when navigating months.                                         |
+| `disabled`          | `Matcher` / `Matcher[]`                     | none          | Predicate or set of dates that can't be picked.                       |
+| `showOutsideDays`   | `boolean`                                   | `true`        | When `false`, leading/trailing days from adjacent months are blanks.  |
+| `captionLayout`     | `"label"` / `"dropdown"` / `"dropdown-months"` / `"dropdown-years"` | `"label"` | Replaces the static caption with month/year dropdowns. |
+| `buttonVariant`     | Button variant name                         | `"ghost"`     | Drives nav and dropdown buttons through `Button`'s CVA variants.      |
+| `weekStartsOn`      | `0` (Sun) - `6` (Sat)                       | locale        | Override the locale's first-day-of-week.                              |
+| `numberOfMonths`    | `number`                                    | `1`           | Render N consecutive months side-by-side.                             |
+| `fromDate` / `toDate` | `Date`                                    | none          | Hard min/max bounds (alternative to `disabled`).                      |
+
+## Variants
+
+```tsx
+// Single date picker — uncontrolled.
+<Calendar mode="single" />
+```
+
+```tsx
+// Single date picker — controlled.
+const [date, setDate] = React.useState<Date | undefined>(undefined);
+<Calendar mode="single" selected={date} onSelect={setDate} />;
+```
+
+```tsx
+// Date range picker.
+const [range, setRange] = React.useState<DateRange | undefined>();
+<Calendar mode="range" selected={range} onSelect={setRange} />;
+```
+
+```tsx
+// Multi-select.
+const [dates, setDates] = React.useState<Date[]>([]);
+<Calendar mode="multiple" selected={dates} onSelect={(v) => setDates(v ?? [])} />;
+```
+
+```tsx
+// With month/year dropdowns instead of static caption.
+<Calendar mode="single" captionLayout="dropdown" />
+```
+
+```tsx
+// Restricted range (no past dates).
+<Calendar mode="single" disabled={(date) => date < new Date()} />
+```
+
+```tsx
+// Two months side-by-side (typical for booking flows).
+<Calendar mode="range" numberOfMonths={2} />
+```
+
+## Accessibility
+
+- Built on `react-day-picker`'s WAI-ARIA-conformant grid. Each day
+  is a `<button>` with `aria-label` containing the localized full
+  date ("Wednesday, June 15th, 2024"). The selected day reports
+  `aria-selected="true"`.
+- Keyboard:
+  - Tab focuses the day grid.
+  - ArrowUp/Down move week-by-week; ArrowLeft/Right move
+    day-by-day; Home / End jump to the start / end of the week;
+    PageUp / PageDown move month-by-month; Shift+PageUp / PageDown
+    move year-by-year; Enter / Space select.
+  - Disabled days (`disabled`-matched) report `disabled` and
+    cannot receive focus.
+- Pair with a Label and a `Popover` when used as a form input — the
+  Calendar itself doesn't own a label.
+- Locale-driven (default `en-US`). Override via `locale` prop or
+  via `dir="rtl"` (RTL flips chevron icons via the `rtl:` Tailwind
+  utilities baked into the wrapper).
+
+## Composition examples
+
+```tsx
+// Date input via Popover.
+const [open, setOpen] = React.useState(false);
+const [date, setDate] = React.useState<Date | undefined>();
+
+<Popover open={open} onOpenChange={setOpen}>
+  <PopoverTrigger asChild>
+    <Button variant="outline" className="w-56 justify-start">
+      <CalendarIcon className="mr-2 size-4" />
+      {date ? format(date, "PP") : "Pick a date"}
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent className="w-auto p-0">
+    <Calendar
+      mode="single"
+      selected={date}
+      onSelect={(d) => {
+        setDate(d);
+        setOpen(false);
+      }}
+      autoFocus
+    />
+  </PopoverContent>
+</Popover>;
+```
+
+```tsx
+// Booking range, two months.
+<Card>
+  <CardContent className="p-3">
+    <Calendar
+      mode="range"
+      numberOfMonths={2}
+      selected={range}
+      onSelect={setRange}
+      disabled={{ before: today }}
+    />
+  </CardContent>
+</Card>
+```
+
+## Token usage
+
+- Cell size: `[--cell-size:var(--spacing-8)]` — 32px square cells.
+- Day button: shadcn `Button` with `variant={buttonVariant}` (default
+  `ghost`). Selected day flips to `bg-primary text-primary-foreground`
+  via `data-[selected-single=true]`.
+- Range cells: start / end use `bg-primary`; middle cells use
+  `bg-accent` with `rounded-none`.
+- Today: `bg-accent text-accent-foreground` (overridden when also
+  selected).
+- Outside-month days: `text-muted-foreground` with reduced opacity.
+- Disabled: `text-muted-foreground opacity-50`.
+- Focus ring: `group-data-[focused=true]/day:ring-ring/50
+  group-data-[focused=true]/day:ring-[3px]`.
+

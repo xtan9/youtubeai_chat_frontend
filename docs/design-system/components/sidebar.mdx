@@ -1,0 +1,333 @@
+# Sidebar
+
+A compositional left/right sidebar with collapsing, mobile sheet
+fallback, sub-menus, badges, tooltips, and a keyboard shortcut.
+The biggest single component in the design system; built from
+shadcn-style primitives over `Sheet`, `Tooltip`, `Skeleton`,
+`Input`, and `Separator`.
+
+Currently unused in the live app surface, but part of the governed
+47-component library so consumers can drop a full app shell with a
+single import set.
+
+## Import
+
+```tsx
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+  SidebarRail,
+  SidebarHeader,
+  SidebarContent,
+  SidebarFooter,
+  SidebarSeparator,
+  SidebarInput,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
+  SidebarMenuSkeleton,
+  useSidebar,
+} from "@/components/ui/sidebar";
+```
+
+## Anatomy
+
+- `SidebarProvider` — root context. Owns open/closed state, mobile
+  state (`useIsMobile()`), keyboard shortcut listener (Cmd/Ctrl+B),
+  and persists via the `sidebar_state` cookie. Wraps everything in
+  a flex container so the sidebar and main inset live side-by-side.
+- `Sidebar` — the visual sidebar. Three modes:
+  - `collapsible="offcanvas"` (default): slides off-screen when
+    collapsed.
+  - `collapsible="icon"`: shrinks to the icon-only width
+    (`--sidebar-width-icon`).
+  - `collapsible="none"`: never collapses; pure flex column.
+  On `isMobile`, all variants render inside a `Sheet` so the
+  sidebar behaves like a slide-over instead of a column.
+- `SidebarInset` — the main content area next to the sidebar.
+  Renders as `<main>` with `bg-background`. Pair `Sidebar` + `SidebarInset`
+  inside `SidebarProvider`.
+- `SidebarTrigger` — toggle button. Wraps `Button` with the
+  PanelLeft icon and an sr-only "Toggle Sidebar" label.
+- `SidebarRail` — invisible drag-rail along the sidebar edge for
+  mouse-resize affordance. Click toggles open/closed.
+- `SidebarHeader` / `SidebarContent` / `SidebarFooter` —
+  vertical stack of regions. Header / footer get `gap-2 p-2`;
+  content gets `flex-1 overflow-auto`.
+- `SidebarSeparator` — sidebar-tinted [`Separator`](./separator.mdx).
+- `SidebarInput` — sidebar-tinted [`Input`](./input.mdx) (height 8,
+  no shadow).
+- `SidebarGroup` / `SidebarGroupLabel` / `SidebarGroupAction` /
+  `SidebarGroupContent` — labelled section inside the sidebar.
+  GroupAction is the optional `+` / `…` icon button on the right.
+- `SidebarMenu` — `<ul>` of menu items. Direct children must be
+  `SidebarMenuItem` (`<li>`).
+- `SidebarMenuItem` — one row.
+- `SidebarMenuButton` — the row's primary action. CVA-driven
+  variants (`default`, `outline`) and sizes (`sm`, `default`,
+  `lg`). `isActive` flips it to the active style.
+  - `tooltip` (string or `TooltipContent` props) — shows when the
+    sidebar is collapsed (icon-only mode).
+- `SidebarMenuAction` — the optional secondary icon (kebab,
+  pencil) on the right of a menu row.
+- `SidebarMenuBadge` — a count chip in the top-right of a row.
+- `SidebarMenuSub` / `SidebarMenuSubItem` / `SidebarMenuSubButton`
+  — nested second-level menu. Uses `<a>` by default; pass `asChild`
+  to render as your router link.
+- `SidebarMenuSkeleton` — loading row.
+- `useSidebar()` — hook for any descendant to read the open/state
+  flag and call `toggleSidebar()`.
+
+## Props
+
+| Slot                   | Notable props                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `SidebarProvider`      | `defaultOpen`, `open` / `onOpenChange`                                                            |
+| `Sidebar`              | `side` (`"left"` (default) / `"right"`), `variant` (`"sidebar"` / `"floating"` / `"inset"`), `collapsible` (`"offcanvas"` (default) / `"icon"` / `"none"`) |
+| `SidebarTrigger`       | All `Button` props                                                                                |
+| `SidebarMenuButton`    | `asChild`, `isActive`, `variant`, `size`, `tooltip`                                               |
+| `SidebarMenuAction`    | `asChild`, `showOnHover`                                                                          |
+| `SidebarMenuSubButton` | `asChild`, `size` (`"sm"` / `"md"`), `isActive`                                                   |
+| `SidebarMenuSkeleton`  | `showIcon` (renders the icon-shape skeleton)                                                      |
+
+## Variants
+
+```tsx
+// Minimal app shell.
+<SidebarProvider>
+  <Sidebar>
+    <SidebarHeader>
+      <SidebarTrigger />
+    </SidebarHeader>
+    <SidebarContent>
+      <SidebarGroup>
+        <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton isActive>
+                <HomeIcon /> <span>Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton>
+                <FolderIcon /> <span>Projects</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    </SidebarContent>
+    <SidebarFooter>
+      <SidebarSeparator />
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton>
+            <SettingsIcon /> <span>Settings</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarFooter>
+  </Sidebar>
+  <SidebarInset>
+    {/* Page content */}
+  </SidebarInset>
+</SidebarProvider>
+```
+
+```tsx
+// Icon-only collapsed sidebar with tooltips on hover.
+<SidebarProvider defaultOpen={false}>
+  <Sidebar collapsible="icon">
+    <SidebarContent>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip="Dashboard">
+            <HomeIcon /> <span>Dashboard</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarContent>
+  </Sidebar>
+  <SidebarInset>{/* … */}</SidebarInset>
+</SidebarProvider>
+```
+
+```tsx
+// Right-side sidebar with floating variant.
+<Sidebar side="right" variant="floating">
+  …
+</Sidebar>
+```
+
+```tsx
+// Submenu with active state.
+<SidebarMenu>
+  <SidebarMenuItem>
+    <SidebarMenuButton>
+      <FolderIcon /> <span>Projects</span>
+    </SidebarMenuButton>
+    <SidebarMenuSub>
+      <SidebarMenuSubItem>
+        <SidebarMenuSubButton href="/projects/alpha">
+          <span>Alpha</span>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>
+      <SidebarMenuSubItem>
+        <SidebarMenuSubButton href="/projects/beta" isActive>
+          <span>Beta</span>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>
+    </SidebarMenuSub>
+  </SidebarMenuItem>
+</SidebarMenu>
+```
+
+```tsx
+// Loading state.
+<SidebarMenu>
+  {[0, 1, 2].map((i) => (
+    <SidebarMenuItem key={i}>
+      <SidebarMenuSkeleton showIcon />
+    </SidebarMenuItem>
+  ))}
+</SidebarMenu>
+```
+
+```tsx
+// Search field in the header.
+<SidebarHeader>
+  <Label htmlFor="sb-search" className="sr-only">Search</Label>
+  <SidebarInput id="sb-search" placeholder="Search…" />
+</SidebarHeader>
+```
+
+```tsx
+// Controlled open/closed state — sync to a route or external store.
+const [open, setOpen] = React.useState(true);
+<SidebarProvider open={open} onOpenChange={setOpen}>
+  …
+</SidebarProvider>;
+```
+
+## Accessibility
+
+- `SidebarTrigger` is a real `<button>` with sr-only label
+  "Toggle Sidebar". Clicking toggles open/closed; on mobile, opens
+  the Sheet.
+- Keyboard shortcut: Cmd/Ctrl+B toggles the sidebar.
+- Mobile path uses a `Sheet` (Radix Dialog under the hood) — focus
+  is trapped inside the Sheet while open and restored on close.
+  The Sheet's hidden `SheetTitle` + `SheetDescription` ("Sidebar"
+  / "Displays the mobile sidebar") give it an accessible name.
+- Each `SidebarMenuButton` is a `<button>` (or any element when
+  `asChild` is used). Use one item per logical row; use
+  `SidebarMenuAction` for a secondary inline action.
+- Icon-only menu buttons rely on `tooltip` for accessible names —
+  the visible icon should be paired with `<span>` text inside the
+  button (truncated by Tailwind in collapsed mode but still
+  available to AT).
+- `SidebarMenuBadge` is decorative (`pointer-events-none`); for
+  dynamic counts, surface the change via a sibling
+  `aria-live="polite"` region.
+- `SidebarRail` is a `<button>` with explicit
+  `aria-label="Toggle Sidebar"`; `tabIndex=-1` keeps it out of the
+  tab order (the visible Trigger is the keyboard route).
+
+## Composition examples
+
+```tsx
+// Full app shell.
+function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarHeader>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg">
+                <Avatar />
+                <span>Acme Inc.</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Navigate</SidebarGroupLabel>
+            <SidebarMenu>
+              {nav.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild isActive={pathname === item.href}>
+                    <Link href={item.href}>
+                      {item.icon} <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton>
+                <UserIcon /> <span>{user.name}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </Sidebar>
+      <SidebarInset>
+        <header className="flex h-12 items-center gap-2 border-b px-3">
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="h-4" />
+          <h1 className="text-sm">Dashboard</h1>
+        </header>
+        <main className="flex-1 p-4">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+```
+
+## Token usage
+
+- Colors: `bg-sidebar`, `text-sidebar-foreground`,
+  `border-sidebar-border`, `bg-sidebar-accent`, etc. — separate
+  semantic surface from the page `bg-background` so the sidebar
+  feels visually distinct.
+- Widths: `--sidebar-width: 16rem` (open),
+  `--sidebar-width-icon: 3rem` (collapsed icon-only),
+  `SIDEBAR_WIDTH_MOBILE: 18rem` (mobile sheet).
+- Animation: width transitions use `duration-200 ease-linear` for
+  the sidebar gap and container.
+- Floating + inset variants: extra `p-2` padding around the
+  container; inset adds `rounded-xl shadow-sm` to the inset main
+  region.
+- MenuButton: `rounded-md p-2 text-sm`, hover/active state via
+  `bg-sidebar-accent text-sidebar-accent-foreground`. CVA variant
+  `outline` adds `bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))]`.
+- Skeleton width: random per-instance via `useState` initializer
+  so it stays stable across re-renders (and lint-clean under
+  `react-hooks/purity`).
+
+## Lint hygiene
+
+- `useIsMobile()` was migrated to `useSyncExternalStore` so the
+  viewport listener no longer triggers
+  `react-hooks/set-state-in-effect`.
+- `SidebarMenuSkeleton`'s random width is initialized via
+  `useState`'s lazy initializer (single mount call) to satisfy
+  `react-hooks/purity`.

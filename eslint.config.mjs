@@ -16,18 +16,21 @@ const eslintConfig = defineConfig([
   ...fixupConfigRules(nextTs),
   ...pluginQuery.configs["flat/recommended"],
   {
-    // eslint-config-next 16 ships eslint-plugin-react-hooks rules that flag
-    // existing patterns in our React 19 codebase (setState-in-effect,
-    // purity, setState-in-render). These rules are correct as guidance for
-    // new code, but addressing them is a refactor, not a dependency upgrade
-    // — out of scope for A1 PR 1 per the design spec ("Only existing deps
-    // get bumped. No architecture changes."). They will be revisited when
-    // the design-system rebuild (B) lands. Demoting to off keeps the
-    // upgrade clean while leaving the rules ready to re-enable.
+    // eslint-config-next 16 ships eslint-plugin-react-hooks rules that
+    // were disabled in A1 PR 1 to keep the dependency-upgrade PR clean.
+    // B PR 6 (composites cluster) re-enables them: every offending
+    // file in the components/ui/ cluster + hooks/use-mobile.ts has been
+    // refactored to satisfy the rule (typically by moving from
+    // setState-in-effect to useSyncExternalStore, or from useMemo to
+    // useState's lazy initializer for pure-state). A handful of
+    // app/-level offenders carry narrow per-line suppressions with
+    // TODOs pending their own refactor — see
+    // docs/design-system/components/composites/index.mdx for the
+    // catalogue.
     rules: {
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/set-state-in-render": "off",
-      "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/set-state-in-render": "error",
+      "react-hooks/purity": "error",
     },
   },
   {

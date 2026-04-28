@@ -55,6 +55,10 @@ export function YouTubeSummarizerApp({
       typeof navigator !== "undefined" && navigator.languages
         ? Array.from(navigator.languages)
         : [];
+    // TODO(B-followup): replace this hydration-flag pattern with
+    // `useSyncExternalStore` over `navigator.languages` so the locale
+    // detection is push-driven, not pulled-once-on-mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
   }, []);
 
@@ -74,9 +78,18 @@ export function YouTubeSummarizerApp({
   } = summarizationQuery;
 
   // Handle streaming data (array)
+  // TODO(B-followup): split this useMemo into (a) a pure derivation
+  // returning `{ data, streamingProgress, isCached, streamError }`
+  // and (b) a separate `useEffect` keyed on the derivation that
+  // owns the `setIsProcessing` / `setStreamingComplete` side
+  // effects. The current shape interleaves derivation + state
+  // mutation, which is what `react-hooks/set-state-in-render`
+  // flags. Refactor is out of scope for B PR 6 (composites cluster).
   const { data, streamingProgress, isCached, streamError } = useMemo(() => {
     if ((isLoading || isFetching) && !rawData) {
+      // eslint-disable-next-line react-hooks/set-state-in-render
       setIsProcessing(true);
+      // eslint-disable-next-line react-hooks/set-state-in-render
       setStreamingComplete(false);
       return {
         data: undefined,
@@ -94,6 +107,7 @@ export function YouTubeSummarizerApp({
       const latestRawData = rawData[rawData.length - 1];
 
       if (latestRawData?.summary) {
+        // eslint-disable-next-line react-hooks/set-state-in-render
         setIsProcessing(false);
         // Parse the streaming data to extract clean content and progress
         const parsed = parseStreamingData(latestRawData.summary);
@@ -105,6 +119,7 @@ export function YouTubeSummarizerApp({
           (parsed.progress?.stage === "complete" &&
             parsed.progress.progress === 100)
         ) {
+          // eslint-disable-next-line react-hooks/set-state-in-render
           setStreamingComplete(true);
         }
 
@@ -147,10 +162,15 @@ export function YouTubeSummarizerApp({
     [data, transcriptionTime, summaryTime]
   );
 
-  // Detect if this is a cached result from query status
+  // Detect if this is a cached result from query status.
+  // TODO(B-followup): collapse the cache-detection effect into the
+  // derivation above so React state stays in lockstep with the
+  // streaming snapshot rather than being patched after-the-fact in
+  // an effect.
   useEffect(() => {
     // If we already detected it's cached from metadata, don't change it
     if (isCached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStreamingComplete(true);
       return;
     }
