@@ -1,0 +1,132 @@
+# Alert
+
+An inline banner for surfacing a single status or call-to-attention
+inside a flow. Plain `<div role="alert">` — no Radix primitive, no
+imperative API. CVA variants for the two semantic surfaces (default,
+destructive).
+
+Reach for it inside a form, settings page, or empty state to call out
+a one-time message. For ephemeral toast-style notifications, use
+[Toaster (sonner)](./sonner.mdx). For modal confirmations, use
+[AlertDialog](./alert-dialog.mdx).
+
+## Import
+
+```tsx
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+```
+
+## Anatomy
+
+- `Alert` — `<div role="alert">` with a CSS grid that places an
+  optional leading SVG in column 1 and the title + description in
+  column 2.
+- `AlertTitle` — `<div data-slot="alert-title">`. Single-line clamp by
+  default.
+- `AlertDescription` — `<div data-slot="alert-description">`. Multi-line
+  with relaxed leading.
+
+## Props
+
+| Prop      | Type                              | Default     | Description                                                                          |
+| --------- | --------------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `variant` | `"default" \| "destructive"`     | `"default"` | Color treatment.                                                                     |
+| ...native | `React.ComponentProps<"div">`    | —           | `role` defaults to `"alert"`; override `aria-live` to `"polite"` for non-urgent msgs. |
+
+## Variants
+
+```tsx
+// Default — informational
+<Alert>
+  <Info /> {/* lucide-react icon, optional */}
+  <AlertTitle>Heads up!</AlertTitle>
+  <AlertDescription>
+    You can add components to your app using the cli.
+  </AlertDescription>
+</Alert>
+```
+
+```tsx
+// Destructive — error or destructive consequence
+<Alert variant="destructive">
+  <AlertCircle />
+  <AlertTitle>Error</AlertTitle>
+  <AlertDescription>
+    Your session has expired. Please log in again.
+  </AlertDescription>
+</Alert>
+```
+
+```tsx
+// Title only (no description)
+<Alert>
+  <CheckCircle2 />
+  <AlertTitle>Saved.</AlertTitle>
+</Alert>
+```
+
+```tsx
+// Polite (non-urgent) update — switch the live region tone
+<Alert aria-live="polite">
+  <AlertTitle>Update available</AlertTitle>
+  <AlertDescription>
+    A new version of the app is ready to install.
+  </AlertDescription>
+</Alert>
+```
+
+## Accessibility
+
+- The root carries `role="alert"`. Browsers map this to an
+  `aria-live="assertive"` region by default — meaning AT will
+  announce the alert content the moment it appears in the DOM.
+- For **non-urgent** updates (e.g. "we saved your draft"), override
+  `aria-live="polite"` so it doesn't interrupt the user.
+- **Do not stack many alerts.** A page with three concurrent
+  `role="alert"` regions confuses AT — collapse them into a single
+  alert with a list, or upgrade to a toast pattern.
+- The optional leading SVG is rendered in column 1 of the grid.
+  It carries no semantic role; the title text is the alert's name.
+- Use [AlertDialog](./alert-dialog.mdx) when the user **must** respond
+  before continuing — Alert is non-modal and dismissible by ignoring.
+
+## Composition examples
+
+```tsx
+// Form-level error banner
+<form onSubmit={handleSubmit}>
+  {error ? (
+    <Alert variant="destructive" className="mb-4">
+      <AlertCircle />
+      <AlertTitle>Could not save</AlertTitle>
+      <AlertDescription>{error.message}</AlertDescription>
+    </Alert>
+  ) : null}
+  {/* ...form fields */}
+</form>
+```
+
+```tsx
+// Empty-state hint
+<Alert>
+  <Info />
+  <AlertTitle>No invoices yet</AlertTitle>
+  <AlertDescription>
+    Connect a payment processor to start syncing invoices.
+  </AlertDescription>
+</Alert>
+```
+
+## Token usage
+
+- Default: `bg-card text-card-foreground` + 1px border + `rounded-lg`
+- Destructive: `text-destructive bg-card` + per-slot variants (description
+  uses `text-destructive/90`)
+- Padding: `px-4 py-3`
+- Typography: `text-sm`
+- Title: `font-medium tracking-tight`
+- Description: `text-sm text-muted-foreground` + `[&_p]:leading-relaxed`
+- SVG sizing: `[&>svg]:size-4` with a small `translate-y-0.5` for
+  optical alignment with the title baseline
+- Grid layout: `grid-cols-[0_1fr]` collapses to single-column when no
+  SVG is present; expands to `[calc(var(--spacing)*4)_1fr]` when one is

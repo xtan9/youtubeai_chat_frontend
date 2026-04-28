@@ -1,0 +1,118 @@
+# Skeleton
+
+A loading-state placeholder shape. A `<div>` with `animate-pulse` and
+`bg-accent` — purely visual. Used to suggest the layout of content
+that's still loading, without committing to a spinner or "Loading…"
+copy.
+
+Reach for it when the wait is long enough to perceive (>200ms) and the
+final layout is predictable. For known-percentage operations, use
+[Progress](./progress.mdx) instead.
+
+## Import
+
+```tsx
+import { Skeleton } from "@/components/ui/skeleton";
+```
+
+## Anatomy
+
+A single `<div>`. Compose multiple Skeletons inside a layout to
+approximate the final content shape — title row, paragraph rows,
+avatar circle, etc.
+
+## Props
+
+| Prop      | Type                              | Default | Description                                |
+| --------- | --------------------------------- | ------- | ------------------------------------------ |
+| ...native | `React.ComponentProps<"div">`    | —       | All native div attrs (id, role, aria-busy).|
+
+There are no variants — sizing, spacing, and shape are entirely
+className-driven. Use Tailwind utility classes to set width, height,
+rounding (e.g. `h-4 w-32`, `size-12 rounded-full`).
+
+## Variants
+
+```tsx
+// Single text line placeholder
+<Skeleton className="h-4 w-32" />
+```
+
+```tsx
+// Avatar placeholder
+<Skeleton className="size-12 rounded-full" />
+```
+
+```tsx
+// Card placeholder
+<div className="space-y-3">
+  <Skeleton className="h-4 w-1/2" />
+  <Skeleton className="h-4 w-3/4" />
+  <Skeleton className="h-4 w-2/3" />
+</div>
+```
+
+## Accessibility
+
+- The Skeleton itself is **decorative**. Do not give every Skeleton a
+  role; that would create a swarm of meaningless live regions.
+- Wrap a group of Skeletons in **one** `role="status"` region with
+  `aria-busy="true"` and `aria-label="Loading <thing>"`. AT will read
+  the label and stay silent until the busy state ends:
+
+  ```tsx
+  <div role="status" aria-busy="true" aria-label="Loading user list">
+    <Skeleton className="h-4 w-32" />
+    <Skeleton className="h-4 w-24" />
+  </div>
+  ```
+
+- Alternatively, a **single** standalone Skeleton can directly carry
+  `role="status" aria-label="…"` if it represents one logical thing
+  loading.
+- When the real content arrives, **remove the role="status" wrapper**
+  along with the Skeletons. Don't leave the busy region in place.
+
+## Composition examples
+
+```tsx
+// User card while we fetch
+{loading ? (
+  <div
+    role="status"
+    aria-busy="true"
+    aria-label="Loading user"
+    className="flex items-center gap-3"
+  >
+    <Skeleton className="size-12 rounded-full" />
+    <div className="space-y-2">
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="h-3 w-24" />
+    </div>
+  </div>
+) : (
+  <UserCard user={user} />
+)}
+```
+
+```tsx
+// Table row placeholder while we paginate
+<TableBody>
+  {loading
+    ? Array.from({ length: 5 }).map((_, i) => (
+        <TableRow key={i}>
+          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+        </TableRow>
+      ))
+    : rows.map((r) => <TableRow key={r.id}>{/* … */}</TableRow>)}
+</TableBody>
+```
+
+## Token usage
+
+- Background: `bg-accent`
+- Animation: `animate-pulse` (Tailwind 4 default — opacity ramps
+  between 1 and 0.5)
+- Default radius: `rounded-md` (override per-instance via className)

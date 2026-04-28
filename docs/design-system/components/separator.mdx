@@ -1,0 +1,101 @@
+# Separator
+
+A 1px line (horizontal or vertical) that divides content. Backed by
+`@radix-ui/react-separator`, which decides between
+`role="separator"` (semantic) and `role="none"` (decorative) based on
+the `decorative` prop.
+
+Reach for it between sections of a Card, between groups of menu items,
+between the items of an inline list (vertical mode). For a heavier
+visual divider, prefer adjusting the surface itself (e.g. `bg-card` +
+spacing).
+
+## Import
+
+```tsx
+import { Separator } from "@/components/ui/separator";
+```
+
+## Anatomy
+
+A single `<div>`. Two attributes drive everything:
+
+- `data-orientation` — always set; CSS keys off it for width/height.
+- `role` — `none` when `decorative={true}` (default), `separator` otherwise.
+
+## Props
+
+| Prop          | Type                                 | Default        | Description                                                                                                                                          |
+| ------------- | ------------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orientation` | `"horizontal" \| "vertical"`         | `"horizontal"` | Sets the line's axis. Drives `data-orientation` and (when semantic) `aria-orientation`.                                                              |
+| `decorative`  | `boolean`                            | `true`         | When `true`, AT ignores it (`role=none`). When `false`, it announces as a structural separator (`role=separator`).                                   |
+| ...native     | `React.ComponentProps<"div">`        | —              | All native div attrs.                                                                                                                                |
+
+## Variants
+
+```tsx
+// Decorative horizontal (default)
+<Separator />
+```
+
+```tsx
+// Decorative vertical (e.g., between inline list items)
+<div className="flex h-5 items-center gap-2">
+  <span>Docs</span>
+  <Separator orientation="vertical" />
+  <span>Source</span>
+  <Separator orientation="vertical" />
+  <span>Community</span>
+</div>
+```
+
+```tsx
+// Semantic — between major sections
+<h2>Account</h2>
+<p>Email, password, …</p>
+<Separator decorative={false} />
+<h2>Billing</h2>
+<p>Plan, payment method, …</p>
+```
+
+## Accessibility
+
+- `decorative={true}` (default) → `role="none"` + `aria-hidden`-equivalent.
+  AT ignores it. Use this whenever the separator is purely visual.
+- `decorative={false}` → `role="separator"`. Use this between major
+  page or document sections so AT announces "separator". The ARIA
+  default orientation is horizontal; `aria-orientation="vertical"` is
+  emitted only when `orientation="vertical"`.
+- Don't use Separator as a substitute for headings; if a divider marks
+  a new section, the section should also have a heading.
+
+## Composition examples
+
+```tsx
+// Inside a Card — between header and body
+<Card>
+  <CardHeader>
+    <CardTitle>Profile</CardTitle>
+    <CardDescription>Your public profile.</CardDescription>
+  </CardHeader>
+  <Separator />
+  <CardContent>{/* form fields */}</CardContent>
+</Card>
+```
+
+```tsx
+// In a dropdown — between groups of menu items
+<DropdownMenuContent>
+  <DropdownMenuItem>Profile</DropdownMenuItem>
+  <DropdownMenuItem>Settings</DropdownMenuItem>
+  <DropdownMenuSeparator /> {/* uses Separator under the hood */}
+  <DropdownMenuItem>Sign out</DropdownMenuItem>
+</DropdownMenuContent>
+```
+
+## Token usage
+
+- Background: `bg-border`
+- Horizontal sizing: `h-px w-full`
+- Vertical sizing: `h-full w-px`
+- No padding / margin — consumers control gaps via the parent layout.

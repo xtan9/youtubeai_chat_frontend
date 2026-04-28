@@ -1,0 +1,109 @@
+# Progress
+
+A horizontal progress bar for known-percentage operations (file upload,
+multi-step form, install). Backed by `@radix-ui/react-progress` —
+emits `role="progressbar"` and the standard `aria-valuemin` /
+`aria-valuemax` / `aria-valuenow` triple.
+
+For unknown-duration loading (waiting on an API call), use a spinner
+or [Skeleton](./skeleton.mdx) instead — Progress with no determinate
+value is allowed (`value={null}`) but the user gains nothing from
+seeing a static empty bar.
+
+## Import
+
+```tsx
+import { Progress } from "@/components/ui/progress";
+```
+
+## Anatomy
+
+- `Progress` — root `<div role="progressbar">`. Forwards to
+  `ProgressPrimitive.Root`. Carries `aria-valuemin`,
+  `aria-valuemax`, `aria-valuenow`.
+- Internal `ProgressPrimitive.Indicator` — translated horizontally
+  to `-${100 - value}%`. The translation drives the visible fill.
+
+## Props
+
+| Prop      | Type                                          | Default | Description                                                  |
+| --------- | --------------------------------------------- | ------- | ------------------------------------------------------------ |
+| `value`   | `number \| null`                              | `null`  | Current progress (0–`max`). `null` is the indeterminate state.|
+| `max`     | `number`                                      | `100`   | Upper bound of `value`.                                      |
+| ...native | `React.ComponentProps<typeof Root>`           | —       | All native div attrs (id, aria-label, aria-labelledby).      |
+
+## Variants
+
+```tsx
+// Determinate — known percentage
+<Progress value={42} aria-label="Upload progress" />
+```
+
+```tsx
+// Indeterminate — value=null (e.g., "thinking…")
+<Progress value={null} aria-label="Loading" />
+```
+
+```tsx
+// Custom max
+<Progress value={3} max={5} aria-label="Step 3 of 5" />
+```
+
+```tsx
+// Paired with a visible label via aria-labelledby
+<div className="space-y-1">
+  <p id="upload-label">Uploading file…</p>
+  <Progress value={64} aria-labelledby="upload-label" />
+</div>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-progress`. The root is `role="progressbar"`
+  with `aria-valuemin` / `aria-valuemax` set to `0` / `max`.
+  `aria-valuenow` is the current `value`; for `value={null}` (indeterminate
+  state) it's omitted and `data-state="indeterminate"` is set.
+- **Always pass an accessible name** via `aria-label` or
+  `aria-labelledby`. Progress without a name is announced as a generic
+  "progress bar 42%", which is rarely actionable.
+- **Add `aria-valuetext`** when the percentage isn't the full story
+  (e.g. "Step 3 of 5: Connecting"). Default value text is the percentage.
+- The visual fill is purely decorative — AT reads `aria-valuenow` only.
+  Don't rely on color alone for completion state; pair with text.
+
+## Composition examples
+
+```tsx
+// File-upload progress
+function UploadCard({ uploadPct, fileName }) {
+  const labelId = useId();
+  return (
+    <Card className="p-4 space-y-2">
+      <p id={labelId} className="text-sm">
+        Uploading <strong>{fileName}</strong>… {uploadPct}%
+      </p>
+      <Progress value={uploadPct} aria-labelledby={labelId} />
+    </Card>
+  );
+}
+```
+
+```tsx
+// Multi-step form
+<div className="space-y-4">
+  <p className="text-sm text-muted-foreground">Step {step} of {total}</p>
+  <Progress
+    value={(step / total) * 100}
+    aria-label={`Step ${step} of ${total}`}
+  />
+  {/* …current step content */}
+</div>
+```
+
+## Token usage
+
+- Track background: `bg-primary/20`
+- Fill: `bg-primary`
+- Height: `h-2`
+- Radius: `rounded-full`
+- Transition: `transition-all` on the indicator transform

@@ -1,0 +1,121 @@
+# ScrollArea
+
+A custom-styled scroll container with auto-hiding scrollbars that
+match the design system. Backed by `@radix-ui/react-scroll-area` —
+under the hood it's a viewport `<div>` with `overflow: scroll` and
+overlay scrollbars rendered as separate elements.
+
+Reach for it when you need a fixed-size scrollable region (a sidebar,
+a tooltip body, a code block) and the native browser scrollbar would
+clash with the surface design. For full-page scrolling, stay native.
+
+## Import
+
+```tsx
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+```
+
+## Anatomy
+
+- `ScrollArea` — root `<div>`. `relative` + auto-hides native
+  scrollbars via internal CSS injected by Radix (`scrollbar-width:none`
+  and `::-webkit-scrollbar { display: none }`).
+- Internal `ScrollAreaPrimitive.Viewport` — the actual scrollable
+  element. Carries `data-slot="scroll-area-viewport"` and
+  focus-visible ring.
+- `ScrollBar` — overlay scrollbar. Mounted automatically inside
+  `ScrollArea` for the vertical axis; mount a horizontal one
+  explicitly when needed (`<ScrollBar orientation="horizontal" />`).
+  Defaults to vertical.
+- Internal `ScrollAreaPrimitive.ScrollAreaThumb` — the draggable
+  thumb inside the scrollbar.
+
+Auto-mount of the scrollbar is gated on real-browser layout (the
+content actually overflows). In test environments without layout
+(happy-dom), set `type="always"` to force it.
+
+## Props
+
+| Slot         | Notable props                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| `ScrollArea` | `type` (`"hover"` (default) / `"scroll"` / `"auto"` / `"always"`), `dir`, `scrollHideDelay`               |
+| `ScrollBar`  | `orientation` (`"vertical"` (default) / `"horizontal"`), `forceMount`                                    |
+
+## Variants
+
+```tsx
+// Vertical-only (default)
+<ScrollArea className="h-72 w-48 rounded-md border">
+  <ul className="p-4">
+    {tags.map((t) => (
+      <li key={t}>{t}</li>
+    ))}
+  </ul>
+</ScrollArea>
+```
+
+```tsx
+// Both axes — add a horizontal ScrollBar explicitly
+<ScrollArea className="h-72 w-96 rounded-md border whitespace-nowrap">
+  <div className="flex w-max space-x-4 p-4">
+    {photos.map((p) => (
+      <figure key={p.id}>
+        <img src={p.src} alt={p.alt} />
+      </figure>
+    ))}
+  </div>
+  <ScrollBar orientation="horizontal" />
+</ScrollArea>
+```
+
+```tsx
+// Force scrollbar visibility (e.g., to make it discoverable)
+<ScrollArea type="always" className="h-32 w-full">
+  {/* … */}
+</ScrollArea>
+```
+
+## Accessibility
+
+- The viewport receives keyboard focus and supports the standard
+  scroll keys (Page Up/Down, Home/End, arrow keys) automatically.
+- The visible focus ring (`focus-visible:ring-ring/50 ring-[3px]`)
+  appears when the user tabs into the scroll region with a keyboard.
+- Custom scrollbars are **decorative** — Radix sets them
+  `aria-hidden`-equivalent and AT users navigate the underlying
+  content directly.
+- For long scrollable content (e.g., a chat history), pair with a
+  proper landmark (`<section aria-label="Messages">`) so AT users can
+  jump to it via the rotor.
+
+## Composition examples
+
+```tsx
+// Sidebar nav with overflow
+<aside className="w-64 border-r">
+  <ScrollArea className="h-screen">
+    <nav className="p-4 space-y-1">
+      {/* lots of links */}
+    </nav>
+  </ScrollArea>
+</aside>
+```
+
+```tsx
+// Code block with horizontal scroll
+<ScrollArea className="rounded-md border">
+  <pre className="p-4 text-sm whitespace-pre">{longCode}</pre>
+  <ScrollBar orientation="horizontal" />
+</ScrollArea>
+```
+
+## Token usage
+
+- Root: `relative`
+- Viewport: `size-full rounded-[inherit]` — inherits the root's
+  border radius so visuals stay consistent.
+- Focus ring: `focus-visible:ring-ring/50 ring-[3px]` on the viewport.
+- ScrollBar track: `bg-transparent` (1px border on the inside edge:
+  `border-l-transparent` / `border-t-transparent`).
+- Thumb: `bg-border rounded-full`.
+- ScrollBar dimensions: `w-2.5` vertical, `h-2.5` horizontal.
