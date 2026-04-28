@@ -42,11 +42,11 @@ describe("Button", () => {
       "default" | "destructive" | "outline" | "secondary" | "ghost" | "link",
       string
     > = {
-      default: "bg-primary",
-      destructive: "bg-destructive",
-      outline: "bg-background",
-      secondary: "bg-secondary",
-      ghost: "hover:bg-accent",
+      default: "bg-surface-inverse",
+      destructive: "bg-accent-danger",
+      outline: "bg-surface-base",
+      secondary: "bg-surface-sunken",
+      ghost: "hover:bg-state-hover",
       link: "underline-offset-4",
     };
 

@@ -153,7 +153,7 @@ describe("Drawer", () => {
       );
       const cls = screen.getByTestId("content").className;
       expect(cls).toContain("my-drawer");
-      expect(cls).toContain("bg-background");
+      expect(cls).toContain("bg-surface-base");
       expect(cls).toContain("fixed");
     });
   });

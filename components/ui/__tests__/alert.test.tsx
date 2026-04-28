@@ -18,7 +18,7 @@ describe("Alert", () => {
       expect(alert.tagName).toBe("DIV");
       expect(alert.getAttribute("role")).toBe("alert");
       expect(alert.getAttribute("data-slot")).toBe("alert");
-      expect(alert.className).toContain("bg-card");
+      expect(alert.className).toContain("bg-surface-raised");
     });
 
     it("emits data-slot on title and description", () => {
@@ -38,10 +38,10 @@ describe("Alert", () => {
   });
 
   describe("variants", () => {
-    it("variant=default applies bg-card", () => {
+    it("variant=default applies bg-surface-raised", () => {
       renderWithProviders(<Alert data-testid="a">x</Alert>);
-      expect(screen.getByTestId("a").className).toContain("bg-card");
-      expect(screen.getByTestId("a").className).toContain("text-card-foreground");
+      expect(screen.getByTestId("a").className).toContain("bg-surface-raised");
+      expect(screen.getByTestId("a").className).toContain("text-text-primary");
     });
 
     it("variant=destructive applies destructive text color", () => {
@@ -52,7 +52,7 @@ describe("Alert", () => {
       );
       const alert = screen.getByTestId("a");
       expect(alert.className).toContain("text-destructive");
-      expect(alert.className).toContain("bg-card");
+      expect(alert.className).toContain("bg-surface-raised");
     });
   });
 

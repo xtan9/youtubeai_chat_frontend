@@ -37,11 +37,11 @@ describe("Card", () => {
   });
 
   describe("classNames", () => {
-    it("applies baseline surface classes (bg-card, rounded-xl, shadow-sm) on root", () => {
+    it("applies baseline surface classes (bg-surface-raised, rounded-xl, shadow-sm) on root", () => {
       renderWithProviders(<Card data-testid="root" />);
       const cls = screen.getByTestId("root").className;
-      expect(cls).toContain("bg-card");
-      expect(cls).toContain("text-card-foreground");
+      expect(cls).toContain("bg-surface-raised");
+      expect(cls).toContain("text-text-primary");
       expect(cls).toContain("rounded-xl");
       expect(cls).toContain("shadow-sm");
       expect(cls).toContain("border");
@@ -70,7 +70,7 @@ describe("Card", () => {
     it("CardDescription uses muted foreground + small text", () => {
       renderWithProviders(<CardDescription data-testid="desc" />);
       const cls = screen.getByTestId("desc").className;
-      expect(cls).toContain("text-muted-foreground");
+      expect(cls).toContain("text-text-muted");
       expect(cls).toContain("text-sm");
     });
   });

@@ -77,7 +77,7 @@ describe("Avatar", () => {
       expect(screen.getByTestId("a").className).toContain("custom-root");
       expect(screen.getByTestId("a").className).toContain("rounded-full");
       expect(screen.getByTestId("fb").className).toContain("custom-fb");
-      expect(screen.getByTestId("fb").className).toContain("bg-muted");
+      expect(screen.getByTestId("fb").className).toContain("bg-surface-sunken");
     });
   });
 });

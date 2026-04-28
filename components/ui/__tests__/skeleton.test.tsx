@@ -7,13 +7,13 @@ import { renderWithProviders } from "@/tests-utils/renderWithProviders";
 
 describe("Skeleton", () => {
   describe("default render", () => {
-    it("renders a div with data-slot=skeleton and the animate-pulse + bg-accent classes", () => {
+    it("renders a div with data-slot=skeleton and the animate-pulse + bg-state-hover classes", () => {
       renderWithProviders(<Skeleton data-testid="s" />);
       const sk = screen.getByTestId("s");
       expect(sk.tagName).toBe("DIV");
       expect(sk.getAttribute("data-slot")).toBe("skeleton");
       expect(sk.className).toContain("animate-pulse");
-      expect(sk.className).toContain("bg-accent");
+      expect(sk.className).toContain("bg-state-hover");
       expect(sk.className).toContain("rounded-md");
     });
   });

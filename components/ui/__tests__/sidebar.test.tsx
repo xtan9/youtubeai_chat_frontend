@@ -276,7 +276,7 @@ describe("Sidebar", () => {
       const btn = container.querySelector(
         '[data-slot="sidebar-menu-button"]',
       );
-      expect(btn?.className).toContain("bg-background");
+      expect(btn?.className).toContain("bg-surface-base");
     });
   });
 

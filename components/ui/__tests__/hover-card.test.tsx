@@ -98,7 +98,7 @@ describe("HoverCard", () => {
       );
       const cls = screen.getByTestId("content").className;
       expect(cls).toContain("my-card");
-      expect(cls).toContain("bg-popover");
+      expect(cls).toContain("bg-surface-overlay");
       expect(cls).toContain("rounded-md");
       expect(cls).toContain("shadow-md");
       expect(cls).toContain("w-64");

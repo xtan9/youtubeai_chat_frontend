@@ -67,9 +67,9 @@ describe("AlertDialog", () => {
       );
       const cancel = screen.getByTestId("cancel");
       const action = screen.getByTestId("action");
-      // Cancel uses outline variant (bg-background); Action uses default (bg-primary).
-      expect(cancel.className).toContain("bg-background");
-      expect(action.className).toContain("bg-primary");
+      // Cancel uses outline variant (bg-surface-base); Action uses default (bg-surface-inverse).
+      expect(cancel.className).toContain("bg-surface-base");
+      expect(action.className).toContain("bg-surface-inverse");
     });
 
     it("Cancel click closes the dialog", () => {
