@@ -1,0 +1,158 @@
+# RadioGroup
+
+Single-selection from a small set of options. Backed by
+`@radix-ui/react-radio-group`. Reach for it when the user must pick exactly
+one of 2-7 mutually-exclusive choices that should all be visible at once
+(plan tier, payment method, etc.). For larger sets prefer
+[Select](../select.mdx); for boolean choices use
+[Switch](./switch.mdx) or [Checkbox](./checkbox.mdx).
+
+## Import
+
+```tsx
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+```
+
+## Anatomy
+
+- `RadioGroup` (root) — `data-slot="radio-group"`, `role="radiogroup"`,
+  the container that holds the value and orchestrates focus + arrow-key
+  roving.
+- `RadioGroupItem` — `data-slot="radio-group-item"`, `role="radio"`, the
+  individual selectable option.
+- `RadioGroupItem.Indicator` — `data-slot="radio-group-indicator"`,
+  rendered internally with a filled circle when the item is selected.
+
+## Props
+
+### RadioGroup
+
+| Name              | Type                                                       | Default     | Description                                                          |
+| ----------------- | ---------------------------------------------------------- | ----------- | -------------------------------------------------------------------- |
+| `value`           | `string`                                                   | `undefined` | Controlled value (the `value` prop of the selected `RadioGroupItem`).|
+| `defaultValue`    | `string`                                                   | `undefined` | Uncontrolled initial value.                                          |
+| `onValueChange`   | `(value: string) => void`                                  | `undefined` | Called whenever a different item is selected.                        |
+| `disabled`        | `boolean`                                                  | `false`     | Disables every item in the group.                                    |
+| `name`            | `string`                                                   | `undefined` | Form name for native submission.                                     |
+| `orientation`     | `"horizontal" \| "vertical"`                                | `"vertical"`| Influences arrow-key behavior.                                       |
+| `loop`            | `boolean`                                                  | `true`      | Whether arrow-key navigation wraps from last to first.               |
+| `className`       | `string`                                                   | `undefined` | Merged via `cn`/`tailwind-merge`. Default layout is `grid gap-3`.    |
+| `...props`        | `React.ComponentProps<typeof RadioGroupPrimitive.Root>`    | —           | Other Radix props.                                                   |
+
+### RadioGroupItem
+
+| Name           | Type                                                        | Default     | Description                                                                  |
+| -------------- | ----------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------- |
+| `value`        | `string`                                                    | (required)  | The value submitted when this item is the selection.                         |
+| `disabled`     | `boolean`                                                   | `false`     | Disables this individual item (overrides group `disabled=false`).            |
+| `aria-invalid` | `boolean`                                                   | `undefined` | Triggers the destructive ring/border tokens.                                 |
+| `className`    | `string`                                                    | `undefined` | Merged via `cn`/`tailwind-merge`.                                            |
+| `...props`     | `React.ComponentProps<typeof RadioGroupPrimitive.Item>`     | —           | Other Radix props.                                                           |
+
+## Variants
+
+No CVA variants. Visual state is driven by `data-state="checked|unchecked"`
+on each item.
+
+```tsx
+// Basic
+<RadioGroup defaultValue="email">
+  <div className="flex items-center gap-2">
+    <RadioGroupItem id="ch-email" value="email" />
+    <Label htmlFor="ch-email">Email</Label>
+  </div>
+  <div className="flex items-center gap-2">
+    <RadioGroupItem id="ch-sms" value="sms" />
+    <Label htmlFor="ch-sms">SMS</Label>
+  </div>
+</RadioGroup>
+```
+
+```tsx
+// Disabled group
+<RadioGroup disabled>
+  <RadioGroupItem id="d-1" value="one" />
+  <RadioGroupItem id="d-2" value="two" />
+</RadioGroup>
+```
+
+```tsx
+// Single disabled item
+<RadioGroup>
+  <RadioGroupItem id="ok" value="ok" />
+  <RadioGroupItem id="locked" value="locked" disabled />
+</RadioGroup>
+```
+
+## Accessibility
+
+- Radix maps the platform conventions for radio groups: arrow keys move
+  focus + selection within the group, Tab enters/exits the group, and the
+  selected item is the only tab stop while the group is "passed".
+- **Always pair each item with a [Label](./label.mdx)** via `htmlFor`/`id`,
+  or wrap the entire group in a `<fieldset>` with a `<legend>`. The a11y
+  test pins this contract — bare items without an accessible name fail
+  axe.
+- `aria-labelledby` on the group is an accepted alternative if a heading
+  outside the group already labels the choice (e.g., a section heading).
+- Inside a Form composite, FormLabel and FormMessage automatically wire up
+  the right ARIA attributes.
+
+## Composition examples
+
+```tsx
+// Plan picker
+<fieldset>
+  <legend className="text-sm font-medium">Choose a plan</legend>
+  <RadioGroup defaultValue="pro" className="mt-2">
+    <div className="flex items-center gap-2">
+      <RadioGroupItem id="plan-free" value="free" />
+      <Label htmlFor="plan-free">Free</Label>
+    </div>
+    <div className="flex items-center gap-2">
+      <RadioGroupItem id="plan-pro" value="pro" />
+      <Label htmlFor="plan-pro">Pro — $10/mo</Label>
+    </div>
+    <div className="flex items-center gap-2">
+      <RadioGroupItem id="plan-team" value="team" />
+      <Label htmlFor="plan-team">Team — $30/mo</Label>
+    </div>
+  </RadioGroup>
+</fieldset>
+```
+
+```tsx
+// Inside a Form composite
+<FormField
+  control={form.control}
+  name="paymentMethod"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Payment method</FormLabel>
+      <FormControl>
+        <RadioGroup value={field.value} onValueChange={field.onChange}>
+          <div className="flex items-center gap-2">
+            <RadioGroupItem id="pm-card" value="card" />
+            <Label htmlFor="pm-card">Card</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <RadioGroupItem id="pm-paypal" value="paypal" />
+            <Label htmlFor="pm-paypal">PayPal</Label>
+          </div>
+        </RadioGroup>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+## Token usage
+
+- Group layout: `grid gap-3`
+- Item sizing: `size-4`, `aspect-square`, `rounded-full`
+- Item border: `border-input`
+- Item shadow: `shadow-xs`
+- Indicator: `size-2`, `fill-primary`, centered absolutely
+- Focus ring: `--color-ring` semantic, `ring-[3px]`
+- Invalid: `--color-destructive`

@@ -1,0 +1,145 @@
+# Checkbox
+
+A boolean (or tri-state) toggle backed by `@radix-ui/react-checkbox`.
+Reach for it in form contexts where the user opts in/out of multiple
+independent items, where each can be checked, unchecked, or
+**indeterminate** (e.g., a "select all" parent above a partially-checked
+list). For mutually-exclusive choices use [RadioGroup](./radio-group.mdx);
+for app-wide settings use [Switch](./switch.mdx).
+
+## Import
+
+```tsx
+import { Checkbox } from "@/components/ui/checkbox";
+```
+
+## Anatomy
+
+- `Checkbox` (root) — `data-slot="checkbox"`, the interactive control.
+- `Checkbox.Indicator` — `data-slot="checkbox-indicator"` (rendered
+  internally), wraps the `CheckIcon` shown when checked or indeterminate.
+
+The Indicator is rendered automatically; consumers don't compose it
+manually.
+
+## Props
+
+| Name              | Type                                                       | Default     | Description                                                                                                |
+| ----------------- | ---------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `checked`         | `boolean \| "indeterminate"`                                | `undefined` | Controlled state. `"indeterminate"` shows a mixed indicator and surfaces `aria-checked="mixed"`.            |
+| `defaultChecked`  | `boolean`                                                  | `false`     | Uncontrolled initial state.                                                                                |
+| `onCheckedChange` | `(checked: boolean \| "indeterminate") => void`             | `undefined` | Called whenever the value changes (controlled or uncontrolled).                                            |
+| `disabled`        | `boolean`                                                  | `false`     | Disables interaction; styles via `disabled:opacity-50`.                                                    |
+| `name`            | `string`                                                   | `undefined` | Form name when used inside a `<form>`. Radix mirrors the value into a hidden input for native submission. |
+| `value`           | `string`                                                   | `"on"`      | The value submitted when the checkbox is checked.                                                          |
+| `aria-invalid`    | `boolean`                                                  | `undefined` | Triggers the destructive ring/border tokens.                                                               |
+| `className`       | `string`                                                   | `undefined` | Merged via `cn`/`tailwind-merge`.                                                                          |
+| `...props`        | `React.ComponentProps<typeof CheckboxPrimitive.Root>`      | —           | All other Radix props.                                                                                     |
+
+## Variants
+
+No CVA variants — visual state is driven by `data-state="checked|unchecked|indeterminate"`.
+
+```tsx
+// Standard
+<div className="flex items-center gap-2">
+  <Checkbox id="terms" />
+  <Label htmlFor="terms">Accept terms</Label>
+</div>
+```
+
+```tsx
+// Default-checked (uncontrolled)
+<div className="flex items-center gap-2">
+  <Checkbox id="news" defaultChecked />
+  <Label htmlFor="news">Send me product updates</Label>
+</div>
+```
+
+```tsx
+// Indeterminate (parent of a mixed-state list)
+<Checkbox checked="indeterminate" onCheckedChange={() => toggleAll()} />
+```
+
+```tsx
+// Disabled
+<div className="flex items-center gap-2">
+  <Checkbox id="locked" disabled />
+  <Label htmlFor="locked">Locked option</Label>
+</div>
+```
+
+## Accessibility
+
+- Radix maps Space to toggle and emits the correct ARIA states
+  (`aria-checked="true|false|mixed"`).
+- **Always pair with a [Label](./label.mdx)** via `htmlFor`/`id` or supply
+  `aria-label`. The a11y test pins this contract.
+- For form submission, set `name` and Radix renders a hidden native input
+  so the value flows through the standard form submission path.
+- `aria-invalid` styles the ring; pair with `aria-describedby` pointing at
+  the error message id when used inside a Form composite.
+- The disabled state removes the checkbox from the tab order
+  automatically.
+
+## Composition examples
+
+```tsx
+// Multi-select group with shared name
+<fieldset className="grid gap-3">
+  <legend className="text-sm font-medium">Notifications</legend>
+  <div className="flex items-center gap-2">
+    <Checkbox id="email" name="channels" value="email" />
+    <Label htmlFor="email">Email</Label>
+  </div>
+  <div className="flex items-center gap-2">
+    <Checkbox id="sms" name="channels" value="sms" />
+    <Label htmlFor="sms">SMS</Label>
+  </div>
+</fieldset>
+```
+
+```tsx
+// Inside a Form composite (react-hook-form)
+<FormField
+  control={form.control}
+  name="agreedToTerms"
+  render={({ field }) => (
+    <FormItem className="flex items-center gap-2">
+      <FormControl>
+        <Checkbox
+          checked={field.value}
+          onCheckedChange={field.onChange}
+        />
+      </FormControl>
+      <FormLabel className="font-normal">I agree to the terms</FormLabel>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+```tsx
+// Tri-state "select all" pattern
+const allChecked = items.every((i) => i.selected);
+const someChecked = items.some((i) => i.selected);
+const headerState = allChecked ? true : someChecked ? "indeterminate" : false;
+
+<Checkbox
+  checked={headerState}
+  onCheckedChange={(v) => toggleAll(v === true)}
+  aria-label="Select all"
+/>
+```
+
+## Token usage
+
+- Sizing: `size-4`
+- Radius: `rounded-[4px]` (slightly tighter than `rounded-md` to read as a checkbox)
+- Border: `border-input`
+- Background (checked): `bg-primary` light, `bg-primary` dark; text `text-primary-foreground`
+- Background (unchecked dark): `bg-input/30`
+- Shadow: `shadow-xs`
+- Focus ring: `--color-ring` semantic, `ring-[3px]`
+- Invalid: `--color-destructive`
+- Indicator icon: `lucide-react` `CheckIcon` at `size-3.5`

@@ -1,0 +1,130 @@
+# Button
+
+The primary interactive element in the design system. Wraps a native
+`<button>` (or any element via `asChild`), applies the CVA-driven variant +
+size matrix, and forwards every native button prop. Reach for it whenever
+the user can take an action that posts, navigates, or toggles UI; for purely
+navigational anchors that look like links, use `variant="link"` + `asChild`.
+
+## Import
+
+```tsx
+import { Button, buttonVariants } from "@/components/ui/button";
+```
+
+## Anatomy
+
+Single root element with `data-slot="button"`. No internal sub-components.
+When `asChild` is true, the styling is forwarded onto the consumer's element
+via Radix `<Slot>`.
+
+## Props
+
+| Name        | Type                                                                                | Default     | Description                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------- |
+| `variant`   | `"default" \| "destructive" \| "outline" \| "secondary" \| "ghost" \| "link"`        | `"default"` | Visual style. `destructive` for irreversible actions; `ghost`/`link` for low-emphasis surfaces.      |
+| `size`      | `"default" \| "sm" \| "lg" \| "icon"`                                                | `"default"` | Height + padding. `icon` is square; pair with `aria-label` because there's no visible text.          |
+| `asChild`   | `boolean`                                                                            | `false`     | Render the immediate child instead of a `<button>`, forwarding all classes/refs (Radix `Slot`).     |
+| `className` | `string`                                                                             | `undefined` | Merged via `cn`/`tailwind-merge`. Use for one-off overrides; prefer adding a variant for repeats.   |
+| `disabled`  | `boolean`                                                                            | `false`     | Native `disabled`. Adds `pointer-events-none` and `opacity-50`.                                      |
+| `...props`  | `React.ComponentProps<"button">`                                                     | —           | All other native button attributes spread onto the root.                                             |
+
+`buttonVariants` is the underlying CVA factory exported for composition
+(e.g., styling a non-button element identically without `asChild`).
+
+## Variants
+
+```tsx
+// Default: primary call-to-action
+<Button>Generate summary</Button>
+```
+
+```tsx
+// Destructive: confirmable irreversible action
+<Button variant="destructive">Delete account</Button>
+```
+
+```tsx
+// Outline: secondary action on a busy surface
+<Button variant="outline">Cancel</Button>
+```
+
+```tsx
+// Secondary: neutral, lower-emphasis than default
+<Button variant="secondary">Save draft</Button>
+```
+
+```tsx
+// Ghost: minimal chrome, used in toolbars and dense UIs
+<Button variant="ghost" size="icon" aria-label="Close">
+  <XIcon />
+</Button>
+```
+
+```tsx
+// Link: button that visually reads as an inline link
+<Button variant="link">Learn more</Button>
+```
+
+```tsx
+// asChild: forward styling to a Next.js Link
+<Button asChild>
+  <Link href="/sign-in">Sign in</Link>
+</Button>
+```
+
+## Accessibility
+
+- Backed by the native `<button>` element. Keyboard activation (Enter,
+  Space) and focus management come from the platform — no extra ARIA
+  needed for the textual variants.
+- Focus ring uses the design-system focus tokens
+  (`focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]`).
+- `aria-invalid` is supported as a styling hook for inline form validation.
+- **Icon-only buttons must include `aria-label`.** The `size="icon"`
+  variant has no visible text; the a11y test (`button.a11y.test.tsx`) pins
+  this contract.
+- `disabled` removes the button from keyboard-tab order. For "looks
+  disabled but stays focusable for hint UI", use `aria-disabled` plus a
+  no-op handler instead.
+
+## Composition examples
+
+```tsx
+// Form submit
+<form onSubmit={handleSubmit}>
+  <Input name="email" type="email" required />
+  <Button type="submit">Subscribe</Button>
+</form>
+```
+
+```tsx
+// Confirm dialog footer
+<DialogFooter>
+  <Button variant="outline" onClick={onCancel}>Cancel</Button>
+  <Button variant="destructive" onClick={onConfirm}>Delete</Button>
+</DialogFooter>
+```
+
+```tsx
+// Toolbar of icon buttons
+<div className="flex gap-1">
+  <Button variant="ghost" size="icon" aria-label="Bold"><BoldIcon /></Button>
+  <Button variant="ghost" size="icon" aria-label="Italic"><ItalicIcon /></Button>
+  <Button variant="ghost" size="icon" aria-label="Underline"><UnderlineIcon /></Button>
+</div>
+```
+
+## Token usage
+
+- Typography: `text-sm font-medium`
+- Spacing: `gap-2`, padding via `px-4 py-2` (default size) — Tailwind 4
+  spacing scale.
+- Radius: `rounded-md`
+- Shadow: `shadow-xs`
+- Focus ring: `--color-ring` (semantic), `ring-[3px]`
+- Color: `--color-primary`, `--color-secondary`, `--color-destructive`,
+  `--color-accent`, `--color-background` — picked per variant. A future
+  brand-color shift will flow through automatically.
+- SVG sizing: `[&_svg:not([class*='size-'])]:size-4` (icons inside the
+  button auto-size to 16px unless the consumer overrides).

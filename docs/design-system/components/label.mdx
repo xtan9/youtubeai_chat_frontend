@@ -1,0 +1,105 @@
+# Label
+
+Accessible form-field label backed by `@radix-ui/react-label`. Inherits all
+the platform `<label>` semantics (click-to-focus, screen-reader pairing
+via `for`/`id`) and adds the design system's typography + disabled-state
+hooks (`peer-disabled`, `group-data-[disabled=true]`).
+
+## Import
+
+```tsx
+import { Label } from "@/components/ui/label";
+```
+
+## Anatomy
+
+A single Radix `Label.Root` element rendered as `<label data-slot="label">`.
+No internal sub-components.
+
+## Props
+
+| Name        | Type                                                  | Default     | Description                                                                                       |
+| ----------- | ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------- |
+| `htmlFor`   | `string`                                              | `undefined` | The `id` of the form control this Label is associated with. Required for explicit association.   |
+| `className` | `string`                                              | `undefined` | Merged via `cn`/`tailwind-merge`.                                                                 |
+| `...props`  | `React.ComponentProps<typeof LabelPrimitive.Root>`    | —           | All other native label attributes spread onto the root.                                           |
+
+## Variants
+
+No CVA variants. Visual state comes from the surrounding context (e.g.,
+`peer-disabled` activates when a sibling control is disabled).
+
+```tsx
+<Label htmlFor="email">Email</Label>
+<Input id="email" type="email" />
+```
+
+```tsx
+// Implicit association — wrap the control
+<Label>
+  Email
+  <Input type="email" />
+</Label>
+```
+
+```tsx
+// Field with hint icon
+<Label htmlFor="api-key" className="gap-1">
+  API key
+  <HelpCircleIcon className="size-3 text-muted-foreground" />
+</Label>
+```
+
+## Accessibility
+
+- Uses Radix's `LabelPrimitive.Root`, which dispatches `mousedown` events to
+  the linked control to suppress the iOS double-tap delay. From the
+  consumer's perspective, identical to a native `<label>`.
+- **Always associate the Label with its control** via `htmlFor`/`id` (or
+  by wrapping). A bare label without an associated control is valid HTML
+  but semantically meaningless.
+- The `peer-disabled:cursor-not-allowed peer-disabled:opacity-50` classes
+  cascade automatically when the next sibling is `disabled` — only true if
+  Label is rendered _after_ a peer-classed sibling. Inside the Form
+  composite, the FormLabel sub-component handles this for you.
+- Inside [Checkbox](./checkbox.mdx) / [Switch](./switch.mdx) /
+  [RadioGroup](./radio-group.mdx) groups, the `group-data-[disabled=true]`
+  hook on the parent group propagates the disabled appearance to every
+  Label inside.
+
+## Composition examples
+
+```tsx
+// Checkbox + Label
+<div className="flex items-center gap-2">
+  <Checkbox id="terms" />
+  <Label htmlFor="terms">I agree to the terms of service</Label>
+</div>
+```
+
+```tsx
+// Switch + Label (clickable label toggles the switch)
+<div className="flex items-center justify-between">
+  <Label htmlFor="notifications">Email notifications</Label>
+  <Switch id="notifications" />
+</div>
+```
+
+```tsx
+// Inside a Form composite — use FormLabel which auto-wires htmlFor
+<FormField name="email" render={({ field }) => (
+  <FormItem>
+    <FormLabel>Email</FormLabel>
+    <FormControl><Input type="email" {...field} /></FormControl>
+  </FormItem>
+)} />
+```
+
+## Token usage
+
+- Typography: `text-sm font-medium leading-none`
+- Spacing: `gap-2` (when content is icon + text)
+- User-select: `select-none` so the label doesn't grab text selection
+  during click-to-focus
+- Disabled-state hooks: `peer-disabled:opacity-50`,
+  `group-data-[disabled=true]:opacity-50`

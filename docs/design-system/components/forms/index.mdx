@@ -1,0 +1,102 @@
+# Forms
+
+The forms cluster collects the eight components used to gather structured
+user input. Each is governed by a Vitest behavior test and a jest-axe
+a11y test (zero violations across every variant + edge state) and ships
+a per-component MDX doc with prop tables, variants, and composition
+examples.
+
+## Members
+
+- [Button](../button.mdx) — primary interactive element. CVA variants
+  (default, destructive, outline, secondary, ghost, link); sizes
+  (default, sm, lg, icon).
+- [Input](../input.mdx) — single-line text input. Pure semantic HTML,
+  no Radix wrapper. Pair with [Label](../label.mdx) for an accessible name.
+- [Label](../label.mdx) — accessible label backed by
+  `@radix-ui/react-label`. Suppresses iOS double-tap delay.
+- [Form](../form.mdx) — react-hook-form integration. Provides
+  FormItem/FormLabel/FormControl/FormDescription/FormMessage that wire
+  up id/htmlFor/aria-describedby/aria-invalid for free.
+- [Checkbox](../checkbox.mdx) — boolean (or tri-state) toggle for forms.
+  Backed by `@radix-ui/react-checkbox`.
+- [RadioGroup](../radio-group.mdx) — single-selection from a small set
+  of mutually-exclusive choices. Backed by
+  `@radix-ui/react-radio-group`.
+- [Switch](../switch.mdx) — boolean toggle for settings/preferences
+  (immediate-effect, distinct from Checkbox). Backed by
+  `@radix-ui/react-switch`.
+- [Textarea](../textarea.mdx) — multi-line text input with
+  `field-sizing: content` for vertical auto-grow.
+
+## When to reach for which boolean toggle
+
+- **Switch** — the value takes effect immediately on click. Settings,
+  preferences, feature flags. Reads as "on now / off now."
+- **Checkbox** — the value is form input that the user submits later,
+  alongside other fields. Reads as "include this when I save / submit."
+- **Checkbox (tri-state)** — only when there's a real
+  parent-of-mixed-children pattern (e.g., a "select all" checkbox above
+  a partial selection). Don't fake indeterminate for visual flair.
+
+## When to reach for which selection control
+
+- **RadioGroup** — 2-7 mutually-exclusive choices that should all be
+  visible. Plan picker, payment method, notification frequency.
+- **Select** (in [composites cluster](../composites/index.mdx)) — 8+
+  choices, or any number where the choices are familiar enough to scan in
+  a dropdown. Country, time zone, language.
+- **Checkbox** group — multiple independent choices (multi-select).
+
+## Composition example: login form
+
+See [Form](../form.mdx) for the full pattern with zod validation.
+
+```tsx
+<Form {...form}>
+  <form onSubmit={form.handleSubmit(signIn)} className="grid gap-4">
+    <FormField name="email" control={form.control} render={({ field }) => (
+      <FormItem>
+        <FormLabel>Email</FormLabel>
+        <FormControl><Input type="email" autoComplete="email" {...field} /></FormControl>
+        <FormMessage />
+      </FormItem>
+    )} />
+    <FormField name="password" control={form.control} render={({ field }) => (
+      <FormItem>
+        <FormLabel>Password</FormLabel>
+        <FormControl><Input type="password" autoComplete="current-password" {...field} /></FormControl>
+        <FormMessage />
+      </FormItem>
+    )} />
+    <Button type="submit">Sign in</Button>
+  </form>
+</Form>
+```
+
+## Accessibility patterns
+
+- **Always pair Input/Textarea/Checkbox/RadioGroup/Switch with a
+  [Label](../label.mdx)** via `htmlFor`/`id` (or supply `aria-label`
+  when the label would be redundant with surrounding visual cues).
+- **Use FormDescription for hints, FormMessage for validation errors.**
+  Both auto-link via `aria-describedby` when used inside the Form
+  composite. The control gets `aria-invalid="true"` on validation error
+  automatically.
+- **Disabled state must include `aria-disabled` AND `disabled`** for
+  full assistive-tech compatibility — the underlying Radix primitives
+  do this for the toggle controls; native `<button>`/`<input>`/`<textarea>`
+  emit it via the standard `disabled` attribute.
+- **Icon-only buttons must include `aria-label`.** The
+  [Button](../button.mdx) a11y test pins this contract.
+
+## Tested via
+
+- `components/ui/__tests__/<name>.test.tsx` — behavior (variants, prop
+  spreading, ref forwarding, controlled/uncontrolled, keyboard,
+  edge states).
+- `components/ui/__tests__/<name>.a11y.test.tsx` — jest-axe (zero
+  violations across variants + edge states).
+- Shared helpers: `tests-utils/renderWithProviders.tsx` (wraps with
+  ThemeProvider + auto cleanup), `tests-utils/axe.ts` (configured axe
+  matcher for vitest).

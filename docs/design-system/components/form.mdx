@@ -1,0 +1,210 @@
+# Form
+
+The Form composite is the project's bridge between
+[`react-hook-form`](https://react-hook-form.com) and the rest of the
+design system. It provides a tiny set of primitives (`FormItem`,
+`FormLabel`, `FormControl`, `FormDescription`, `FormMessage`) that wire
+up the right `id`/`htmlFor`/`aria-describedby`/`aria-invalid` plumbing
+automatically — so the consumer focuses on the schema and the `render`
+function, not the a11y wiring.
+
+## Import
+
+```tsx
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  useFormField,
+} from "@/components/ui/form";
+```
+
+## Anatomy
+
+```
+<Form ...form>                  // = FormProvider from react-hook-form
+  <form onSubmit={...}>
+    <FormField                  // = Controller, scopes a single field
+      control={form.control}
+      name="email"
+      render={({ field }) => (
+        <FormItem>              // grid container, owns the unique id
+          <FormLabel>           // <label htmlFor={id}>
+          <FormControl>         // Slot — applies id, aria-describedby, aria-invalid to the wrapped input
+            <Input {...field} />
+          </FormControl>
+          <FormDescription />   // hint text, linked via aria-describedby
+          <FormMessage />       // error text, linked via aria-describedby
+        </FormItem>
+      )}
+    />
+  </form>
+</Form>
+```
+
+## Slots
+
+| Slot              | Element  | data-slot              | Purpose                                                                                                  |
+| ----------------- | -------- | ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Form`            | —        | —                      | Re-export of `FormProvider`. Spread `...form` (return value of `useForm`) onto it.                       |
+| `FormField`       | —        | —                      | Wraps `Controller` and provides `FormFieldContext` (the field's `name`).                                 |
+| `FormItem`        | `<div>`  | `form-item`            | `grid gap-2` container. Generates the unique id used by every other slot in the same item.                |
+| `FormLabel`       | `<label>`| `form-label`           | Wraps the design system [Label](./label.mdx). Auto-sets `htmlFor` and flips `data-error` on validation. |
+| `FormControl`     | Slot     | `form-control`         | Forwards `id`, `aria-describedby`, `aria-invalid` onto the wrapped input via `@radix-ui/react-slot`.    |
+| `FormDescription` | `<p>`    | `form-description`     | Hint text. Owns the `${id}-form-item-description` id.                                                   |
+| `FormMessage`     | `<p>`    | `form-message`         | Error text (or explicit children). Owns the `${id}-form-item-message` id. Returns null when empty.       |
+
+## Hooks
+
+### `useFormField()`
+
+Internal hook used by `FormLabel`/`FormControl`/`FormDescription`/`FormMessage`.
+Returns:
+
+| Field               | Type                | Description                                            |
+| ------------------- | ------------------- | ------------------------------------------------------ |
+| `id`                | `string`            | The base id from the surrounding `FormItem`.           |
+| `name`              | `string`            | The field name from the surrounding `FormField`.       |
+| `formItemId`        | `string`            | `"${id}-form-item"` — applied to the input.            |
+| `formDescriptionId` | `string`            | `"${id}-form-item-description"`.                       |
+| `formMessageId`     | `string`            | `"${id}-form-item-message"`.                           |
+| `error`             | `FieldError \| undefined` | The current error from RHF.                       |
+| `isDirty`/`isTouched`/etc. | `boolean`    | RHF field state, spread from `getFieldState`.          |
+
+**Contract:** must be called inside a `FormField`. Calling it outside throws.
+
+## Variants
+
+The Form composite has no CVA variants — its job is wiring, not visuals.
+The visual is provided by the underlying [Input](./input.mdx),
+[Textarea](./textarea.mdx), [Checkbox](./checkbox.mdx) etc.
+
+## Accessibility
+
+This is the headline feature: the composite sets the right ARIA
+attributes for free.
+
+- `FormLabel.htmlFor` always matches `FormControl.id`.
+- `FormControl.aria-describedby` points at `FormDescription` (always),
+  and at `FormMessage` when an error is present — concatenated as a
+  space-separated list.
+- `FormControl.aria-invalid` is `true` when the field has a validation
+  error.
+- `FormLabel` flips `data-error="true"` when the field has an error,
+  which the design system styles as `text-destructive`.
+- `FormMessage` returns `null` when there is no error and no children, so
+  the DOM stays minimal until validation fires.
+
+## Composition examples
+
+```tsx
+// Login form with zod resolver
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+
+const schema = z.object({
+  email: z.email("Enter a valid email"),
+  password: z.string().min(8, "Min 8 characters"),
+});
+
+type Values = z.infer<typeof schema>;
+
+function LoginForm() {
+  const form = useForm<Values>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: "", password: "" },
+  });
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit((v) => signIn(v))} className="grid gap-4">
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <Input type="email" autoComplete="email" {...field} />
+              </FormControl>
+              <FormDescription>Your work email.</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input type="password" autoComplete="current-password" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button type="submit">Sign in</Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+```tsx
+// Form with Textarea, Checkbox, RadioGroup, and Switch
+<Form {...form}>
+  <form onSubmit={form.handleSubmit(save)} className="grid gap-4">
+    <FormField name="bio" control={form.control} render={({ field }) => (
+      <FormItem>
+        <FormLabel>Bio</FormLabel>
+        <FormControl><Textarea {...field} /></FormControl>
+        <FormDescription>Up to 280 characters.</FormDescription>
+        <FormMessage />
+      </FormItem>
+    )} />
+
+    <FormField name="agreed" control={form.control} render={({ field }) => (
+      <FormItem className="flex items-center gap-2 space-y-0">
+        <FormControl>
+          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+        </FormControl>
+        <FormLabel className="font-normal">Agree to the terms</FormLabel>
+        <FormMessage />
+      </FormItem>
+    )} />
+
+    <FormField name="plan" control={form.control} render={({ field }) => (
+      <FormItem>
+        <FormLabel>Plan</FormLabel>
+        <FormControl>
+          <RadioGroup value={field.value} onValueChange={field.onChange}>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id="plan-free" value="free" />
+              <Label htmlFor="plan-free">Free</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id="plan-pro" value="pro" />
+              <Label htmlFor="plan-pro">Pro</Label>
+            </div>
+          </RadioGroup>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    )} />
+  </form>
+</Form>
+```
+
+## Token usage
+
+- `FormItem` layout: `grid gap-2`
+- `FormLabel` typography + error hook: inherits from [Label](./label.mdx),
+  adds `data-[error=true]:text-destructive`.
+- `FormDescription` typography: `text-sm text-muted-foreground`.
+- `FormMessage` typography: `text-sm`, color `text-destructive`.

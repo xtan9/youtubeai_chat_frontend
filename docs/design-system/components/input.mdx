@@ -1,0 +1,120 @@
+# Input
+
+Single-line text input. A thin styled wrapper around the native `<input>`
+that picks up the design system's border, focus, and `aria-invalid` tokens.
+Reach for it whenever you need short, single-value text or numeric entry —
+search, email, password, URL, etc. For multi-line input use
+[Textarea](./textarea.mdx).
+
+## Import
+
+```tsx
+import { Input } from "@/components/ui/input";
+```
+
+## Anatomy
+
+A single `<input data-slot="input">` element. No wrapper, no internal
+sub-components — pair it with [Label](./label.mdx) for the field and
+[FormDescription](./form.mdx)/[FormMessage](./form.mdx) for hints/errors.
+
+## Props
+
+| Name              | Type                            | Default     | Description                                                                              |
+| ----------------- | ------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `type`            | `string`                        | `"text"`    | Native input type. `email`, `password`, `search`, `tel`, `url`, `number`, `file`, etc.   |
+| `value`           | `string \| number`              | `undefined` | Controlled value. Pair with `onChange`.                                                  |
+| `defaultValue`    | `string \| number`              | `undefined` | Uncontrolled initial value.                                                              |
+| `disabled`        | `boolean`                       | `false`     | Native `disabled`. Adds the disabled visual treatment.                                   |
+| `aria-invalid`    | `boolean`                       | `undefined` | Triggers the destructive ring/border tokens.                                             |
+| `className`       | `string`                        | `undefined` | Merged via `cn`/`tailwind-merge`.                                                        |
+| `...props`        | `React.ComponentProps<"input">` | —           | All other native input attributes spread onto the root.                                  |
+
+## Variants
+
+The Input component intentionally has **no CVA variants**. Visual state
+comes from native attributes (`disabled`, `aria-invalid`, `readOnly`) and
+type. If you find yourself wanting a "primary"/"ghost" Input, that's a
+signal you want a different component (Combobox, SearchInput) — file an
+issue.
+
+```tsx
+<Input type="email" placeholder="you@example.com" />
+```
+
+```tsx
+<Input type="password" />
+```
+
+```tsx
+<Input type="search" placeholder="Search docs…" />
+```
+
+```tsx
+<Input disabled value="Read only" />
+```
+
+```tsx
+<Input aria-invalid aria-describedby="email-error" />
+```
+
+## Accessibility
+
+- Pure semantic HTML — no Radix wrapper.
+- **Always pair with a [Label](./label.mdx) via `htmlFor`/`id`** unless an
+  `aria-label` or `aria-labelledby` is supplied. The a11y test pins this:
+  bare Inputs without any accessible name fail axe.
+- `aria-invalid` is a styling hook _and_ an a11y signal. Pair with
+  `aria-describedby` pointing at the error message id.
+- Use the Form composite (see [Form](./form.mdx)) to wire id/htmlFor and
+  aria-describedby automatically when the input lives inside a
+  react-hook-form-controlled field.
+- For password fields, set `autoComplete="current-password"` or
+  `"new-password"`. For email, `autoComplete="email"`. The browser's
+  password manager reads these; axe doesn't enforce, but consumers should.
+
+## Composition examples
+
+```tsx
+// Standalone field with explicit Label
+<div className="grid gap-2">
+  <Label htmlFor="email">Email</Label>
+  <Input id="email" type="email" autoComplete="email" required />
+</div>
+```
+
+```tsx
+// Inside a Form composite (react-hook-form)
+<FormField
+  control={form.control}
+  name="email"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Email</FormLabel>
+      <FormControl>
+        <Input type="email" {...field} />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+```tsx
+// Search bar
+<div className="relative">
+  <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+  <Input type="search" placeholder="Search…" className="pl-9" />
+</div>
+```
+
+## Token usage
+
+- Typography: `text-base md:text-sm`
+- Spacing: `px-3 py-1`, `h-9`
+- Radius: `rounded-md`
+- Border: `border-input`
+- Background: `bg-transparent` light, `bg-input/30` dark
+- Shadow: `shadow-xs`
+- Focus ring: `--color-ring` semantic, `ring-[3px]`
+- Invalid: `--color-destructive` for ring + border via `aria-invalid` selector
