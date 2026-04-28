@@ -204,11 +204,7 @@ const TranscriptParagraphs = ({
           : "bg-white border-slate-200"
       }`}
     >
-      <h3
-        className={`text-sm font-semibold mb-3 ${
-          isDark ? "text-cyan-300/80" : "text-cyan-700/80"
-        }`}
-      >
+      <h3 className="text-sm font-semibold mb-3 text-accent-brand-secondary/80">
         Video Transcript
       </h3>
       {hasNoTimingData && (
@@ -241,19 +237,15 @@ const TranscriptParagraphs = ({
               className={`pl-3 border-l-4 transition-colors ${
                 isActive
                   ? isDark
-                    ? "border-cyan-400 bg-slate-700/40"
-                    : "border-cyan-500 bg-cyan-50"
+                    ? "border-accent-brand-secondary bg-slate-700/40"
+                    : "border-accent-brand-secondary bg-accent-brand-secondary/10"
                   : "border-transparent"
               }`}
             >
               <button
                 type="button"
                 onClick={() => onTimestampClick(p.start)}
-                className={`text-sm font-semibold mb-1 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  isDark
-                    ? "text-rose-300 focus:ring-rose-400"
-                    : "text-rose-600 focus:ring-rose-500"
-                }`}
+                className="text-sm font-semibold mb-1 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 text-accent-brand focus:ring-accent-brand"
                 aria-label={`Jump to ${formatTimestamp(p.start)}`}
               >
                 {formatTimestamp(p.start)}

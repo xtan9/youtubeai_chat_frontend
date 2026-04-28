@@ -36,18 +36,18 @@ export function ProfileAvatar({ user }: ProfileAvatarProps) {
 
   return (
     <div className="relative">
-      <Avatar className="h-10 w-10 border-2 border-purple-400/50 hover:border-purple-400 transition-colors cursor-pointer">
-        <AvatarImage 
-          src={user.user_metadata?.avatar_url} 
+      <Avatar className="h-10 w-10 border-2 border-accent-brand/50 hover:border-accent-brand transition-colors cursor-pointer">
+        <AvatarImage
+          src={user.user_metadata?.avatar_url}
           alt={getDisplayName()}
           className="object-cover"
         />
-        <AvatarFallback className="bg-linear-to-r from-purple-500 to-cyan-500 text-white text-sm font-medium">
+        <AvatarFallback className="bg-gradient-brand-primary text-white text-sm font-medium">
           {getInitials(user.email || 'User')}
         </AvatarFallback>
       </Avatar>
       {/* Online indicator */}
-      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-slate-900 rounded-full"></div>
+      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-accent-success border-2 border-slate-900 rounded-full"></div>
     </div>
   );
 } 

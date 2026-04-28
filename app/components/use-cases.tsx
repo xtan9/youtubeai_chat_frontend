@@ -20,13 +20,13 @@ export function UseCases() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <Card
-          className={`${cardBase} hover:border-blue-500/30 transition-colors`}
+          className={`${cardBase} hover:border-accent-brand-secondary/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
-              <Avatar className="h-12 w-12 rounded-lg bg-blue-500/20 p-0">
+              <Avatar className="h-12 w-12 rounded-lg bg-accent-brand-secondary/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <BookOpen className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                  <BookOpen className="w-6 h-6 text-accent-brand-secondary" />
                 </AvatarFallback>
               </Avatar>
               <div>
@@ -44,13 +44,13 @@ export function UseCases() {
         </Card>
 
         <Card
-          className={`${cardBase} hover:border-green-500/30 transition-colors`}
+          className={`${cardBase} hover:border-accent-success/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
-              <Avatar className="h-12 w-12 rounded-lg bg-green-500/20 p-0">
+              <Avatar className="h-12 w-12 rounded-lg bg-accent-success/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <Briefcase className="w-6 h-6 text-green-600 dark:text-green-400" />
+                  <Briefcase className="w-6 h-6 text-accent-success" />
                 </AvatarFallback>
               </Avatar>
               <div>
@@ -68,13 +68,13 @@ export function UseCases() {
         </Card>
 
         <Card
-          className={`${cardBase} hover:border-purple-500/30 transition-colors`}
+          className={`${cardBase} hover:border-accent-brand/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
-              <Avatar className="h-12 w-12 rounded-lg bg-purple-500/20 p-0">
+              <Avatar className="h-12 w-12 rounded-lg bg-accent-brand/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <Video className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                  <Video className="w-6 h-6 text-accent-brand" />
                 </AvatarFallback>
               </Avatar>
               <div>
@@ -92,13 +92,13 @@ export function UseCases() {
         </Card>
 
         <Card
-          className={`${cardBase} hover:border-amber-500/30 transition-colors`}
+          className={`${cardBase} hover:border-accent-warning/30 transition-colors`}
         >
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
-              <Avatar className="h-12 w-12 rounded-lg bg-amber-500/20 p-0">
+              <Avatar className="h-12 w-12 rounded-lg bg-accent-warning/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <Users className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  <Users className="w-6 h-6 text-accent-warning" />
                 </AvatarFallback>
               </Avatar>
               <div>

@@ -8,7 +8,7 @@ import Image from "next/image";
 const cardBase =
   "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
 const description = "text-gray-700 dark:text-gray-300 font-medium";
-const badgeGradient = "bg-gradient-to-r from-purple-500 to-cyan-500";
+const badgeGradient = "bg-gradient-brand-primary";
 
 const STEPS = [
   {
@@ -58,7 +58,7 @@ export function HowItWorks() {
             <div className="relative">
               <AspectRatio
                 ratio={16 / 9}
-                className="bg-gradient-to-br from-purple-500/20 to-cyan-500/20 rounded-lg overflow-hidden"
+                className="bg-gradient-brand-soft rounded-lg overflow-hidden"
               >
                 <Image
                   src="/youtube-summary-demo.png"
@@ -74,6 +74,10 @@ export function HowItWorks() {
               </AspectRatio>
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
+                  {/* TODO(C-followup): YouTube logo red is a third-party brand color
+                      and doesn't map to a semantic token. Consider introducing a
+                      `--color-brand-youtube` token or sourcing the official YouTube
+                      asset instead of recreating it here. */}
                   <Avatar className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600">
                     <AvatarFallback className="text-xs text-white font-bold">
                       YT

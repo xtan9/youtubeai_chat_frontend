@@ -7,26 +7,23 @@ export function HeroSection() {
     <section className="w-full max-w-6xl mx-auto py-16 text-center">
       <div className="relative">
         {/* Animated gradient background */}
-        <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-to-br from-purple-500/20 via-cyan-500/15 to-pink-500/20 dark:from-purple-500/30 dark:via-cyan-500/20 dark:to-pink-500/30 rounded-full blur-3xl opacity-50 animate-pulse"></div>
+        <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-brand-soft rounded-full blur-3xl opacity-50 animate-pulse"></div>
 
         {/* Small decorative elements */}
-        <div className="absolute top-10 left-10 w-8 h-8 bg-purple-500/20 dark:bg-purple-500/30 rounded-full blur-lg animate-float"></div>
-        <div className="absolute top-20 right-20 w-6 h-6 bg-cyan-500/20 dark:bg-cyan-500/30 rounded-full blur-lg animate-float-delay"></div>
-        <div className="absolute bottom-10 left-20 w-10 h-10 bg-pink-500/20 dark:bg-pink-500/30 rounded-full blur-lg animate-float-slow"></div>
+        <div className="absolute top-10 left-10 w-8 h-8 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float"></div>
+        <div className="absolute top-20 right-20 w-6 h-6 bg-accent-brand-secondary/20 dark:bg-accent-brand-secondary/30 rounded-full blur-lg animate-float-delay"></div>
+        <div className="absolute bottom-10 left-20 w-10 h-10 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float-slow"></div>
 
         {/* Main content */}
         <div className="relative z-10">
           <div className="inline-flex items-center gap-2 bg-background/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/20 mb-6">
-            <Sparkles
-              size={16}
-              className="text-purple-500 dark:text-purple-400"
-            />
+            <Sparkles size={16} className="text-accent-brand" />
             <span className="text-sm font-medium text-foreground">
               100% Free Forever • No Paywall
             </span>
           </div>
 
-          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 dark:from-purple-400 dark:via-pink-400 dark:to-cyan-400 bg-clip-text text-transparent mb-6">
+          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-brand-accent bg-clip-text text-transparent mb-6">
             Understand YouTube Videos
             <br />
             <span className="text-3xl md:text-5xl">
@@ -42,19 +39,19 @@ export function HeroSection() {
 
           <div className="flex flex-wrap justify-center gap-4 mb-8">
             <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
-              <Brain className="w-5 h-5 text-purple-500 dark:text-purple-400" />
+              <Brain className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-foreground">
                 Advanced AI Analysis
               </span>
             </div>
             <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
-              <Clock className="w-5 h-5 text-cyan-500 dark:text-cyan-400" />
+              <Clock className="w-5 h-5 text-accent-brand-secondary" />
               <span className="text-sm text-foreground">
                 Save Hours of Watching
               </span>
             </div>
             <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
-              <Sparkles className="w-5 h-5 text-pink-500 dark:text-pink-400" />
+              <Sparkles className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-foreground">
                 No Paywall or Limits
               </span>

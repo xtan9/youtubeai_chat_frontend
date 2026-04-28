@@ -47,7 +47,7 @@ export default async function SummaryPage({
           below the fold. */}
       {!isResultsView && (
         <section className="w-full max-w-3xl mx-auto px-4 pt-12 pb-6 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 dark:from-purple-400 dark:via-pink-400 dark:to-cyan-400 bg-clip-text text-transparent">
+          <h2 className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-brand-accent bg-clip-text text-transparent">
             Free AI Summary for any YouTube Video
           </h2>
           <p className="text-base md:text-lg text-muted-foreground">
