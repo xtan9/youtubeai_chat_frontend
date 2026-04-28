@@ -54,8 +54,13 @@ export function InputForm() {
         className="absolute -inset-1 hidden dark:block bg-gradient-brand-accent rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"
       ></div>
 
-      {/* Main container — `bg-card`/`border-border` resolve via dark mode
-          automatically. Light mode keeps a subtle shadow. */}
+      {/* Main container. Background/border switch via `dark:` Tailwind
+          variants (no JS theme conditional). Light mode keeps a subtle
+          shadow; dark mode drops it since the gradient halo carries the
+          lift. PRs 2-6 may collapse the explicit color pairs into shadcn
+          semantic tokens (`bg-card`/`border-border`) once those are
+          confirmed equivalent — preserved verbatim in PR 1 to keep the
+          visual diff zero. */}
       <div className="relative backdrop-blur-xl border border-gray-200 dark:border-border rounded-3xl p-8 bg-white/80 shadow-lg dark:bg-slate-900/90 dark:shadow-none">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="relative">
