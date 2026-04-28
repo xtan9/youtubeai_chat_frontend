@@ -1,0 +1,126 @@
+# Avatar
+
+A round (by default) image-with-fallback for representing a user or
+entity. Backed by `@radix-ui/react-avatar`. The fallback renders when
+the image is loading, errors, or isn't supplied — driven by the image
+element's actual `load` event so AT and rendering stay in sync.
+
+Reach for it next to names, in comment threads, in user-list rows.
+
+## Import
+
+```tsx
+import {
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+} from "@/components/ui/avatar";
+```
+
+## Anatomy
+
+- `Avatar` — root `<span>`. `relative size-8 shrink-0 overflow-hidden
+  rounded-full`. Forwards to `AvatarPrimitive.Root`.
+- `AvatarImage` — the `<img>`. Only rendered after the browser fires
+  `load` on the image; before that, `AvatarFallback` shows. Forwards
+  `src`, `alt`, native attrs.
+- `AvatarFallback` — the `<span>` shown while the image is loading or
+  has errored. Use initials, an icon, or a generic silhouette.
+  Supports `delayMs` to avoid flashing if loads are usually fast.
+
+## Props
+
+| Slot              | Notable props                                                            |
+| ----------------- | ------------------------------------------------------------------------ |
+| `Avatar`          | `asChild`, all `<span>` props                                            |
+| `AvatarImage`     | `src`, `alt`, `onLoadingStatusChange`, `referrerPolicy`, all `<img>` props |
+| `AvatarFallback`  | `delayMs` (number — wait this many ms before showing the fallback), `asChild` |
+
+## Variants
+
+```tsx
+// Image with initials fallback
+<Avatar>
+  <AvatarImage src="/avatars/jane.jpg" alt="Jane Doe" />
+  <AvatarFallback>JD</AvatarFallback>
+</Avatar>
+```
+
+```tsx
+// Initials only (no image)
+<Avatar>
+  <AvatarFallback>JD</AvatarFallback>
+</Avatar>
+```
+
+```tsx
+// Larger size — override via className
+<Avatar className="size-12">
+  <AvatarImage src="/avatars/jane.jpg" alt="Jane Doe" />
+  <AvatarFallback>JD</AvatarFallback>
+</Avatar>
+```
+
+```tsx
+// Decorative avatar paired with a name (the name is the accessible label)
+<div className="flex items-center gap-2">
+  <Avatar aria-hidden="true">
+    <AvatarFallback>JD</AvatarFallback>
+  </Avatar>
+  <span>Jane Doe</span>
+</div>
+```
+
+## Accessibility
+
+- **Always pass `alt` on `AvatarImage`.** Set it to the user's name
+  (e.g. `"Jane Doe"`) for an accessible image, or `alt=""` if the
+  avatar is purely decorative and a sibling element carries the name.
+- The fallback is a `<span>` with no role. Its content (initials, icon)
+  is read inline with surrounding text. If the avatar stands alone (no
+  paired name), prefer rendering the user's full name in the fallback
+  rather than initials.
+- Radix's image-load gating means `<img>` is mounted only after `load`
+  fires. Browsers, screen readers, and Playwright tests all see the
+  same DOM; happy-dom unit tests stay on the fallback path because it
+  doesn't fire `load`.
+- The component does not force `role="img"` on the root; if you need
+  the avatar to be a single ARIA image element, set it explicitly.
+
+## Composition examples
+
+```tsx
+// Comment header
+<div className="flex items-center gap-3">
+  <Avatar>
+    <AvatarImage src={author.avatar_url} alt={author.name} />
+    <AvatarFallback>{initialsOf(author.name)}</AvatarFallback>
+  </Avatar>
+  <div>
+    <p className="font-medium">{author.name}</p>
+    <p className="text-muted-foreground text-xs">
+      {format(comment.createdAt)}
+    </p>
+  </div>
+</div>
+```
+
+```tsx
+// Avatar group (overlap with negative margin)
+<div className="flex -space-x-2">
+  {team.map((u) => (
+    <Avatar key={u.id} className="ring-background ring-2">
+      <AvatarImage src={u.avatar_url} alt={u.name} />
+      <AvatarFallback>{initialsOf(u.name)}</AvatarFallback>
+    </Avatar>
+  ))}
+</div>
+```
+
+## Token usage
+
+- Default size: `size-8` (32px)
+- Radius: `rounded-full`
+- Fallback background: `bg-muted`
+- AspectRatio of image: `aspect-square` (forced via the image's
+  `size-full` + the root's `overflow-hidden`)

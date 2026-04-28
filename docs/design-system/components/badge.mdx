@@ -1,0 +1,110 @@
+# Badge
+
+A small inline label for status, count, or category. Built on a
+`<span>` (or any element via `asChild`); CVA-backed variants for the
+common surfaces (default, secondary, destructive, outline).
+
+Reach for it inside list items, table cells, headings — anywhere a
+short scalar piece of metadata wants to be visually distinct without
+breaking the line. For interactive triggers, use [Button](./button.mdx).
+
+## Import
+
+```tsx
+import { Badge, badgeVariants } from "@/components/ui/badge";
+```
+
+## Anatomy
+
+A single element. `Badge` is the whole component; there are no
+sub-parts.
+
+## Props
+
+| Prop      | Type                                                       | Default     | Description                                                                                                          |
+| --------- | ---------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| `variant` | `"default" \| "secondary" \| "destructive" \| "outline"`   | `"default"` | Visual style.                                                                                                        |
+| `asChild` | `boolean`                                                  | `false`     | When `true`, renders the only child element (using Radix `Slot`) and merges badge classes onto it. Common for `<a>`. |
+| `className` | `string`                                                 | —           | Merged onto variant classes.                                                                                         |
+| ...native | `React.ComponentProps<"span">`                            | —           | All native span attributes (id, role, aria-label, …).                                                                |
+
+`badgeVariants` is exported for cases where you want a button or link
+*styled* like a badge without the wrapper (e.g. inside a CVA composition).
+
+## Variants
+
+```tsx
+<Badge>Default</Badge>
+<Badge variant="secondary">Secondary</Badge>
+<Badge variant="destructive">Destructive</Badge>
+<Badge variant="outline">Outline</Badge>
+```
+
+```tsx
+// Wrap an anchor for a clickable badge
+<Badge asChild>
+  <a href="/inbox">3 new</a>
+</Badge>
+```
+
+```tsx
+// Status badge announced by AT — give it role + aria-label
+<Badge role="status" aria-label="2 unread messages">
+  2
+</Badge>
+```
+
+## Accessibility
+
+- Default Badge is **decorative** — a `<span>` with no role. The
+  surrounding context provides the accessible name (e.g. a heading or
+  table cell).
+- For **dynamic counts** (unread badge, notification dot), pair with
+  `role="status"` + `aria-label` so AT announces changes via the
+  status live region.
+- For **interactive badges**, use `asChild` to wrap an `<a>` or
+  `<button>` (which carries the role + accessible name).
+- Color contrast is met across all four variants in light + dark
+  modes (see token usage below).
+
+## Composition examples
+
+```tsx
+// Inside a heading
+<h2 className="flex items-center gap-2">
+  Inbox <Badge variant="secondary">12</Badge>
+</h2>
+```
+
+```tsx
+// Inside a table cell — link badge
+<TableCell>
+  <Badge asChild>
+    <Link href={`/projects/${p.id}`}>{p.status}</Link>
+  </Badge>
+</TableCell>
+```
+
+```tsx
+// Status legend
+<div className="flex gap-2">
+  <Badge>Active</Badge>
+  <Badge variant="secondary">Paused</Badge>
+  <Badge variant="destructive">Error</Badge>
+  <Badge variant="outline">Draft</Badge>
+</div>
+```
+
+## Token usage
+
+- Typography: `text-xs font-medium`
+- Padding: `px-2 py-0.5`
+- Radius: `rounded-md`
+- SVG sizing inside the badge: `[&>svg]:size-3`
+- Default: `bg-primary text-primary-foreground`
+- Secondary: `bg-secondary text-secondary-foreground`
+- Destructive: `bg-destructive text-white`
+- Outline: `text-foreground` + 1px border + hover `bg-accent`
+- Focus ring: `focus-visible:ring-ring/50 ring-[3px]` (when wrapping
+  an interactive child via `asChild`)
+- aria-invalid: red ring (form-validation contexts)

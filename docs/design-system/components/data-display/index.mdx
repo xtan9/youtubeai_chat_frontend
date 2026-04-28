@@ -1,0 +1,189 @@
+# Data display
+
+The data-display cluster groups the eleven components used to *show*
+data (rather than collect input or move the user around the app):
+tabular records, status pills, identity chips, banners, progress
+indicators, loading placeholders, dividers, scroll containers, toast
+notifications, charts, and the Google brand icon. Each component
+ships a Vitest behaviour test, a jest-axe a11y test (zero violations
+across every variant + edge state), and a per-component MDX doc with
+prop tables, variants, and composition examples.
+
+## Members
+
+### Tabular & status
+
+- [Table](../table.mdx) — Native `<table>` + sub-components (header,
+  body, row, cell, caption, footer) with shared typography and an
+  overflow-aware container. No JS state; pure semantics.
+- [Badge](../badge.mdx) — Inline status / count / category pill. CVA
+  variants (default, secondary, destructive, outline). Supports
+  `asChild` for clickable badges.
+- [Avatar](../avatar.mdx) — Round image-with-fallback for
+  representing users. Backed by `@radix-ui/react-avatar`; fallback
+  renders until the image's `load` event fires.
+
+### Notifications & feedback
+
+- [Alert](../alert.mdx) — Inline `<div role="alert">` for one-time
+  status banners. CVA variants (default, destructive). Use
+  [AlertDialog](../alert-dialog.mdx) instead when the user must respond.
+- [Toaster (sonner)](../sonner.mdx) — Wrapper for [sonner](https://sonner.emilkowal.ski/),
+  the imperative-API toast library. Mount once at layout root; trigger
+  toasts from anywhere via `import { toast } from "sonner"`.
+
+### Loading states
+
+- [Progress](../progress.mdx) — Determinate/indeterminate
+  progressbar. Backed by `@radix-ui/react-progress`. Use it for
+  known-percentage operations.
+- [Skeleton](../skeleton.mdx) — Decorative loading-shape placeholder.
+  Pair multiple Skeletons inside a single `role="status"` busy region.
+
+### Layout primitives
+
+- [Separator](../separator.mdx) — 1px line, horizontal or vertical.
+  Backed by `@radix-ui/react-separator`. Decorative by default;
+  semantic via `decorative={false}`.
+- [ScrollArea](../scroll-area.mdx) — Custom-styled scroll container
+  with overlay scrollbars. Backed by `@radix-ui/react-scroll-area`.
+  Reach for it only when native scrollbars clash with the surface design.
+
+### Visualization
+
+- [Chart](../chart.mdx) — Token-aware theming + tooltip + legend
+  wrapper around [recharts 3](https://recharts.org/). Publishes
+  per-series CSS variables (`--color-<key>`) from `ChartConfig`.
+
+### Brand assets
+
+- [GoogleIcon](../google-icon.mdx) — Four-color Google "G" SVG for
+  OAuth buttons. Single-purpose; not a generic search icon.
+
+## When to reach for which
+
+The choice depends on **what** is being shown, **whether** it's
+ephemeral, and **how much** it depends on real-time updates:
+
+| Scenario                                                                | Reach for                                       |
+| ----------------------------------------------------------------------- | ----------------------------------------------- |
+| Row × column data with stable schema                                    | [Table](../table.mdx)                           |
+| One-word status/count/category in a list or row                         | [Badge](../badge.mdx)                           |
+| Identity chip next to a name or in a comment header                     | [Avatar](../avatar.mdx)                         |
+| Inline non-modal status / error banner inside a form or page            | [Alert](../alert.mdx)                           |
+| Ephemeral acknowledgement of an action ("Saved", "Sent")                | [Toaster + toast()](../sonner.mdx)              |
+| Required user response (confirm or cancel)                              | [AlertDialog](../alert-dialog.mdx)              |
+| Known-percentage operation (upload, install, multi-step form)           | [Progress](../progress.mdx)                     |
+| Layout placeholder for content that's still loading                     | [Skeleton](../skeleton.mdx)                     |
+| Visual divider between sections, list items, or menu groups             | [Separator](../separator.mdx)                   |
+| Fixed-size scrollable region where native scrollbars look wrong         | [ScrollArea](../scroll-area.mdx)                |
+| Bar/line/area visualization with token-aware colours                    | [Chart](../chart.mdx)                           |
+| Google OAuth call-to-action button                                      | [GoogleIcon](../google-icon.mdx)                |
+
+## Alert vs Toaster vs AlertDialog — close call
+
+All three communicate status to the user; the distinction is what the
+user is expected to *do*:
+
+- **Alert**: inline, persistent until the page is left. The user can
+  ignore it. Use for form-level errors, empty-state hints, in-page
+  warnings.
+- **Toaster (sonner)**: ephemeral, auto-dismisses. The user can
+  ignore it (or hover to pin it open). Use for confirmations of
+  completed actions and asynchronous results.
+- **AlertDialog**: modal, blocks the page until acknowledged or
+  cancelled. The user **must** respond. Use for destructive
+  confirmations and irreversible decisions.
+
+## Skeleton vs Progress — close call
+
+- **Skeleton** when the wait time is uncertain *and* you want to
+  preserve the perceived layout.
+- **Progress** when you can report a percentage *or* when the user
+  initiated the operation (an upload they can see filling).
+
+If the operation is short (<200ms), use neither — flicker hurts
+more than it helps.
+
+## Accessibility patterns
+
+- **Table** — pure semantic HTML; AT reads the standard table
+  pattern. Always include a `<TableCaption>` for the table's name and
+  use `<TableHead>` (not cell) for header rows.
+- **Badge** — decorative by default (a `<span>`). For dynamic
+  counts/notifications, pair with `role="status" aria-label="…"` so
+  AT announces changes.
+- **Avatar** — always pass `alt` on `AvatarImage` (use the user's
+  name; or `alt=""` if a sibling element carries the name).
+- **Alert** — `role="alert"` defaults to `aria-live="assertive"`;
+  override to `polite` for non-urgent updates. Don't stack multiple
+  concurrent alerts.
+- **Progress** — always provide an accessible name via `aria-label`
+  or `aria-labelledby`. `aria-valuenow` is set automatically when
+  `value` is a number; indeterminate state (value=null) sets
+  `data-state="indeterminate"` and omits the valuenow.
+- **Skeleton** — wrap a group of skeletons in **one**
+  `role="status" aria-busy="true" aria-label="Loading …"` region;
+  individual skeletons stay decorative.
+- **Separator** — `decorative={true}` (default) → AT ignores;
+  `decorative={false}` → `role="separator"` for major section breaks.
+- **ScrollArea** — viewport receives keyboard focus and the standard
+  scroll-key navigation. Pair with a landmark for AT navigation in
+  long content.
+- **Toaster (sonner)** — the toast region is `<section
+  aria-live="polite" aria-label="Notifications alt+T">`; toasts
+  announce politely. Use type-specific imperatives (`toast.success`,
+  `toast.error`) for AT differentiation.
+- **Chart** — recharts emits `<svg role="img">` internally; set
+  `role="img"` + `aria-label`/`aria-labelledby` on `ChartContainer`
+  so the chart is named for AT. For dense charts, pair with a hidden
+  table or paragraph summary.
+- **GoogleIcon** — decorative SVG (no role, no aria-label). The
+  consumer's button text is the accessible name; for icon-only
+  buttons, label the *button*.
+
+## Tested via
+
+- `components/ui/__tests__/<name>.test.tsx` — behavior (rendering,
+  prop spread, controlled/uncontrolled where applicable, data-slot
+  wiring, edge states).
+- `components/ui/__tests__/<name>.a11y.test.tsx` — jest-axe (zero
+  violations across variants + edge states).
+- Shared helpers (`tests-utils/`):
+  - `renderWithProviders.tsx` — wraps with ThemeProvider + automatic
+    cleanup between tests.
+  - `axe.ts` exports the configured runners (`axe`, `axeOverlay`,
+    `axePortal`, `axePortalOverlay`, `axeCommand`, `axeCommandDialog`).
+    The data-display cluster only uses the default `axe`; no
+    cluster-specific suppressions were needed.
+
+## Happy-dom limitations relevant to this cluster
+
+- **Avatar** — `<img>` `load` events don't fire in happy-dom, so
+  `AvatarImage` stays unmounted and `AvatarFallback` always shows.
+  This matches production's "image errored" behaviour, so the unit
+  tests still exercise the right code path.
+- **ScrollArea** — Radix mounts the scrollbar lazily based on
+  measured overflow; happy-dom returns 0 for layout, so the scrollbar
+  doesn't auto-appear. Tests use `type="always"` to force the mount.
+- **Chart** — recharts' `ResponsiveContainer` returns 0×0 in
+  happy-dom, so the SVG never paints and recharts' tooltip/legend
+  injection (via cloneElement on hover) never fires. Tests cover what
+  happy-dom *can* exercise: ChartStyle CSS-variable emission, prop
+  spread, ID derivation, and the early-return paths in
+  ChartTooltipContent / ChartLegendContent. The runtime tooltip
+  behaviour is exercised by Playwright smoke tests.
+- **Sonner** — the toast list `<ol>` only mounts when `toast()` is
+  called; with no toasts, only the labelled `<section>` region exists.
+  Tests assert the always-mounted scaffold.
+
+## Bug fix landed in this PR
+
+- **Progress** previously destructured `value` out of its props but
+  never forwarded it to `ProgressPrimitive.Root`. As a result,
+  `aria-valuenow` was always `undefined` and `data-state` was always
+  `"indeterminate"` even when the consumer passed a real percentage.
+  The fix (single-line: pass `value` through to the Root) is in
+  `components/ui/progress.tsx`; the a11y test
+  (`progress.a11y.test.tsx`) now asserts the correct ARIA values
+  across all states.

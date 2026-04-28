@@ -1,0 +1,184 @@
+# Chart
+
+A thin theming + tooltip + legend layer over [recharts](https://recharts.org/).
+The wrapper publishes a `ChartConfig` object (per-series label, icon,
+colour or per-theme colour pair) as scoped CSS custom properties so
+chart elements can read tokens without hard-coding hex values.
+
+Reach for it for product-area data viz: dashboards, metric trends,
+breakdown bars. For ad-hoc one-off charts, use recharts directly.
+recharts 3 is the underlying primitive (migrated in A1 PR 4).
+
+## Import
+
+```tsx
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import { Bar, BarChart, CartesianGrid, Legend, Tooltip, XAxis, YAxis } from "recharts";
+```
+
+## Anatomy
+
+- `ChartContainer` — the root `<div data-slot="chart">`. Holds the
+  `ChartContext` (config + chart id), wraps recharts' `ResponsiveContainer`,
+  and emits a `<style>` block exposing `--color-<key>` variables for
+  every entry in `config` that has a `color` or `theme`.
+- `ChartTooltip` — re-export of recharts' `Tooltip`. Use it inside
+  the chart with `content={<ChartTooltipContent />}`.
+- `ChartTooltipContent` — the styled tooltip body. Reads `useChart()`
+  for label resolution. Receives `active`/`payload` props from
+  recharts at runtime via `cloneElement`.
+- `ChartLegend` — re-export of recharts' `Legend`.
+- `ChartLegendContent` — the styled legend body. Same context
+  consumption as the tooltip.
+- `ChartStyle` — internal; emits the `<style>` block. Not exported
+  on the public surface.
+
+## ChartConfig
+
+```ts
+type ChartConfig = {
+  [seriesKey: string]: {
+    label?: React.ReactNode;
+    icon?: React.ComponentType;
+  } & (
+    | { color?: string; theme?: never }
+    | { color?: never; theme: { light: string; dark: string } }
+  );
+};
+```
+
+The `seriesKey` matches the `dataKey` you pass to recharts'
+`<Bar dataKey="…">` / `<Line dataKey="…">` etc. The wrapper's
+`<style>` block emits `--color-<seriesKey>: <value>;` so the chart
+elements can reference `var(--color-<seriesKey>)`.
+
+## Props
+
+| Slot                    | Notable props                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ChartContainer`        | `config` (ChartConfig, required), `id` (string — derived from React.useId() if omitted), all `<div>` props.                                                |
+| `ChartTooltipContent`   | `indicator` (`"line" \| "dot" \| "dashed"`, default `"dot"`), `hideLabel` (bool), `hideIndicator` (bool), `nameKey` (string), `labelKey` (string), and all `TooltipContentProps<TooltipValueType, number \| string>` from recharts 3 (`active`, `payload`, `label`, `formatter`, `labelFormatter`, …). |
+| `ChartLegendContent`    | `hideIcon` (bool), `nameKey` (string), `verticalAlign` (`"top" \| "bottom"`, default `"bottom"`), recharts' `payload` for legend items.                   |
+
+`TooltipContentProps` is the recharts 3 shape — it differs from
+recharts 2 (the old `Payload<ValueType, NameType>` import path is
+gone). The wrapper handles the migration internally; your call sites
+are unchanged unless you were passing tooltip props directly.
+
+## Variants
+
+```tsx
+// BarChart with config + tokens-driven colours
+const config = {
+  desktop: { label: "Desktop", color: "#6366f1" },
+  mobile:  { label: "Mobile",  color: "#06b6d4" },
+} satisfies ChartConfig;
+
+<ChartContainer config={config} className="h-[300px]">
+  <BarChart data={data}>
+    <CartesianGrid vertical={false} />
+    <XAxis dataKey="month" />
+    <YAxis />
+    <Tooltip content={<ChartTooltipContent />} />
+    <Legend content={<ChartLegendContent />} />
+    <Bar dataKey="desktop" fill="var(--color-desktop)" />
+    <Bar dataKey="mobile"  fill="var(--color-mobile)" />
+  </BarChart>
+</ChartContainer>
+```
+
+```tsx
+// LineChart with the same config
+<ChartContainer config={config} className="h-[300px]">
+  <LineChart data={data}>
+    <CartesianGrid vertical={false} />
+    <XAxis dataKey="month" />
+    <YAxis />
+    <Tooltip content={<ChartTooltipContent indicator="line" />} />
+    <Legend content={<ChartLegendContent />} />
+    <Line type="monotone" dataKey="desktop" stroke="var(--color-desktop)" />
+    <Line type="monotone" dataKey="mobile"  stroke="var(--color-mobile)" />
+  </LineChart>
+</ChartContainer>
+```
+
+```tsx
+// Per-theme colours (light + dark mode)
+const themed = {
+  revenue: { label: "Revenue", theme: { light: "#10b981", dark: "#34d399" } },
+} satisfies ChartConfig;
+```
+
+```tsx
+// Custom tooltip indicator
+<Tooltip content={<ChartTooltipContent indicator="dashed" />} />
+```
+
+## Accessibility
+
+- recharts emits an SVG `<svg role="img">` wrapper; the wrapper's
+  outer `<div data-slot="chart">` does not by default. **For the
+  chart to be discoverable by AT, set `role="img"` and `aria-label`
+  on `ChartContainer`** describing what the chart shows.
+- For dense or interactive charts (multiple series, hoverable tooltip),
+  pair the chart with a hidden table or a paragraph summary
+  (`aria-describedby`) — visualization alone is not accessible to
+  screen-reader users, no matter how the SVG is roled.
+- The tooltip body is rendered into the chart at runtime; it inherits
+  the chart's stacking context. Don't put the chart inside an
+  `aria-hidden` ancestor — the tooltip won't announce.
+- If the chart is purely decorative (a sparkline next to a number),
+  set `aria-hidden="true"` and ensure the number itself carries the
+  accessible meaning.
+
+## Composition examples
+
+```tsx
+// Dashboard metric card with trend chart
+<Card>
+  <CardHeader>
+    <CardTitle>Revenue</CardTitle>
+    <CardDescription>Last 12 months</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <p className="text-2xl font-bold">$48,219</p>
+    <p
+      id="rev-summary"
+      className="text-muted-foreground text-sm"
+    >
+      Up 12% from the prior period; peak in November at $5,840.
+    </p>
+    <ChartContainer
+      config={config}
+      className="mt-4 h-[160px]"
+      role="img"
+      aria-labelledby="rev-summary"
+    >
+      <LineChart data={trend}>
+        <Line dataKey="revenue" stroke="var(--color-revenue)" />
+        <Tooltip content={<ChartTooltipContent indicator="line" />} />
+      </LineChart>
+    </ChartContainer>
+  </CardContent>
+</Card>
+```
+
+## Token usage
+
+- Per-series colour: `--color-<seriesKey>` (emitted by ChartStyle from
+  `config[seriesKey].color` or `config[seriesKey].theme[theme]`).
+- Tooltip card: `border-border/50 bg-background rounded-lg shadow-xl`
+- Tooltip text: `text-xs`, label `font-medium`, value
+  `font-mono font-medium tabular-nums`
+- Cartesian grid lines: `stroke-border/50`
+- Axis tick text: `fill-muted-foreground`
+- Legend swatch shape: `rounded-[2px]` (square) for default; `w-1`
+  for indicator='line'; dashed border for indicator='dashed'
+- Aspect ratio (default): `aspect-video`

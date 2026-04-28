@@ -1,0 +1,155 @@
+# Toaster (sonner)
+
+Ephemeral notification toasts. The component is a thin wrapper around
+[sonner](https://sonner.emilkowal.ski/), a toast library built around
+an imperative `toast()` API. Mount `<Toaster />` once at the layout
+root; trigger toasts from anywhere via `import { toast } from "sonner"`.
+
+Reach for it when you need a transient acknowledgement of an action
+("Saved", "Sent", "Could not delete") that doesn't block the user.
+For non-dismissible inline messages, use [Alert](./alert.mdx). For
+required user confirmation, use [AlertDialog](./alert-dialog.mdx).
+
+## Import
+
+```tsx
+// Mount once
+import { Toaster } from "@/components/ui/sonner";
+
+// Trigger from anywhere
+import { toast } from "sonner";
+```
+
+The wrapper intentionally re-exports **only** `<Toaster />`. The
+`toast()` imperative is read straight from `sonner` so consumers don't
+add another indirection layer for typeahead and migration.
+
+## Anatomy
+
+- `Toaster` — sonner's `<Sonner>` Toaster, with our app-specific
+  className (`toaster group`) and the popover-token CSS variables
+  applied (`--normal-bg`, `--normal-text`, `--normal-border`).
+- The actual toasts render only when `toast(…)` is called. The
+  always-mounted DOM is a `<section aria-label="Notifications …">`
+  region with `aria-live="polite"`. The toast list `<ol>` mounts
+  inside that section once a toast is queued.
+
+## Props
+
+`<Toaster>` forwards all `ToasterProps` from sonner. The most common:
+
+| Prop          | Type                                                                                                                   | Default          | Description                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `position`    | `"top-left" \| "top-center" \| "top-right" \| "bottom-left" \| "bottom-center" \| "bottom-right"`                       | `"bottom-right"` | Where toasts stack.                                                        |
+| `theme`       | `"light" \| "dark" \| "system"`                                                                                        | `"system"`       | Color scheme.                                                              |
+| `richColors`  | `boolean`                                                                                                              | `false`          | Apply per-type background colours (success/info/warning/error).            |
+| `closeButton` | `boolean`                                                                                                              | `false`          | Show a × on each toast.                                                    |
+| `duration`    | `number` (ms)                                                                                                          | `4000`           | Default visible duration; per-toast override via `toast(msg, { duration })`. |
+| `expand`      | `boolean`                                                                                                              | `false`          | Stack vs. one-at-a-time.                                                   |
+
+The toast() imperative API (called from anywhere):
+
+```ts
+toast("Default toast");
+toast.success("Saved");
+toast.error("Could not delete", { description: error.message });
+toast.info("New version available");
+toast.warning("Session expiring soon");
+toast.loading("Uploading…", { id: "upload" });
+toast.success("Uploaded.", { id: "upload" }); // replaces by id
+toast.message("Custom JSX", {
+  description: "Renders any ReactNode",
+  action: { label: "Undo", onClick: () => undo() },
+});
+toast.dismiss();        // dismiss all
+toast.dismiss("upload"); // dismiss one
+```
+
+## Mounting
+
+```tsx
+// app/layout.tsx
+import { Toaster } from "@/components/ui/sonner";
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <Toaster /> {/* once, near the bottom of the body */}
+      </body>
+    </html>
+  );
+}
+```
+
+## Triggering
+
+```tsx
+// any client component / event handler
+import { toast } from "sonner";
+
+async function handleSave(data) {
+  const id = toast.loading("Saving…");
+  try {
+    await saveDraft(data);
+    toast.success("Saved", { id });
+  } catch (err) {
+    toast.error("Could not save", { id, description: String(err) });
+  }
+}
+```
+
+## Accessibility
+
+- sonner's container is a `<section role="region"
+  aria-label="Notifications alt+T" aria-live="polite">` — toasts
+  are announced politely (don't interrupt the user) when they appear.
+- The "alt+T" hotkey focuses the notification region; the user can
+  Tab through dismiss/action buttons inside each toast.
+- **Always pair `toast()` with action buttons** when the message
+  requires a response — sonner gives them keyboard access via the
+  hotkey-focused region. Time-bound dismissal is fine for purely
+  informational messages.
+- `toast.error()` / `toast.warning()` are **not** visually distinct
+  from `toast.success()` unless you set `richColors`. Use the
+  type-specific variants (`success`/`error`/etc.) so AT can pick up
+  the data-type attribute even without rich colours.
+
+## Composition examples
+
+```tsx
+// Form-submit feedback
+async function onSubmit(values) {
+  const promise = api.create(values);
+  toast.promise(promise, {
+    loading: "Creating…",
+    success: "Created.",
+    error: (err) => `Could not create: ${err.message}`,
+  });
+}
+```
+
+```tsx
+// Optimistic update with undo
+function deleteItem(id) {
+  const prev = items;
+  setItems(items.filter((i) => i.id !== id));
+  toast("Item deleted", {
+    action: {
+      label: "Undo",
+      onClick: () => setItems(prev),
+    },
+  });
+}
+```
+
+## Token usage
+
+- Background: `var(--popover)` (mapped via `--normal-bg`)
+- Text: `var(--popover-foreground)` (mapped via `--normal-text`)
+- Border: `var(--border)` (mapped via `--normal-border`)
+- Type-specific palettes (success/info/warning/error) come from
+  sonner's bundled CSS; opt in with `richColors`.
+- Dimensions, radius, shadow are sonner defaults — override via the
+  `style`/`className` props if needed.

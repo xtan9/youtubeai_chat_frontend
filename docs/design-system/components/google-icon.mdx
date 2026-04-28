@@ -1,0 +1,85 @@
+# GoogleIcon
+
+The four-color Google "G" mark, inlined as an SVG. A single-purpose
+brand asset for the OAuth sign-in / sign-up buttons.
+
+Reach for it only on the OAuth call-to-action; for any other Google-
+adjacent context (e.g. a generic "search" button), use a generic icon
+from `lucide-react` instead — using the brand mark for non-auth
+purposes violates Google's brand guidelines.
+
+## Import
+
+```tsx
+import { GoogleIcon } from "@/components/ui/google-icon";
+```
+
+## Anatomy
+
+A single `<svg viewBox="0 0 24 24" width="20" height="20">` with four
+`<path>` children — one per Google brand colour (Blue #4285F4,
+Green #34A853, Yellow #FBBC05, Red #EA4335).
+
+## Props
+
+| Prop        | Type     | Default     | Description                                     |
+| ----------- | -------- | ----------- | ----------------------------------------------- |
+| `className` | `string` | —           | Applied directly to the SVG element.            |
+
+The intrinsic size is 20×20. To resize, override via the `className`
+(`size-5`, `size-6`, …) — the `width`/`height` attributes are
+overridden by CSS classes that set `width` / `height`.
+
+## Variants
+
+```tsx
+// Inside a button, paired with visible text (canonical usage)
+<Button variant="outline">
+  <GoogleIcon className="mr-2" />
+  Continue with Google
+</Button>
+```
+
+```tsx
+// Larger
+<GoogleIcon className="size-6" />
+```
+
+## Accessibility
+
+- The SVG carries **no role and no aria-label by default** — the icon
+  is decorative when paired with visible button text. The button's
+  text node provides the accessible name.
+- For an **icon-only** button, give the *button* an `aria-label`:
+
+  ```tsx
+  <Button aria-label="Sign in with Google" size="icon">
+    <GoogleIcon />
+  </Button>
+  ```
+
+  Don't add `role="img"` + `aria-label` to the SVG itself in this
+  pattern — the button's name is the accessible name; nesting them
+  doubles the announcement.
+- The four brand colours are hard-coded fills (Google's brand
+  guidelines forbid recolouring). The icon does not respect dark mode
+  on purpose.
+
+## Composition examples
+
+```tsx
+// Login form — Google OAuth button
+<Button variant="outline" className="w-full" type="button" onClick={signInWithGoogle}>
+  <GoogleIcon className="mr-2" />
+  Continue with Google
+</Button>
+```
+
+## Token usage
+
+- Hard-coded brand fills (no token resolution):
+  - Blue `#4285F4`
+  - Green `#34A853`
+  - Yellow `#FBBC05`
+  - Red `#EA4335`
+- Sizing: intrinsic 20×20; override with sizing utilities.

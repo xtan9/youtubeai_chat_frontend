@@ -1,0 +1,185 @@
+# Table
+
+A semantic data table built on native `<table>` / `<thead>` / `<tbody>` /
+`<tr>` / `<th>` / `<td>` elements. The component layer adds shared
+typography, spacing, and an overflow scroll-wrapper around the root —
+nothing more. No JavaScript state machine, no aria patches: assistive
+tech reads the standard table pattern as intended.
+
+Reach for it when you have row × column data with a stable schema.
+For action lists or selectable cards, use a list + [Card](./card.mdx)
+instead.
+
+## Import
+
+```tsx
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableCaption,
+} from "@/components/ui/table";
+```
+
+## Anatomy
+
+- `Table` — `<table>` with a wrapping `<div data-slot="table-container">`
+  that handles horizontal overflow (`overflow-x-auto`).
+- `TableHeader` — `<thead>`. Visually styled via `[&_tr]:border-b`.
+- `TableBody` — `<tbody>`. Strips the bottom border from the last row.
+- `TableFooter` — `<tfoot>`. Used for totals rows; bg-muted/50.
+- `TableRow` — `<tr>` with hover styling
+  (`hover:bg-muted/50`) and a `data-state="selected"` hook
+  (`data-[state=selected]:bg-muted`).
+- `TableHead` — `<th>`. Header cell.
+- `TableCell` — `<td>`. Data cell.
+- `TableCaption` — `<caption>`. Sits at the bottom of the table by
+  default (`caption-bottom` on the root).
+
+## Props
+
+Every part forwards every native attribute of its underlying element —
+`React.ComponentProps<"table">`, `…<"thead">`, `…<"tr">`, etc.
+There are no CVA variants; styling is centralized in the components.
+
+| Slot           | Element             |
+| -------------- | ------------------- |
+| `Table`        | `<table>`           |
+| `TableHeader`  | `<thead>`           |
+| `TableBody`    | `<tbody>`           |
+| `TableFooter`  | `<tfoot>`           |
+| `TableRow`     | `<tr>`              |
+| `TableHead`    | `<th>`              |
+| `TableCell`    | `<td>`              |
+| `TableCaption` | `<caption>`         |
+
+## Variants
+
+```tsx
+// Standard data table
+<Table>
+  <TableCaption>Recent invoices.</TableCaption>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Invoice</TableHead>
+      <TableHead>Status</TableHead>
+      <TableHead className="text-right">Total</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell>INV001</TableCell>
+      <TableCell>Paid</TableCell>
+      <TableCell className="text-right">$250.00</TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+```tsx
+// With a totals footer
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Item</TableHead>
+      <TableHead>Qty</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell>Widget</TableCell>
+      <TableCell>3</TableCell>
+    </TableRow>
+  </TableBody>
+  <TableFooter>
+    <TableRow>
+      <TableCell>Total</TableCell>
+      <TableCell>3</TableCell>
+    </TableRow>
+  </TableFooter>
+</Table>
+```
+
+```tsx
+// Selectable rows — flip data-state="selected" on each tr
+<Table>
+  <TableBody>
+    {users.map((u) => (
+      <TableRow
+        key={u.id}
+        data-state={u.id === selected ? "selected" : undefined}
+        aria-selected={u.id === selected}
+        onClick={() => setSelected(u.id)}
+      >
+        <TableCell>{u.name}</TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
+```
+
+## Accessibility
+
+- Pure semantic HTML — `<table>` / `<thead>` / `<tbody>` / `<tr>` /
+  `<th>` / `<td>` / `<caption>`. AT renders the standard table pattern;
+  no ARIA additions needed.
+- **Always include a caption** if the table is the primary content of
+  a section. `TableCaption` becomes `<caption>` and is announced as the
+  table's accessible name.
+- **Mark headers as `<th>` (not `<td>`)** so AT can associate columns
+  with cells via implicit `scope=col` (the default for `<th>` in
+  `<thead>`).
+- **Selectable rows**: pair `data-state="selected"` with
+  `aria-selected="true"`. The data-state hook controls visuals; the
+  aria attribute is what AT reads.
+- Avoid splitting headers across multiple `<thead>` rows unless
+  absolutely necessary; if you must, set `scope="colgroup"` /
+  `scope="col"` explicitly.
+
+## Composition examples
+
+```tsx
+// Settings → API keys table
+<section aria-labelledby="api-keys-heading">
+  <h2 id="api-keys-heading">API keys</h2>
+  <Table>
+    <TableCaption>Personal access tokens.</TableCaption>
+    <TableHeader>
+      <TableRow>
+        <TableHead>Name</TableHead>
+        <TableHead>Created</TableHead>
+        <TableHead className="text-right">Actions</TableHead>
+      </TableRow>
+    </TableHeader>
+    <TableBody>
+      {keys.map((k) => (
+        <TableRow key={k.id}>
+          <TableCell>{k.name}</TableCell>
+          <TableCell>{format(k.createdAt)}</TableCell>
+          <TableCell className="text-right">
+            <Button variant="destructive" onClick={() => revoke(k.id)}>
+              Revoke
+            </Button>
+          </TableCell>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table>
+</section>
+```
+
+## Token usage
+
+- Table base typography: `text-sm`
+- Header cells: `text-foreground h-10 font-medium`
+- Body cells: `p-2 align-middle`
+- Caption: `text-muted-foreground mt-4 text-sm`
+- Hover row tint: `hover:bg-muted/50`
+- Selected row tint: `data-[state=selected]:bg-muted`
+- Footer background: `bg-muted/50`
+- Container overflow: `overflow-x-auto` (single horizontal scroll on
+  narrow viewports)
