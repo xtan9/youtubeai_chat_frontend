@@ -1,0 +1,32 @@
+# Blur tokens
+
+Tailwind 4 ships a complete blur scale by default. We adopt it as-is and
+document the meaning here so consumers know which level to reach for.
+
+## Scale
+
+| Token | Utility | Value | When to reach for |
+|-------|---------|-------|-------------------|
+| `--blur-xs` | `blur-xs` | 4px | Subtle softening (e.g. faint glow) |
+| `--blur-sm` | `blur-sm` | 8px | Halo edges, animated gradient borders |
+| `--blur-md` | `blur-md` | 12px | Floating backdrop noise |
+| `--blur-lg` | `blur-lg` | 16px | Soft hero accents |
+| `--blur-xl` | `blur-xl` | 24px | Backdrop blob diffusion |
+| `--blur-2xl` | `blur-2xl` | 40px | Hero gradient ambient |
+| `--blur-3xl` | `blur-3xl` | 64px | Maximum diffusion (use sparingly) |
+
+`blur-*` applies a `filter: blur(*)`. For background-only blur (e.g. a
+glassmorphism surface), use the `backdrop-blur-*` family instead — same
+scale, applied to the element behind via the backdrop-filter property.
+
+```tsx
+{/* Filter blur — blurs the element itself */}
+<div className="bg-gradient-brand-accent blur-sm" />
+
+{/* Backdrop blur — blurs the content behind the element */}
+<div className="backdrop-blur-xl bg-white/80" />
+```
+
+## Tokens reference
+
+Source: Tailwind 4 default theme (no overrides in `app/globals.css`).

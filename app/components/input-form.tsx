@@ -4,40 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const router = useRouter();
-  const { resolvedTheme } = useTheme();
   const posthog = usePostHog();
-
-  // Mount after hydration to prevent mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Safe theme detection
-  const isDarkMode = mounted && resolvedTheme === "dark";
-
-  // Theme-specific style variables for better readability
-  const containerBg = isDarkMode ? "bg-slate-900/90" : "bg-white/80 shadow-lg";
-
-  const inputAreaBg = isDarkMode
-    ? "bg-white/5 border-white/20"
-    : "bg-gray-50/80 border-gray-200";
-
-  const textColors = isDarkMode ? "text-white" : "text-gray-900";
-  const placeholderColors = isDarkMode
-    ? "placeholder:text-gray-400"
-    : "placeholder:text-gray-500";
-  const tertiaryTextColors = isDarkMode ? "text-gray-400" : "text-gray-700";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,32 +48,24 @@ export function InputForm() {
 
   return (
     <div className="relative group mx-auto">
-      {/* Animated gradient border - only visible in dark mode */}
+      {/* Animated gradient border — dark-mode-only accent (preserves the
+          purple/pink/cyan halo that shipped pre-tokens). */}
       <div
-        className={`absolute -inset-1 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse ${
-          isDarkMode ? "block" : "hidden"
-        }`}
+        className="absolute -inset-1 hidden dark:block bg-gradient-brand-accent rounded-3xl blur-sm opacity-75 group-hover:opacity-100 transition duration-1000 animate-pulse"
       ></div>
 
-      {/* Main container */}
-      <div
-        className={`relative backdrop-blur-xl border ${
-          isDarkMode ? "border-border" : "border-gray-200"
-        } rounded-3xl p-8 ${containerBg}`}
-      >
+      {/* Main container — `bg-card`/`border-border` resolve via dark mode
+          automatically. Light mode keeps a subtle shadow. */}
+      <div className="relative backdrop-blur-xl border border-gray-200 dark:border-border rounded-3xl p-8 bg-white/80 shadow-lg dark:bg-slate-900/90 dark:shadow-none">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="relative">
-            {/* Background blur effect - only in dark mode */}
+            {/* Soft brand-gradient backdrop — only visible in dark mode. */}
             <div
-              className={`absolute inset-0 bg-gradient-to-r from-purple-500/20 to-cyan-500/20 rounded-2xl blur-xl ${
-                isDarkMode ? "block" : "hidden"
-              }`}
+              className="absolute inset-0 hidden dark:block bg-gradient-brand-soft rounded-2xl blur-xl"
             ></div>
 
             {/* Input area */}
-            <div
-              className={`relative backdrop-blur-sm border rounded-2xl p-1 ${inputAreaBg}`}
-            >
+            <div className="relative backdrop-blur-sm border rounded-2xl p-1 bg-gray-50/80 border-gray-200 dark:bg-white/5 dark:border-white/20">
               <div className="flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
                   <Input
@@ -107,7 +75,7 @@ export function InputForm() {
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     aria-label="YouTube URL"
-                    className={`h-16 text-lg bg-transparent border-0 focus:ring-0 focus:outline-none ${textColors} ${placeholderColors}`}
+                    className="h-16 text-lg bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 placeholder:text-gray-500 dark:text-white dark:placeholder:text-gray-400"
                   />
 
                   {url && (
@@ -115,9 +83,7 @@ export function InputForm() {
                       type="button"
                       onClick={handleClearUrl}
                       aria-label="Clear input"
-                      className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${tertiaryTextColors} hover:${
-                        isDarkMode ? "text-white" : "text-gray-900"
-                      }`}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                     >
                       <X size={16} />
                     </button>
@@ -129,7 +95,7 @@ export function InputForm() {
                   size="lg"
                   disabled={isLoading}
                   aria-label="Summarize video"
-                  className="h-16 px-8 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-300 cursor-pointer"
+                  className="h-16 px-8 bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-base cursor-pointer"
                 >
                   {isLoading ? (
                     <div

@@ -1,0 +1,56 @@
+# Motion tokens
+
+Motion is anchored on a small ladder of named durations and a pair of
+custom easings layered on top of Tailwind 4's defaults. Pair the right
+duration with the right easing — UI feel comes from the combination, not
+from arbitrary millisecond values.
+
+## Duration scale
+
+| Token | Utility | Value | When to reach for |
+|-------|---------|-------|-------------------|
+| `--duration-instant` | `duration-instant` | 75ms | State flips that should feel immediate (checkbox tick) |
+| `--duration-fast` | `duration-fast` | 150ms | Hover state, focus ring, small chrome reveals |
+| `--duration-base` | `duration-base` | 250ms | Menus, tooltips, default transitions |
+| `--duration-slow` | `duration-slow` | 400ms | Backdrop fades, drawer/sheet open/close |
+| `--duration-slower` | `duration-slower` | 600ms | Orchestrated reveals, hero animations |
+
+```tsx
+<button className="transition-all duration-base hover:scale-105">…</button>
+<dialog className="transition-opacity duration-slow ease-in-out-soft">…</dialog>
+```
+
+## Easing scale
+
+We use Tailwind 4's defaults plus two custom curves for natural-feel
+motion:
+
+| Token | Utility | Value | When to reach for |
+|-------|---------|-------|-------------------|
+| `--ease-linear` | `ease-linear` | Tailwind default | Loading bars, progress |
+| `--ease-in` | `ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | Outgoing motion (element leaving viewport) |
+| `--ease-out` | `ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | Incoming motion (element entering viewport) |
+| `--ease-in-out` | `ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` | Continuous motion (slide, expand) |
+| `--ease-out-soft` | `ease-out-soft` | `cubic-bezier(0.22, 1, 0.36, 1)` | Snappier-but-soft entrance (preferred for menus, tooltips) |
+| `--ease-in-out-soft` | `ease-in-out-soft` | `cubic-bezier(0.65, 0, 0.35, 1)` | Soft-feel two-way motion (drawer, sheet) |
+
+Soft variants are preferred for UI motion; the linear/in/out triad is
+reserved for cases where strict math (loaders) or sharp feel
+(error-shake) is intended.
+
+## Reduced motion
+
+Honor `prefers-reduced-motion: reduce` at the component level — guard
+nontrivial transitions with the `motion-safe:` variant or supply a
+shorter `duration-fast` fallback.
+
+```tsx
+<div className="transition-all motion-safe:duration-base motion-reduce:duration-instant">
+  …
+</div>
+```
+
+## Tokens reference
+
+Source: `app/globals.css` `@theme` block (custom durations + easings) +
+Tailwind 4 defaults (linear/in/out/in-out).
