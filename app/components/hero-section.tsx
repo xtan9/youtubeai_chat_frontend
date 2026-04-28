@@ -16,9 +16,9 @@ export function HeroSection() {
 
         {/* Main content */}
         <div className="relative z-10">
-          <div className="inline-flex items-center gap-2 bg-background/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/20 mb-6">
+          <div className="inline-flex items-center gap-2 bg-surface-base/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/20 mb-6">
             <Sparkles size={16} className="text-accent-brand" />
-            <span className="text-sm font-medium text-foreground">
+            <span className="text-sm font-medium text-text-primary">
               100% Free Forever • No Paywall
             </span>
           </div>
@@ -31,28 +31,28 @@ export function HeroSection() {
             </span>
           </h1>
 
-          <p className="text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
+          <p className="text-xl text-text-muted mb-8 max-w-3xl mx-auto">
             Our AI instantly transforms lengthy videos into comprehensive
             summaries, key points, and actionable insights—completely free, with
             no restrictions or hidden costs.
           </p>
 
           <div className="flex flex-wrap justify-center gap-4 mb-8">
-            <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
+            <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Brain className="w-5 h-5 text-accent-brand" />
-              <span className="text-sm text-foreground">
+              <span className="text-sm text-text-primary">
                 Advanced AI Analysis
               </span>
             </div>
-            <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
+            <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Clock className="w-5 h-5 text-accent-brand-secondary" />
-              <span className="text-sm text-foreground">
+              <span className="text-sm text-text-primary">
                 Save Hours of Watching
               </span>
             </div>
-            <div className="flex items-center gap-2 bg-background/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border dark:border-white/10">
+            <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Sparkles className="w-5 h-5 text-accent-brand" />
-              <span className="text-sm text-foreground">
+              <span className="text-sm text-text-primary">
                 No Paywall or Limits
               </span>
             </div>
@@ -63,13 +63,13 @@ export function HeroSection() {
               jump straight to the section they care about. */}
           <nav
             aria-label="Page sections"
-            className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground mb-12"
+            className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-text-muted mb-12"
           >
-            <a href="#benefits" className="hover:text-foreground transition-colors">Benefits</a>
-            <a href="#use-cases" className="hover:text-foreground transition-colors">Use Cases</a>
-            <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
-            <a href="#testimonials" className="hover:text-foreground transition-colors">Testimonials</a>
-            <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
+            <a href="#benefits" className="hover:text-text-primary transition-colors">Benefits</a>
+            <a href="#use-cases" className="hover:text-text-primary transition-colors">Use Cases</a>
+            <a href="#how-it-works" className="hover:text-text-primary transition-colors">How It Works</a>
+            <a href="#testimonials" className="hover:text-text-primary transition-colors">Testimonials</a>
+            <a href="#faq" className="hover:text-text-primary transition-colors">FAQ</a>
           </nav>
         </div>
       </div>

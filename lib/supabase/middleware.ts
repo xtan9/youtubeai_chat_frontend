@@ -53,6 +53,10 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/privacy") ||
     request.nextUrl.pathname.startsWith("/terms") ||
+    // Design-system showcase is purely a visual reference for components and
+    // tokens — no user data — so it's reachable without auth. Lets reviewers
+    // and contributors browse the catalogue without logging in.
+    request.nextUrl.pathname.startsWith("/design-system") ||
     // Smoke tests hit /api/health from an unauthenticated runner. The
     // endpoint itself reads only server env vars (no user context) and
     // returns shallow infra status, so exposing it publicly is safe.

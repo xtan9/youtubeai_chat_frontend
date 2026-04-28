@@ -121,7 +121,7 @@ export default function PrivacyPolicy() {
         </p>
       </section>
 
-      <footer className="text-sm text-muted-foreground">
+      <footer className="text-sm text-text-muted">
         Last updated: {new Date().toLocaleDateString()}
       </footer>
     </div>

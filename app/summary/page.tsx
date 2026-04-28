@@ -50,7 +50,7 @@ export default async function SummaryPage({
           <h2 className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-brand-accent bg-clip-text text-transparent">
             Free AI Summary for any YouTube Video
           </h2>
-          <p className="text-base md:text-lg text-muted-foreground">
+          <p className="text-base md:text-lg text-text-muted">
             Paste a YouTube URL below and our AI extracts the key points,
             themes, and insights in seconds. Works with any public video, in 30+
             languages, with no signup or paywall.

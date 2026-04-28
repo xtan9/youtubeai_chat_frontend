@@ -21,7 +21,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 w-full z-50 border-b border-border backdrop-blur-md bg-background/95 dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
+    <header className="sticky top-0 w-full z-50 border-b border-border-subtle backdrop-blur-md bg-surface-base/95 dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
@@ -53,7 +53,7 @@ export function Header() {
                   variant="ghost"
                   size="sm"
                   onClick={handleSignOut}
-                  className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full"
+                  className="text-text-muted hover:text-text-primary hover:bg-state-hover rounded-full"
                 >
                   <LogOut size={16} />
                   <span className="ml-2 hidden sm:inline">Sign Out</span>
