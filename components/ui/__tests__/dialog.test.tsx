@@ -172,7 +172,7 @@ describe("Dialog", () => {
       );
       expect(screen.getByTestId("title").className).toContain("font-semibold");
       expect(screen.getByTestId("desc").className).toContain(
-        "text-muted-foreground",
+        "text-text-muted",
       );
     });
   });

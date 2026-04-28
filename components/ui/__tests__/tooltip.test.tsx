@@ -71,8 +71,8 @@ describe("Tooltip", () => {
       );
       const cls = screen.getByTestId("content").className;
       expect(cls).toContain("my-tip");
-      expect(cls).toContain("bg-primary");
-      expect(cls).toContain("text-primary-foreground");
+      expect(cls).toContain("bg-surface-inverse");
+      expect(cls).toContain("text-text-inverse");
       expect(cls).toContain("rounded-md");
       expect(cls).toContain("text-xs");
     });

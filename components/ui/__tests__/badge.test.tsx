@@ -12,18 +12,18 @@ describe("Badge", () => {
       const badge = screen.getByTestId("b");
       expect(badge.tagName).toBe("SPAN");
       expect(badge.getAttribute("data-slot")).toBe("badge");
-      expect(badge.className).toContain("bg-primary");
-      expect(badge.className).toContain("text-primary-foreground");
+      expect(badge.className).toContain("bg-surface-inverse");
+      expect(badge.className).toContain("text-text-inverse");
       expect(badge.textContent).toBe("New");
     });
   });
 
   describe("variants", () => {
     it.each([
-      ["default", "bg-primary"],
-      ["secondary", "bg-secondary"],
-      ["destructive", "bg-destructive"],
-      ["outline", "text-foreground"],
+      ["default", "bg-surface-inverse"],
+      ["secondary", "bg-surface-sunken"],
+      ["destructive", "bg-accent-danger"],
+      ["outline", "text-text-primary"],
     ] as const)("variant=%s applies %s class", (variant, expectedClass) => {
       renderWithProviders(
         <Badge variant={variant} data-testid="b">
@@ -47,7 +47,7 @@ describe("Badge", () => {
       expect(badge.tagName).toBe("A");
       expect(badge.getAttribute("href")).toBe("/somewhere");
       expect(badge.getAttribute("data-slot")).toBe("badge");
-      expect(badge.className).toContain("bg-primary");
+      expect(badge.className).toContain("bg-surface-inverse");
     });
   });
 
@@ -60,7 +60,7 @@ describe("Badge", () => {
       );
       const badge = screen.getByTestId("b");
       expect(badge.className).toContain("my-extra");
-      expect(badge.className).toContain("bg-primary");
+      expect(badge.className).toContain("bg-surface-inverse");
     });
 
     it("forwards arbitrary native attributes (id, role, aria-label)", () => {

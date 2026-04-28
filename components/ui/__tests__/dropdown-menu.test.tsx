@@ -356,7 +356,7 @@ describe("DropdownMenu", () => {
       );
       const content = screen.getByTestId("content");
       expect(content.className).toContain("my-content");
-      expect(content.className).toContain("bg-popover");
+      expect(content.className).toContain("bg-surface-overlay");
       expect(content.className).toContain("rounded-md");
       const item = screen.getByTestId("item");
       expect(item.className).toContain("my-item");

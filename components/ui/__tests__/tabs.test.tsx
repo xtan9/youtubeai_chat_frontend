@@ -192,7 +192,7 @@ describe("Tabs", () => {
       expect(screen.getByTestId("root").className).toContain("my-tabs");
       expect(screen.getByTestId("root").className).toContain("flex-col");
       expect(screen.getByTestId("list").className).toContain("my-list");
-      expect(screen.getByTestId("list").className).toContain("bg-muted");
+      expect(screen.getByTestId("list").className).toContain("bg-surface-sunken");
       expect(screen.getByTestId("trig").className).toContain("my-trig");
       expect(screen.getByTestId("content").className).toContain("my-content");
     });

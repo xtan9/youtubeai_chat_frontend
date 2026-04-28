@@ -181,7 +181,7 @@ describe("Table", () => {
       expect(row.getAttribute("data-state")).toBe("selected");
       // The class string includes the conditional hook; the actual color
       // is a CSS variable resolved at runtime.
-      expect(row.className).toContain("data-[state=selected]:bg-muted");
+      expect(row.className).toContain("data-[state=selected]:bg-surface-sunken");
     });
   });
 });

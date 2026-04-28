@@ -118,7 +118,7 @@ describe("Popover", () => {
       );
       const cls = screen.getByTestId("content").className;
       expect(cls).toContain("my-popover");
-      expect(cls).toContain("bg-popover");
+      expect(cls).toContain("bg-surface-overlay");
       expect(cls).toContain("rounded-md");
       expect(cls).toContain("shadow-md");
     });

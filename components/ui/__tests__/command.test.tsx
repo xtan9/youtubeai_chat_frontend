@@ -242,7 +242,7 @@ describe("Command", () => {
         </Command>,
       );
       expect(screen.getByTestId("root").className).toContain("my-cmd");
-      expect(screen.getByTestId("root").className).toContain("bg-popover");
+      expect(screen.getByTestId("root").className).toContain("bg-surface-overlay");
       expect(screen.getByTestId("list").className).toContain("my-list");
       expect(screen.getByTestId("list").className).toContain("max-h-[300px]");
       expect(screen.getByTestId("item").className).toContain("my-item");

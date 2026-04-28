@@ -177,7 +177,7 @@ function ChartTooltipContent({
   return (
     <div
       className={cn(
-        "border-border/50 bg-background grid min-w-32 items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl",
+        "border-border-subtle/50 bg-surface-base grid min-w-32 items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl",
         className
       )}
     >
@@ -195,7 +195,7 @@ function ChartTooltipContent({
               <div
                 key={`${item.dataKey}-${index}`}
                 className={cn(
-                  "[&>svg]:text-muted-foreground flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5",
+                  "[&>svg]:text-text-muted flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5",
                   indicator === "dot" && "items-center"
                 )}
               >
@@ -235,12 +235,12 @@ function ChartTooltipContent({
                     >
                       <div className="grid gap-1.5">
                         {nestLabel ? tooltipLabel : null}
-                        <span className="text-muted-foreground">
+                        <span className="text-text-muted">
                           {itemConfig?.label || item.name}
                         </span>
                       </div>
                       {item.value != null && (
-                        <span className="text-foreground font-mono font-medium tabular-nums">
+                        <span className="text-text-primary font-mono font-medium tabular-nums">
                           {typeof item.value === "number"
                             ? item.value.toLocaleString()
                             : String(item.value)}
@@ -296,7 +296,7 @@ function ChartLegendContent({
             <div
               key={`${item.value}-${index}`}
               className={cn(
-                "[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3"
+                "[&>svg]:text-text-muted flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3"
               )}
             >
               {itemConfig?.icon && !hideIcon ? (
