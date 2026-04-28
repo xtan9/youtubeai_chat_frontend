@@ -6,8 +6,10 @@ agent) read the same contract.
 
 ## Structure
 
-- [`tokens/`](./tokens/) — design token vocabulary (typography, spacing,
-  shadow, radius, blur, motion, gradient).
+- [`tokens/`](./tokens/) — design token vocabulary (color, typography,
+  spacing, shadow, radius, blur, motion, gradient). See
+  [`tokens/color.mdx`](./tokens/color.mdx) for the semantic color
+  taxonomy introduced in milestone C.
 - `components/` _(planned, PRs 2-6)_ — per-component documentation
   (overview, props, variants, accessibility, composition examples,
   token usage).
