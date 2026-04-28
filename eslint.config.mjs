@@ -1,11 +1,19 @@
 import { defineConfig, globalIgnores } from "eslint/config";
+import { fixupConfigRules } from "@eslint/compat";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 import pluginQuery from "@tanstack/eslint-plugin-query";
 
+// ESLint 10 removed legacy rule-context APIs (context.getFilename(),
+// context.getSourceCode(), etc.). eslint-config-next@16.2.x still pulls in
+// eslint-plugin-react@7.37.5, which calls those removed methods. Until the
+// upstream fix in jsx-eslint/eslint-plugin-react#3979 ships in a release that
+// eslint-config-next picks up, we wrap the Next configs with @eslint/compat's
+// fixupConfigRules() — the ESLint-team-published shim that retrofits the
+// removed APIs onto legacy plugins. Tracking issue: vercel/next.js#89764.
 const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
+  ...fixupConfigRules(nextVitals),
+  ...fixupConfigRules(nextTs),
   ...pluginQuery.configs["flat/recommended"],
   {
     // eslint-config-next 16 ships eslint-plugin-react-hooks rules that flag
