@@ -1,0 +1,207 @@
+# DropdownMenu
+
+A trigger-anchored menu of actions. Backed by `@radix-ui/react-dropdown-menu`
+(WAI-ARIA `menu` pattern). Reach for it when a button needs to expose
+several distinct actions — overflow `…` buttons, "More options",
+profile avatars with sign-out, etc.
+
+For a horizontal application-style menu bar, use [Menubar](./menubar.mdx).
+For free-form floating panels, use [Popover](./popover.mdx). For tab
+switching between mutually exclusive views, use [Tabs](./tabs.mdx).
+
+## Import
+
+```tsx
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
+```
+
+## Anatomy
+
+- `DropdownMenu` — root state machine.
+- `DropdownMenuTrigger` — clickable that opens the menu. Use `asChild`
+  to forward semantics onto a custom button.
+- `DropdownMenuContent` — auto-portaled list of items. `role="menu"`.
+- `DropdownMenuItem` — `role="menuitem"`. Supports `variant="default" | "destructive"` and `inset` for visual alignment with checked/radio rows.
+- `DropdownMenuCheckboxItem` — `role="menuitemcheckbox"`. Toggles via
+  `checked` / `onCheckedChange`.
+- `DropdownMenuRadioGroup` + `DropdownMenuRadioItem` —
+  `role="menuitemradio"` rows; group binds the active value via
+  `value` / `onValueChange`.
+- `DropdownMenuLabel` — `role="presentation"` heading for grouping.
+- `DropdownMenuSeparator` — visual divider.
+- `DropdownMenuShortcut` — right-aligned keystroke text on a row.
+- `DropdownMenuGroup` — `role="group"` (implicit) for AT.
+- `DropdownMenuSub` + `DropdownMenuSubTrigger` + `DropdownMenuSubContent`
+  — nested submenu. Sub opens on hover or `→`.
+- `DropdownMenuPortal` — explicit portal wrapper if you need to control
+  it (rare; `DropdownMenuContent` portals automatically).
+
+## Props
+
+| Slot                          | Element                  | Notable props                                                                |
+| ----------------------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `DropdownMenu`                | `Radix.Root`             | `open`, `defaultOpen`, `onOpenChange`, `dir`, `modal`                        |
+| `DropdownMenuTrigger`         | `Radix.Trigger`          | `asChild`                                                                    |
+| `DropdownMenuContent`         | `Radix.Content`          | `side`, `sideOffset` (default `4`), `align`, `alignOffset`, `collisionPadding`, `avoidCollisions`, `loop`, `forceMount` |
+| `DropdownMenuItem`            | `Radix.Item`             | `onSelect`, `disabled`, `inset` (boolean), `variant` (`"default"` / `"destructive"`), `asChild` |
+| `DropdownMenuCheckboxItem`    | `Radix.CheckboxItem`     | `checked`, `onCheckedChange`, `disabled`                                     |
+| `DropdownMenuRadioGroup`      | `Radix.RadioGroup`       | `value`, `onValueChange`                                                     |
+| `DropdownMenuRadioItem`       | `Radix.RadioItem`        | `value`, `disabled`                                                          |
+| `DropdownMenuLabel`           | `Radix.Label`            | `inset` (boolean)                                                            |
+| `DropdownMenuSeparator`       | `Radix.Separator`        | —                                                                            |
+| `DropdownMenuShortcut`        | `<span>`                 | All native span props.                                                       |
+| `DropdownMenuSub`             | `Radix.Sub`              | `open`, `defaultOpen`, `onOpenChange`                                        |
+| `DropdownMenuSubTrigger`      | `Radix.SubTrigger`       | `inset` (boolean), `disabled`, `asChild`                                     |
+| `DropdownMenuSubContent`      | `Radix.SubContent`       | `forceMount`, `loop`, `sideOffset`, `alignOffset`                            |
+
+## Variants
+
+```tsx
+// Standard action menu
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="outline">Open</Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuLabel>My Account</DropdownMenuLabel>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem>
+      Profile
+      <DropdownMenuShortcut>⌘P</DropdownMenuShortcut>
+    </DropdownMenuItem>
+    <DropdownMenuItem>
+      Settings
+      <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
+    </DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem variant="destructive">Sign out</DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+```tsx
+// Checkbox + radio rows (toolbar / theme picker)
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="outline">View</Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuCheckboxItem checked={showSidebar} onCheckedChange={setShowSidebar}>
+      Show sidebar
+    </DropdownMenuCheckboxItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuLabel>Theme</DropdownMenuLabel>
+    <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+      <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="system">System</DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+```tsx
+// Submenu
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button>File</Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuItem>New file</DropdownMenuItem>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>Open recent</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuItem>fixture.json</DropdownMenuItem>
+        <DropdownMenuItem>schema.sql</DropdownMenuItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-dropdown-menu` (WAI-ARIA `menu` pattern).
+  Trigger gets `aria-haspopup="menu"`, `aria-expanded`,
+  `aria-controls`. Content gets `role="menu"`, items
+  `role="menuitem"` / `"menuitemcheckbox"` / `"menuitemradio"`.
+- **Keyboard:** `↓`/`↑` move focus, `→` opens a submenu, `←` closes
+  one, `Enter`/`Space` activates the focused item, `Esc` closes,
+  type-ahead jumps to a matching item.
+- Default focus on open is the first non-disabled item. Returns to
+  trigger on close.
+- A disabled item is skipped during keyboard navigation
+  (`data-disabled=""`).
+- The destructive variant is purely visual — it does not change
+  semantics. Pair with [AlertDialog](./alert-dialog.mdx) for an
+  irreversible action that needs explicit confirmation.
+
+## DropdownMenu vs Menubar — when to reach for which
+
+Both wrap the same Radix menu primitive family, but their semantics
+differ:
+
+| Use case                                                                        | Reach for                          |
+| ------------------------------------------------------------------------------- | ---------------------------------- |
+| One trigger button exposing actions ("More", overflow `…`, avatar)              | [DropdownMenu](./dropdown-menu.mdx) |
+| A persistent strip of menu triggers (File / Edit / View / …) like a desktop app | [Menubar](./menubar.mdx)           |
+
+Menubar adds a `role="menubar"` strip and roving focus *between*
+triggers. DropdownMenu is a single trigger and has no menubar wrapper.
+
+## Composition examples
+
+```tsx
+// Avatar dropdown in the page header
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Avatar className="cursor-pointer">{/* … */}</Avatar>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent align="end" className="w-56">
+    <DropdownMenuLabel>{user.email}</DropdownMenuLabel>
+    <DropdownMenuSeparator />
+    <DropdownMenuGroup>
+      <DropdownMenuItem onSelect={() => router.push("/settings")}>
+        Settings
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => router.push("/billing")}>
+        Billing
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem variant="destructive" onSelect={signOut}>
+      Sign out
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+## Token usage
+
+- Background: `--color-popover`, `--color-popover-foreground`
+- Item hover/focus background: `bg-accent`, `text-accent-foreground`
+- Destructive item: `text-destructive` plus
+  `bg-destructive/10` (light) / `bg-destructive/20` (dark) on focus
+- Radius: `rounded-md` content, `rounded-sm` items, `rounded-xs` checkbox/radio rows
+- Shadow: `shadow-md` content, `shadow-lg` sub-content
+- Spacing: `min-w-32` content, `px-2 py-1.5` items, `pl-8` reserved
+  for the leading checkbox / radio indicator
+- Animation: Radix `data-[state]` transitions (fade + zoom + side-aware
+  slide-in)
+- SVG sizing: `size-4` for trailing icons, `size-3.5` indicator slot
