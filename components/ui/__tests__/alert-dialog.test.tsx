@@ -168,7 +168,7 @@ describe("AlertDialog", () => {
   });
 
   describe("data-slot wiring", () => {
-    it("emits data-slot on the Radix-backed parts", () => {
+    it("emits data-slot on every part when open", () => {
       renderWithProviders(
         <AlertDialog defaultOpen>
           <AlertDialogContent data-testid="content">
@@ -178,6 +178,10 @@ describe("AlertDialog", () => {
                 D
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <AlertDialogFooter data-testid="footer">
+              <AlertDialogCancel data-testid="cancel">Cancel</AlertDialogCancel>
+              <AlertDialogAction data-testid="action">OK</AlertDialogAction>
+            </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>,
       );
@@ -192,6 +196,15 @@ describe("AlertDialog", () => {
       );
       expect(screen.getByTestId("desc").getAttribute("data-slot")).toBe(
         "alert-dialog-description",
+      );
+      expect(screen.getByTestId("footer").getAttribute("data-slot")).toBe(
+        "alert-dialog-footer",
+      );
+      expect(screen.getByTestId("cancel").getAttribute("data-slot")).toBe(
+        "alert-dialog-cancel",
+      );
+      expect(screen.getByTestId("action").getAttribute("data-slot")).toBe(
+        "alert-dialog-action",
       );
     });
   });
