@@ -34,7 +34,6 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
                 {summary.title}
               </h2>
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-brand-soft text-accent-brand-secondary border-accent-brand-secondary/30 border">
-
                 {summary.title
                   .replace("Video Summary", "")
                   .replace("Summary", "")
