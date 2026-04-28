@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { createRef, useState } from "react";
 
@@ -82,13 +82,17 @@ describe("Input", () => {
   });
 
   describe("disabled", () => {
-    it("renders as disabled and skips events", () => {
-      const handleChange = vi.fn();
-      renderWithProviders(
-        <Input disabled placeholder="d" onChange={handleChange} />,
+    it("renders as disabled and stays disabled across re-renders", () => {
+      const { rerender } = renderWithProviders(
+        <Input disabled placeholder="d" />,
       );
       const input = screen.getByPlaceholderText("d") as HTMLInputElement;
       expect(input.disabled).toBe(true);
+      // disabled=false should turn it back on
+      rerender(<Input placeholder="d" />);
+      expect(
+        (screen.getByPlaceholderText("d") as HTMLInputElement).disabled,
+      ).toBe(false);
     });
   });
 

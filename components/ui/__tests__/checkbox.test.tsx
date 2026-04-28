@@ -100,19 +100,19 @@ describe("Checkbox", () => {
     });
   });
 
-  describe("keyboard interaction", () => {
-    it("Space toggles the checkbox (Radix default)", () => {
+  describe("keyboard / pointer activation", () => {
+    it("is focusable and click fires onCheckedChange", () => {
+      // Radix's Space-key handling relies on the browser's button-activation
+      // semantics that happy-dom doesn't fully simulate — we assert the
+      // platform-agnostic side here (focusable, click toggles). Space-key
+      // activation is exercised end-to-end via Playwright smoke tests.
       const handler = vi.fn();
       renderWithProviders(
         <Checkbox aria-label="k" onCheckedChange={handler} />,
       );
       const cb = screen.getByRole("checkbox");
       cb.focus();
-      // Radix maps Space → toggle. Fire a real keydown.
-      fireEvent.keyDown(cb, { key: " ", code: "Space" });
-      fireEvent.keyUp(cb, { key: " ", code: "Space" });
-      // Radix uses click-on-Space; Space + click both should result in change.
-      // Use the ergonomic shortcut: a click event also triggers it.
+      expect(document.activeElement).toBe(cb);
       fireEvent.click(cb);
       expect(handler).toHaveBeenCalledWith(true);
     });

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { useForm } from "react-hook-form";
 
 import {
@@ -129,55 +129,37 @@ describe("Form", () => {
     });
 
     it("FormControl flips aria-invalid=true and chains description + message ids on validation error", async () => {
-      renderWithProviders(<TestForm />);
-      // Submit empty — RHF will fire required validation.
+      const { container } = renderWithProviders(<TestForm />);
+      // Submit empty — RHF will fire required validation asynchronously.
       fireEvent.click(screen.getByText("Submit"));
-      // wait for validation tick
-      await Promise.resolve();
-      await Promise.resolve();
-      const control = document
-        .querySelector('input[type="email"]')!
-        .closest('[data-slot="form-control"]') as HTMLElement;
-      // Error message renders
-      const message = document.querySelector(
-        '[data-slot="form-message"]',
-      ) as HTMLElement | null;
-      // RHF validation is async-ish; if we don't see it yet, give it one more tick.
-      // But since the field has a string error message, we expect it eventually:
-      if (!message) {
-        // Trigger one more event loop turn
-        await new Promise((r) => setTimeout(r, 0));
-      }
-      const messageEl = document.querySelector(
-        '[data-slot="form-message"]',
-      ) as HTMLElement | null;
-      // It's possible that synchronous RHF didn't surface the error yet. Try a
-      // second submit click.
-      if (!messageEl) {
-        fireEvent.click(screen.getByText("Submit"));
-      }
-      const finalMessage = document.querySelector(
-        '[data-slot="form-message"]',
-      ) as HTMLElement | null;
-      expect(finalMessage).not.toBeNull();
-      expect(finalMessage?.textContent).toContain("Email is required");
+      // Wait for the error message to render.
+      const messageEl = await waitFor(() => {
+        const el = container.querySelector('[data-slot="form-message"]');
+        if (!el) throw new Error("FormMessage not yet rendered");
+        return el as HTMLElement;
+      });
+      expect(messageEl.textContent).toContain("Email is required");
 
-      // aria-invalid should be true and aria-describedby should include the message id
+      const control = container.querySelector(
+        '[data-slot="form-control"]',
+      ) as HTMLElement;
       expect(control.getAttribute("aria-invalid")).toBe("true");
       const describedBy = control.getAttribute("aria-describedby") ?? "";
       expect(describedBy).toContain("form-item-message");
     });
 
     it("FormLabel gets data-error=true on validation error", async () => {
-      renderWithProviders(<TestForm />);
+      const { container } = renderWithProviders(<TestForm />);
       fireEvent.click(screen.getByText("Submit"));
-      await Promise.resolve();
-      await new Promise((r) => setTimeout(r, 0));
-      const label = document.querySelector(
-        'label[data-slot="form-label"]',
-      ) as HTMLLabelElement;
-      // The first field (email) is required; data-error should flip true
-      expect(label.getAttribute("data-error")).toBe("true");
+      const label = await waitFor(() => {
+        const el = container.querySelector(
+          'label[data-slot="form-label"]',
+        ) as HTMLLabelElement | null;
+        if (!el || el.getAttribute("data-error") !== "true") {
+          throw new Error("FormLabel data-error not yet flipped");
+        }
+        return el;
+      });
       expect(label.className).toContain("data-[error=true]:text-destructive");
     });
   });
@@ -246,11 +228,11 @@ describe("Form", () => {
         />,
       );
       fireEvent.click(screen.getByText("Submit"));
-      await new Promise((r) => setTimeout(r, 0));
-      await new Promise((r) => setTimeout(r, 0));
-      expect(handler).toHaveBeenCalledWith({
-        email: "user@example.com",
-        name: "Jane",
+      await waitFor(() => {
+        expect(handler).toHaveBeenCalledWith({
+          email: "user@example.com",
+          name: "Jane",
+        });
       });
     });
   });

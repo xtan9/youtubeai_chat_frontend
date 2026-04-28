@@ -130,14 +130,19 @@ describe("Button", () => {
       expect(handleClick).not.toHaveBeenCalled();
     });
 
-    it("activates on click after focus (Enter/Space coalesce to click)", () => {
+    it("is focusable and remains the active element while focused", () => {
+      // Native <button> Enter/Space → click translation is browser behavior,
+      // not React/JSDOM behavior — we test the platform-agnostic side here:
+      // the button enters the tab order, can receive focus, and click still
+      // fires while focused. Keyboard activation is exercised end-to-end via
+      // Playwright smoke tests.
       const handleClick = vi.fn();
       renderWithProviders(<Button onClick={handleClick}>Press</Button>);
       const button = screen.getByRole("button");
       button.focus();
       expect(document.activeElement).toBe(button);
       fireEvent.click(button);
-      expect(handleClick).toHaveBeenCalled();
+      expect(handleClick).toHaveBeenCalledTimes(1);
     });
   });
 

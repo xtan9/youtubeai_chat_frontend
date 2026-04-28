@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { useForm } from "react-hook-form";
 
 import {
@@ -112,9 +112,11 @@ describe("Form a11y", () => {
   it("login form (validation errors visible) has no axe violations", async () => {
     const { container } = renderWithProviders(<LoginForm withErrors />);
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    // Let RHF emit validation errors
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
+    // Wait for RHF to emit and render the validation messages.
+    await waitFor(() => {
+      const msg = container.querySelector('[data-slot="form-message"]');
+      if (!msg) throw new Error("validation message not yet rendered");
+    });
     // Axe against the rendered container only — the bare test document isn't
     // a full landmark-bearing page, but the form's a11y is what we're pinning.
     const results = await axe(container);
