@@ -99,11 +99,13 @@ Semantic intent colors. The brand pair is the primary accent; the others map to 
 
 | Token | Utility | Maps to (light) | Maps to (dark) | When to reach for |
 |-------|---------|-----------------|----------------|-------------------|
-| `--color-accent-brand` | `bg-accent-brand` / `text-accent-brand` | current `purple-500` | `purple-400` | Primary CTAs, brand emphasis |
-| `--color-accent-brand-secondary` | `bg-accent-brand-secondary` / `text-accent-brand-secondary` | current `cyan-500` | `cyan-400` | Brand pair (gradient endpoints, secondary brand surfaces) |
-| `--color-accent-success` | `bg-accent-success` / `text-accent-success` | `emerald-500` | `emerald-400` | Success toasts, completion checks |
-| `--color-accent-warning` | `bg-accent-warning` / `text-accent-warning` | `amber-500` | `amber-400` | Warning banners, caution flags |
-| `--color-accent-danger` | `bg-accent-danger` / `text-accent-danger` | current `--destructive` | dark `--destructive` | Destructive CTAs, error states |
+| `--color-accent-brand` | `bg-accent-brand` / `text-accent-brand` | `var(--color-purple-500)` (Tailwind 4 palette) | `var(--color-purple-400)` | Primary CTAs, brand emphasis |
+| `--color-accent-brand-secondary` | `bg-accent-brand-secondary` / `text-accent-brand-secondary` | `var(--color-cyan-500)` | `var(--color-cyan-400)` | Brand pair (gradient endpoints, secondary brand surfaces) |
+| `--color-accent-success` | `bg-accent-success` / `text-accent-success` | `var(--color-emerald-500)` | `var(--color-emerald-400)` | Success toasts, completion checks |
+| `--color-accent-warning` | `bg-accent-warning` / `text-accent-warning` | `var(--color-amber-500)` | `var(--color-amber-400)` | Warning banners, caution flags |
+| `--color-accent-danger` | `bg-accent-danger` / `text-accent-danger` | `hsl(0 84.2% 60.2%)` (matches `--destructive` light exactly) | `hsl(0 62.8% 30.6%)` (matches `--destructive` dark exactly) | Destructive CTAs, error states |
+
+> **Why `var(--color-{palette}-{shade})` references:** Tailwind 4 ships a default OKLCH palette via `--color-purple-500` etc. The existing brand gradients (`--gradient-brand-primary` from B PR 1) already reference these palette tokens. Reusing them for accents keeps the brand gradient endpoints and the accent surfaces visually identical, and any future Tailwind palette refresh carries through to both at once. `--color-accent-danger` is the exception — its source-of-truth is the legacy `--destructive` HSL value, not a Tailwind palette shade — so it copies the HSL byte-for-byte.
 
 ### 5. Interaction states (4 tokens)
 
@@ -118,7 +120,9 @@ Stateful overlays applied via `data-*` or `:hover` etc. These are *additive over
 
 ### Total: 22 semantic color tokens
 
-Plus existing typography (16), motion (8), gradient (6), spacing (1 base unit), radius (8 default), shadow (7 default), blur (7 default) — **roughly the "lean ~25" we set out to define, with a slight under-budget that leaves room for one or two additions during implementation if a real gap surfaces.**
+Plus existing typography (16), motion (8), gradient (6, plus 4 new stage gradients in PR 3), spacing (1 base unit), radius (8 default), shadow (7 default), blur (7 default) — **roughly the "lean ~25" we set out to define, with a slight under-budget that leaves room for one or two additions during implementation if a real gap surfaces.**
+
+> **Net-new vs legacy-mapped tokens.** Of the 22 semantic tokens, 13 map 1:1 to legacy shadcn token values (every surface token, `text-primary`/`text-muted`/`text-inverse`, `border-subtle`, `accent-danger`, and `state-focus`) and are byte-identical. The remaining 9 are net-new values that don't have a legacy counterpart: `text-secondary`, `text-disabled`, `border-default`, `border-strong`, the four brand/status accents (their hand-applied raw palette references in PR 3 land them on Tailwind palette tokens for the first time), and `state-hover`/`state-pressed`/`state-disabled` overlays (legacy used `bg-accent` ad-hoc). For the net-new tokens, byte-identical visual equality means "no consumer references them yet" — first usage lands in PRs 2/3 and is judged by the screenshot diffs there.
 
 ### Compatibility shim
 
@@ -239,9 +243,9 @@ Doc-only. Get review, merge, then start PR 1.
 
 ### PR 3 — Sweep marketing + summary
 
-- Sweep the 17 files surfaced by grep:
+- Sweep the marketing + summary surface (~17 files surfaced by grep):
   - `app/components/{benefits,faq,header,hero-section,how-it-works,input-form,testimonials,use-cases}.tsx`
-  - `app/summary/components/{streaming-progress,summary-content,summary-stats,transcript-paragraphs,video-info-card}.tsx`
+  - `app/summary/components/{streaming-progress,stream-error-banner,summary-content,summary-stats,transcript-paragraphs,video-info-card}.tsx`
   - `app/summary/page.tsx`
   - `components/{auth-button,profile-avatar}.tsx`
 - Replace raw palette references (`purple-500`, `cyan-500`, `pink-500`, `blue-500`) with semantic accents (`accent-brand`, `accent-brand-secondary`) or existing gradient utilities.
@@ -310,9 +314,9 @@ The legacy `globals.css` defines `--sidebar`, `--sidebar-foreground`, etc. for t
 
 ### Risk 6: `streaming-progress.tsx` uses arbitrary gradient stop classes
 
-`from-blue-500 to-cyan-500`, `from-purple-500 to-pink-500`, `from-green-500 to-emerald-500` etc. are stage-specific progress gradients. B PR 1 added 6 generic gradient tokens (`brand-primary`, `brand-primary-hover`, `brand-accent`, `brand-soft`, `error`, `success`) but no stage-specific ones.
+`from-blue-500 to-cyan-500`, `from-purple-500 to-pink-500`, `from-green-500 to-emerald-500` etc. are stage-specific progress gradients. B PR 1 added 6 generic gradient tokens (`brand-primary`, `brand-primary-hover`, `brand-accent`, `brand-soft`, `error`, `success`) but no stage-specific ones. The component currently has 4 stages: `preparing`, `transcribing`, `summarizing`, `complete`.
 
-**Mitigation:** PR 3 adds new gradient tokens (`--gradient-stage-preparing`, `--gradient-stage-fetching`, `--gradient-stage-transcribing`, `--gradient-stage-summarizing`, `--gradient-stage-finalizing`) in `app/globals.css` matching the existing stage colors, plus matching `@utility` rules. The streaming-progress component then references `bg-gradient-stage-summarizing` etc. — semantic, swap-once-and-done.
+**Mitigation:** PR 3 adds 4 new gradient tokens (`--gradient-stage-preparing`, `--gradient-stage-transcribing`, `--gradient-stage-summarizing`, `--gradient-stage-complete`) in `app/globals.css` matching the existing stage colors, plus matching `@utility` rules. The streaming-progress component then references `bg-gradient-stage-summarizing` etc. — semantic, swap-once-and-done.
 
 ### Risk 7: PR 4 showcase route adds bundle weight
 

@@ -228,12 +228,16 @@ Append to the existing `@theme` block in `app/globals.css` (after the gradient `
   --color-border-default: hsl(0 0% 80%);
   --color-border-strong: hsl(0 0% 60%);
 
-  /* Accents — semantic intent */
-  --color-accent-brand: oklch(0.627 0.265 303.9);          /* purple-500 */
-  --color-accent-brand-secondary: oklch(0.789 0.154 211.5); /* cyan-500 */
-  --color-accent-success: oklch(0.696 0.17 162.5);         /* emerald-500 */
-  --color-accent-warning: oklch(0.769 0.188 70.08);        /* amber-500 */
-  --color-accent-danger: hsl(0 84.2% 60.2%);
+  /* Accents — semantic intent. Reference Tailwind 4's built-in palette
+   * tokens (var(--color-purple-500) etc.) instead of hand-typed oklch
+   * literals so any upstream Tailwind palette adjustment carries through
+   * automatically and the brand gradients (which already reference the
+   * same palette tokens) stay byte-identical. */
+  --color-accent-brand: var(--color-purple-500);
+  --color-accent-brand-secondary: var(--color-cyan-500);
+  --color-accent-success: var(--color-emerald-500);
+  --color-accent-warning: var(--color-amber-500);
+  --color-accent-danger: hsl(0 84.2% 60.2%);  /* matches legacy --destructive light exactly */
 
   /* Interaction states — additive overlays */
   --color-state-hover: hsl(0 0% 0% / 0.04);
@@ -267,11 +271,11 @@ After the closing brace of `@theme { … }` and before the `@layer base { :root 
   --color-border-default: hsl(0 0% 22%);
   --color-border-strong: hsl(0 0% 50%);
 
-  --color-accent-brand: oklch(0.715 0.22 303.9);          /* purple-400 */
-  --color-accent-brand-secondary: oklch(0.847 0.13 211.5); /* cyan-400 */
-  --color-accent-success: oklch(0.78 0.165 162.5);        /* emerald-400 */
-  --color-accent-warning: oklch(0.83 0.19 70.08);         /* amber-400 */
-  --color-accent-danger: hsl(0 62.8% 50%);
+  --color-accent-brand: var(--color-purple-400);
+  --color-accent-brand-secondary: var(--color-cyan-400);
+  --color-accent-success: var(--color-emerald-400);
+  --color-accent-warning: var(--color-amber-400);
+  --color-accent-danger: hsl(0 62.8% 30.6%);  /* matches legacy --destructive dark exactly */
 
   --color-state-hover: hsl(0 0% 100% / 0.06);
   --color-state-pressed: hsl(0 0% 100% / 0.10);
@@ -424,11 +428,11 @@ unswept code working; PR 4 deletes them.
 
 | Token | Utility | Light value | Dark value | When to reach for |
 |-------|---------|-------------|------------|-------------------|
-| `--color-accent-brand` | `bg-accent-brand` | purple-500 | purple-400 | Primary CTAs, brand emphasis |
-| `--color-accent-brand-secondary` | `bg-accent-brand-secondary` | cyan-500 | cyan-400 | Brand pair (gradient endpoints, secondary brand surfaces) |
-| `--color-accent-success` | `bg-accent-success` | emerald-500 | emerald-400 | Success toasts, completion checks |
-| `--color-accent-warning` | `bg-accent-warning` | amber-500 | amber-400 | Warning banners, caution flags |
-| `--color-accent-danger` | `bg-accent-danger` | red `60%` | red `50%` | Destructive CTAs, error states |
+| `--color-accent-brand` | `bg-accent-brand` | `var(--color-purple-500)` | `var(--color-purple-400)` | Primary CTAs, brand emphasis |
+| `--color-accent-brand-secondary` | `bg-accent-brand-secondary` | `var(--color-cyan-500)` | `var(--color-cyan-400)` | Brand pair (gradient endpoints, secondary brand surfaces) |
+| `--color-accent-success` | `bg-accent-success` | `var(--color-emerald-500)` | `var(--color-emerald-400)` | Success toasts, completion checks |
+| `--color-accent-warning` | `bg-accent-warning` | `var(--color-amber-500)` | `var(--color-amber-400)` | Warning banners, caution flags |
+| `--color-accent-danger` | `bg-accent-danger` | `hsl(0 84.2% 60.2%)` | `hsl(0 62.8% 30.6%)` | Destructive CTAs, error states (matches legacy `--destructive` byte-exactly) |
 
 ## Interaction states — additive overlays
 
@@ -1681,31 +1685,49 @@ const { chromium } = require('playwright');
 
 Expected: every route prints a check, no errors thrown.
 
-- [ ] **Step 14: Delete legacy shadcn token blocks from `globals.css`**
+- [ ] **Step 14: Delete legacy shadcn token rows from `globals.css`**
 
-Find the `@layer base { :root { … } }` block and the `.dark { … }` block (NOT the new `.dark { --color-… }` we added in PR 1 — those stay). The legacy block has `--background: 0 0% 100%; --foreground: 0 0% 3.9%; --card: …` etc. Delete the entire `:root` legacy block AND the legacy `.dark` block.
+In `app/globals.css`, the legacy `@layer base { :root { … } .dark { … } }` block currently declares 25+ tokens including 4 categories: (a) the shadcn semantic tokens being replaced (`--background`, `--foreground`, `--card`, `--card-foreground`, `--popover`, `--popover-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--secondary-foreground`, `--muted`, `--muted-foreground`, `--accent`, `--accent-foreground`, `--destructive`, `--destructive-foreground`, `--border`, `--input`, `--ring`); (b) the sidebar sub-namespace (`--sidebar`, `--sidebar-foreground`, `--sidebar-primary`, `--sidebar-primary-foreground`, `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-border`, `--sidebar-ring`); (c) chart tokens (`--chart-1` through `--chart-5`); (d) `--radius`.
 
-Specifically delete from `globals.css` (current line ranges visible via `grep -n`):
+**Delete (a) and (b). Keep (c) and (d).** The chart tokens still feed `tailwind.config.ts` `theme.extend.colors.chart`, and `--radius` is still consumed by `theme.extend.borderRadius`. Both must remain.
+
+After surgery, the `@layer base { :root { … } .dark { … } }` block should look like this (light section shown — dark section follows the same pattern, deleting all rows except chart + radius if applicable):
 
 ```css
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    /* ... all legacy shadcn tokens ... */
+    --radius: 0.5rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
   }
+
   .dark {
-    --background: 0 0% 3.9%;
-    /* ... */
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
   }
 }
 ```
 
-Keep the second `@layer base { * { … } body { … } }` block — that's the body styles.
+(Note: dark `--radius` is identical to light, so it doesn't need to repeat in `.dark`.)
 
-Also keep the new `.dark { --color-… }` block we added for runtime overrides — that's the new system.
+Also keep:
+- The first `@theme { … }` block with all the new `--color-*` semantic tokens.
+- The `.dark { --color-… }` block we added in PR 1 Step 3 (this is the new dark-mode shim — distinct from the legacy `.dark` we are deleting most of).
+- The `@layer base { * { … } body { … } }` block at line ~247 (body styles, already migrated to new tokens in PR 1 Step 6).
 
-After deletion, `git grep -E "^\s*--(background|foreground|card|popover|primary|secondary|muted|accent|destructive|border|input|ring|chart-[1-5]|sidebar)" -- 'app/globals.css'` should return only chart and sidebar tokens (chart stays per spec; sidebar should be gone since PR 2 swept its consumers — verify and delete if so).
+After deletion, run:
+
+```bash
+git grep -nE "^\\s*--(background|foreground|card|popover|primary|secondary|muted|accent|destructive|border|input|ring|sidebar)" -- 'app/globals.css'
+```
+
+Expected: empty (no shadcn-shape semantic tokens, no sidebar tokens). The two `.dark` blocks remaining (legacy chart + new color overrides) are both expected.
 
 - [ ] **Step 15: Trim `tailwind.config.ts`**
 
