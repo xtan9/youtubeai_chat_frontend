@@ -86,11 +86,26 @@ in `app/globals.css`. Tailwind 4 ignores `darkMode: "class"` in
 
 ## Lint enforcement
 
-ESLint blocks raw palette classes (`bg-purple-500`, `text-red-400`, etc.)
-in source files. Configured in `eslint.config.mjs` via
-`no-restricted-syntax`. Exceptions are documented per-call-site with
-`// eslint-disable-next-line no-restricted-syntax` and a
-`// TODO(design-followup):` comment naming the missing semantic token.
+ESLint blocks raw colorful-palette classes (`bg-purple-500`, `text-red-400`,
+`border-cyan-300`, `from-pink-500`, etc.) in source files. Configured in
+`eslint.config.mjs` via `no-restricted-syntax`. Exceptions are documented
+per-call-site with `// eslint-disable-next-line no-restricted-syntax` and
+a `// TODO(design-followup):` comment naming the missing semantic token.
+
+**Scope is colorful-only.** Neutral-palette names (`slate`, `gray`, `zinc`,
+`neutral`, `stone`) are not blocked yet because legacy `isDark`-ternary
+code in `app/summary/*` (and a few `app/components/*` cards) still uses
+them. Cleaning those up requires restructuring the ternary patterns and
+is its own follow-up cycle. For new code, prefer `bg-surface-*` /
+`text-text-*` / `border-border-*` over raw greys regardless.
+
+**Known gap: template-literal classes are not caught.** The lint rule
+matches string literals (`Literal` AST nodes), so `className="bg-purple-500"`
+fires but `` className={`bg-${color}-500`} `` does not. No source file
+currently uses this antipattern (Tailwind JIT can't extract classes from
+template strings either, so it would silently fail to apply styles).
+If you find yourself reaching for template-literal class composition,
+use a `cva` variant or a `clsx`/`cn` conditional instead.
 
 The legacy shadcn token classes (`bg-card`, `bg-popover`, `text-foreground`,
 `text-muted-foreground`, `border-input`, `border-border`, `bg-primary`,

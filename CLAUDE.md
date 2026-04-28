@@ -16,8 +16,11 @@ visual decisions go through it.
    buttons, forms, containers, navigation, data display, and composites.
    Don't introduce a new primitive when an existing one fits.
 2. **Use semantic tokens, never raw palette colors.** The token vocabulary
-   lives in `app/globals.css` (`@theme` block) and is documented at
-   `docs/design-system/tokens/color.mdx`. Quick reference:
+   lives in `app/globals.css` (`@theme` block) and is documented in
+   `docs/design-system/tokens/`: [`color.mdx`](docs/design-system/tokens/color.mdx)
+   for surfaces/text/borders/accents/states, plus `gradient.mdx`,
+   `typography.mdx`, `motion.mdx`, `spacing.mdx`, `radius.mdx`,
+   `shadow.mdx`, `blur.mdx` for the other categories. Quick reference:
    - Surfaces: `bg-surface-base`, `bg-surface-raised`, `bg-surface-overlay`,
      `bg-surface-sunken`, `bg-surface-inverse`
    - Text: `text-text-primary`, `text-text-secondary`, `text-text-muted`,
