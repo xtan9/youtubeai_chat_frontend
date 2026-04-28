@@ -1,0 +1,206 @@
+# Select
+
+A single-select dropdown for picking one option from a finite list.
+Backed by `@radix-ui/react-select`. Reach for it when there are
+3-12 options, the choices are mutually exclusive, and a free-form
+search would be overkill.
+
+For a search-friendly picker over many options, use
+[Command](./command.mdx). For 2-5 visually-displayed choices, use
+[ToggleGroup](./toggle-group.mdx) or [RadioGroup](./radio-group.mdx).
+
+## Import
+
+```tsx
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+```
+
+## Anatomy
+
+- `Select` — root context, manages open + value state.
+- `SelectTrigger` — the visible button. Carries `data-slot="select-trigger"`,
+  `data-size="default"|"sm"`, and `data-state="open"|"closed"`.
+  Uses `role="combobox"`. Always render `<SelectValue>` inside it.
+- `SelectValue` — placeholder + selected-label slot. Carries
+  `data-slot="select-value"`.
+- `SelectContent` — portaled listbox. Carries
+  `data-slot="select-content"`. Pass `position="popper"` (default)
+  to anchor below the trigger; `position="item-aligned"` aligns the
+  selected item to the trigger.
+- `SelectGroup` / `SelectLabel` — semantic grouping inside the
+  list. `SelectLabel` is decorative-only inside the group (read by
+  AT via `aria-labelledby` on the group).
+- `SelectItem` — one option. Carries `data-slot="select-item"` and
+  `data-state="checked"|"unchecked"`. The check indicator is
+  rendered inside `SelectPrimitive.ItemIndicator`.
+- `SelectSeparator` — 1px divider between item clusters.
+- `SelectScrollUpButton` / `SelectScrollDownButton` — auto-managed
+  scroll affordances when the listbox is taller than the available
+  viewport. Mounted by `SelectContent`.
+
+## Props
+
+| Slot                 | Notable props                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `Select`             | `value` / `defaultValue`, `onValueChange`, `open` / `defaultOpen`, `onOpenChange`, `disabled`, `dir`, `name` |
+| `SelectTrigger`      | `size` (`"default"` / `"sm"`), all native `<button>` props                                 |
+| `SelectValue`        | `placeholder`, all native props (rendered via Radix's asChild on a `<span>`)                |
+| `SelectContent`      | `position` (`"popper"` (default) / `"item-aligned"`), `side`, `sideOffset`, `align`        |
+| `SelectGroup`        | All native `<div>` props                                                                   |
+| `SelectLabel`        | All native `<div>` props                                                                   |
+| `SelectItem`         | `value` (required), `disabled`, `textValue`                                                |
+| `SelectSeparator`    | All native `<div>` props                                                                   |
+
+## Variants
+
+```tsx
+// Basic single-select.
+<Select>
+  <SelectTrigger className="w-44">
+    <SelectValue placeholder="Pick a fruit" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="apple">Apple</SelectItem>
+    <SelectItem value="banana">Banana</SelectItem>
+    <SelectItem value="cherry">Cherry</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+```tsx
+// Compact size — h-8 instead of h-9.
+<Select>
+  <SelectTrigger size="sm" className="w-32">
+    <SelectValue placeholder="Page size" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="10">10</SelectItem>
+    <SelectItem value="20">20</SelectItem>
+    <SelectItem value="50">50</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+```tsx
+// Grouped + separated.
+<Select>
+  <SelectTrigger className="w-48">
+    <SelectValue placeholder="Pick" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectGroup>
+      <SelectLabel>Fruits</SelectLabel>
+      <SelectItem value="apple">Apple</SelectItem>
+      <SelectItem value="banana">Banana</SelectItem>
+    </SelectGroup>
+    <SelectSeparator />
+    <SelectGroup>
+      <SelectLabel>Dairy</SelectLabel>
+      <SelectItem value="cheese">Cheese</SelectItem>
+      <SelectItem value="yogurt">Yogurt</SelectItem>
+    </SelectGroup>
+  </SelectContent>
+</Select>
+```
+
+```tsx
+// Controlled.
+const [value, setValue] = React.useState<string>("");
+<Select value={value} onValueChange={setValue}>
+  <SelectTrigger className="w-44">
+    <SelectValue placeholder="Pick" />
+  </SelectTrigger>
+  <SelectContent>{/* …items */}</SelectContent>
+</Select>;
+```
+
+```tsx
+// With Form (react-hook-form).
+<FormField
+  control={form.control}
+  name="size"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>T-shirt size</FormLabel>
+      <Select onValueChange={field.onChange} defaultValue={field.value}>
+        <FormControl>
+          <SelectTrigger>
+            <SelectValue placeholder="Pick a size" />
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          <SelectItem value="s">Small</SelectItem>
+          <SelectItem value="m">Medium</SelectItem>
+          <SelectItem value="l">Large</SelectItem>
+        </SelectContent>
+      </Select>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+## Accessibility
+
+- The trigger is `role="combobox"` with `aria-expanded`,
+  `aria-controls` (linking to the listbox), and `aria-haspopup="listbox"`.
+- The content is `role="listbox"` containing options with
+  `role="option"`. Selected option carries `aria-selected="true"`.
+- Keyboard:
+  - Tab focuses the trigger.
+  - Space / Enter / ArrowUp / ArrowDown opens.
+  - Inside the open listbox: Arrow keys navigate, Home/End jump to
+    extremes, type-ahead jumps to the first matching option,
+    Enter selects, Escape closes without selecting.
+- Always pair the trigger with a visible `<Label htmlFor>` (and
+  `id` on the trigger) — this is the trigger's accessible name.
+  Inside Form, `FormLabel` does this automatically.
+- Disabled trigger reports `disabled`; disabled items report
+  `data-disabled` and ignore Enter/Click.
+
+## Composition examples
+
+```tsx
+// Settings dropdown — controlled, persists selection.
+const [theme, setTheme] = React.useState<"light" | "dark" | "system">("system");
+<div>
+  <Label htmlFor="theme">Theme</Label>
+  <Select value={theme} onValueChange={(v) => setTheme(v as typeof theme)}>
+    <SelectTrigger id="theme" className="w-40">
+      <SelectValue placeholder="Pick a theme" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="light">Light</SelectItem>
+      <SelectItem value="dark">Dark</SelectItem>
+      <SelectItem value="system">System</SelectItem>
+    </SelectContent>
+  </Select>
+</div>;
+```
+
+## Token usage
+
+- Trigger: `border-input rounded-md bg-transparent px-3 py-2
+  text-sm shadow-xs h-9` (default) / `h-8` (sm). Focus ring via
+  `focus-visible:border-ring focus-visible:ring-ring/50
+  focus-visible:ring-[3px]`. Invalid via `aria-invalid:ring-destructive/20
+  aria-invalid:border-destructive`.
+- Content: `bg-popover text-popover-foreground rounded-md
+  border shadow-md`, height clamped to
+  `max-h-(--radix-select-content-available-height)`.
+- Item: `focus:bg-accent focus:text-accent-foreground rounded-sm
+  py-1.5 pr-8 pl-2 text-sm`. Disabled: `data-disabled:opacity-50
+  data-disabled:pointer-events-none`.
+- Label: `text-muted-foreground text-xs px-2 py-1.5`.
+- Separator: `bg-border h-px -mx-1 my-1 pointer-events-none`.
+- Iconography: `[&_svg:not([class*='size-'])]:size-4` keeps the
+  ChevronDownIcon and the per-item CheckIcon at 16px.

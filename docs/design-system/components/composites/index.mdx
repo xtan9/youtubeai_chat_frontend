@@ -1,0 +1,237 @@
+# Composites
+
+The composites cluster is the kitchen drawer of the design system —
+twelve components that don't fit cleanly into forms, containers,
+navigation, or data display because each one owns a substantial
+behaviour (drag, scroll, multi-step state, layout) on top of its
+visual surface. Each component ships a Vitest behaviour test, a
+jest-axe a11y test (zero violations across every variant + edge
+state), and a per-component MDX doc.
+
+## Members
+
+### Layout shells
+
+- [Sidebar](../sidebar.mdx) — The largest component: full app
+  shell with collapsing modes, mobile sheet fallback, sub-menus,
+  badges, tooltips, and a Cmd/Ctrl+B keyboard shortcut. Built over
+  Sheet + Tooltip + Skeleton + Input + Separator. Currently unused
+  in the app but governed.
+- [Resizable](../resizable.mdx) — Two-or-more resizable panels
+  with a draggable handle. Backed by `react-resizable-panels` v4
+  (migrated in A1 PR 4 to the new `Group` / `Separator` exports).
+  Supports horizontal/vertical orientations, collapsible panels,
+  and persisted layout via `autoSaveId`.
+
+### Disclosure
+
+- [Accordion](../accordion.mdx) — Vertical stack of expand/collapse
+  disclosures with single or multiple-open modes. Wraps the
+  Radix accordion primitive.
+- [Collapsible](../collapsible.mdx) — Single show/hide region.
+  The thin counterpart to Accordion; reach for it when there's
+  only one disclosure.
+
+### Selection
+
+- [Select](../select.mdx) — Single-select dropdown for picking
+  one option from 3-12 choices. Combobox semantics. Supports
+  groups, separators, and per-item disabled state.
+- [Toggle](../toggle.mdx) — Two-state pressable button
+  (pressed/unpressed). Reach for text formatting (B / I / U), view
+  modes, sticky filters.
+- [ToggleGroup](../toggle-group.mdx) — Set of toggles with single-
+  or multiple-select semantics. Single-select gets radio
+  semantics; multi-select gets independent pressed states.
+- [Slider](../slider.mdx) — Single-value or range slider for
+  bounded numeric input. Now exposes `thumbAriaLabel` /
+  `thumbAriaLabels` so each thumb has an accessible name.
+- [InputOTP](../input-otp.mdx) — Fixed-length passcode input
+  (SMS/email verification, 2FA challenges). Backed by
+  [`input-otp`](https://input-otp.rodz.dev/).
+
+### Date
+
+- [Calendar](../calendar.mdx) — Month-view date picker for
+  single, multiple, or range selection. Backed by
+  [`react-day-picker`](https://daypicker.dev/) v9. Pair with
+  Popover for date input fields.
+
+### Surfaces
+
+- [ContextMenu](../context-menu.mdx) — Right-click / long-press
+  menu attached to a region. Use for power-user shortcuts on
+  rows, canvases, or files. Distinct from
+  [DropdownMenu](../dropdown-menu.mdx) (button-triggered) and
+  [Menubar](../menubar.mdx) (app-bar).
+
+### Media
+
+- [Carousel](../carousel.mdx) — Horizontal/vertical slide gallery
+  with prev/next nav and keyboard support. Backed by
+  [`embla-carousel-react`](https://www.embla-carousel.com/).
+
+## When to reach for which
+
+| Scenario                                                            | Reach for                                  |
+| ------------------------------------------------------------------- | ------------------------------------------ |
+| Full app shell with persistent left/right nav                       | [Sidebar](../sidebar.mdx)                  |
+| User-resizable split panes (IDE / docs / inspector)                 | [Resizable](../resizable.mdx)              |
+| FAQ-style stack of expandable sections                              | [Accordion](../accordion.mdx)              |
+| Single "show more details" toggle                                   | [Collapsible](../collapsible.mdx)          |
+| Pick one of 3-12 options                                            | [Select](../select.mdx)                    |
+| Single boolean state expressed as a "stays-pressed" button          | [Toggle](../toggle.mdx)                    |
+| 2-5 mutually-exclusive choices in a single visual cluster           | [ToggleGroup](../toggle-group.mdx) (single)|
+| Independently-toggleable formatting flags (B / I / U)               | [ToggleGroup](../toggle-group.mdx) (multi) |
+| Bounded numeric input with visual feedback                          | [Slider](../slider.mdx)                    |
+| Pick a date / range / multi-date                                    | [Calendar](../calendar.mdx)                |
+| Right-click contextual actions on a target region                   | [ContextMenu](../context-menu.mdx)         |
+| Image gallery / horizontal card row that overflows on mobile        | [Carousel](../carousel.mdx)                |
+| 6-digit verification codes (SMS / email / 2FA)                      | [InputOTP](../input-otp.mdx)               |
+
+## Accordion vs Collapsible — close call
+
+- **Accordion** when you have 2+ related disclosures that share
+  visual rhythm and ARIA wiring (FAQ, settings groups,
+  collapsible sections in a long form).
+- **Collapsible** when you have one secondary content block that
+  belongs near its trigger ("Read more", "Advanced filters").
+  Composing multiple Collapsible components by hand is the
+  manual version of an Accordion — reach for Accordion instead.
+
+## Toggle vs ToggleGroup vs RadioGroup vs Checkbox
+
+- **Toggle**: one boolean state, button presentation. ("Bold" on
+  a toolbar.)
+- **ToggleGroup (single)**: one of several mutually-exclusive
+  options, button presentation. ("Left / Center / Right" align.)
+- **ToggleGroup (multi)**: any combination of independent
+  states, button presentation. ("Bold / Italic / Underline" all
+  pressable simultaneously.)
+- **RadioGroup**: one of several mutually-exclusive options,
+  form-input presentation (label-paired radios in a list). Reach
+  for it when the choices belong inside a form.
+- **Checkbox** / **Switch**: one boolean state, form-input
+  presentation. Switch reads as "on/off setting"; Checkbox reads
+  as "toggle this row".
+
+## ContextMenu vs DropdownMenu vs Menubar vs Command
+
+- **ContextMenu**: right-click / long-press on a region. No
+  visible trigger button.
+- **DropdownMenu**: button-triggered overflow menu (kebab, "more
+  actions", profile menu).
+- **Menubar**: an app-bar of menus (File / Edit / View). Reach
+  for it for desktop-style navigation.
+- **Command**: free-text command palette (Cmd+K). Reach for it
+  when the action surface is too large to flatten into a menu.
+
+## Accessibility patterns
+
+- **Sidebar** — `<main>` lives inside `SidebarInset`; do not nest
+  another `<main>` inside it (axe flags it). Mobile path uses a
+  Sheet (Dialog) with focus-trap; desktop path is portal-free.
+- **Resizable** — handles are `role="separator" tabindex="0"` with
+  `aria-orientation` and live `aria-valuenow` / `aria-valuemin`
+  / `aria-valuemax` (computed from layout — absent in happy-dom,
+  hence the `axeResizable` runner).
+- **Accordion** — Trigger lives inside `<h3>`; place a
+  surrounding `<h2>` to keep heading order valid.
+- **Collapsible** — Trigger is a `<button>` with `aria-expanded` /
+  `aria-controls`; content uses `data-state` + a matching
+  `hidden` attribute.
+- **Select** — Trigger is `role="combobox"` with `aria-expanded` /
+  `aria-controls`; listbox uses `role="listbox"` with
+  `role="option"` items. Always pair with a visible Label.
+- **Toggle / ToggleGroup** — Toggle is a button with
+  `aria-pressed`; ToggleGroup-single uses radios; -multi uses
+  buttons. Icon-only toggles need per-item `aria-label`.
+- **Slider** — Each thumb is `role="slider"`; pass
+  `thumbAriaLabel` (single thumb) or `thumbAriaLabels` (range)
+  so AT announces a name. The Slider's own `aria-label` does NOT
+  propagate to thumbs.
+- **InputOTP** — The hidden `<input>` is the focusable element;
+  pair with a `<Label htmlFor>`. The visible slots are
+  presentational mirrors.
+- **Calendar** — Built on `react-day-picker`'s WAI-ARIA grid;
+  arrow keys move day-by-day, PageUp/Down month-by-month.
+  Disabled days carry `disabled` and aren't focusable.
+- **ContextMenu** — Items are `role="menuitem"` /
+  `menuitemcheckbox` / `menuitemradio`. Pair the trigger with a
+  visible alternative (kebab button) on touch surfaces.
+- **Carousel** — Root is `role="region"
+  aria-roledescription="carousel"`; items are `role="group"
+  aria-roledescription="slide"`. Pair with a sibling live region
+  for "slide N of M" announcements if that disclosure matters.
+
+## Tested via
+
+- `components/ui/__tests__/<name>.test.tsx` — behavior (rendering,
+  prop spread, controlled/uncontrolled, data-slot wiring, edge
+  states).
+- `components/ui/__tests__/<name>.a11y.test.tsx` — jest-axe (zero
+  violations across variants + edge states).
+- Shared helpers (`tests-utils/`):
+  - `renderWithProviders.tsx` — wraps with ThemeProvider +
+    automatic cleanup between tests.
+  - `axe.ts` exports the configured runners (`axe`, `axeOverlay`,
+    `axePortal`, `axePortalOverlay`, `axeCommand`,
+    `axeCommandDialog`, plus the new `axeResizable` introduced
+    here for v4 separators with happy-dom-absent
+    `aria-valuenow`).
+
+## Happy-dom limitations relevant to this cluster
+
+- **Carousel** — `embla-carousel-react` reads measured layout to
+  decide `canScrollPrev`/`canScrollNext`. happy-dom returns 0 for
+  layout, so nav buttons start disabled and ArrowKey scroll is a
+  no-op in tests. Live behaviour is exercised by Playwright smoke
+  tests.
+- **Resizable** — react-resizable-panels v4 computes
+  `aria-valuenow` from real layout; absent in happy-dom (use the
+  `axeResizable` runner that drops `aria-required-attr` for the
+  separator).
+- **Calendar** — Day buttons only mount when `mode` is set; with
+  no `mode`, react-day-picker 9 renders the grid as
+  non-interactive spans.
+- **Sidebar** — `useIsMobile()` reads `window.matchMedia` via
+  `useSyncExternalStore`; the SSR snapshot is `false`, so the
+  desktop branch is what tests exercise. The mobile Sheet path is
+  reachable when a test stubs `window.matchMedia` to match.
+
+## Bug / hygiene fixes landed in this PR
+
+- **Slider** gained `thumbAriaLabel` and `thumbAriaLabels` props
+  so per-thumb accessible names are reachable through the public
+  API. (Previously the trigger required hand-rolled markup or
+  manual `aria-labelledby` to pass axe's
+  `aria-input-field-name` rule.)
+- **Resizable** wrapper now translates the legacy `direction`
+  prop to v4's `orientation`; both APIs work, with `orientation`
+  preferred for new code.
+- **Carousel** state synchronization moved to
+  `useSyncExternalStore` so `setState` is no longer called inside
+  an effect (lint-clean under
+  `react-hooks/set-state-in-effect`).
+- **Sidebar / `useIsMobile`** migrated to
+  `useSyncExternalStore` for the same reason.
+- **Sidebar / `SidebarMenuSkeleton`** stable random width via
+  `useState` lazy initializer instead of `useMemo` to satisfy
+  `react-hooks/purity` (the lint rule treats `useMemo` as a
+  hint, not a guarantee).
+
+## Lint rules re-enabled
+
+This PR re-enables the three React hooks rules that A1 PR 1
+disabled (`react-hooks/set-state-in-effect`,
+`react-hooks/set-state-in-render`, `react-hooks/purity`). The
+in-cluster fixes above resolve the violations in
+`components/ui/sidebar.tsx`, `components/ui/carousel.tsx`, and
+`hooks/use-mobile.ts`. Files outside this cluster's primary
+scope (`app/components/faq.tsx`,
+`app/summary/components/youtube-summarizer-app.tsx`,
+`app/summary/components/streaming-progress.tsx`,
+`lib/hooks/usePersistedUrl.ts`, `lib/hooks/useStageTimers.ts`)
+carry narrowly-scoped per-violation `eslint-disable-next-line`
+suppressions with TODOs pointing at follow-up work — their
+business logic refactor is out of scope for B.

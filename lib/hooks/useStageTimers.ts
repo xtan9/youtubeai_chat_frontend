@@ -103,6 +103,10 @@ export function useStageTimers(
 
   useEffect(() => {
     const t = performance.now();
+    // TODO(B-followup): drive `state` from the same external clock
+    // that owns `now` so the stage transition becomes derivable
+    // rather than synchronously set inside the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState((prev) => {
       const next = advanceStageTimerState(prev, stage, t);
       return next === prev ? prev : next;

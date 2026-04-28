@@ -1,0 +1,195 @@
+# ContextMenu
+
+A right-click (or long-press) menu attached to a region of the page.
+Backed by `@radix-ui/react-context-menu`. Reach for it for power-user
+shortcuts on a target — file actions on a list row, copy/paste on
+a canvas, "open in new tab" on a link — without taking up screen
+space until invoked.
+
+For a button-triggered overflow menu, use
+[DropdownMenu](./dropdown-menu.mdx). For app-bar style menus, use
+[Menubar](./menubar.mdx). For free-text command palettes, use
+[Command](./command.mdx).
+
+## Import
+
+```tsx
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuCheckboxItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuGroup,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu";
+```
+
+## Anatomy
+
+- `ContextMenu` — root context, owns open state.
+- `ContextMenuTrigger` — the region that opens the menu on
+  right-click / long-press. Carries `data-slot="context-menu-trigger"`.
+- `ContextMenuContent` — portaled menu surface. Carries
+  `data-slot="context-menu-content"`. Mounts at the cursor on open.
+- `ContextMenuItem` — one menu action. `variant="destructive"`
+  emits `data-variant="destructive"` for theme-aware styling.
+  `inset` left-pads the item to align with checkbox/radio items.
+- `ContextMenuCheckboxItem` — toggleable boolean. Renders a check
+  indicator inside a fixed-position slot (`absolute left-2`).
+- `ContextMenuRadioGroup` + `ContextMenuRadioItem` — single-pick
+  group of menu radio items.
+- `ContextMenuLabel` — group heading; visually styled label with
+  `data-slot="context-menu-label"`.
+- `ContextMenuSeparator` — 1px divider between item clusters.
+- `ContextMenuShortcut` — right-aligned keyboard hint (`<span>`).
+- `ContextMenuSub` / `…SubTrigger` / `…SubContent` — nested
+  submenu. Submenu mounts on hover or keyboard.
+- `ContextMenuGroup` / `ContextMenuPortal` — semantic grouping and
+  explicit portal wrapper (rarely needed; `ContextMenuContent`
+  portals automatically).
+
+## Props
+
+| Slot                     | Notable props                                                              |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `ContextMenu`            | All Radix `Root` props (no native HTML)                                    |
+| `ContextMenuTrigger`     | `asChild`, all native props of the wrapped element                         |
+| `ContextMenuContent`     | All native `<div>` props (Radix forwards)                                  |
+| `ContextMenuItem`        | `variant` (`"default"` / `"destructive"`), `inset`, `disabled`, `onSelect` |
+| `ContextMenuCheckboxItem`| `checked`, `onCheckedChange`, `disabled`                                   |
+| `ContextMenuRadioGroup`  | `value`, `onValueChange`                                                   |
+| `ContextMenuRadioItem`   | `value` (required), `disabled`                                             |
+| `ContextMenuLabel`       | `inset`                                                                    |
+| `ContextMenuSubTrigger`  | `inset`, `disabled`                                                        |
+
+## Variants
+
+```tsx
+// Basic context menu on a target.
+<ContextMenu>
+  <ContextMenuTrigger className="rounded-md border p-6">
+    Right-click here
+  </ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem onSelect={() => copy()}>Copy</ContextMenuItem>
+    <ContextMenuItem onSelect={() => paste()}>Paste</ContextMenuItem>
+    <ContextMenuSeparator />
+    <ContextMenuItem variant="destructive" onSelect={() => del()}>
+      Delete
+    </ContextMenuItem>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+```tsx
+// With shortcuts, groups, and a labelled section.
+<ContextMenu>
+  <ContextMenuTrigger>Target</ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuLabel>Edit</ContextMenuLabel>
+    <ContextMenuItem>
+      Cut <ContextMenuShortcut>⌘X</ContextMenuShortcut>
+    </ContextMenuItem>
+    <ContextMenuItem>
+      Copy <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+    </ContextMenuItem>
+    <ContextMenuSeparator />
+    <ContextMenuLabel>View</ContextMenuLabel>
+    <ContextMenuCheckboxItem checked>Show grid</ContextMenuCheckboxItem>
+    <ContextMenuCheckboxItem>Show ruler</ContextMenuCheckboxItem>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+```tsx
+// Single-pick options via RadioGroup.
+const [theme, setTheme] = React.useState("light");
+<ContextMenu>
+  <ContextMenuTrigger>Target</ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuLabel>Theme</ContextMenuLabel>
+    <ContextMenuRadioGroup value={theme} onValueChange={setTheme}>
+      <ContextMenuRadioItem value="light">Light</ContextMenuRadioItem>
+      <ContextMenuRadioItem value="dark">Dark</ContextMenuRadioItem>
+      <ContextMenuRadioItem value="system">System</ContextMenuRadioItem>
+    </ContextMenuRadioGroup>
+  </ContextMenuContent>
+</ContextMenu>;
+```
+
+```tsx
+// Nested submenu.
+<ContextMenu>
+  <ContextMenuTrigger>Target</ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem>Open</ContextMenuItem>
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>Share</ContextMenuSubTrigger>
+      <ContextMenuSubContent>
+        <ContextMenuItem>Email</ContextMenuItem>
+        <ContextMenuItem>Link</ContextMenuItem>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+## Accessibility
+
+- Items are `role="menuitem"`; checkbox items are
+  `role="menuitemcheckbox"`; radio items are `role="menuitemradio"`.
+- Keyboard:
+  - On the trigger: ContextMenu key (Shift+F10) or right-click opens.
+  - In the open menu: ArrowUp/Down navigate; Enter activates;
+    Escape closes; ArrowRight/Left enter/leave submenus; type-ahead
+    jumps to first matching item.
+- Disabled items report `data-disabled` and refuse activation.
+- For touch targets, the trigger long-press opens the menu; pair
+  with a visible alternative (e.g., a kebab button) since context
+  menus are easy to miss on mobile.
+
+## Composition examples
+
+```tsx
+// File-list row with right-click actions.
+<ContextMenu>
+  <ContextMenuTrigger asChild>
+    <li className="rounded-md p-2 hover:bg-muted">{file.name}</li>
+  </ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem onSelect={() => open(file)}>Open</ContextMenuItem>
+    <ContextMenuItem onSelect={() => rename(file)}>Rename</ContextMenuItem>
+    <ContextMenuSeparator />
+    <ContextMenuItem
+      variant="destructive"
+      onSelect={() => remove(file)}
+    >
+      Delete <ContextMenuShortcut>⌫</ContextMenuShortcut>
+    </ContextMenuItem>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+## Token usage
+
+- Content / SubContent: `bg-popover text-popover-foreground
+  rounded-md border p-1 shadow-md` (`shadow-lg` for sub-content).
+- Item: `rounded-sm px-2 py-1.5 text-sm` with focus state
+  `focus:bg-accent focus:text-accent-foreground`.
+- Destructive variant: foreground tinted destructive, hover/focus
+  bg uses `data-[variant=destructive]:focus:bg-destructive/10`
+  (and `dark:.../20`).
+- Checkbox / radio indicators: `absolute left-2`, with
+  `pl-8` on the item for fixed alignment.
+- Separator: `bg-border h-px -mx-1 my-1`.
+- Shortcut: `text-muted-foreground ml-auto text-xs tracking-widest`.
+- Animations: zoom + fade + slide-from-side via `data-[state=open]:animate-in`
+  / `data-[state=closed]:animate-out`.

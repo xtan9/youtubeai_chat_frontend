@@ -1,0 +1,140 @@
+# Toggle
+
+Two-state pressable button — pressed/unpressed. Backed by
+`@radix-ui/react-toggle`. Reach for it when a single boolean state
+is best expressed as a button that visibly stays "in" when active
+(text formatting like Bold/Italic, view modes, sticky filters).
+
+For mutually-exclusive choices, use [ToggleGroup](./toggle-group.mdx).
+For settings switches with on/off semantics, use
+[Switch](./switch.mdx). For inline filters and category pills, use
+[Badge](./badge.mdx).
+
+## Import
+
+```tsx
+import { Toggle, toggleVariants } from "@/components/ui/toggle";
+```
+
+## Anatomy
+
+- `Toggle` — root `<button>` with `data-slot="toggle"`. Carries
+  `data-state="on"` or `"off"` matching `aria-pressed`. CVA-driven
+  variants and sizes.
+- `toggleVariants` — exported CVA function used by Toggle and
+  reused by [ToggleGroup](./toggle-group.mdx) so the two surfaces
+  share visual language.
+
+## Props
+
+| Prop                | Type                            | Default     | Description                                                                                                              |
+| ------------------- | ------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pressed`           | `boolean`                       | uncontrolled| Controlled pressed state.                                                                                                |
+| `defaultPressed`    | `boolean`                       | `false`     | Uncontrolled initial state.                                                                                              |
+| `onPressedChange`   | `(pressed: boolean) => void`    | —           | Fires whenever the pressed state changes.                                                                                |
+| `variant`           | `"default"` / `"outline"`       | `"default"` | `default` is transparent (good inside a toolbar); `outline` adds a border + shadow (good as a standalone button).        |
+| `size`              | `"sm"` / `"default"` / `"lg"`   | `"default"` | `sm` = h-8, `default` = h-9, `lg` = h-10. Applies to both height and minimum width.                                     |
+| `disabled`          | `boolean`                       | `false`     | Locks the toggle.                                                                                                        |
+| `aria-label`        | `string`                        | —           | Required for icon-only toggles.                                                                                          |
+
+## Variants
+
+```tsx
+// Default (off → on)
+<Toggle aria-label="Bold">B</Toggle>
+```
+
+```tsx
+// Default-pressed (on by default).
+<Toggle aria-label="Bold" defaultPressed>
+  B
+</Toggle>
+```
+
+```tsx
+// Outline variant — visually distinct as a standalone button.
+<Toggle aria-label="Bold" variant="outline">
+  B
+</Toggle>
+```
+
+```tsx
+// Sizes — pair with toolbar density.
+<Toggle aria-label="Small" size="sm">A</Toggle>
+<Toggle aria-label="Default">B</Toggle>
+<Toggle aria-label="Large" size="lg">C</Toggle>
+```
+
+```tsx
+// Icon-only — aria-label provides the accessible name.
+<Toggle aria-label="Bold">
+  <BoldIcon />
+</Toggle>
+```
+
+```tsx
+// Controlled.
+const [bold, setBold] = React.useState(false);
+<Toggle aria-label="Bold" pressed={bold} onPressedChange={setBold}>
+  <BoldIcon />
+</Toggle>;
+```
+
+```tsx
+// Disabled.
+<Toggle aria-label="Bold" disabled>B</Toggle>
+```
+
+## Accessibility
+
+- Renders a real `<button>` with `aria-pressed` reflecting state —
+  AT announces "Bold, toggle button, pressed/not pressed".
+- Keyboard: Tab focuses; Enter/Space toggles. Standard button
+  behaviour.
+- Icon-only toggles **must** carry `aria-label` (no visible text
+  fallback). The default classes preserve a 36px square hit target
+  (`h-9 min-w-9`) for touch.
+- `aria-invalid` flips the focus ring to the destructive token —
+  use it for editor toggles tied to validation state.
+- Disabled toggles report `disabled` on the underlying button;
+  pointer events are dropped (`disabled:pointer-events-none`).
+
+## Composition examples
+
+```tsx
+// Text formatting toolbar with multiple independent toggles.
+<div role="toolbar" aria-label="Text formatting" className="flex gap-1">
+  <Toggle aria-label="Bold"><BoldIcon /></Toggle>
+  <Toggle aria-label="Italic"><ItalicIcon /></Toggle>
+  <Toggle aria-label="Underline"><UnderlineIcon /></Toggle>
+</div>
+```
+
+```tsx
+// Sticky filter toggle in a list view.
+const [showArchived, setShowArchived] = React.useState(false);
+<Toggle
+  aria-label="Show archived items"
+  pressed={showArchived}
+  onPressedChange={setShowArchived}
+  variant="outline"
+  size="sm"
+>
+  Archived
+</Toggle>;
+```
+
+## Token usage
+
+- Variants:
+  - `default`: `bg-transparent` with on-state `bg-accent
+    text-accent-foreground` and hover `bg-muted text-muted-foreground`.
+  - `outline`: `border border-input shadow-xs` with hover
+    `bg-accent text-accent-foreground`.
+- Sizes: heights `h-8`/`h-9`/`h-10` paired with matching `min-w-*`
+  so icon-only toggles stay square.
+- Focus ring: `focus-visible:border-ring focus-visible:ring-ring/50
+  focus-visible:ring-[3px]`.
+- Invalid: `aria-invalid:ring-destructive/20 aria-invalid:border-destructive`.
+- Icons: `[&_svg:not([class*='size-'])]:size-4` keeps inline icons
+  consistent.

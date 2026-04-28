@@ -16,8 +16,14 @@ export function FAQ() {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  // Mount after hydration to prevent mismatch
+  // Mount after hydration to prevent mismatch.
+  // TODO(B-followup): move to useSyncExternalStore against
+  // `next-themes`'s resolvedTheme + a media-query subscription so the
+  // hydration-only flag is no longer needed. Keeping the legacy
+  // pattern for now; cluster scope is composites, not marketing
+  // surface refactor.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

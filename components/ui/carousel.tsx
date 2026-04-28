@@ -58,14 +58,36 @@ function Carousel({
     },
     plugins
   )
-  const [canScrollPrev, setCanScrollPrev] = React.useState(false)
-  const [canScrollNext, setCanScrollNext] = React.useState(false)
 
-  const onSelect = React.useCallback((api: CarouselApi) => {
-    if (!api) return
-    setCanScrollPrev(api.canScrollPrev())
-    setCanScrollNext(api.canScrollNext())
-  }, [])
+  // Subscribe to embla's internal layout via useSyncExternalStore so
+  // canScrollPrev/Next reflect the live state without ever calling
+  // setState inside an effect (which would trigger
+  // react-hooks/set-state-in-effect). Each render reads the snapshot
+  // through the API; embla notifies React via "select" + "reInit"
+  // events, which trigger a re-read.
+  const subscribe = React.useCallback(
+    (notify: () => void) => {
+      if (!api) return () => {}
+      api.on("select", notify)
+      api.on("reInit", notify)
+      return () => {
+        api.off("select", notify)
+        api.off("reInit", notify)
+      }
+    },
+    [api]
+  )
+
+  const canScrollPrev = React.useSyncExternalStore(
+    subscribe,
+    () => api?.canScrollPrev() ?? false,
+    () => false
+  )
+  const canScrollNext = React.useSyncExternalStore(
+    subscribe,
+    () => api?.canScrollNext() ?? false,
+    () => false
+  )
 
   const scrollPrev = React.useCallback(() => {
     api?.scrollPrev()
@@ -92,17 +114,6 @@ function Carousel({
     if (!api || !setApi) return
     setApi(api)
   }, [api, setApi])
-
-  React.useEffect(() => {
-    if (!api) return
-    onSelect(api)
-    api.on("reInit", onSelect)
-    api.on("select", onSelect)
-
-    return () => {
-      api?.off("select", onSelect)
-    }
-  }, [api, onSelect])
 
   return (
     <CarouselContext.Provider

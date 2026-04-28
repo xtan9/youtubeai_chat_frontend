@@ -104,6 +104,25 @@ export const axeCommand = configureAxe({
 });
 
 /**
+ * Axe runner for `react-resizable-panels` v4 Separator handles. v4
+ * sets `role="separator" tabindex="0" aria-orientation="…"` on each
+ * handle and computes `aria-valuenow` / `aria-valuemin` /
+ * `aria-valuemax` from the live measured layout. happy-dom returns 0
+ * for layout, so the value attributes are missing in tests — and
+ * axe's `aria-required-attr` rule then flags the focusable separator.
+ *
+ * In the real browser the handle carries the value attributes (we
+ * verify this in Playwright smoke tests), so the suppression is
+ * scoped to this test environment limitation. Every other rule
+ * (color-contrast, focusable-within, role validity) still runs.
+ */
+export const axeResizable = configureAxe({
+  rules: {
+    "aria-required-attr": { enabled: false },
+  },
+});
+
+/**
  * Axe runner for `CommandDialog` — combines the cmdk separator
  * suppression with the Radix Dialog focus-guard suppression
  * (`aria-hidden-focus`). Use only on a CommandDialog scan.

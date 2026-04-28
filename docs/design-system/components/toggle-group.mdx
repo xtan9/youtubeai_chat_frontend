@@ -1,0 +1,140 @@
+# ToggleGroup
+
+A set of toggles where the user picks one (`type="single"`) or any
+subset (`type="multiple"`). Backed by `@radix-ui/react-toggle-group`.
+Reach for it when you have 2-5 mutually-exclusive choices that work
+better as a single visual cluster than as separate toggles — text
+alignment, view mode (grid/list), date range presets.
+
+For a single boolean toggle, use [Toggle](./toggle.mdx). For a longer
+list of choices, prefer [RadioGroup](./radio-group.mdx) (single) or
+checkboxes (multiple).
+
+## Import
+
+```tsx
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
+```
+
+## Anatomy
+
+- `ToggleGroup` — root container with `data-slot="toggle-group"`.
+  `data-variant` and `data-size` mirror the chosen variants for
+  styling at the group level. Provides `variant`/`size` to children
+  via context so individual items inherit unless overridden.
+- `ToggleGroupItem` — one toggle inside the group. Carries
+  `data-slot="toggle-group-item"`, plus `data-variant` /
+  `data-size` from context. Reuses Toggle's CVA variants so visuals
+  are coherent across single Toggles and grouped Toggles.
+
+## Props
+
+| Slot               | Notable props                                                                  |
+| ------------------ | ------------------------------------------------------------------------------ |
+| `ToggleGroup`      | `type` (`"single"` / `"multiple"`), `value`/`defaultValue`, `onValueChange`, `variant`, `size`, `disabled`, `loop`, `rovingFocus` |
+| `ToggleGroupItem`  | `value` (required), `disabled`, `variant`, `size`, all native `<button>` props |
+
+`ToggleGroup`'s `value` type depends on `type`:
+- `type="single"` → `value: string`
+- `type="multiple"` → `value: string[]`
+
+## Variants
+
+```tsx
+// Single-select group (radio-like).
+<ToggleGroup type="single" aria-label="Text alignment">
+  <ToggleGroupItem value="left" aria-label="Left">
+    <AlignLeftIcon />
+  </ToggleGroupItem>
+  <ToggleGroupItem value="center" aria-label="Center">
+    <AlignCenterIcon />
+  </ToggleGroupItem>
+  <ToggleGroupItem value="right" aria-label="Right">
+    <AlignRightIcon />
+  </ToggleGroupItem>
+</ToggleGroup>
+```
+
+```tsx
+// Multi-select group (each toggle is independent pressed/not).
+<ToggleGroup type="multiple" aria-label="Text formatting" defaultValue={["bold"]}>
+  <ToggleGroupItem value="bold" aria-label="Bold"><BoldIcon /></ToggleGroupItem>
+  <ToggleGroupItem value="italic" aria-label="Italic"><ItalicIcon /></ToggleGroupItem>
+  <ToggleGroupItem value="underline" aria-label="Underline"><UnderlineIcon /></ToggleGroupItem>
+</ToggleGroup>
+```
+
+```tsx
+// Outline variant — segmented-control look.
+<ToggleGroup type="single" variant="outline" aria-label="View mode">
+  <ToggleGroupItem value="grid" aria-label="Grid view"><GridIcon /></ToggleGroupItem>
+  <ToggleGroupItem value="list" aria-label="List view"><ListIcon /></ToggleGroupItem>
+</ToggleGroup>
+```
+
+```tsx
+// Sizes — group propagates to items via context.
+<ToggleGroup type="single" size="sm" aria-label="Density">
+  <ToggleGroupItem value="comfortable" aria-label="Comfortable">A</ToggleGroupItem>
+  <ToggleGroupItem value="compact" aria-label="Compact">B</ToggleGroupItem>
+</ToggleGroup>
+```
+
+```tsx
+// Controlled.
+const [align, setAlign] = React.useState<string>("left");
+<ToggleGroup
+  type="single"
+  value={align}
+  onValueChange={(v) => v && setAlign(v)}
+  aria-label="Alignment"
+>
+  …
+</ToggleGroup>;
+```
+
+## Accessibility
+
+- The group must carry a label (`aria-label` or `aria-labelledby`).
+- `type="single"` items get `role="radio"`; AT announces the group
+  as a radiogroup.
+- `type="multiple"` items get `role="button"` with `aria-pressed`.
+- Roving focus is provided by Radix: Tab focuses the active (or
+  first) item; ArrowLeft/Right (and ArrowUp/Down for vertical
+  layouts) move focus between items; Enter/Space toggles.
+- Disabled items report `disabled` and don't take focus.
+- Icon-only items still need per-item `aria-label` so each
+  individual choice is named.
+
+## Composition examples
+
+```tsx
+// Toolbar with one single-select and one multi-select group.
+<div role="toolbar" aria-label="Editor toolbar" className="flex items-center gap-2">
+  <ToggleGroup type="single" aria-label="Heading level">
+    <ToggleGroupItem value="h1" aria-label="Heading 1">H1</ToggleGroupItem>
+    <ToggleGroupItem value="h2" aria-label="Heading 2">H2</ToggleGroupItem>
+    <ToggleGroupItem value="p"  aria-label="Paragraph">¶</ToggleGroupItem>
+  </ToggleGroup>
+  <Separator orientation="vertical" className="h-6" />
+  <ToggleGroup type="multiple" aria-label="Formatting">
+    <ToggleGroupItem value="bold"   aria-label="Bold"><BoldIcon /></ToggleGroupItem>
+    <ToggleGroupItem value="italic" aria-label="Italic"><ItalicIcon /></ToggleGroupItem>
+  </ToggleGroup>
+</div>
+```
+
+## Token usage
+
+- Group: `group/toggle-group flex w-fit items-center rounded-md`
+  with `data-[variant=outline]:shadow-xs`.
+- Items: inherit `toggleVariants` from
+  [Toggle](./toggle.mdx) — same colors, focus rings, and disabled
+  treatment. The group flattens corner radii so the group reads as
+  a single visual unit (`rounded-none first:rounded-l-md
+  last:rounded-r-md`).
+- Outline variant: borders join cleanly via
+  `data-[variant=outline]:border-l-0` on items past the first.

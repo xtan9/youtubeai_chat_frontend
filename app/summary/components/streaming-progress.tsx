@@ -21,6 +21,10 @@ export function StreamingProgressIndicator({
   // Local elapsed timer: measured from mount, independent of any server-
   // side timing events. Freezes on stage === "complete" so the final value
   // sticks.
+  // TODO(B-followup): replace `performance.now()` in render with a
+  // `useState` lazy initializer so the start time is captured once
+  // without invoking an impure function during render.
+  // eslint-disable-next-line react-hooks/purity
   const startRef = useRef<number>(performance.now());
   const [elapsed, setElapsed] = useState(0);
   const isComplete = progress.stage === "complete";

@@ -11,8 +11,24 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  thumbAriaLabel,
+  thumbAriaLabels,
   ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
+}: React.ComponentProps<typeof SliderPrimitive.Root> & {
+  /**
+   * Accessible name applied to every thumb. The thumb is the element
+   * with `role="slider"` in Radix's output, so it (not the root) is
+   * what assistive tech announces. Set this whenever you don't have
+   * a sibling `aria-labelledby` target on the root.
+   */
+  thumbAriaLabel?: string
+  /**
+   * Per-thumb override for range sliders — index-aligned with
+   * `value` / `defaultValue`. Falls back to `thumbAriaLabel` when an
+   * entry is missing.
+   */
+  thumbAriaLabels?: ReadonlyArray<string | undefined>
+}) {
   const _values = React.useMemo(
     () =>
       Array.isArray(value)
@@ -53,6 +69,7 @@ function Slider({
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
+          aria-label={thumbAriaLabels?.[index] ?? thumbAriaLabel}
           className="border-primary bg-background ring-ring/50 block size-4 shrink-0 rounded-full border shadow-sm transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
         />
       ))}

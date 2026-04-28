@@ -1,0 +1,134 @@
+# Slider
+
+Single-value or range slider for picking a numeric value (or a
+[min, max] interval) from a continuous range. Backed by
+`@radix-ui/react-slider`. Reach for it when the value is bounded,
+visually intuitive at a glance (volume, brightness, price), and the
+user benefits from dragging or arrow-keying rather than typing.
+
+## Import
+
+```tsx
+import { Slider } from "@/components/ui/slider";
+```
+
+## Anatomy
+
+- `Slider` — root. Carries `data-slot="slider"`. Mounts one thumb
+  per entry in `value` / `defaultValue`; with neither, mounts two
+  (one at `min`, one at `max`).
+- Internal track — `data-slot="slider-track"`, the bar the thumbs
+  travel along.
+- Internal range — `data-slot="slider-range"`, the filled portion
+  between thumbs (or from `min` to the thumb for a single-value
+  slider).
+- Internal thumb(s) — each thumb carries
+  `data-slot="slider-thumb"` and `role="slider"`. Each thumb is the
+  element AT announces, so each needs an accessible name.
+
+## Props
+
+| Prop                | Type                                  | Default        | Description                                                                                                                       |
+| ------------------- | ------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `value`             | `number[]`                            | uncontrolled   | Controlled value array, one entry per thumb.                                                                                      |
+| `defaultValue`      | `number[]`                            | `[min, max]`   | Uncontrolled initial value array.                                                                                                 |
+| `min`               | `number`                              | `0`            | Minimum.                                                                                                                          |
+| `max`               | `number`                              | `100`          | Maximum.                                                                                                                          |
+| `step`              | `number`                              | `1`            | Granularity of allowed values.                                                                                                    |
+| `orientation`       | `"horizontal"` / `"vertical"`         | `"horizontal"` | Layout orientation. Vertical needs an explicit height (`className="h-32"`).                                                       |
+| `disabled`          | `boolean`                             | `false`        | Locks the slider; `data-disabled` reflects on the root and thumbs.                                                                |
+| `inverted`          | `boolean`                             | `false`        | Flips track direction (right-to-left or top-to-bottom).                                                                           |
+| `onValueChange`     | `(value: number[]) => void`           | —              | Fires while dragging or arrow-keying.                                                                                             |
+| `onValueCommit`     | `(value: number[]) => void`           | —              | Fires when the drag/keyboard interaction settles.                                                                                 |
+| `thumbAriaLabel`    | `string`                              | —              | Accessible name applied to every thumb. Use whenever no `aria-labelledby` target exists.                                          |
+| `thumbAriaLabels`   | `(string \| undefined)[]`             | —              | Per-thumb names for range sliders. Falls back to `thumbAriaLabel` for missing entries.                                            |
+
+## Variants
+
+```tsx
+// Single-value slider with a single thumb label.
+<Slider thumbAriaLabel="Volume" defaultValue={[60]} />
+```
+
+```tsx
+// Range slider with distinct labels per thumb.
+<Slider
+  thumbAriaLabels={["Minimum price", "Maximum price"]}
+  defaultValue={[20, 80]}
+  min={0}
+  max={100}
+/>
+```
+
+```tsx
+// Vertical slider — explicit height required.
+<Slider
+  thumbAriaLabel="Brightness"
+  orientation="vertical"
+  defaultValue={[40]}
+  className="h-32"
+/>
+```
+
+```tsx
+// Disabled slider — opacity drops; pointer events ignored.
+<Slider thumbAriaLabel="Volume (locked)" defaultValue={[40]} disabled />
+```
+
+```tsx
+// Controlled — sync to external state and commit on release.
+const [v, setV] = React.useState<number[]>([50]);
+<Slider
+  thumbAriaLabel="Volume"
+  value={v}
+  onValueChange={setV}
+  onValueCommit={(vv) => save(vv)}
+/>;
+```
+
+## Accessibility
+
+- The `role="slider"` element is each **thumb**, not the root. AT
+  announces "<thumbAriaLabel>, slider, <value>". Always set
+  `thumbAriaLabel` (or `thumbAriaLabels` for range sliders).
+- Keyboard: focus a thumb, then ArrowLeft/Right (horizontal) or
+  ArrowUp/Down (vertical) step by `step`; PageUp/Down move by
+  larger increments; Home/End jump to `min`/`max`.
+- Drag with the mouse or touch; the thumb under the cursor moves.
+  For range sliders, thumbs cannot cross.
+- Disabled sliders trap focus on themselves (`tabindex="-1"` on
+  thumbs); `data-disabled` styles to half-opacity.
+
+## Composition examples
+
+```tsx
+// Volume control with displayed value.
+const [v, setV] = React.useState<number[]>([60]);
+<div className="flex items-center gap-3">
+  <Slider thumbAriaLabel="Volume" value={v} onValueChange={setV} />
+  <span aria-live="polite" className="w-8 text-right text-sm tabular-nums">
+    {v[0]}
+  </span>
+</div>;
+```
+
+```tsx
+// Price range with persistence on commit.
+<form>
+  <Slider
+    thumbAriaLabels={["Min price", "Max price"]}
+    defaultValue={[10, 90]}
+    onValueCommit={([min, max]) => updateFilters({ min, max })}
+  />
+</form>
+```
+
+## Token usage
+
+- Track: `bg-muted h-1.5 rounded-full` (horizontal) or
+  `w-1.5 h-full` (vertical).
+- Range: `bg-primary` filling the active portion of the track.
+- Thumb: `border-primary bg-background size-4 rounded-full
+  shadow-sm`, with `ring-ring/50` for hover/focus rings
+  (`hover:ring-4 focus-visible:ring-4`).
+- Disabled state: `data-disabled:opacity-50` on the root.

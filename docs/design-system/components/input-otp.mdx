@@ -1,0 +1,148 @@
+# InputOTP
+
+A one-time-passcode input — fixed-length numeric or alphanumeric
+challenge typed across discrete slot boxes. Backed by
+[`input-otp`](https://input-otp.rodz.dev/). Reach for it for SMS/email
+verification codes, 2FA challenges, and reset flows where the code
+length is known and fixed.
+
+## Import
+
+```tsx
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+  InputOTPSeparator,
+} from "@/components/ui/input-otp";
+```
+
+## Anatomy
+
+- `InputOTP` — root. Renders a real (visually-collapsed) `<input>`
+  carrying `data-slot="input-otp"` plus the visible "slots"
+  scaffold supplied by the consumer. The native input owns focus,
+  IME composition, and paste; the slots are presentational mirrors.
+- `InputOTPGroup` — visual cluster of slots. Carries
+  `data-slot="input-otp-group"`. Use multiple groups with an
+  `InputOTPSeparator` between them when the code is split (e.g.,
+  `XXX-XXX`).
+- `InputOTPSlot` — a single character slot. Carries
+  `data-slot="input-otp-slot"`. Reads its character + active state
+  from `OTPInputContext`. Renders a fake caret (animated) when
+  active.
+- `InputOTPSeparator` — visual divider between groups. Renders a
+  `MinusIcon` and carries `role="separator"`.
+
+## Props
+
+| Slot                | Notable props                                                              |
+| ------------------- | -------------------------------------------------------------------------- |
+| `InputOTP`          | `maxLength` (required), `value` / `onChange`, `disabled`, `pattern`, `inputMode`, `autoFocus`, `containerClassName` |
+| `InputOTPGroup`     | All native `<div>` props                                                   |
+| `InputOTPSlot`      | `index` (required, 0-based)                                                |
+| `InputOTPSeparator` | All native `<div>` props                                                   |
+
+`pattern` defaults to digits. Override with `REGEXP_ONLY_CHARS` or a
+custom regex (see input-otp docs) for alphanumeric codes.
+
+## Variants
+
+```tsx
+// 6-digit code, single group.
+<InputOTP maxLength={6}>
+  <InputOTPGroup>
+    {[0, 1, 2, 3, 4, 5].map((i) => (
+      <InputOTPSlot key={i} index={i} />
+    ))}
+  </InputOTPGroup>
+</InputOTP>
+```
+
+```tsx
+// 6-digit code split into two groups of three with a separator.
+<InputOTP maxLength={6}>
+  <InputOTPGroup>
+    <InputOTPSlot index={0} />
+    <InputOTPSlot index={1} />
+    <InputOTPSlot index={2} />
+  </InputOTPGroup>
+  <InputOTPSeparator />
+  <InputOTPGroup>
+    <InputOTPSlot index={3} />
+    <InputOTPSlot index={4} />
+    <InputOTPSlot index={5} />
+  </InputOTPGroup>
+</InputOTP>
+```
+
+```tsx
+// Controlled — submit on full length.
+const [code, setCode] = React.useState("");
+React.useEffect(() => {
+  if (code.length === 6) submit(code);
+}, [code]);
+<InputOTP maxLength={6} value={code} onChange={setCode}>…</InputOTP>;
+```
+
+```tsx
+// Disabled while submitting.
+<InputOTP maxLength={6} disabled>…</InputOTP>
+```
+
+## Accessibility
+
+- The underlying `<input>` is the focusable element AT interacts
+  with — pair it with a visible `<label htmlFor>` (set `id` on the
+  `InputOTP`) or an `aria-label`.
+- `inputMode="numeric"` is the default for digit codes — surfaces
+  the numeric keyboard on mobile.
+- Paste is supported across all slots: a 6-digit value pasted into
+  any slot fills the entire input.
+- Keyboard: type to advance, Backspace to retreat, ArrowLeft/Right
+  to navigate; Tab moves out of the input as a unit.
+- The active slot carries a non-flicker animated fake caret
+  (`animate-caret-blink`) so the focused position is visible even
+  on devices where the OS caret is hidden.
+
+## Composition examples
+
+```tsx
+// Verification screen with submit-on-complete and an error alert.
+const [code, setCode] = React.useState("");
+const [error, setError] = React.useState<string | null>(null);
+
+return (
+  <form
+    onSubmit={async (e) => {
+      e.preventDefault();
+      try { await verify(code); } catch (err) { setError("Code didn't match"); }
+    }}
+  >
+    <Label htmlFor="otp">Verification code</Label>
+    <InputOTP id="otp" maxLength={6} value={code} onChange={setCode}>
+      <InputOTPGroup>
+        {[0,1,2,3,4,5].map((i) => <InputOTPSlot key={i} index={i} />)}
+      </InputOTPGroup>
+    </InputOTP>
+    {error && <Alert variant="destructive">{error}</Alert>}
+    <Button type="submit" disabled={code.length !== 6}>Verify</Button>
+  </form>
+);
+```
+
+## Token usage
+
+- Slot: `border-input border-y border-r h-9 w-9 text-sm shadow-xs`,
+  with `first:rounded-l-md first:border-l last:rounded-r-md` so a
+  group reads as one rounded card with internal dividers.
+- Active slot: `data-[active=true]:border-ring data-[active=true]:ring-ring/50
+  ring-[3px]` — same focus ring vocabulary as Input/Textarea.
+- Invalid: `aria-invalid:border-destructive` (and the matching
+  `data-[active=true]:aria-invalid:border-destructive` for the
+  focused slot).
+- Caret: `animate-caret-blink bg-foreground` — pixel-thin and
+  centered inside the slot.
+- Separator: a `MinusIcon` from `lucide-react`.
+- Disabled: `has-disabled:opacity-50` on the container,
+  `disabled:cursor-not-allowed` on the input.
