@@ -47,8 +47,12 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # BASE_URL points e2e-seo-metadata at prod and tells playwright.config
+      # to skip the local webServer (which would fail to boot in CI without
+      # NEXT_PUBLIC_SUPABASE_URL etc.).
       - run: pnpm smoke:e2e
         env:
+          BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
