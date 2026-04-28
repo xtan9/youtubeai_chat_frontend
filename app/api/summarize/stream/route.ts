@@ -57,7 +57,6 @@ const YOUTUBE_URL_RE =
   /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i;
 const RequestBodySchema = z.object({
   youtube_url: z
-    .string()
     .url()
     .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
   include_transcript: z.boolean().optional().default(false),
