@@ -1,0 +1,113 @@
+# Textarea
+
+Multi-line text input. Same styling and `aria-invalid`/disabled hooks as
+[Input](./input.mdx) but renders a native `<textarea>` and uses
+[CSS `field-sizing: content`](https://developer.mozilla.org/en-US/docs/Web/CSS/field-sizing)
+to grow vertically with its content. Reach for it whenever the user needs
+to enter free-form prose — comments, descriptions, summaries, prompts.
+
+## Import
+
+```tsx
+import { Textarea } from "@/components/ui/textarea";
+```
+
+## Anatomy
+
+A single `<textarea data-slot="textarea">` element. No internal
+sub-components. Pair with [Label](./label.mdx).
+
+## Props
+
+| Name           | Type                               | Default     | Description                                                                              |
+| -------------- | ---------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `value`        | `string`                           | `undefined` | Controlled value. Pair with `onChange`.                                                  |
+| `defaultValue` | `string`                           | `undefined` | Uncontrolled initial value.                                                              |
+| `rows`         | `number`                           | `undefined` | Native rows attribute. With `field-sizing: content` it acts as a min-height baseline.    |
+| `disabled`     | `boolean`                          | `false`     | Native `disabled`.                                                                       |
+| `aria-invalid` | `boolean`                          | `undefined` | Triggers the destructive ring/border tokens.                                             |
+| `className`    | `string`                           | `undefined` | Merged via `cn`/`tailwind-merge`.                                                        |
+| `...props`     | `React.ComponentProps<"textarea">` | —           | All other native textarea attributes spread onto the root.                               |
+
+## Variants
+
+No CVA variants — like [Input](./input.mdx), state comes from native
+attributes.
+
+```tsx
+<Textarea placeholder="Tell us more…" />
+```
+
+```tsx
+<Textarea rows={6} maxLength={500} />
+```
+
+```tsx
+<Textarea disabled defaultValue="Read-only content." />
+```
+
+```tsx
+<Textarea aria-invalid aria-describedby="bio-err" />
+```
+
+## Accessibility
+
+- Pure semantic HTML — no Radix wrapper.
+- **Always pair with a [Label](./label.mdx) via `htmlFor`/`id`** unless
+  using `aria-label` / `aria-labelledby`. The a11y test pins the contract:
+  bare textareas without an accessible name fail axe.
+- For character-count hints, set `aria-describedby` to the hint element's
+  `id` so the count is announced to assistive tech.
+- `field-sizing: content` is a progressive enhancement; in browsers without
+  support, `min-h-16` keeps the field at a usable minimum height.
+
+## Composition examples
+
+```tsx
+// Standalone field
+<div className="grid gap-2">
+  <Label htmlFor="bio">Bio</Label>
+  <Textarea id="bio" maxLength={280} />
+</div>
+```
+
+```tsx
+// Inside a Form composite
+<FormField
+  control={form.control}
+  name="description"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Description</FormLabel>
+      <FormControl>
+        <Textarea {...field} />
+      </FormControl>
+      <FormDescription>Up to 500 characters.</FormDescription>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+```tsx
+// Tweet composer with character count
+<div className="grid gap-1">
+  <Label htmlFor="tweet" className="sr-only">Tweet</Label>
+  <Textarea id="tweet" maxLength={280} aria-describedby="tweet-count" />
+  <p id="tweet-count" className="text-xs text-muted-foreground">
+    {value.length} / 280
+  </p>
+</div>
+```
+
+## Token usage
+
+- Typography: `text-base md:text-sm`
+- Spacing: `px-3 py-2`, `min-h-16`
+- Radius: `rounded-md`
+- Border: `border-input`
+- Background: `bg-transparent` light, `bg-input/30` dark
+- Shadow: `shadow-xs`
+- Focus ring: `--color-ring` semantic, `ring-[3px]`
+- Invalid: `--color-destructive` for ring + border via `aria-invalid` selector
+- Auto-grow: `field-sizing-content`

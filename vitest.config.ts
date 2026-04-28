@@ -25,12 +25,16 @@ export default defineConfig({
       },
       exclude: [
         ...(configDefaults.coverage.exclude ?? []),
-        "components/ui/**",
+        // components/ui/** intentionally NOT excluded as of B PR 2 (forms
+        // cluster). Each cluster PR adds tests for its slice; coverage will
+        // climb incrementally through PRs 3-6.
         "app/**/page.tsx",
         "app/**/layout.tsx",
         "app/auth/**/route.ts",
         "app/sitemap.ts",
         "smoke-tests/**",
+        "tests-utils/**", // shared test helpers, themselves exercised by
+                          // every component test that imports them.
         ".next/**",
       ],
     },

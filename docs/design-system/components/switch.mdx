@@ -1,0 +1,136 @@
+# Switch
+
+Boolean toggle for settings and preferences. Backed by
+`@radix-ui/react-switch`. Visually distinct from [Checkbox](./checkbox.mdx)
+because the affordance signals different intent: a Switch immediately
+applies a setting (auto-save, dark mode, notifications), while a Checkbox
+captures form input that's submitted later.
+
+Rule of thumb: if the value takes effect on click, use Switch. If the
+value is part of a form the user submits, use Checkbox.
+
+## Import
+
+```tsx
+import { Switch } from "@/components/ui/switch";
+```
+
+## Anatomy
+
+- `Switch` (root) — `data-slot="switch"`, the interactive track.
+- `Switch.Thumb` — `data-slot="switch-thumb"`, the sliding handle.
+  Rendered internally; consumers don't compose it manually.
+
+## Props
+
+| Name              | Type                                                  | Default     | Description                                                                                          |
+| ----------------- | ----------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------- |
+| `checked`         | `boolean`                                             | `undefined` | Controlled state.                                                                                    |
+| `defaultChecked`  | `boolean`                                             | `false`     | Uncontrolled initial state.                                                                          |
+| `onCheckedChange` | `(checked: boolean) => void`                          | `undefined` | Called whenever the value changes.                                                                   |
+| `disabled`        | `boolean`                                             | `false`     | Disables interaction.                                                                                |
+| `name`            | `string`                                              | `undefined` | Form name when used inside a `<form>`. Radix mirrors the value into a hidden checkbox for submission.|
+| `value`           | `string`                                              | `"on"`      | The value submitted when the switch is checked.                                                      |
+| `aria-label`      | `string`                                              | `undefined` | Required if no associated `<Label>` is supplied.                                                     |
+| `className`       | `string`                                              | `undefined` | Merged via `cn`/`tailwind-merge`.                                                                    |
+| `...props`        | `React.ComponentProps<typeof SwitchPrimitive.Root>`   | —           | All other Radix props.                                                                               |
+
+## Variants
+
+No CVA variants. Visual state is driven by `data-state="checked|unchecked"`
+on the root and the thumb's `translate-x` transition.
+
+```tsx
+// With Label (preferred)
+<div className="flex items-center gap-2">
+  <Switch id="dark" />
+  <Label htmlFor="dark">Dark mode</Label>
+</div>
+```
+
+```tsx
+// Default-on (uncontrolled)
+<div className="flex items-center gap-2">
+  <Switch id="auto" defaultChecked />
+  <Label htmlFor="auto">Auto-save</Label>
+</div>
+```
+
+```tsx
+// Disabled
+<div className="flex items-center gap-2">
+  <Switch id="locked" disabled />
+  <Label htmlFor="locked">Locked feature</Label>
+</div>
+```
+
+```tsx
+// Settings row (label left, switch right)
+<div className="flex items-center justify-between gap-3">
+  <Label htmlFor="2fa">Two-factor auth</Label>
+  <Switch id="2fa" />
+</div>
+```
+
+## Accessibility
+
+- Radix maps Space and Enter to toggle, sets `role="switch"`, and emits
+  `aria-checked="true|false"`.
+- **Always provide an accessible name** — pair with [Label](./label.mdx)
+  via `htmlFor`/`id`, or supply `aria-label`.
+- For settings rows where the visual chrome includes a description, use
+  `aria-describedby` pointing at the description's id so screen readers
+  announce the context.
+- The Switch is reachable via Tab; disabled removes it from the tab order.
+
+## Composition examples
+
+```tsx
+// Settings panel
+<div className="grid gap-4">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <Label htmlFor="notifications">Notifications</Label>
+      <p id="notifications-desc" className="text-sm text-muted-foreground">
+        Get email alerts when a summary completes.
+      </p>
+    </div>
+    <Switch id="notifications" aria-describedby="notifications-desc" />
+  </div>
+  <div className="flex items-center justify-between gap-3">
+    <Label htmlFor="auto-save">Auto-save</Label>
+    <Switch id="auto-save" defaultChecked />
+  </div>
+</div>
+```
+
+```tsx
+// Inside a Form composite
+<FormField
+  control={form.control}
+  name="emailUpdates"
+  render={({ field }) => (
+    <FormItem className="flex items-center justify-between">
+      <FormLabel>Product updates</FormLabel>
+      <FormControl>
+        <Switch
+          checked={field.value}
+          onCheckedChange={field.onChange}
+        />
+      </FormControl>
+    </FormItem>
+  )}
+/>
+```
+
+## Token usage
+
+- Sizing: `h-[1.15rem] w-8` (track), `size-4` (thumb)
+- Radius: `rounded-full`
+- Background (track checked): `bg-primary`
+- Background (track unchecked): `bg-input` light, `bg-input/80` dark
+- Background (thumb): `bg-background` light, `bg-foreground` dark unchecked,
+  `bg-primary-foreground` dark checked
+- Shadow: `shadow-xs`
+- Focus ring: `--color-ring` semantic, `ring-[3px]`
+- Motion: `transition-all` on track, `transition-transform` on thumb
