@@ -25,10 +25,10 @@ export function Header() {
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
+            <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
               <Brain size={20} className="text-white" />
             </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+            <span className="text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent">
               YouTube AI Summarizer
             </span>
           </Link>
@@ -41,7 +41,7 @@ export function Header() {
               <div className="flex items-center">
                 <Button
                   onClick={() => router.push("/auth/login")}
-                  className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600 text-white rounded-full px-6"
+                  className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white rounded-full px-6"
                 >
                   Sign In
                 </Button>

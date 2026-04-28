@@ -45,12 +45,12 @@ export function Testimonials() {
         {testimonials.map((testimonial) => (
           <Card
             key={testimonial.id}
-            className={`${cardBase} hover:border-purple-500/30 transition-colors`}
+            className={`${cardBase} hover:border-accent-brand/30 transition-colors`}
           >
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-4">
-                <Avatar className="h-12 w-12 border-2 border-purple-500/50">
-                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-cyan-500 text-white">
+                <Avatar className="h-12 w-12 border-2 border-accent-brand/50">
+                  <AvatarFallback className="bg-gradient-brand-primary text-white">
                     {testimonial.name.substring(0, 2)}
                   </AvatarFallback>
                 </Avatar>
@@ -66,7 +66,7 @@ export function Testimonials() {
                     key={i}
                     className={`w-5 h-5 ${
                       i < testimonial.rating
-                        ? "text-yellow-400"
+                        ? "text-accent-warning"
                         : "text-gray-500"
                     }`}
                     fill="currentColor"

@@ -100,7 +100,7 @@ export function InputForm() {
                   size="lg"
                   disabled={isLoading}
                   aria-label="Summarize video"
-                  className="h-16 px-8 bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-base cursor-pointer"
+                  className="h-16 px-8 bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-accent-brand/25 hover:shadow-accent-brand/40 transition-all duration-base cursor-pointer"
                 >
                   {isLoading ? (
                     <div
@@ -122,7 +122,7 @@ export function InputForm() {
               <div className="text-center mt-4">
                 <p
                   role="alert"
-                  className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg py-3 px-4 inline-block"
+                  className="text-accent-danger text-sm bg-accent-danger/10 border border-accent-danger/20 rounded-lg py-3 px-4 inline-block"
                 >
                   {error}
                 </p>

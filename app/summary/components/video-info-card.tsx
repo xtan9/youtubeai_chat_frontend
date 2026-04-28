@@ -15,7 +15,7 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
 
   return (
     <div className="relative group">
-      <div className="absolute -inset-1 bg-linear-to-r from-purple-500/30 to-cyan-500/30 rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+      <div className="absolute -inset-1 bg-gradient-brand-soft rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
       <div
         className={`relative ${
           isDark
@@ -33,13 +33,7 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
               >
                 {summary.title}
               </h2>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-linear-to-r from-purple-500/20 to-cyan-500/20 ${
-                  isDark
-                    ? "text-cyan-300 border-cyan-500/30"
-                    : "text-cyan-700 border-cyan-500/40"
-                } border`}
-              >
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-brand-soft text-accent-brand-secondary border-accent-brand-secondary/30 border">
                 {summary.title
                   .replace("Video Summary", "")
                   .replace("Summary", "")
@@ -47,23 +41,10 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-              <div
-                className={`flex items-center gap-2 ${
-                  isDark
-                    ? "bg-purple-500/15 border-purple-500/30"
-                    : "bg-purple-100 border-purple-300"
-                } rounded-lg p-3 border`}
-              >
-                <Clock
-                  size={16}
-                  className={isDark ? "text-purple-300" : "text-purple-600"}
-                />
+              <div className="flex items-center gap-2 bg-accent-brand/15 border-accent-brand/30 rounded-lg p-3 border">
+                <Clock size={16} className="text-accent-brand" />
                 <div>
-                  <div
-                    className={`font-medium ${
-                      isDark ? "text-purple-300" : "text-purple-700"
-                    }`}
-                  >
+                  <div className="font-medium text-accent-brand">
                     Total Duration
                   </div>
                   <div className={isDark ? "text-white" : "text-slate-800"}>
@@ -71,23 +52,10 @@ export function VideoInfoCard({ summary, url }: VideoInfoCardProps) {
                   </div>
                 </div>
               </div>
-              <div
-                className={`flex items-center gap-2 ${
-                  isDark
-                    ? "bg-cyan-500/15 border-cyan-500/30"
-                    : "bg-cyan-100 border-cyan-300"
-                } rounded-lg p-3 border`}
-              >
-                <Zap
-                  size={16}
-                  className={isDark ? "text-cyan-300" : "text-cyan-600"}
-                />
+              <div className="flex items-center gap-2 bg-accent-brand-secondary/15 border-accent-brand-secondary/30 rounded-lg p-3 border">
+                <Zap size={16} className="text-accent-brand-secondary" />
                 <div>
-                  <div
-                    className={`font-medium ${
-                      isDark ? "text-cyan-300" : "text-cyan-700"
-                    }`}
-                  >
+                  <div className="font-medium text-accent-brand-secondary">
                     Processing
                   </div>
                   <div className={isDark ? "text-white" : "text-slate-800"}>

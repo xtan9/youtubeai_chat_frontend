@@ -81,7 +81,7 @@ export function FAQ() {
         <p className={supportText + " mb-6"}>Need more information?</p>
         <Button
           asChild
-          className="bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-600 hover:to-cyan-600"
+          className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover"
         >
           <a href="mailto:support@youtubeai.chat">
             <MailIcon className="mr-2 h-4 w-4" />
