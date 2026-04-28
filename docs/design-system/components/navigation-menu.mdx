@@ -1,0 +1,202 @@
+# NavigationMenu
+
+A horizontal site-nav strip with optional drop-down panels. Backed by
+`@radix-ui/react-navigation-menu` (WAI-ARIA `navigation` landmark with
+`menubar`-style behaviour). Reach for it on a marketing/site header
+where each top-level item may expand into a richer panel of
+links — Products → CLI / API / SDK, Resources → Docs / Blog / Changelog.
+
+For an application-style menu bar (File / Edit / View, with action
+items inside), use [Menubar](./menubar.mdx). For a simple breadcrumb
+trail, use [Breadcrumb](./breadcrumb.mdx). For a per-trigger action
+list, use [DropdownMenu](./dropdown-menu.mdx).
+
+## Import
+
+```tsx
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  NavigationMenuContent,
+  NavigationMenuLink,
+  NavigationMenuIndicator,
+  NavigationMenuViewport,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu";
+```
+
+## Anatomy
+
+- `NavigationMenu` — root. Wraps in a `<nav>` (landmark). Manages the
+  active item value and renders the viewport host (unless
+  `viewport={false}`).
+- `NavigationMenuList` — `role="menubar"` strip of items.
+- `NavigationMenuItem` — single top-level entry. Pair its `value`
+  with `NavigationMenu.value` for controlled mode.
+- `NavigationMenuTrigger` — `role="menuitem"` button that opens the
+  item's panel. Renders a `lucide` chevron that rotates on open via
+  `data-[state=open]:rotate-180`.
+- `NavigationMenuContent` — the panel that slides into the
+  viewport. Hidden until its item is the active value.
+- `NavigationMenuLink` — `<a>` styled for in-panel use. Pass
+  `data-active="true"` on the link matching the current route to
+  flip the active visual.
+- `NavigationMenuIndicator` — optional triangle that points at the
+  open trigger. Sits beneath the trigger row; auto-positions.
+- `NavigationMenuViewport` — host element the open content portals
+  into. Auto-rendered by `NavigationMenu` unless you pass
+  `viewport={false}` (then content renders inline beneath each
+  item — useful for mobile / single-panel layouts).
+- `navigationMenuTriggerStyle` — exported CVA helper used to give a
+  `NavigationMenuLink` the same visuals as a trigger (so a panelless
+  link sits flush with sibling triggers).
+
+## Props
+
+| Slot                       | Element                  | Notable props                                                                |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `NavigationMenu`           | `Radix.Root`             | `value`, `defaultValue`, `onValueChange`, `delayDuration`, `skipDelayDuration`, `viewport` (boolean, default `true`), `dir`, `orientation` |
+| `NavigationMenuList`       | `Radix.List`             | All native ul props.                                                          |
+| `NavigationMenuItem`       | `Radix.Item`             | `value` (binds to root value).                                                |
+| `NavigationMenuTrigger`    | `Radix.Trigger`          | `disabled`, `asChild`.                                                        |
+| `NavigationMenuContent`    | `Radix.Content`          | `forceMount`, `onPointerEnter`, `onPointerLeave`, `onEscapeKeyDown`.          |
+| `NavigationMenuLink`       | `Radix.Link`             | `active` (boolean → `data-active="true"`), `asChild`.                          |
+| `NavigationMenuIndicator`  | `Radix.Indicator`        | `forceMount`.                                                                 |
+| `NavigationMenuViewport`   | `Radix.Viewport`         | `forceMount`. Rendered automatically by `NavigationMenu`; only override if you pass `viewport={false}` and want to mount it elsewhere. |
+
+## Variants
+
+```tsx
+// Site nav with two panels and a panelless link
+<NavigationMenu>
+  <NavigationMenuList>
+    <NavigationMenuItem>
+      <NavigationMenuTrigger>Products</NavigationMenuTrigger>
+      <NavigationMenuContent>
+        <ul className="grid w-[400px] gap-3 p-4 md:grid-cols-2">
+          <li>
+            <NavigationMenuLink asChild>
+              <Link href="/cli">CLI</Link>
+            </NavigationMenuLink>
+          </li>
+          <li>
+            <NavigationMenuLink asChild>
+              <Link href="/api">API</Link>
+            </NavigationMenuLink>
+          </li>
+        </ul>
+      </NavigationMenuContent>
+    </NavigationMenuItem>
+    <NavigationMenuItem>
+      <NavigationMenuTrigger>Resources</NavigationMenuTrigger>
+      <NavigationMenuContent>{/* … */}</NavigationMenuContent>
+    </NavigationMenuItem>
+    <NavigationMenuItem>
+      <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
+        <Link href="/pricing">Pricing</Link>
+      </NavigationMenuLink>
+    </NavigationMenuItem>
+  </NavigationMenuList>
+</NavigationMenu>
+```
+
+```tsx
+// Without viewport — panels render inline (mobile-friendly)
+<NavigationMenu viewport={false} className="w-full">
+  <NavigationMenuList className="flex-col items-stretch">
+    <NavigationMenuItem>
+      <NavigationMenuTrigger>Products</NavigationMenuTrigger>
+      <NavigationMenuContent>
+        <NavigationMenuLink asChild>
+          <Link href="/cli">CLI</Link>
+        </NavigationMenuLink>
+        <NavigationMenuLink asChild>
+          <Link href="/api">API</Link>
+        </NavigationMenuLink>
+      </NavigationMenuContent>
+    </NavigationMenuItem>
+  </NavigationMenuList>
+</NavigationMenu>
+```
+
+## Accessibility
+
+- The outer `<nav>` is a landmark — no extra `role` or
+  `aria-label` is required, but adding `aria-label` makes the
+  landmark name explicit when there are multiple navigation regions
+  on the page.
+- Triggers are keyboard reachable (`Tab`); `←` / `→` move between
+  triggers; `Space` / `Enter` / `↓` open the panel and focus its
+  first focusable child; `Esc` closes the panel and returns focus to
+  the trigger.
+- Mark the link matching the current route with `data-active="true"`
+  (or pass `active` to `NavigationMenuLink`) so the visual + AT
+  story match.
+- Radix renders focus guards around the open viewport, same as the
+  modal overlays. The a11y test scans the open state via the
+  `axeOverlay` runner (suppresses `aria-hidden-focus` for the
+  focus-guard `<span>`s).
+- For a single non-panel link in the strip, wrap a `NavigationMenuLink`
+  with `navigationMenuTriggerStyle()` so it visually matches the
+  triggers (no chevron).
+
+## Composition examples
+
+```tsx
+// Marketing-page header
+<header className="border-b">
+  <div className="mx-auto flex max-w-6xl items-center justify-between p-4">
+    <Link href="/" className="font-semibold">YouTubeAI</Link>
+    <NavigationMenu>
+      <NavigationMenuList>
+        <NavigationMenuItem>
+          <NavigationMenuTrigger>Product</NavigationMenuTrigger>
+          <NavigationMenuContent>
+            <ul className="grid w-[500px] gap-3 p-4 md:grid-cols-2">
+              <li>
+                <NavigationMenuLink asChild>
+                  <Link href="/features" className="block rounded-md p-3 hover:bg-accent">
+                    <div className="font-medium">Features</div>
+                    <p className="text-sm text-muted-foreground">Captions, summaries, chat.</p>
+                  </Link>
+                </NavigationMenuLink>
+              </li>
+              <li>
+                <NavigationMenuLink asChild>
+                  <Link href="/pricing" className="block rounded-md p-3 hover:bg-accent">
+                    <div className="font-medium">Pricing</div>
+                    <p className="text-sm text-muted-foreground">Free + Pro tiers.</p>
+                  </Link>
+                </NavigationMenuLink>
+              </li>
+            </ul>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <NavigationMenuItem>
+          <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
+            <Link href="/blog">Blog</Link>
+          </NavigationMenuLink>
+        </NavigationMenuItem>
+      </NavigationMenuList>
+    </NavigationMenu>
+    <Button asChild><Link href="/sign-in">Sign in</Link></Button>
+  </div>
+</header>
+```
+
+## Token usage
+
+- Trigger background: `bg-background`, hover `bg-accent`,
+  open `bg-accent/50`
+- Trigger text: `text-sm font-medium`
+- Active link visual: `data-[active=true]:bg-accent/50`,
+  `data-[active=true]:text-accent-foreground`
+- Radius: `rounded-md` triggers + viewport, `rounded-sm` links
+- Shadow: `shadow` viewport, `shadow-md` viewport-less content
+- Spacing: `gap-1` between items, `px-4 py-2` triggers
+- SVG sizing: chevron is `size-3`; in-panel link icons default to
+  `size-4`
+- Animation: Radix `data-[motion]` slide-in/out; viewport zooms via
+  `data-[state]` transitions

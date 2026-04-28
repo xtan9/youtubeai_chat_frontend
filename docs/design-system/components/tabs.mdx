@@ -1,0 +1,152 @@
+# Tabs
+
+A tablist for switching between mutually exclusive panels of content
+that share a common surface. Backed by `@radix-ui/react-tabs` (WAI-ARIA
+`tabs` pattern). Reach for it when the user is choosing one of a small
+set of views — settings sections, dashboard pivots — and you don't want
+to push them through a router transition for the swap.
+
+For a free-roaming menu of actions, use
+[DropdownMenu](./dropdown-menu.mdx). For canonical site navigation
+between full pages, use [NavigationMenu](./navigation-menu.mdx) or a
+real router link.
+
+## Import
+
+```tsx
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
+```
+
+## Anatomy
+
+- `Tabs` — root state machine. Forwards to `Radix.Root`. Holds the
+  active `value`. Wraps content in a flex column with `gap-2`.
+- `TabsList` — `role="tablist"` strip containing the triggers. The
+  consumer should pass `aria-label` so AT can name the strip.
+- `TabsTrigger` — clickable `role="tab"`. Pairs to a `TabsContent`
+  via the shared `value` prop.
+- `TabsContent` — `role="tabpanel"`. Mounted at all times by Radix
+  (so cross-tab state survives switches); `hidden` toggles via
+  `data-state`.
+
+## Props
+
+| Slot           | Element            | Notable props                                                                                                                                  |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Tabs`         | `Radix.Root`       | `value`, `defaultValue`, `onValueChange`, `orientation` (`"horizontal"` default / `"vertical"`), `dir`, `activationMode` (`"automatic"` / `"manual"`) |
+| `TabsList`     | `Radix.List`       | `loop` (default `true` — wraps arrow-key focus)                                                                                                |
+| `TabsTrigger`  | `Radix.Trigger`    | `value` (required), `disabled`, `asChild`                                                                                                      |
+| `TabsContent`  | `Radix.Content`    | `value` (required), `forceMount`, `asChild`                                                                                                    |
+
+## Variants
+
+```tsx
+// Horizontal (default)
+<Tabs defaultValue="account">
+  <TabsList aria-label="Settings sections">
+    <TabsTrigger value="account">Account</TabsTrigger>
+    <TabsTrigger value="password">Password</TabsTrigger>
+    <TabsTrigger value="notifications">Notifications</TabsTrigger>
+  </TabsList>
+  <TabsContent value="account">{/* Account form */}</TabsContent>
+  <TabsContent value="password">{/* Password form */}</TabsContent>
+  <TabsContent value="notifications">{/* Notification prefs */}</TabsContent>
+</Tabs>
+```
+
+```tsx
+// Vertical
+<Tabs defaultValue="overview" orientation="vertical" className="flex flex-row gap-4">
+  <TabsList aria-label="Project nav" className="flex-col h-fit">
+    <TabsTrigger value="overview">Overview</TabsTrigger>
+    <TabsTrigger value="reports">Reports</TabsTrigger>
+    <TabsTrigger value="settings">Settings</TabsTrigger>
+  </TabsList>
+  <TabsContent value="overview">{/* ... */}</TabsContent>
+  <TabsContent value="reports">{/* ... */}</TabsContent>
+  <TabsContent value="settings">{/* ... */}</TabsContent>
+</Tabs>
+```
+
+```tsx
+// Manual activation — Tab + Enter required to switch (instead of
+// arrow keys auto-activating on focus). Use when each panel is
+// expensive to render, so focus alone doesn't trigger the swap.
+<Tabs defaultValue="a" activationMode="manual">
+  <TabsList aria-label="Heavy content">
+    <TabsTrigger value="a">Cheap</TabsTrigger>
+    <TabsTrigger value="b">Expensive</TabsTrigger>
+  </TabsList>
+  <TabsContent value="a">a</TabsContent>
+  <TabsContent value="b">{/* big chart, only mounts on activation */}</TabsContent>
+</Tabs>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-tabs` (WAI-ARIA `tabs` pattern). Triggers
+  carry `role="tab"`, the list `role="tablist"`, content
+  `role="tabpanel"`. Each pairing is wired with `aria-controls`/
+  `aria-labelledby` automatically.
+- **Pass `aria-label` to `TabsList`** so AT users get a name for the
+  strip (e.g. "Settings sections"). axe will not flag the lack of a
+  label on tablist itself, but it improves screen-reader UX.
+- Arrow keys move focus across triggers (Left/Right for horizontal,
+  Up/Down for vertical). Home/End jump to first/last.
+- Default `activationMode="automatic"` activates a tab on focus
+  (arrow-key navigation auto-switches the panel). Use `"manual"` if
+  panels are expensive — then focus and Enter/Space activates.
+- A disabled trigger gets `data-disabled=""` and is skipped during
+  arrow-key navigation. axe sees this as `aria-disabled`.
+
+## Composition examples
+
+```tsx
+// Settings page
+<Tabs defaultValue="account" className="w-[600px]">
+  <TabsList aria-label="Account sections">
+    <TabsTrigger value="account">Account</TabsTrigger>
+    <TabsTrigger value="password">Password</TabsTrigger>
+  </TabsList>
+  <TabsContent value="account">
+    <Card>
+      <CardHeader>
+        <CardTitle>Account</CardTitle>
+        <CardDescription>Make changes to your account here.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="space-y-1">
+          <Label htmlFor="name">Name</Label>
+          <Input id="name" defaultValue="Pedro Duarte" />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="username">Username</Label>
+          <Input id="username" defaultValue="@peduarte" />
+        </div>
+      </CardContent>
+      <CardFooter>
+        <Button>Save changes</Button>
+      </CardFooter>
+    </Card>
+  </TabsContent>
+  <TabsContent value="password">
+    <Card>{/* Password form */}</Card>
+  </TabsContent>
+</Tabs>
+```
+
+## Token usage
+
+- List background: `bg-muted` + `text-muted-foreground`
+- Active trigger background: `bg-background` (light) / `bg-input/30` (dark)
+- Active trigger shadow: `shadow-sm`
+- Trigger radius: `rounded-md`
+- Focus ring: `--color-ring` at 50% opacity, 3px width
+- Spacing: `gap-2` on root, `gap-1.5` between trigger icon + text,
+  `p-[3px]` list inset
+- SVG sizing: 16px (`size-4`) when no explicit size class on the SVG

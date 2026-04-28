@@ -1,0 +1,173 @@
+# Pagination
+
+Page-by-page navigation for paginated lists. Pure semantic HTML — a
+`<nav role="navigation" aria-label="pagination">` wrapping numbered
+links plus optional Previous / Next / Ellipsis controls. The links
+themselves reuse Button's CVA variants for visual consistency.
+
+For hierarchical breadcrumb trails, use [Breadcrumb](./breadcrumb.mdx).
+For full site nav, use [NavigationMenu](./navigation-menu.mdx).
+
+## Import
+
+```tsx
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
+```
+
+## Anatomy
+
+- `Pagination` — outer `<nav>` with `aria-label="pagination"`.
+- `PaginationContent` — `<ul>` of items.
+- `PaginationItem` — single page entry (`<li>`).
+- `PaginationLink` — `<a>` styled as a Button. Pass `isActive` on the
+  current page to flip variant + emit `aria-current="page"`.
+- `PaginationPrevious` / `PaginationNext` — labelled icon links to
+  the previous and next page. Show "Previous" / "Next" text on
+  `sm:` and up.
+- `PaginationEllipsis` — `aria-hidden` glyph for collapsed runs of
+  pages, with an sr-only "More pages" label.
+
+## Props
+
+| Slot                  | Element  | Notable props                                                        |
+| --------------------- | -------- | -------------------------------------------------------------------- |
+| `Pagination`          | `<nav>`  | All native nav props.                                                 |
+| `PaginationContent`   | `<ul>`   | All native ul props.                                                  |
+| `PaginationItem`      | `<li>`   | All native li props.                                                  |
+| `PaginationLink`      | `<a>`    | `isActive` (default `false`), `size` (`"icon"` default; passes through to `buttonVariants`) |
+| `PaginationPrevious`  | `<a>`    | All `PaginationLink` props (size auto-set to `"default"`)             |
+| `PaginationNext`      | `<a>`    | All `PaginationLink` props (size auto-set to `"default"`)             |
+| `PaginationEllipsis`  | `<span>` | All native span props.                                                |
+
+## Variants
+
+```tsx
+// Standard (active page in middle)
+<Pagination>
+  <PaginationContent>
+    <PaginationItem>
+      <PaginationPrevious href="?page=1" />
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=1">1</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=2" isActive>2</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=3">3</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationNext href="?page=3" />
+    </PaginationItem>
+  </PaginationContent>
+</Pagination>
+```
+
+```tsx
+// Long range with ellipses
+<Pagination>
+  <PaginationContent>
+    <PaginationItem>
+      <PaginationLink href="?page=1">1</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationEllipsis />
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=12" isActive>12</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationEllipsis />
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=24">24</PaginationLink>
+    </PaginationItem>
+  </PaginationContent>
+</Pagination>
+```
+
+```tsx
+// First page (Previous omitted)
+<Pagination>
+  <PaginationContent>
+    <PaginationItem>
+      <PaginationLink href="?page=1" isActive>1</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationLink href="?page=2">2</PaginationLink>
+    </PaginationItem>
+    <PaginationItem>
+      <PaginationNext href="?page=2" />
+    </PaginationItem>
+  </PaginationContent>
+</Pagination>
+```
+
+## Accessibility
+
+- Outer `<nav>` carries `role="navigation"` + `aria-label="pagination"`.
+- The active page link gets `aria-current="page"` so AT users hear
+  which page they're on.
+- `PaginationPrevious` and `PaginationNext` ship `aria-label`s
+  ("Go to previous page" / "Go to next page") since on small viewports
+  the visible "Previous"/"Next" text is hidden behind a `sm:block`
+  breakpoint and only the chevron icon is visible.
+- `PaginationEllipsis` is `aria-hidden` for the icon glyph but has an
+  `sr-only` "More pages" label so AT users know pages were elided.
+- All links keyboard-navigate via Tab/Shift+Tab. There is no roving
+  focus or arrow-key handling — this is a list of links, not a widget.
+- **Disabled state:** if a page is unreachable (e.g. you're on page 1
+  and want to disable Previous), omit the entry entirely or render it
+  as a `<span>` rather than disabling the link. A disabled link is
+  still focusable, which confuses keyboard users.
+
+## Composition examples
+
+```tsx
+// Server-component pagination on /library
+function PaginatedLibrary({ page, totalPages }: Props) {
+  return (
+    <>
+      {/* ... results ... */}
+      <Pagination>
+        <PaginationContent>
+          {page > 1 && (
+            <PaginationItem>
+              <PaginationPrevious href={`?page=${page - 1}`} />
+            </PaginationItem>
+          )}
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            <PaginationItem key={p}>
+              <PaginationLink href={`?page=${p}`} isActive={p === page}>
+                {p}
+              </PaginationLink>
+            </PaginationItem>
+          ))}
+          {page < totalPages && (
+            <PaginationItem>
+              <PaginationNext href={`?page=${page + 1}`} />
+            </PaginationItem>
+          )}
+        </PaginationContent>
+      </Pagination>
+    </>
+  );
+}
+```
+
+## Token usage
+
+- Visual is delegated to [`buttonVariants`](./button.mdx) — outline
+  for active, ghost for inactive.
+- Spacing: `gap-1` between items.
+- Icon size: `size-4` for chevrons.
+- Layout: `mx-auto justify-center` centers the strip horizontally.

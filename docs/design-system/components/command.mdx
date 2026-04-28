@@ -1,0 +1,209 @@
+# Command
+
+A keyboard-first command palette / fuzzy-search list. Backed by
+[`cmdk`](https://github.com/pacocoursey/cmdk) — an unstyled list-box
+primitive with built-in filtering, group sorting, and keyboard
+navigation. Reach for it when the user benefits from "type then pick"
+ergonomics: command palettes (⌘K), quick switchers, action menus on
+data tables.
+
+For a single trigger that exposes a small fixed list of actions, use
+[DropdownMenu](./dropdown-menu.mdx). For tab switching between views,
+use [Tabs](./tabs.mdx).
+
+## Import
+
+```tsx
+import {
+  Command,
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandSeparator,
+  CommandShortcut,
+} from "@/components/ui/command";
+```
+
+## Anatomy
+
+- `Command` — root state machine. `role="application"` on the inner
+  cmdk root; the consumer typically wraps it in either an inline
+  surface or `CommandDialog`.
+- `CommandInput` — the search box. `role="combobox"` with
+  `aria-controls` wired to the list. Wrapped in a flex row with a
+  leading magnifier icon.
+- `CommandList` — `role="listbox"`. `max-h-[300px]` scroll container.
+- `CommandEmpty` — shown when filtering yields zero matches. Hidden
+  while no query is active.
+- `CommandGroup` — semantic group of items with an optional
+  `heading`. Auto-hides when none of its items match the current
+  query.
+- `CommandItem` — `role="option"`. Accepts `onSelect`, `disabled`,
+  `value` (for filtering), `keywords` (extra search tokens).
+- `CommandSeparator` — visual `<hr>`-style divider between groups.
+  Only renders while the search is empty (cmdk hides it during
+  filtering).
+- `CommandShortcut` — right-aligned keystroke text on a row.
+- `CommandDialog` — pre-composed wrapper that opens `Command` inside
+  a Radix Dialog. Auto-injects `DialogTitle` + `DialogDescription`
+  for a11y; defaults can be overridden with the `title` / `description` props.
+
+## Props
+
+| Slot                | Element                | Notable props                                                                         |
+| ------------------- | ---------------------- | ------------------------------------------------------------------------------------- |
+| `Command`           | `cmdk.Root`            | `value`, `onValueChange`, `filter`, `shouldFilter` (default `true`), `loop`, `label`, `vimBindings` (default `true`) |
+| `CommandInput`      | `cmdk.Input`           | `value`, `onValueChange`, `placeholder`, plus all `<input>` props.                    |
+| `CommandList`       | `cmdk.List`            | `label` (default `"Suggestions"`).                                                    |
+| `CommandEmpty`      | `cmdk.Empty`           | All native div props.                                                                 |
+| `CommandGroup`      | `cmdk.Group`           | `heading` (string or node), `forceMount`.                                             |
+| `CommandItem`       | `cmdk.Item`            | `value` (default = trimmed text content), `keywords[]`, `onSelect(value)`, `disabled`, `forceMount`. |
+| `CommandSeparator`  | `cmdk.Separator`       | `alwaysRender`.                                                                       |
+| `CommandShortcut`   | `<span>`               | All native span props.                                                                |
+| `CommandDialog`     | `Radix.Dialog` + `Command` | `open`, `defaultOpen`, `onOpenChange`, `title` (default `"Command Palette"`), `description` (default `"Search for a command to run..."`), `showCloseButton` (default `true`). |
+
+## Variants
+
+```tsx
+// Inline command (e.g. embedded in a settings page)
+<Command label="Filter actions">
+  <CommandInput placeholder="Search…" />
+  <CommandList>
+    <CommandEmpty>No results.</CommandEmpty>
+    <CommandGroup heading="Files">
+      <CommandItem onSelect={() => createFile()}>
+        New file <CommandShortcut>⌘N</CommandShortcut>
+      </CommandItem>
+      <CommandItem onSelect={() => openFile()}>
+        Open file <CommandShortcut>⌘O</CommandShortcut>
+      </CommandItem>
+    </CommandGroup>
+    <CommandSeparator />
+    <CommandGroup heading="Edit">
+      <CommandItem onSelect={() => undo()}>Undo</CommandItem>
+      <CommandItem onSelect={() => redo()}>Redo</CommandItem>
+    </CommandGroup>
+  </CommandList>
+</Command>
+```
+
+```tsx
+// Command palette (Dialog wrapper)
+"use client";
+import { useEffect, useState } from "react";
+import { CommandDialog, CommandInput, CommandList, /* … */ } from "@/components/ui/command";
+
+export function CommandPalette() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen((v) => !v);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandInput placeholder="Type a command or search…" />
+      <CommandList>
+        <CommandEmpty>No results.</CommandEmpty>
+        <CommandGroup heading="Suggestions">
+          <CommandItem onSelect={() => router.push("/library")}>
+            Library
+          </CommandItem>
+          <CommandItem onSelect={() => router.push("/settings")}>
+            Settings <CommandShortcut>⌘,</CommandShortcut>
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
+  );
+}
+```
+
+```tsx
+// Command with extra keywords for filtering — typing "log out" matches "Sign out"
+<CommandItem keywords={["log out", "logout", "sign-out"]} onSelect={signOut}>
+  Sign out
+</CommandItem>
+```
+
+## Accessibility
+
+- The `CommandInput` is a `role="combobox"` paired with the
+  `role="listbox"` rendered by `CommandList`. Selection state moves
+  via `aria-activedescendant` on the input — focus stays in the
+  search box at all times.
+- **Keyboard:**
+  - `↓` / `↑` move selection between items (skipping disabled).
+  - `Home` / `End` jump to first / last item.
+  - `Enter` calls `onSelect(value)` for the active item.
+  - With `vimBindings` (default on), `Ctrl-N` / `Ctrl-J` map to `↓`
+    and `Ctrl-P` / `Ctrl-K` map to `↑`. Disable via
+    `vimBindings={false}` if you need those keystrokes for another
+    purpose.
+  - `Esc` is *not* handled by Command itself — handle it on
+    `CommandDialog` via `onOpenChange`, or add a `keydown` listener.
+- **Disabled items** get `aria-disabled="true"` and skip arrow-key
+  selection.
+- **CommandDialog** auto-injects an sr-only `DialogTitle` +
+  `DialogDescription` so axe doesn't flag the underlying Radix
+  Dialog as missing a name. Override via the `title` and `description`
+  props.
+- **Known cmdk pattern:** `CommandSeparator` renders with
+  `role="separator"` directly inside the listbox. axe's
+  `aria-required-children` rule (correctly) flags this — listbox
+  formally allows only `option` and `group` children. cmdk doesn't
+  expose a way to override the role. The a11y tests use
+  `axeCommand` / `axeCommandDialog` runners that suppress only this
+  one rule with the rationale documented in
+  `tests-utils/axe.ts`. Practical impact: AT users hear the
+  separator as "separator" between groups, which matches the
+  visual semantic.
+
+## Composition examples
+
+```tsx
+// Quick-search row in a header
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="outline" className="w-64 justify-start">
+      <SearchIcon /> Search…
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent className="p-0 w-[400px]" align="start">
+    <Command>
+      <CommandInput placeholder="Search videos…" />
+      <CommandList>
+        <CommandEmpty>No results.</CommandEmpty>
+        <CommandGroup heading="Recent">
+          {recents.map((item) => (
+            <CommandItem key={item.id} onSelect={() => router.push(item.href)}>
+              {item.title}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  </PopoverContent>
+</Popover>
+```
+
+## Token usage
+
+- Background: `--color-popover`, `--color-popover-foreground`
+- Item hover/selected: `bg-accent`, `text-accent-foreground` via
+  `data-[selected=true]`
+- Input border: `border-b` between input row and list
+- Radius: `rounded-md` outer, `rounded-sm` items
+- Spacing: `px-2 py-1.5` items (`px-2 py-3` inside `CommandDialog`),
+  `max-h-[300px]` list cap
+- SVG sizing: `size-4` items, `size-5` items inside the dialog wrapper

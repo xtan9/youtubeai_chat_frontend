@@ -1,0 +1,174 @@
+# Menubar
+
+A horizontal strip of menu triggers, like a desktop application's
+File / Edit / View bar. Backed by `@radix-ui/react-menubar`
+(WAI-ARIA `menubar` pattern). Roving focus moves between top-level
+triggers; opening one menu and arrowing left/right hops to the
+neighbouring menu without an extra click.
+
+For a single trigger that exposes actions, use
+[DropdownMenu](./dropdown-menu.mdx) — it shares the same item primitives
+but lacks the menubar wrapper.
+
+## Import
+
+```tsx
+import {
+  Menubar,
+  MenubarMenu,
+  MenubarTrigger,
+  MenubarContent,
+  MenubarItem,
+  MenubarLabel,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarGroup,
+  MenubarCheckboxItem,
+  MenubarRadioGroup,
+  MenubarRadioItem,
+  MenubarSub,
+  MenubarSubTrigger,
+  MenubarSubContent,
+  MenubarPortal,
+} from "@/components/ui/menubar";
+```
+
+## Anatomy
+
+- `Menubar` — `role="menubar"` strip. Holds the active menu's `value`
+  in controlled mode.
+- `MenubarMenu` — single menu within the strip. Pair its `value`
+  prop with `Menubar`'s `value` / `defaultValue` for controlled mode.
+- `MenubarTrigger` — `role="menuitem"` button that opens its
+  `MenubarMenu`.
+- `MenubarContent` — auto-portaled list of items. `role="menu"`.
+- `MenubarItem`, `MenubarCheckboxItem`, `MenubarRadioGroup` /
+  `MenubarRadioItem`, `MenubarLabel`, `MenubarSeparator`,
+  `MenubarShortcut`, `MenubarGroup` — same semantics as the matching
+  parts on [DropdownMenu](./dropdown-menu.mdx).
+- `MenubarSub` + `MenubarSubTrigger` + `MenubarSubContent` — nested
+  submenu (e.g. File → Open recent → …).
+
+## Props
+
+| Slot                    | Element              | Notable props                                                       |
+| ----------------------- | -------------------- | ------------------------------------------------------------------- |
+| `Menubar`               | `Radix.Root`         | `value`, `defaultValue`, `onValueChange`, `loop` (default `true`), `dir` |
+| `MenubarMenu`           | `Radix.Menu`         | `value` (binds to `Menubar.value`)                                  |
+| `MenubarTrigger`        | `Radix.Trigger`      | `disabled`, `asChild`                                               |
+| `MenubarContent`        | `Radix.Content`      | `align` (default `"start"`), `alignOffset` (default `-4`), `sideOffset` (default `8`), `forceMount`, `loop` |
+| `MenubarItem`           | `Radix.Item`         | `onSelect`, `disabled`, `inset` (boolean), `variant` (`"default"` / `"destructive"`), `asChild` |
+| `MenubarCheckboxItem`   | `Radix.CheckboxItem` | `checked`, `onCheckedChange`, `disabled`                            |
+| `MenubarRadioGroup`     | `Radix.RadioGroup`   | `value`, `onValueChange`                                            |
+| `MenubarRadioItem`      | `Radix.RadioItem`    | `value`, `disabled`                                                 |
+| `MenubarSub`            | `Radix.Sub`          | `open`, `defaultOpen`, `onOpenChange`                               |
+| `MenubarSubTrigger`     | `Radix.SubTrigger`   | `inset` (boolean), `disabled`, `asChild`                            |
+| `MenubarSubContent`     | `Radix.SubContent`   | `forceMount`, `loop`, `sideOffset`, `alignOffset`                   |
+
+## Variants
+
+```tsx
+// Standard application menubar
+<Menubar>
+  <MenubarMenu>
+    <MenubarTrigger>File</MenubarTrigger>
+    <MenubarContent>
+      <MenubarItem>
+        New file <MenubarShortcut>⌘N</MenubarShortcut>
+      </MenubarItem>
+      <MenubarItem>
+        Open <MenubarShortcut>⌘O</MenubarShortcut>
+      </MenubarItem>
+      <MenubarSeparator />
+      <MenubarSub>
+        <MenubarSubTrigger>Open recent</MenubarSubTrigger>
+        <MenubarSubContent>
+          <MenubarItem>fixture.json</MenubarItem>
+          <MenubarItem>schema.sql</MenubarItem>
+        </MenubarSubContent>
+      </MenubarSub>
+      <MenubarSeparator />
+      <MenubarItem variant="destructive">Delete project</MenubarItem>
+    </MenubarContent>
+  </MenubarMenu>
+  <MenubarMenu>
+    <MenubarTrigger>Edit</MenubarTrigger>
+    <MenubarContent>
+      <MenubarItem>Undo</MenubarItem>
+      <MenubarItem>Redo</MenubarItem>
+    </MenubarContent>
+  </MenubarMenu>
+  <MenubarMenu>
+    <MenubarTrigger>View</MenubarTrigger>
+    <MenubarContent>
+      <MenubarCheckboxItem checked>Show toolbar</MenubarCheckboxItem>
+      <MenubarSeparator />
+      <MenubarLabel>Density</MenubarLabel>
+      <MenubarRadioGroup value="md">
+        <MenubarRadioItem value="sm">Compact</MenubarRadioItem>
+        <MenubarRadioItem value="md">Comfortable</MenubarRadioItem>
+        <MenubarRadioItem value="lg">Spacious</MenubarRadioItem>
+      </MenubarRadioGroup>
+    </MenubarContent>
+  </MenubarMenu>
+</Menubar>
+```
+
+## Accessibility
+
+- Backed by `@radix-ui/react-menubar` (WAI-ARIA `menubar` pattern).
+  The strip gets `role="menubar"`, triggers `role="menuitem"`, and
+  the open menu's content `role="menu"`.
+- **Keyboard at the strip level:**
+  - `←` / `→` — move focus between top-level triggers (and switch the
+    open menu if one is open).
+  - `↓` / `Enter` / `Space` on a trigger — open its menu and focus
+    the first item.
+  - `Esc` — close the open menu and return focus to its trigger.
+- **Keyboard inside an open menu:** identical to
+  [DropdownMenu](./dropdown-menu.mdx) (`↑` / `↓` between rows, `→` /
+  `←` enter/exit submenus, type-ahead).
+- A disabled trigger or item is skipped during keyboard navigation
+  (`data-disabled=""`).
+
+## DropdownMenu vs Menubar — when to reach for which
+
+See the equivalent section in [DropdownMenu](./dropdown-menu.mdx). Short
+version: persistent strip of menu triggers → Menubar; one trigger button
+exposing actions → DropdownMenu.
+
+## Composition examples
+
+```tsx
+// Editor app top bar
+<header className="flex items-center justify-between border-b px-4 py-2">
+  <div className="flex items-center gap-3">
+    <Logo />
+    <Menubar>
+      <MenubarMenu>
+        <MenubarTrigger>File</MenubarTrigger>
+        <MenubarContent>{/* … */}</MenubarContent>
+      </MenubarMenu>
+      <MenubarMenu>
+        <MenubarTrigger>Edit</MenubarTrigger>
+        <MenubarContent>{/* … */}</MenubarContent>
+      </MenubarMenu>
+    </Menubar>
+  </div>
+  <UserAvatarDropdown />
+</header>
+```
+
+## Token usage
+
+- Strip background: `bg-background`, `border`, `shadow-xs`, `rounded-md`
+- Strip height: `h-9` with `p-1` inset
+- Trigger hover/focus: `bg-accent`, `text-accent-foreground`
+- Item hover/focus: `bg-accent`, `text-accent-foreground`
+- Destructive item: `text-destructive` plus
+  `bg-destructive/10` (light) / `bg-destructive/20` (dark) on focus
+- Radius: `rounded-md` strip, `rounded-sm` triggers + items,
+  `rounded-xs` checkbox / radio rows
+- Shadow: `shadow-md` content, `shadow-lg` sub-content
+- Spacing: `min-w-48` content, `px-2 py-1.5` items, `pl-8` reserved
+  for indicators

@@ -1,0 +1,164 @@
+# Breadcrumb
+
+A trail of links showing the user's hierarchical position. Pure semantic
+HTML — wraps an ordered list inside a `<nav aria-label="breadcrumb">`.
+No Radix, no JS state. Reach for it on detail pages where the user
+arrived deep and may want to step back up the tree.
+
+For arbitrary paginated content, use [Pagination](./pagination.mdx). For
+top-level site nav, use [NavigationMenu](./navigation-menu.mdx).
+
+## Import
+
+```tsx
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+  BreadcrumbEllipsis,
+} from "@/components/ui/breadcrumb";
+```
+
+## Anatomy
+
+- `Breadcrumb` — outer `<nav>` with `aria-label="breadcrumb"`.
+- `BreadcrumbList` — ordered list (`<ol>`) of items.
+- `BreadcrumbItem` — single trail entry (`<li>`).
+- `BreadcrumbLink` — `<a>` for upstream entries (or any element via
+  `asChild`).
+- `BreadcrumbPage` — terminal entry for the current page. Renders as
+  `<span role="link" aria-current="page" aria-disabled="true">`.
+- `BreadcrumbSeparator` — `<li role="presentation" aria-hidden>` with
+  a default `ChevronRight` icon. Override the visual via children.
+- `BreadcrumbEllipsis` — collapsed-trail glyph with sr-only "More"
+  text and the `MoreHorizontal` icon.
+
+## Props
+
+Every part is a thin wrapper over its native element and accepts the
+matching `React.ComponentProps<…>` — `<nav>`, `<ol>`, `<li>`, `<a>`,
+`<span>`. The notable extension:
+
+| Slot                  | Element  | Notable props                                                    |
+| --------------------- | -------- | ---------------------------------------------------------------- |
+| `BreadcrumbLink`      | `<a>`    | `asChild` — render as the supplied child element (e.g. Next Link) |
+| `BreadcrumbSeparator` | `<li>`   | `children` — replace the default chevron with custom content      |
+
+## Variants
+
+```tsx
+// Standard trail
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/">Home</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/library">Library</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage>Lo-fi mix</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+```tsx
+// Collapsed middle (long trail)
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/">Home</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbEllipsis />
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage>Now</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+```tsx
+// Custom separator
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/">Home</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator>/</BreadcrumbSeparator>
+    <BreadcrumbItem>
+      <BreadcrumbPage>Now</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+```tsx
+// Compose with Next.js Link via asChild
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink asChild>
+        <Link href="/library">Library</Link>
+      </BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage>{playlist.name}</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+## Accessibility
+
+- The outer `<nav>` carries `aria-label="breadcrumb"` automatically.
+- `BreadcrumbPage` is the trail terminus: `aria-current="page"` tells
+  AT this is the current location, `aria-disabled="true"` tells AT
+  it isn't navigable.
+- `BreadcrumbSeparator` is `role="presentation"` + `aria-hidden`,
+  so screen readers don't announce ">" or "/" between every entry.
+- `BreadcrumbEllipsis` is `aria-hidden` for the visual icon but
+  ships an `<span class="sr-only">More</span>` so AT users still
+  hear that the trail was truncated.
+- No keyboard interaction beyond Tab/Shift+Tab through the links —
+  this is a static structural component, not a widget.
+
+## Composition examples
+
+```tsx
+// Page header pattern
+<header className="flex items-center justify-between p-4">
+  <Breadcrumb>
+    <BreadcrumbList>
+      <BreadcrumbItem>
+        <BreadcrumbLink asChild>
+          <Link href="/">Home</Link>
+        </BreadcrumbLink>
+      </BreadcrumbItem>
+      <BreadcrumbSeparator />
+      <BreadcrumbItem>
+        <BreadcrumbPage>{video.title}</BreadcrumbPage>
+      </BreadcrumbItem>
+    </BreadcrumbList>
+  </Breadcrumb>
+  <Button variant="outline" size="sm">Share</Button>
+</header>
+```
+
+## Token usage
+
+- Text size: `text-sm`, default text color `text-muted-foreground`
+- Hover transition: `hover:text-foreground transition-colors` on links
+- Spacing: `gap-1.5` (mobile) / `gap-2.5` (sm+) between items
+- Icon size: `size-3.5` for the default chevron, `size-4` for the
+  ellipsis glyph

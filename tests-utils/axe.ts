@@ -68,4 +68,51 @@ export const axePortal = configureAxe({
   },
 });
 
+/**
+ * Axe runner for tests that scan a portaled overlay that *also* uses
+ * Radix focus guards (DropdownMenu, ContextMenu, Menubar — anything
+ * built on `@radix-ui/react-menu` family). Combines the suppressions
+ * from `axeOverlay` (focus guards trip `aria-hidden-focus`) and
+ * `axePortal` (popper wrapper trips `region` because it sits outside
+ * any landmark in the portal). Every other rule still runs.
+ */
+export const axePortalOverlay = configureAxe({
+  rules: {
+    "aria-hidden-focus": { enabled: false },
+    region: { enabled: false },
+  },
+});
+
+/**
+ * Axe runner for `cmdk`-backed Command surfaces. cmdk emits its
+ * separator with `role="separator"` directly inside the
+ * `role="listbox"` list, which trips axe's `aria-required-children`
+ * rule (listbox formally allows only `option` / `group` children).
+ * Visually + behaviourally the separator is a presentational divider
+ * between groups; cmdk does not give us a hook to override the role.
+ * The suppression scope is intentionally narrow: every other listbox
+ * a11y rule (accessible name, aria-activedescendant correctness,
+ * option roles) still runs.
+ *
+ * Use the inline-scoped `axe` (not this) for a Command surface that
+ * doesn't use `CommandSeparator`.
+ */
+export const axeCommand = configureAxe({
+  rules: {
+    "aria-required-children": { enabled: false },
+  },
+});
+
+/**
+ * Axe runner for `CommandDialog` — combines the cmdk separator
+ * suppression with the Radix Dialog focus-guard suppression
+ * (`aria-hidden-focus`). Use only on a CommandDialog scan.
+ */
+export const axeCommandDialog = configureAxe({
+  rules: {
+    "aria-required-children": { enabled: false },
+    "aria-hidden-focus": { enabled: false },
+  },
+});
+
 export { toHaveNoViolations };
