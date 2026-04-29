@@ -1,45 +1,29 @@
 import { describe, it, expect } from "vitest";
+import { TABS, parseTab, DEFAULT_TAB } from "../filter";
 
-import { applyUsersFilter } from "../filter";
-import type { AdminUserRow } from "@/lib/admin/queries";
-
-const baseRow = (over: Partial<AdminUserRow>): AdminUserRow => ({
-  userId: "u",
-  email: "u@x",
-  createdAt: "2026-01-01",
-  lastSeen: null,
-  summaries: 0,
-  whisper: 0,
-  whisperPct: 0,
-  p95Seconds: null,
-  flagged: false,
-  ...over,
-});
-
-describe("applyUsersFilter", () => {
-  it("returns all rows for 'all' or unknown filter", () => {
-    const rows = [baseRow({ userId: "a" }), baseRow({ userId: "b" })];
-    expect(applyUsersFilter(rows, "all")).toEqual(rows);
-    expect(applyUsersFilter(rows, "unrecognized")).toEqual(rows);
+describe("filter tabs", () => {
+  it("DEFAULT_TAB is 'exclude_anon'", () => {
+    expect(DEFAULT_TAB).toBe("exclude_anon");
   });
 
-  it("'flagged' keeps only rows where flagged=true", () => {
-    const rows = [
-      baseRow({ userId: "a", flagged: true }),
-      baseRow({ userId: "b", flagged: false }),
-      baseRow({ userId: "c", flagged: true }),
-    ];
-    const out = applyUsersFilter(rows, "flagged");
-    expect(out.map((r) => r.userId)).toEqual(["a", "c"]);
+  it("TABS includes exactly the five expected keys in display order", () => {
+    expect(TABS.map((t) => t.key)).toEqual([
+      "exclude_anon",
+      "active",
+      "flagged",
+      "anon_only",
+      "all",
+    ]);
   });
 
-  it("'active' keeps only rows with summaries > 0", () => {
-    const rows = [
-      baseRow({ userId: "a", summaries: 0 }),
-      baseRow({ userId: "b", summaries: 5 }),
-      baseRow({ userId: "c", summaries: 1 }),
-    ];
-    const out = applyUsersFilter(rows, "active");
-    expect(out.map((r) => r.userId)).toEqual(["b", "c"]);
+  it("parseTab returns DEFAULT for unknown values", () => {
+    expect(parseTab("garbage")).toBe("exclude_anon");
+    expect(parseTab(null)).toBe("exclude_anon");
+    expect(parseTab(undefined)).toBe("exclude_anon");
+  });
+
+  it("parseTab returns the value for known tabs", () => {
+    expect(parseTab("anon_only")).toBe("anon_only");
+    expect(parseTab("all")).toBe("all");
   });
 });

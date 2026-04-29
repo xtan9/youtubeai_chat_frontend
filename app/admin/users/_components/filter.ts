@@ -1,17 +1,20 @@
-import type { AdminUserRow } from "@/lib/admin/queries";
+import type { UsersTab } from "@/lib/admin/queries";
 
-/** Tab filter applied client-side to the current page of users.
- *
- * Note: this filter runs *after* server pagination, so the resulting
- * count is "matches on this page" — not "all matching users in the DB".
- * Surface that distinction in the UI copy. Pushing the filter to the
- * server is a future refinement; today the admin volume is small enough
- * that the page-local filter is acceptable. */
-export function applyUsersFilter(
-  rows: AdminUserRow[],
-  filter: string,
-): AdminUserRow[] {
-  if (filter === "flagged") return rows.filter((r) => r.flagged);
-  if (filter === "active") return rows.filter((r) => r.summaries > 0);
-  return rows;
+export const DEFAULT_TAB: UsersTab = "exclude_anon";
+
+export const TABS: ReadonlyArray<{ key: UsersTab; label: string }> = [
+  { key: "exclude_anon", label: "Accounts" },
+  { key: "active", label: "Active" },
+  { key: "flagged", label: "Flagged" },
+  { key: "anon_only", label: "Anonymous" },
+  { key: "all", label: "All" },
+];
+
+const KNOWN: ReadonlySet<UsersTab> = new Set(TABS.map((t) => t.key));
+
+export function parseTab(value: string | null | undefined): UsersTab {
+  if (value && (KNOWN as Set<string>).has(value)) {
+    return value as UsersTab;
+  }
+  return DEFAULT_TAB;
 }
