@@ -36,6 +36,11 @@ beforeEach(() => {
 // `theme === "dark"`, which is `false` when the user picked "system" with a
 // dark OS (theme is "system" in that case, not "dark"). The fix is to read
 // `resolvedTheme`, which always settles to "light" or "dark".
+//
+// Assertions intentionally pin the raw class strings (`bg-white/10` /
+// `bg-slate-100`) — they ARE the dark/light contract this regression guard
+// protects. When the design-system token sweep migrates these to semantic
+// tokens, update the asserted strings to match.
 describe("SummaryContent dark-mode detection", () => {
   it("renders the dark branch when theme='system' resolves to dark", () => {
     themeMock.mockReturnValue({ theme: "system", resolvedTheme: "dark" });
@@ -58,5 +63,17 @@ describe("SummaryContent dark-mode detection", () => {
     const { container } = render(<SummaryContent summary={summary} />);
     const card = container.querySelector(".rounded-2xl.p-8");
     expect(card?.className).toContain("bg-white/10");
+  });
+
+  // next-themes returns `undefined` for both fields server-side and on the
+  // initial pre-mount render. Default to light so a future "render dark by
+  // default during hydration" tweak can't silently flash dark for light-OS
+  // users.
+  it("renders the light branch before next-themes mounts (resolvedTheme undefined)", () => {
+    themeMock.mockReturnValue({ theme: undefined, resolvedTheme: undefined });
+    const { container } = render(<SummaryContent summary={summary} />);
+    const card = container.querySelector(".rounded-2xl.p-8");
+    expect(card?.className).toContain("bg-slate-100");
+    expect(card?.className).not.toContain("bg-white/10");
   });
 });
