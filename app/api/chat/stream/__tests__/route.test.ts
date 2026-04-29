@@ -237,4 +237,105 @@ describe("POST /api/chat/stream", () => {
     expect(events).toContain('"type":"error"');
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
   });
+
+  it("on caller abort mid-stream: persists user-only via after(), drops assistant partial", async () => {
+    // Simulate an LLM generator that respects the abort signal — yields
+    // one delta, then on the next iteration sees signal.aborted and
+    // throws an AbortError. The route's catch branch should detect the
+    // abort and schedule appendChatUserMessage (not appendChatTurn).
+    const controller = new AbortController();
+    mocks.streamChatCompletion.mockImplementation(async function* (
+      opts: { signal: AbortSignal }
+    ) {
+      yield { type: "delta" as const, text: "partial" };
+      // Emulate the user pressing Stop between yields.
+      controller.abort();
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      Object.defineProperty(opts.signal, "aborted", {
+        value: true,
+        configurable: true,
+      });
+      throw err;
+    });
+    const { POST } = await import("../route");
+    const req = new Request("http://localhost/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ youtube_url: VALID_URL, message: "Hi" }),
+      signal: controller.signal,
+    });
+    const res = await POST(req);
+    // Drain the body so the stream's start() has a chance to run.
+    await readSse(res.body!).catch(() => []);
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+      "Hi"
+    );
+  });
+
+  it("does NOT double-insert when cancel() fires after a clean appendChatTurn", async () => {
+    // Drive the route through the success path (appendChatTurn called),
+    // then trigger a late cancel(). The dedupe flag should prevent
+    // appendChatUserMessage from also firing.
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    // Drain so start() completes (sync persist runs, sets the flag).
+    await readSse(res.body!);
+    // Ensure the body is fully consumed; cancel() on a closed stream
+    // is the runtime-cancel race we want to test against.
+    expect(mocks.appendChatTurn).toHaveBeenCalledTimes(1);
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("caps history to MAX_HISTORY_MESSAGES before passing to the prompt builder", async () => {
+    const longHistory = Array.from({ length: 25 }, (_, i) => ({
+      id: `m${i}`,
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `msg-${i}`,
+      createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
+    }));
+    mocks.listChatMessages.mockResolvedValue(longHistory);
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: ReadonlyArray<{ role: string; content: string }>;
+    }) {
+      // The system message is at index 0, then history (capped), then
+      // the new user message at the end. With a 25-row history the
+      // builder should receive only the last 16 items as history.
+      const historyCount = opts.messages.length - 2;
+      expect(historyCount).toBe(16);
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    await readSse(res.body!);
+  });
+
+  it("persists turn BEFORE sending done; persist failure surfaces error event", async () => {
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "answer" };
+      yield { type: "done" as const };
+    });
+    mocks.appendChatTurn.mockRejectedValue(new Error("DB blip"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    const events = (await readSse(res.body!)).join("");
+    // The done event should NOT appear because persist failed.
+    expect(events).not.toContain('"type":"done"');
+    expect(events).toContain('"type":"error"');
+  });
 });

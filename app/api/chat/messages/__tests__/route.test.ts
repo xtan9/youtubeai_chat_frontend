@@ -103,6 +103,29 @@ describe("/api/chat/messages", () => {
       expect(mocks.listChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
     });
 
+    it("returns 503 on auth-service infra error (non-4xx)", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: null },
+        error: { status: 502, message: "upstream" },
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+      );
+      expect(res.status).toBe(503);
+    });
+
+    it("returns 503 when getUser throws", async () => {
+      mocks.getUser.mockRejectedValue(new Error("network down"));
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+      );
+      expect(res.status).toBe(503);
+    });
+
     it("returns 503 when listing fails", async () => {
       mocks.getCachedTranscript.mockResolvedValue({
         videoId: "video-uuid",
