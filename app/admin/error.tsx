@@ -10,8 +10,17 @@ export default function AdminError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[admin] route error boundary", error);
+    // Log error class + message so the operator can grep logs by class.
+    // The digest matches the Vercel runtime log entry for the throw.
+    console.error("[admin] route error boundary", {
+      name: error.name,
+      message: error.message,
+      digest: error.digest,
+    });
   }, [error]);
+
+  const headline = errorHeadline(error);
+  const explanation = errorExplanation(error);
 
   return (
     <div
@@ -24,11 +33,10 @@ export default function AdminError({
       }}
     >
       <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 8 }}>
-        Admin console unavailable
+        {headline}
       </h1>
       <p style={{ color: "#737373", fontSize: 14, marginBottom: 16 }}>
-        The auth service or a downstream dependency is temporarily
-        unreachable. The console will return when it&apos;s back.
+        {explanation}
       </p>
       <button
         type="button"
@@ -59,4 +67,26 @@ export default function AdminError({
       )}
     </div>
   );
+}
+
+function errorHeadline(error: Error): string {
+  if (error.name === "AdminClientUnavailableError") {
+    return "Admin console unavailable";
+  }
+  if (error.name === "QueryError") return "Admin query failed";
+  if (error.name === "AuthInfraError") return "Auth service unavailable";
+  return "Admin console error";
+}
+
+function errorExplanation(error: Error): string {
+  if (error.name === "AdminClientUnavailableError") {
+    return "Service-role credentials are missing in this environment. The console will return when the env var is set and a redeploy lands.";
+  }
+  if (error.name === "QueryError") {
+    return "A database query backing this page failed. Retry; if it persists, check Supabase status and the runtime log.";
+  }
+  if (error.name === "AuthInfraError") {
+    return "The auth service or a downstream dependency is temporarily unreachable. The console will return when it's back.";
+  }
+  return "An unexpected error occurred. Retry; if it persists, check the runtime log for the ref below.";
 }

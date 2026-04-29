@@ -1,110 +1,73 @@
-"use client";
-
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Download,
-  RefreshCcw,
-} from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Download, RefreshCcw } from "lucide-react";
 import { Avatar, Btn, Pill } from "../_components/atoms";
+import { requireAdminPage } from "../_components/admin-gate";
+import { requireAdminClient } from "@/lib/supabase/admin-client";
+import { listAuditLog, type AuditRow } from "@/lib/admin/queries";
 import type { Tone } from "@/lib/admin/types";
 
-// TODO(admin-data): replace with `admin_audit_log` SELECT once spike-003 migration lands.
-interface AuditEvent {
-  t: string;
-  admin: string;
-  action: string;
-  res: string;
-  reason: string;
-  ip: string;
-  actionTone?: Tone;
+const PAGE_SIZE = 50;
+
+export const dynamic = "force-dynamic";
+
+interface PageProps {
+  searchParams: Promise<{ cursor?: string }>;
 }
 
-const AUDIT: AuditEvent[] = [
-  { t: "14:22:08", admin: "steven@", action: "viewed transcript", res: "summary c4e1…", reason: "abuse review · #4821", ip: "203.0.113.7", actionTone: "warn" },
-  { t: "14:21:55", admin: "steven@", action: "viewed user", res: "user 8af2…", reason: "—", ip: "203.0.113.7" },
-  { t: "14:18:02", admin: "steven@", action: "reset rate limit", res: "user 8af2…", reason: "support · #4821", ip: "203.0.113.7", actionTone: "primary" },
-  { t: "13:51:40", admin: "steven@", action: "viewed transcript", res: "summary 9b04…", reason: "quality check", ip: "203.0.113.7", actionTone: "warn" },
-  { t: "13:50:11", admin: "steven@", action: "exported csv", res: "users (n=42)", reason: "monthly review", ip: "203.0.113.7" },
-  { t: "09:02:44", admin: "ana@", action: "viewed transcript", res: "summary aa18…", reason: "support · #4811", ip: "198.51.100.2", actionTone: "warn" },
-  { t: "08:55:30", admin: "ana@", action: "signed in", res: "—", reason: "—", ip: "198.51.100.2" },
-];
+export default async function AdminAuditPage({ searchParams }: PageProps) {
+  const principal = await requireAdminPage();
+  const client = requireAdminClient(
+    { email: principal.email },
+    principal.allowlist,
+  );
+  const { cursor } = await searchParams;
+  const { rows, nextCursor } = await listAuditLog(client, {
+    cursor: cursor ?? null,
+    pageSize: PAGE_SIZE,
+  });
 
-export default function AdminAuditPage() {
   return (
     <div className="surface-anim">
       <div className="page-h">
         <div>
           <h1 className="page-title">Audit log</h1>
-          <p className="page-sub">Append-only · 312 events in last 30 days</p>
+          <p className="page-sub">
+            Append-only · {rows.length === 0 ? "no events yet" : `showing ${rows.length} latest events`}
+          </p>
         </div>
         <div className="row gap-8">
           <Btn size="sm" kind="ghost">
             <Download size={13} /> Export CSV
           </Btn>
           <Btn size="sm">
-            <RefreshCcw size={13} /> Subscribe
+            <RefreshCcw size={13} /> Refresh
           </Btn>
         </div>
       </div>
 
       <div className="page-body">
-        <div className="row gap-6" style={{ flexWrap: "wrap", marginBottom: 14 }}>
-          <Pill tone="primary">
-            <Check size={10} /> all admins
-          </Pill>
-          <Pill>
-            action: any <ChevronDown size={10} />
-          </Pill>
-          <Pill>
-            resource: summary <ChevronDown size={10} />
-          </Pill>
-          <Pill>
-            last 7 days <ChevronDown size={10} />
-          </Pill>
-          <Pill>has reason ☑</Pill>
-          <Pill style={{ borderStyle: "dashed", color: "var(--text-3)" }}>+ filter</Pill>
-        </div>
-
         <div className="card" style={{ overflow: "hidden" }}>
           <table className="tbl">
             <thead>
               <tr>
-                <th style={{ width: 110 }}>Time (UTC)</th>
+                <th style={{ width: 170 }}>Time (UTC)</th>
                 <th>Admin</th>
                 <th>Action</th>
                 <th>Resource</th>
-                <th>Reason</th>
-                <th>IP</th>
+                <th>Resource ID</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {AUDIT.map((e, i) => (
-                <tr key={i}>
-                  <td className="mono">{e.t}</td>
-                  <td>
-                    <div className="user-cell">
-                      <Avatar
-                        idx={e.admin === "steven@" ? 1 : 2}
-                        label={e.admin.slice(0, 2)}
-                        size={20}
-                      />
-                      <span>{e.admin}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <Pill tone={e.actionTone}>{e.action}</Pill>
-                  </td>
-                  <td className="mono">{e.res}</td>
-                  <td className="muted">{e.reason}</td>
-                  <td className="mono muted">{e.ip}</td>
-                  <td>
-                    <ChevronRight size={14} style={{ color: "var(--text-3)" }} />
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="muted" style={{ padding: 24, textAlign: "center" }}>
+                    No audit events recorded yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                rows.map((event) => <AuditEventRow key={event.id} event={event} />)
+              )}
             </tbody>
           </table>
           <div
@@ -118,11 +81,71 @@ export default function AdminAuditPage() {
               color: "var(--text-3)",
             }}
           >
-            <span>Showing 7 of 312 events</span>
-            <Btn size="sm" kind="ghost">Load more</Btn>
+            <span>{nextCursor ? "More events available" : "End of log"}</span>
+            {nextCursor && (
+              <Link
+                href={`/admin/audit?cursor=${encodeURIComponent(nextCursor)}`}
+                style={{ textDecoration: "none" }}
+              >
+                <Btn size="sm" kind="ghost">Load more</Btn>
+              </Link>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function AuditEventRow({ event }: { event: AuditRow }) {
+  const tone = actionTone(event.action);
+  const adminLabel = event.adminEmail.slice(0, 2).toUpperCase();
+  const adminIdx = hashToIdx(event.adminEmail);
+  return (
+    <tr>
+      <td className="mono">{formatTime(event.createdAt)}</td>
+      <td>
+        <div className="user-cell">
+          <Avatar idx={adminIdx} label={adminLabel} size={20} />
+          <span>{event.adminEmail}</span>
+        </div>
+      </td>
+      <td>
+        <Pill tone={tone}>{event.action.replace(/_/g, " ")}</Pill>
+      </td>
+      <td>
+        <span className="muted">{event.resourceType}</span>
+      </td>
+      <td className="mono muted">{shortenId(event.resourceId)}</td>
+      <td>
+        <ChevronRight size={14} style={{ color: "var(--text-3)" }} />
+      </td>
+    </tr>
+  );
+}
+
+function actionTone(action: string): Tone | undefined {
+  if (action.startsWith("view_")) return "warn";
+  if (action === "reset_rate_limit" || action === "restore_user") return "primary";
+  if (action === "suspend_user") return "bad";
+  return undefined;
+}
+
+function formatTime(iso: string): string {
+  // YYYY-MM-DD HH:MM:SS UTC, trimmed to fit the column.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function shortenId(id: string): string {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
+function hashToIdx(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) | 0;
+  return Math.abs(h) % 7;
 }
