@@ -24,32 +24,34 @@ export function Header() {
     <header className="sticky top-0 w-full z-50 border-b border-border-subtle backdrop-blur-md bg-surface-base/95 dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
-              <Brain size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent">
-              YouTube AI Summarizer
-            </span>
-          </Link>
+          <div className="flex items-center gap-8">
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
+                <Brain size={20} className="text-white" />
+              </div>
+              <span className="text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent">
+                YouTube AI Summarizer
+              </span>
+            </Link>
 
-          <nav
-            aria-label="Primary"
-            className="hidden md:flex items-center gap-6 text-body-sm font-medium"
-          >
-            <Link
-              href="/blog"
-              className="text-text-muted hover:text-text-primary transition-colors"
+            <nav
+              aria-label="Primary"
+              className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
-              Blog
-            </Link>
-            <Link
-              href="/faq"
-              className="text-text-muted hover:text-text-primary transition-colors"
-            >
-              FAQ
-            </Link>
-          </nav>
+              <Link
+                href="/blog"
+                className="text-text-muted hover:text-text-primary transition-colors"
+              >
+                Blog
+              </Link>
+              <Link
+                href="/faq"
+                className="text-text-muted hover:text-text-primary transition-colors"
+              >
+                FAQ
+              </Link>
+            </nav>
+          </div>
 
           <div className="flex items-center gap-4">
             <ThemeSwitcher />
