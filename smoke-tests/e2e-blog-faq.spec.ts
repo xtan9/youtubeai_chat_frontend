@@ -193,9 +193,12 @@ test.describe("nav integration", () => {
     expect(blog, "Blog link must be visible in header").not.toBeNull();
     // Blog must sit in the left half of the viewport.
     expect(blog!.x).toBeLessThan(640);
-    // And within 200px of the brand's right edge, so it's clearly
-    // grouped — not coincidentally left of center.
-    expect(blog!.x - (brand!.x + brand!.width)).toBeLessThan(200);
+    // And within 120px of the brand's right edge — the actual gap with
+    // gap-8 is ~32px, so 120px leaves slack for brand-text width
+    // changes (up to ~85px additional) while still catching any
+    // ml-24+ shove or a revert to the centered layout, where the gap
+    // would balloon to 400-500px.
+    expect(blog!.x - (brand!.x + brand!.width)).toBeLessThan(120);
   });
 
   test("sitemap.xml lists /blog, /faq, and every published post", async ({
