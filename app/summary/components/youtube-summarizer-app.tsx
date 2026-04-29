@@ -249,6 +249,13 @@ export function YouTubeSummarizerApp({
   // hard error suppresses both, so this single condition covers both
   // paths without touching the streaming state machine.
   const chatLocked = !dataWithLiveTimers || !!streamError;
+  // While the cache lookup / stream is still in flight, the lock above
+  // is "we don't know yet" — not "permanently unavailable". Tell
+  // SummaryTabs so it can defer the auto-bounce-away-from-?tab=chat
+  // effect until the lock decision is final, otherwise reloads against
+  // a cached summary flicker to the Summary tab.
+  const chatLockPending =
+    (isLoading || isFetching) && !rawData && !streamError;
 
   const summaryContent = (
     <>
@@ -301,6 +308,7 @@ export function YouTubeSummarizerApp({
           <div className="lg:col-span-2">
             <SummaryTabs
               chatLocked={chatLocked}
+              chatLockPending={chatLockPending}
               summaryContent={summaryContent}
               chatContent={chatContent}
             />

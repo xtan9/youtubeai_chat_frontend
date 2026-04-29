@@ -19,6 +19,13 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/services/user-history", () => ({
   getRecentHistory: (...args: unknown[]) => mockGetRecentHistory(...args),
 }));
+// Chat-count badge fetch is hoisted from `lib/services/chat-counts.ts`.
+// Default to "no chat counts" so existing assertions keep working;
+// the badge-rendering case has its own dedicated test below.
+const mockGetChatMessageCounts = vi.fn(async () => new Map());
+vi.mock("@/lib/services/chat-counts", () => ({
+  getChatMessageCounts: (...args: unknown[]) => mockGetChatMessageCounts(...args),
+}));
 vi.mock("next/navigation", () => ({
   redirect: (path: string) => mockRedirect(path),
 }));
@@ -42,6 +49,8 @@ describe("DashboardPage", () => {
     mockGetUser.mockReset();
     mockGetRecentHistory.mockReset();
     mockRedirect.mockClear();
+    mockGetChatMessageCounts.mockReset();
+    mockGetChatMessageCounts.mockResolvedValue(new Map());
   });
 
   it("redirects to /auth/login when no user", async () => {
@@ -133,5 +142,26 @@ describe("DashboardPage", () => {
     const ui = await DashboardPage();
     renderWithProviders(ui);
     expect(screen.getByText(/Welcome back, alex/i)).toBeTruthy();
+  });
+
+  it("renders the chat-count badge on rows that have chat messages", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
+    mockGetChatMessageCounts.mockResolvedValue(new Map([[ROW.videoId, 4]]));
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    const badge = screen.getByTestId("chat-count-badge");
+    expect(badge.textContent).toContain("4");
+    // Aria label conveys the count to assistive tech.
+    expect(badge.getAttribute("aria-label")).toMatch(/4 chat messages/i);
+  });
+
+  it("does not render the chat-count badge when a row has zero messages", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
+    mockGetChatMessageCounts.mockResolvedValue(new Map());
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    expect(screen.queryByTestId("chat-count-badge")).toBeNull();
   });
 });

@@ -16,6 +16,14 @@ export type SummaryTabValue = (typeof SUMMARY_TAB_VALUES)[number];
 interface SummaryTabsProps {
   readonly chatLocked: boolean;
   readonly chatLockedReason?: string;
+  /**
+   * True while it is not yet decided whether chat will unlock — i.e.
+   * the summary's cache lookup / stream is still in flight. The
+   * auto-bounce-away-from-?tab=chat effect is suppressed during this
+   * window so that a reload of `?tab=chat` against a cached summary
+   * doesn't flicker to the Summary tab before the cache resolves.
+   */
+  readonly chatLockPending?: boolean;
   readonly summaryContent: ReactNode;
   readonly chatContent: ReactNode;
 }
@@ -32,6 +40,7 @@ function isValidTab(value: string | null): value is SummaryTabValue {
 export function SummaryTabs({
   chatLocked,
   chatLockedReason = "Available after summary completes",
+  chatLockPending = false,
   summaryContent,
   chatContent,
 }: SummaryTabsProps) {
@@ -48,14 +57,21 @@ export function SummaryTabs({
   // bookmarked the chat tab and came back to a non-cached video), bounce
   // the URL state back to summary so the disabled tab doesn't render an
   // empty content panel.
+  //
+  // The `chatLockPending` guard: while the parent reports that the
+  // summary's cache lookup hasn't resolved yet, `chatLocked` is true
+  // by virtue of "no data yet, no error yet" — bouncing here would
+  // cost the user their `?tab=chat` deep link the instant they reload
+  // a cached summary. Wait until the parent says the lock decision is
+  // final.
   useEffect(() => {
-    if (active === "chat" && chatLocked) {
+    if (active === "chat" && chatLocked && !chatLockPending) {
       const next = new URLSearchParams(searchParams.toString());
       next.delete("tab");
       const query = next.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     }
-  }, [active, chatLocked, pathname, router, searchParams]);
+  }, [active, chatLocked, chatLockPending, pathname, router, searchParams]);
 
   const setTab = useCallback(
     (value: string) => {
