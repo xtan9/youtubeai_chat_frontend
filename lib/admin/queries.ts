@@ -335,12 +335,17 @@ async function aggregateUserActivity(
 ): Promise<Map<string, UserActivity>> {
   // Pull every history row for these users in window, then join the
   // referenced summaries to compute whisper share + p95 latency.
+  // user_video_history's timestamp column is `accessed_at` in production
+  // (the cache_schema migration's CREATE TABLE was skipped by IF NOT EXISTS
+  // — see lib/services/user-history.ts comment). PostgREST `created_at:
+  // accessed_at` aliases it on read so downstream code keeps using the
+  // same field name across tables.
   const { data: history, error: hErr } = await client
     .from("user_video_history")
-    .select("user_id, video_id, created_at")
+    .select("user_id, video_id, created_at:accessed_at")
     .in("user_id", userIds)
-    .gte("created_at", window.start.toISOString())
-    .lte("created_at", window.end.toISOString());
+    .gte("accessed_at", window.start.toISOString())
+    .lte("accessed_at", window.end.toISOString());
   if (hErr) throw new QueryError("aggregateUserActivity:history", hErr.message);
 
   const result = new Map<string, UserActivity>();
@@ -428,11 +433,15 @@ export async function getUserSummaries(
   // metadata, once as a parent for `summaries`) which PostgREST rejects.
   // Splitting into history → videos+summaries is also clearer and lets us
   // pick the canonical summary deterministically.
+  // user_video_history's timestamp column is `accessed_at` on prod
+  // (cache_schema migration was a no-op due to IF NOT EXISTS — same
+  // drift pattern as videos.youtube_url). Alias on read so the rest of
+  // this function keeps the canonical `created_at` shape.
   const { data: history, error: histErr } = await client
     .from("user_video_history")
-    .select("video_id, created_at")
+    .select("video_id, created_at:accessed_at")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false })
+    .order("accessed_at", { ascending: false })
     .limit(cap);
   if (histErr) throw new QueryError("getUserSummaries:history", histErr.message);
 
@@ -740,11 +749,15 @@ async function fetchHistoryIn(
   client: SupabaseClient,
   window: TimeWindow,
 ): Promise<HistoryRow[]> {
+  // user_video_history's timestamp is `accessed_at` in production (see
+  // aggregateUserActivity comment). Alias on read so HistoryRow's
+  // `created_at` is consistent with how the field is named on every
+  // other admin table.
   const { data: history, error } = await client
     .from("user_video_history")
-    .select("user_id, video_id, created_at")
-    .gte("created_at", window.start.toISOString())
-    .lte("created_at", window.end.toISOString())
+    .select("user_id, video_id, created_at:accessed_at")
+    .gte("accessed_at", window.start.toISOString())
+    .lte("accessed_at", window.end.toISOString())
     .limit(HISTORY_ROW_CAP);
   if (error) throw new QueryError("fetchHistoryIn:history", error.message);
   if (history && history.length === HISTORY_ROW_CAP) {

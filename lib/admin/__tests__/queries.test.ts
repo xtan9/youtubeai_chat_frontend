@@ -675,3 +675,89 @@ describe("WHISPER_FLAG_THRESHOLD", () => {
     expect(WHISPER_FLAG_THRESHOLD).toBe(30);
   });
 });
+
+// ─── Regression: user_video_history column name ──────────────────────────
+//
+// Production's user_video_history table has `accessed_at`, not `created_at`
+// — the cache_schema CREATE TABLE was a no-op due to IF NOT EXISTS. Any
+// admin query that filters/orders on `created_at` will 500 in prod with
+// `column user_video_history.created_at does not exist`. These tests
+// pin that the wire-level column name passed to gte/lte/order is
+// `accessed_at`; downstream code still consumes the field as
+// `created_at` thanks to PostgREST aliasing on the select clause.
+describe("user_video_history column drift guard", () => {
+  it("aggregateUserActivity (via listUsersWithStats) filters on accessed_at", async () => {
+    const seen: ChainCall[] = [];
+    const window = lastNDays(30);
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: (calls) => seen.push(...calls),
+        },
+      ],
+      {
+        listUsers: {
+          data: {
+            users: [
+              {
+                id: "u1",
+                email: "u1@example.com",
+                created_at: "2026-01-01",
+                last_sign_in_at: null,
+              },
+            ],
+            total: 1,
+          },
+          error: null,
+        },
+      },
+    );
+    await listUsersWithStats(client, { pageSize: 25, window });
+    const selectArg = String(seen.find((c) => c.method === "select")?.args[0] ?? "");
+    const gteCol = String(seen.find((c) => c.method === "gte")?.args[0] ?? "");
+    const lteCol = String(seen.find((c) => c.method === "lte")?.args[0] ?? "");
+    expect(selectArg).toContain("created_at:accessed_at");
+    expect(gteCol).toBe("accessed_at");
+    expect(lteCol).toBe("accessed_at");
+  });
+
+  it("getUserSummaries orders on accessed_at, not created_at", async () => {
+    const seen: ChainCall[] = [];
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await getUserSummaries(client, "u1", 10);
+    const selectArg = String(seen.find((c) => c.method === "select")?.args[0] ?? "");
+    const orderCol = String(seen.find((c) => c.method === "order")?.args[0] ?? "");
+    expect(selectArg).toContain("created_at:accessed_at");
+    expect(orderCol).toBe("accessed_at");
+  });
+
+  it("fetchHistoryIn (via getDashboardKPIs) filters on accessed_at", async () => {
+    const seen: ChainCall[] = [];
+    const window = lastNDays(7);
+    const client = buildClient([
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    await getDashboardKPIs(client, window);
+    const selectArg = String(seen.find((c) => c.method === "select")?.args[0] ?? "");
+    const gteCol = String(seen.find((c) => c.method === "gte")?.args[0] ?? "");
+    const lteCol = String(seen.find((c) => c.method === "lte")?.args[0] ?? "");
+    expect(selectArg).toContain("created_at:accessed_at");
+    expect(gteCol).toBe("accessed_at");
+    expect(lteCol).toBe("accessed_at");
+  });
+});
