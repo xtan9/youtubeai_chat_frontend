@@ -196,6 +196,23 @@
   --color-state-pressed: hsl(0 0% 0% / 0.08);
   --color-state-focus: hsl(0 0% 3.9%);
   --color-state-disabled: hsl(0 0% 0% / 0.04);
+
+  /* --------------------------------------------------------------------
+   * Layout container widths
+   *
+   * Tailwind 4 generates `max-w-*` utilities from the `--container-*`
+   * namespace. The `--container-page` token is the design-system-blessed
+   * cap for full-page layouts that need more horizontal room than
+   * Tailwind's built-in `container` class — `.container` clamps to the
+   * active breakpoint (1280px at `xl`, 1536px at `2xl` and above), so
+   * ultrawide displays leave large outer gutters. Use `max-w-page` on
+   * outer page wrappers when content benefits from extra room on
+   * ultrawide displays (e.g. multi-column summary/chat shells, plus
+   * the global header so it shares the same outer cap). Prefer
+   * `container` for prose-dominant pages (blog posts, legal pages,
+   * FAQ) where reading width matters.
+   * -------------------------------------------------------------------- */
+  --container-page: 1800px;
 }
 
 /* Gradient utility classes — see Tailwind 4 @utility directive. */

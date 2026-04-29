@@ -22,7 +22,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 w-full z-50 border-b border-border-subtle backdrop-blur-md bg-surface-base/95 dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
-      <div className="container mx-auto px-6 py-4">
+      <div className="mx-auto max-w-page px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link href="/" className="flex items-center gap-3 group">
