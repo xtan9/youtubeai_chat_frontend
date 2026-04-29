@@ -34,16 +34,19 @@ describe("extractYouTubeId", () => {
     ).toBe("cdiD-9MMpb0");
   });
 
-  it("returns null for non-YouTube URLs", () => {
+  it("returns null for non-YouTube hosts that have no v= or shorts/embed token", () => {
     expect(extractYouTubeId("https://vimeo.com/12345")).toBeNull();
+  });
+
+  it("matches ?v= host-agnostically (documented limitation)", () => {
+    // The pattern is host-agnostic by design — heroVideo's
+    // z.string().url() + the test corpus running everything through
+    // youtube.com makes a host check more complexity than it's worth.
+    // Tighten the regex if a non-YouTube host with ?v= becomes a real
+    // failure mode.
     expect(extractYouTubeId("https://example.com/watch?v=cdiD-9MMpb0")).toBe(
       "cdiD-9MMpb0",
     );
-    // ^ Note: the pattern matches `?v=` host-agnostically. That's a
-    // deliberate trade for simplicity — the heroVideo schema's
-    // z.string().url() runs first and the URL is almost always
-    // youtube.com in practice. If this becomes a problem, tighten the
-    // regex with a host check.
   });
 
   it("returns null for malformed YouTube URLs (no 11-char id)", () => {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import type { BlogPost } from "@/lib/content/blog";
+import { formatPostDate } from "@/lib/content/format-date";
 
 const CATEGORY_LABELS: Record<BlogPost["category"], string> = {
   workflows: "Workflow",
@@ -8,16 +9,6 @@ const CATEGORY_LABELS: Record<BlogPost["category"], string> = {
   tutorials: "Tutorial",
   news: "News",
 };
-
-function formatDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00Z");
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 export function PostCard({ post }: { post: BlogPost }) {
   return (
@@ -30,7 +21,9 @@ export function PostCard({ post }: { post: BlogPost }) {
           {CATEGORY_LABELS[post.category]}
         </span>
         <span>·</span>
-        <time dateTime={post.publishedAt}>{formatDate(post.publishedAt)}</time>
+        <time dateTime={post.publishedAt}>
+          {formatPostDate(post.publishedAt)}
+        </time>
       </div>
       <h3 className="text-h4 font-semibold text-text-primary group-hover:text-accent-brand transition-colors mb-2">
         {post.title}

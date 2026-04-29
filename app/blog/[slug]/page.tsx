@@ -15,6 +15,7 @@ import { Breadcrumbs } from "../components/breadcrumbs";
 import { CtaCard } from "../components/cta-card";
 import { InlineFaq } from "../components/inline-faq";
 import { PostCard } from "../components/post-card";
+import { formatPostDate } from "@/lib/content/format-date";
 
 export function generateStaticParams() {
   return loadAllBlogSlugs().map((slug) => ({ slug }));
@@ -68,14 +69,7 @@ export default async function BlogPostPage({
   const videoSchema = buildVideoObjectSchema(post);
   const inlineFaq = post.faq ?? [];
 
-  const formattedDate = new Date(
-    post.publishedAt + "T00:00:00Z",
-  ).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  const formattedDate = formatPostDate(post.publishedAt, "long");
 
   return (
     <article className="container mx-auto px-4 py-12 max-w-5xl">
