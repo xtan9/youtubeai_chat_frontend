@@ -1172,6 +1172,13 @@ async function fetchHistoryIn(
   window: TimeWindow,
   excludeUserIds: string[] = [],
 ): Promise<HistoryRow[]> {
+  // Defensive filter: drop empty/falsy IDs so a future caller passing a
+  // partially-populated array can't break the PostgREST in.() literal
+  // (e.g. `()` or `(,uuid)` would 400 or silently mis-filter).
+  const cleanedExcludes = excludeUserIds.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+
   // user_video_history's timestamp is `accessed_at` in production (see
   // aggregateUserActivity comment). Alias on read so HistoryRow's
   // `created_at` is consistent with how the field is named on every
@@ -1182,8 +1189,8 @@ async function fetchHistoryIn(
     .gte("accessed_at", window.start.toISOString())
     .lte("accessed_at", window.end.toISOString());
 
-  if (excludeUserIds.length > 0) {
-    query = query.not("user_id", "in", `(${excludeUserIds.join(",")})`);
+  if (cleanedExcludes.length > 0) {
+    query = query.not("user_id", "in", `(${cleanedExcludes.join(",")})`);
   }
 
   const { data: history, error } = await query.limit(HISTORY_ROW_CAP);
