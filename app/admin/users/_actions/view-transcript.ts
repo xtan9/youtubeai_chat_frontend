@@ -21,15 +21,21 @@ export interface ViewTranscriptOk {
   videoTitle: string | null;
   channelName: string | null;
   language: string | null;
+  /** True when the videos table fetch errored. UI should surface a
+   * "metadata unavailable" indicator so an operator can distinguish a
+   * row genuinely missing title/channel from a degraded join. */
+  videoFetchFailed: boolean;
   source: TranscriptSource;
   model: string | null;
   processingTimeSeconds: number | null;
   createdAt: string;
-  /** Identifier of the audit row written for this view. May be null if
-   * the audit insert failed — in line with the spike's fail-open design,
-   * we still return the content; the operator sees a degraded-audit
-   * indicator from this field instead of a 500. */
+  /** UUID of the audit row written for this view, or null when the
+   * audit write failed (fail-open per spike-003). */
   auditId: string | null;
+  /** When `auditId` is null, this carries the underlying writeAudit
+   * reason — propagated to the UI so the operator sees a specific
+   * cause (e.g. "connection_timeout") rather than a generic banner. */
+  auditFailureReason: string | null;
 }
 
 export interface ViewTranscriptError {
@@ -106,6 +112,7 @@ export async function viewTranscriptAction(
   let videoTitle: string | null = null;
   let channelName: string | null = null;
   let language: string | null = null;
+  let videoFetchFailed = false;
   if (summaryRow.video_id) {
     const { data: videoRow, error: videoErr } = await client
       .from("videos")
@@ -113,8 +120,9 @@ export async function viewTranscriptAction(
       .eq("id", String(summaryRow.video_id))
       .maybeSingle();
     if (videoErr) {
+      videoFetchFailed = true;
       // Video metadata is auxiliary; log + continue with nulls. The audit
-      // path itself is the security-critical write and proceeds below.
+      // path is the security-critical write and proceeds below.
       console.error("[view-transcript] video metadata fetch failed", {
         videoId: summaryRow.video_id,
         message: videoErr.message,
@@ -126,6 +134,21 @@ export async function viewTranscriptAction(
     }
   }
 
+  // viewedUserId is metadata-only and never used as a query key, so the
+  // injection surface is JSONB content. Soft-validate: drop the field
+  // (don't reject the action) when the value isn't a UUID. Audit metadata
+  // stays clean; the action still succeeds.
+  let safeViewedUserId: string | null = null;
+  if (viewedUserId) {
+    if (UUID_RE.test(viewedUserId)) {
+      safeViewedUserId = viewedUserId;
+    } else {
+      console.warn("[view-transcript] dropped non-UUID viewedUserId", {
+        prefix: viewedUserId.slice(0, 16),
+      });
+    }
+  }
+
   // Audit fires only at the boundary where transcript text becomes visible
   // — never on the surrounding listing pages. (Per spike-003 requirement.)
   const auditResult = await writeAudit(client, {
@@ -133,7 +156,7 @@ export async function viewTranscriptAction(
     action: "view_transcript",
     resourceType: "summary",
     resourceId: summaryId,
-    metadata: viewedUserId ? { viewed_user_id: viewedUserId } : {},
+    metadata: safeViewedUserId ? { viewed_user_id: safeViewedUserId } : {},
   });
 
   return {
@@ -144,6 +167,7 @@ export async function viewTranscriptAction(
     videoTitle,
     channelName,
     language,
+    videoFetchFailed,
     source,
     model: (summaryRow.model as string | null) ?? null,
     processingTimeSeconds:
@@ -152,5 +176,6 @@ export async function viewTranscriptAction(
         : null,
     createdAt: String(summaryRow.created_at),
     auditId: auditResult.ok ? auditResult.id : null,
+    auditFailureReason: auditResult.ok ? null : auditResult.reason,
   };
 }

@@ -34,10 +34,22 @@ interface TranscriptModalProps {
   onClose: () => void;
 }
 
+type ReadyData = Extract<ViewTranscriptResult, { ok: true }>;
+
 type LoadState =
   | { kind: "loading" }
-  | { kind: "ready"; data: Extract<ViewTranscriptResult, { ok: true }> }
-  | { kind: "error"; reason: string };
+  | { kind: "audited"; data: ReadyData & { auditId: string } }
+  | { kind: "unaudited"; data: ReadyData & { auditId: null } }
+  | {
+      kind: "error";
+      reason: Extract<ViewTranscriptResult, { ok: false }>["reason"] | "unexpected_error";
+    };
+
+function readyVariant(data: ReadyData): LoadState {
+  return data.auditId
+    ? { kind: "audited", data: { ...data, auditId: data.auditId } }
+    : { kind: "unaudited", data: { ...data, auditId: null } };
+}
 
 export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
   const { email: adminEmail } = useAdmin();
@@ -55,22 +67,44 @@ export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  // One-shot fetch on mount. The server action does both the audit write
-  // and the content read, so re-running it on remount would double-fire
-  // the audit row — modal lifecycle owns the contract that "open = one
-  // audit", and we never re-invoke once a result lands.
+  // One-shot fetch on mount or target change. The server action does both
+  // the audit write and the content read; the cancellation flag keeps a
+  // closed/replaced modal from applying stale results to a new instance.
+  //
+  // **Production is one-audit-per-open.** React 19 dev StrictMode
+  // intentionally double-mounts effects, so a dev session opening this
+  // modal will write two audit rows. Prod has StrictMode dev-double-mount
+  // disabled, so the contract holds. If StrictMode dev double-writes ever
+  // become a problem, lift the action call to a module-level "in-flight
+  // by summaryId" guard — until then, accept the dev-only duplication.
   useEffect(() => {
     let cancelled = false;
     startTransition(async () => {
-      const result = await viewTranscriptAction(
-        target.summaryId,
-        target.viewedUserId,
-      );
-      if (cancelled) return;
-      if (result.ok) {
-        setState({ kind: "ready", data: result });
-      } else {
-        setState({ kind: "error", reason: result.reason });
+      // Reset to loading at the start of each new fetch — done inside
+      // the transition body (not the effect body) to satisfy the
+      // react-hooks/set-state-in-effect rule. The cancellation guard
+      // below handles the case where target changes mid-flight.
+      setState({ kind: "loading" });
+      try {
+        const result = await viewTranscriptAction(
+          target.summaryId,
+          target.viewedUserId,
+        );
+        if (cancelled) return;
+        if (result.ok) {
+          setState(readyVariant(result));
+        } else {
+          setState({ kind: "error", reason: result.reason });
+        }
+      } catch (err) {
+        // requireAdminPage()'s redirect throws Next's NEXT_REDIRECT
+        // sentinel — we let that re-throw so Next handles it. Anything
+        // else (AuthInfraError, network blips, etc) becomes a visible
+        // error state instead of leaving the modal stuck on "loading".
+        if (isNextRedirect(err)) throw err;
+        if (cancelled) return;
+        console.error("[transcript-modal] view-transcript action threw", err);
+        setState({ kind: "error", reason: "unexpected_error" });
       }
     });
     return () => {
@@ -78,19 +112,16 @@ export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
     };
   }, [target.summaryId, target.viewedUserId]);
 
-  const headerTitle =
-    state.kind === "ready" ? state.data.videoTitle : target.videoTitle;
-  const headerChannel =
-    state.kind === "ready" ? state.data.channelName : target.channel;
-  const headerLanguage =
-    state.kind === "ready" ? state.data.language : target.language;
-  const headerSource =
-    state.kind === "ready" ? state.data.source : target.source;
-  const headerModel = state.kind === "ready" ? state.data.model : target.model;
-  const headerTime =
-    state.kind === "ready"
-      ? state.data.processingTimeSeconds
-      : target.processingTimeSeconds;
+  const ready = state.kind === "audited" || state.kind === "unaudited"
+    ? state.data
+    : null;
+  const headerTitle = ready?.videoTitle ?? target.videoTitle;
+  const headerChannel = ready?.channelName ?? target.channel;
+  const headerLanguage = ready?.language ?? target.language;
+  const headerSource = ready?.source ?? target.source;
+  const headerModel = ready?.model ?? target.model;
+  const headerTime = ready?.processingTimeSeconds ?? target.processingTimeSeconds;
+  const showVideoMetaWarning = ready?.videoFetchFailed === true;
 
   return (
     <div
@@ -147,8 +178,7 @@ export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
               </h2>
               <div className="text-sm muted" style={{ marginTop: 4 }}>
                 {headerChannel ?? "—"}
-                {state.kind === "ready" &&
-                  ` · created ${formatCreatedAt(state.data.createdAt)}`}
+                {ready && ` · created ${formatCreatedAt(ready.createdAt)}`}
               </div>
             </div>
             <Btn ref={closeRef} size="sm" kind="ghost" onClick={onClose} aria-label="Close">
@@ -162,6 +192,9 @@ export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
             </Pill>
             {headerModel && <Pill mono>{headerModel}</Pill>}
             {headerTime != null && <Pill>{headerTime.toFixed(1)}s</Pill>}
+            {showVideoMetaWarning && (
+              <Pill tone="warn">video metadata unavailable</Pill>
+            )}
           </div>
         </div>
 
@@ -187,11 +220,7 @@ export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
           }}
         >
           <div className="text-xs muted">
-            {state.kind === "ready" && state.data.auditId
-              ? <>Audit row <span className="mono">{state.data.auditId.slice(0, 8)}…</span></>
-              : state.kind === "ready" && !state.data.auditId
-                ? <span style={{ color: "var(--warn)" }}>Audit write failed (logged for ops review)</span>
-                : "—"}
+            <FooterAuditStatus state={state} />
           </div>
           <div className="row gap-6">
             <Btn size="sm" kind="ghost" disabled>
@@ -216,16 +245,9 @@ function AuditBanner({
   ts: string;
   state: LoadState;
 }) {
-  const headline =
-    state.kind === "ready"
-      ? state.data.auditId
-        ? "You are viewing as admin · this view is logged"
-        : "You are viewing as admin · audit write failed"
-      : state.kind === "loading"
-        ? "You are viewing as admin · logging this view…"
-        : "You are viewing as admin · view did not load";
+  const headline = bannerHeadline(state);
   return (
-    <div className="banner-audit">
+    <div className="banner-audit" data-state={state.kind}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="dot" />
         <strong>{headline}</strong>
@@ -237,7 +259,74 @@ function AuditBanner({
   );
 }
 
+function bannerHeadline(state: LoadState): string {
+  switch (state.kind) {
+    case "loading":
+      return "You are viewing as admin · logging this view…";
+    case "audited":
+      return "You are viewing as admin · this view is logged";
+    case "unaudited":
+      return "You are viewing as admin · audit write failed";
+    case "error":
+      return "You are viewing as admin · view did not load";
+  }
+}
+
+function FooterAuditStatus({ state }: { state: LoadState }) {
+  switch (state.kind) {
+    case "loading":
+      return <>Writing audit row…</>;
+    case "audited":
+      return (
+        <>
+          Audit row <span className="mono">{state.data.auditId.slice(0, 8)}…</span>
+        </>
+      );
+    case "unaudited":
+      return (
+        <span style={{ color: "var(--warn)" }}>
+          Audit write failed
+          {state.data.auditFailureReason
+            ? <>: <span className="mono">{state.data.auditFailureReason}</span></>
+            : ""}
+        </span>
+      );
+    case "error":
+      return (
+        <span style={{ color: "var(--warn)" }}>
+          {humaniseErrorReason(state.reason)}
+        </span>
+      );
+  }
+}
+
+type ErrorReason = Extract<LoadState, { kind: "error" }>["reason"];
+
+// Stable user-facing copy table — keeps wire reason names out of UI text
+// and makes a future rename a one-place change.
+function humaniseErrorReason(reason: ErrorReason): string {
+  switch (reason) {
+    case "summary_not_found":
+      return "Summary no longer exists";
+    case "missing_summary_id":
+      return "Missing summary identifier";
+    case "invalid_summary_id":
+      return "Invalid summary identifier";
+    case "internal_error":
+      return "Database query failed";
+    case "unexpected_error":
+      return "Unexpected error";
+  }
+}
+
+function readyData(state: LoadState): ReadyData | null {
+  return state.kind === "audited" || state.kind === "unaudited"
+    ? state.data
+    : null;
+}
+
 function SummaryPane({ state }: { state: LoadState }) {
+  const ready = readyData(state);
   return (
     <div
       style={{
@@ -261,10 +350,10 @@ function SummaryPane({ state }: { state: LoadState }) {
       )}
       {state.kind === "error" && (
         <div className="text-sm" style={{ color: "var(--warn)" }}>
-          Could not load summary: {state.reason.replace(/_/g, " ")}
+          {humaniseErrorReason(state.reason)}
         </div>
       )}
-      {state.kind === "ready" && (
+      {ready && (
         <>
           <div
             style={{
@@ -274,9 +363,9 @@ function SummaryPane({ state }: { state: LoadState }) {
               whiteSpace: "pre-wrap",
             }}
           >
-            {state.data.summary || "(empty summary)"}
+            {ready.summary || "(empty summary)"}
           </div>
-          {state.data.thinking && (
+          {ready.thinking && (
             <details
               style={{
                 marginTop: 14,
@@ -310,7 +399,7 @@ function SummaryPane({ state }: { state: LoadState }) {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {state.data.thinking}
+                {ready.thinking}
               </div>
             </details>
           )}
@@ -321,10 +410,8 @@ function SummaryPane({ state }: { state: LoadState }) {
 }
 
 function TranscriptPane({ state }: { state: LoadState }) {
-  const charCount =
-    state.kind === "ready" && state.data.transcript
-      ? state.data.transcript.length
-      : 0;
+  const ready = readyData(state);
+  const charCount = ready?.transcript ? ready.transcript.length : 0;
   return (
     <div style={{ padding: "14px 20px", overflow: "auto" }}>
       <div
@@ -346,7 +433,7 @@ function TranscriptPane({ state }: { state: LoadState }) {
           Could not load transcript.
         </div>
       )}
-      {state.kind === "ready" && (
+      {ready && (
         <div
           style={{
             fontSize: 12.5,
@@ -356,11 +443,19 @@ function TranscriptPane({ state }: { state: LoadState }) {
             whiteSpace: "pre-wrap",
           }}
         >
-          {state.data.transcript || "(no transcript text recorded)"}
+          {ready.transcript || "(no transcript text recorded)"}
         </div>
       )}
     </div>
   );
+}
+
+function isNextRedirect(err: unknown): boolean {
+  // next/navigation throws a tagged error whose `digest` starts with
+  // `NEXT_REDIRECT`. Don't intercept it — let Next handle the redirect.
+  if (!err || typeof err !== "object") return false;
+  const digest = (err as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
 function formatCreatedAt(iso: string): string {

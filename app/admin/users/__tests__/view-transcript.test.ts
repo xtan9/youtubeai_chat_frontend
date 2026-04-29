@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("server-only", () => ({}));
 
@@ -26,6 +27,7 @@ const requireAdminClientMock = vi.mocked(requireAdminClient);
 const writeAuditMock = vi.mocked(writeAudit);
 
 const VALID_UUID = "11111111-2222-3333-4444-555555555555";
+const VALID_VIEWED_USER = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 interface ChainResponse {
   data: unknown;
@@ -57,7 +59,10 @@ function buildSupabaseClient(scripts: ChainScript[]) {
     proxy.single = term;
     return proxy;
   });
-  return { from };
+  // The action only consumes `client.from(...)`; the rest of the
+  // SupabaseClient surface is unused here. Cast through `unknown` keeps
+  // strict-mode lint happy without faking a 24-property mock.
+  return { from } as unknown as SupabaseClient;
 }
 
 const adminPrincipal = {
@@ -109,7 +114,7 @@ describe("viewTranscriptAction", () => {
     requireAdminClientMock.mockReturnValue(client);
     writeAuditMock.mockResolvedValue({ ok: true, id: "audit-row-1" });
 
-    const result = await viewTranscriptAction(VALID_UUID, "user-uuid");
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -121,13 +126,18 @@ describe("viewTranscriptAction", () => {
     expect(result.auditId).toBe("audit-row-1");
 
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    expect(writeAuditMock).toHaveBeenCalledWith(client, {
-      admin: { userId: "admin-uuid", email: "alice@example.com" },
-      action: "view_transcript",
-      resourceType: "summary",
-      resourceId: VALID_UUID,
-      metadata: { viewed_user_id: "user-uuid" },
+    const auditCall = writeAuditMock.mock.calls[0][1];
+    // Exact equality on metadata locks the whitelist: only viewed_user_id
+    // is permitted. A future change that adds, say, `summaryTitle` to
+    // metadata would fail this assertion — exactly the spike-003 rule.
+    expect(auditCall.metadata).toEqual({ viewed_user_id: VALID_VIEWED_USER });
+    expect(auditCall.admin).toEqual({
+      userId: "admin-uuid",
+      email: "alice@example.com",
     });
+    expect(auditCall.action).toBe("view_transcript");
+    expect(auditCall.resourceType).toBe("summary");
+    expect(auditCall.resourceId).toBe(VALID_UUID);
   });
 
   it("returns content with auditId=null when audit write fails (fail-open)", async () => {
@@ -157,7 +167,7 @@ describe("viewTranscriptAction", () => {
     requireAdminClientMock.mockReturnValue(client);
     writeAuditMock.mockResolvedValue({ ok: false, reason: "DB error" });
 
-    const result = await viewTranscriptAction(VALID_UUID, "user-uuid");
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -166,7 +176,7 @@ describe("viewTranscriptAction", () => {
   });
 
   it("returns missing_summary_id when summaryId is empty", async () => {
-    const result = await viewTranscriptAction("", "user-uuid");
+    const result = await viewTranscriptAction("", VALID_VIEWED_USER);
     expect(result.ok).toBe(false);
     expect(requireAdminPageMock).not.toHaveBeenCalled();
     expect(writeAuditMock).not.toHaveBeenCalled();
@@ -175,7 +185,7 @@ describe("viewTranscriptAction", () => {
   it("returns invalid_summary_id when input is non-UUID (defends against injection)", async () => {
     const result = await viewTranscriptAction(
       "not-a-uuid; drop table summaries; --",
-      "user-uuid",
+      VALID_VIEWED_USER,
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -192,21 +202,25 @@ describe("viewTranscriptAction", () => {
     ]);
     requireAdminClientMock.mockReturnValue(client);
 
-    const result = await viewTranscriptAction(VALID_UUID, "user-uuid");
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("summary_not_found");
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("propagates NotAdminError from the gate (no audit, no DB read)", async () => {
-    const NotAdminError = class extends Error {
-      name = "NotAdminError";
-    };
-    requireAdminPageMock.mockRejectedValueOnce(new NotAdminError("denied"));
+  it("propagates Next's redirect throw from the gate (no audit, no DB read)", async () => {
+    // requireAdminPage doesn't throw a custom NotAdminError — it calls
+    // next/navigation's redirect(), which throws an Error tagged with
+    // a "NEXT_REDIRECT;…" digest. Reproduce that shape so the test
+    // mirrors real gate behavior.
+    const redirectError = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/;0",
+    });
+    requireAdminPageMock.mockRejectedValueOnce(redirectError);
     await expect(
-      viewTranscriptAction(VALID_UUID, "user-uuid"),
-    ).rejects.toThrow("denied");
+      viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER),
+    ).rejects.toMatchObject({ digest: expect.stringMatching(/^NEXT_REDIRECT/) });
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
@@ -219,7 +233,7 @@ describe("viewTranscriptAction", () => {
     ]);
     requireAdminClientMock.mockReturnValue(client);
 
-    const result = await viewTranscriptAction(VALID_UUID, "user-uuid");
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("internal_error");
@@ -248,7 +262,7 @@ describe("viewTranscriptAction", () => {
     ]);
     requireAdminClientMock.mockReturnValue(client);
 
-    const result = await viewTranscriptAction(VALID_UUID, "user-uuid");
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("internal_error");
@@ -285,5 +299,110 @@ describe("viewTranscriptAction", () => {
       client,
       expect.objectContaining({ metadata: {} }),
     );
+  });
+
+  it("drops a non-UUID viewedUserId (soft-fail, audit still runs)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = buildSupabaseClient([
+      {
+        table: "summaries",
+        response: {
+          data: {
+            id: VALID_UUID,
+            video_id: "v1",
+            transcript: "t",
+            summary: "s",
+            thinking: null,
+            transcript_source: "auto_captions",
+            model: null,
+            processing_time_seconds: null,
+            created_at: "2026-04-29T10:00:00Z",
+          },
+          error: null,
+        },
+      },
+      { table: "videos", response: { data: null, error: null } },
+    ]);
+    requireAdminClientMock.mockReturnValue(client);
+    writeAuditMock.mockResolvedValue({ ok: true, id: "a" });
+
+    await viewTranscriptAction(
+      VALID_UUID,
+      "not-a-uuid'); insert into admin_audit_log…",
+    );
+
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect(writeAuditMock.mock.calls[0][1].metadata).toEqual({});
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("surfaces audit failure reason on the response (fail-open with detail)", async () => {
+    const client = buildSupabaseClient([
+      {
+        table: "summaries",
+        response: {
+          data: {
+            id: VALID_UUID,
+            video_id: "v1",
+            transcript: "t",
+            summary: "s",
+            thinking: null,
+            transcript_source: "auto_captions",
+            model: null,
+            processing_time_seconds: null,
+            created_at: "2026-04-29T10:00:00Z",
+          },
+          error: null,
+        },
+      },
+      { table: "videos", response: { data: null, error: null } },
+    ]);
+    requireAdminClientMock.mockReturnValue(client);
+    writeAuditMock.mockResolvedValue({
+      ok: false,
+      reason: "connection_timeout",
+    });
+
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.auditId).toBeNull();
+    expect(result.auditFailureReason).toBe("connection_timeout");
+  });
+
+  it("flags videoFetchFailed when the videos join errors (transcript still returned)", async () => {
+    const client = buildSupabaseClient([
+      {
+        table: "summaries",
+        response: {
+          data: {
+            id: VALID_UUID,
+            video_id: "v1",
+            transcript: "t",
+            summary: "s",
+            thinking: null,
+            transcript_source: "auto_captions",
+            model: null,
+            processing_time_seconds: null,
+            created_at: "2026-04-29T10:00:00Z",
+          },
+          error: null,
+        },
+      },
+      {
+        table: "videos",
+        response: { data: null, error: { message: "videos table missing" } },
+      },
+    ]);
+    requireAdminClientMock.mockReturnValue(client);
+    writeAuditMock.mockResolvedValue({ ok: true, id: "audit-1" });
+
+    const result = await viewTranscriptAction(VALID_UUID, VALID_VIEWED_USER);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.videoFetchFailed).toBe(true);
+    expect(result.videoTitle).toBeNull();
+    // Audit should still fire — video metadata is auxiliary.
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
   });
 });
