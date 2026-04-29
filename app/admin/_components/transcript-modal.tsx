@@ -1,19 +1,49 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { X, Download, ChevronDown } from "lucide-react";
 import { Btn, Pill } from "./atoms";
 import { useAdmin } from "./admin-context";
-import type { TranscriptSummary } from "@/lib/admin/types";
+import {
+  viewTranscriptAction,
+  type ViewTranscriptResult,
+} from "@/app/admin/users/_actions/view-transcript";
+import type { TranscriptSource } from "@/lib/admin/types";
+
+export interface TranscriptModalTarget {
+  /** UUID of the cached summaries row to fetch + audit. */
+  summaryId: string;
+  /** User whose drill-down opened this modal — captured in audit
+   * metadata so /admin/audit can answer "which user's expansion led
+   * here". May be null when the modal is opened from a non-user-scoped
+   * surface (e.g. a future global summaries list). */
+  viewedUserId: string | null;
+  /** Pre-known display fields used for the header *before* the server
+   * action returns. Header swaps to the action's authoritative values
+   * once content lands. */
+  videoTitle: string | null;
+  channel: string | null;
+  language: string | null;
+  source: TranscriptSource;
+  model: string | null;
+  processingTimeSeconds: number | null;
+}
 
 interface TranscriptModalProps {
-  summary: TranscriptSummary;
+  target: TranscriptModalTarget;
   onClose: () => void;
 }
 
-export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
+type LoadState =
+  | { kind: "loading" }
+  | { kind: "ready"; data: Extract<ViewTranscriptResult, { ok: true }> }
+  | { kind: "error"; reason: string };
+
+export function TranscriptModal({ target, onClose }: TranscriptModalProps) {
   const { email: adminEmail } = useAdmin();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [, startTransition] = useTransition();
+  const [state, setState] = useState<LoadState>({ kind: "loading" });
   const ts = new Date().toISOString().replace("T", " ").slice(11, 19);
 
   useEffect(() => {
@@ -24,6 +54,43 @@ export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
     closeRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  // One-shot fetch on mount. The server action does both the audit write
+  // and the content read, so re-running it on remount would double-fire
+  // the audit row — modal lifecycle owns the contract that "open = one
+  // audit", and we never re-invoke once a result lands.
+  useEffect(() => {
+    let cancelled = false;
+    startTransition(async () => {
+      const result = await viewTranscriptAction(
+        target.summaryId,
+        target.viewedUserId,
+      );
+      if (cancelled) return;
+      if (result.ok) {
+        setState({ kind: "ready", data: result });
+      } else {
+        setState({ kind: "error", reason: result.reason });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [target.summaryId, target.viewedUserId]);
+
+  const headerTitle =
+    state.kind === "ready" ? state.data.videoTitle : target.videoTitle;
+  const headerChannel =
+    state.kind === "ready" ? state.data.channelName : target.channel;
+  const headerLanguage =
+    state.kind === "ready" ? state.data.language : target.language;
+  const headerSource =
+    state.kind === "ready" ? state.data.source : target.source;
+  const headerModel = state.kind === "ready" ? state.data.model : target.model;
+  const headerTime =
+    state.kind === "ready"
+      ? state.data.processingTimeSeconds
+      : target.processingTimeSeconds;
 
   return (
     <div
@@ -44,30 +111,44 @@ export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
     >
       <div
         className="modal"
-        style={{ width: "min(820px, 92vw)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+        style={{
+          width: "min(820px, 92vw)",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="banner-audit">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="dot" />
-            <strong>You are viewing as admin · this view will be logged</strong>
-            <span style={{ color: "var(--text-3)", fontWeight: 400 }}>
-              · {adminEmail} · {ts} UTC
-            </span>
-          </div>
-          <span className="mono text-xs" style={{ color: "var(--text-3)" }}>
-            mock data · audit-write pending
-          </span>
-        </div>
+        <AuditBanner
+          adminEmail={adminEmail ?? "(unknown)"}
+          ts={ts}
+          state={state}
+        />
 
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 16,
+            }}
+          >
             <div>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>
-                {s.title}
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {headerTitle ?? "(untitled video)"}
               </h2>
               <div className="text-sm muted" style={{ marginTop: 4 }}>
-                {s.channel} · created Apr 21, 2026 09:14 UTC
+                {headerChannel ?? "—"}
+                {state.kind === "ready" &&
+                  ` · created ${formatCreatedAt(state.data.createdAt)}`}
               </div>
             </div>
             <Btn ref={closeRef} size="sm" kind="ghost" onClick={onClose} aria-label="Close">
@@ -75,85 +156,25 @@ export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
             </Btn>
           </div>
           <div className="row gap-6" style={{ marginTop: 10, flexWrap: "wrap" }}>
-            <Pill mono>youtube.com/watch?v=…aQF</Pill>
-            <Pill>{s.lang}</Pill>
-            <Pill tone={s.source === "whisper" ? "warn" : "ok"}>{s.source}</Pill>
-            <Pill mono>{s.model}</Pill>
-            <Pill>{s.time}s</Pill>
+            <Pill>{headerLanguage ?? "?"}</Pill>
+            <Pill tone={headerSource === "whisper" ? "warn" : "ok"}>
+              {headerSource}
+            </Pill>
+            {headerModel && <Pill mono>{headerModel}</Pill>}
+            {headerTime != null && <Pill>{headerTime.toFixed(1)}s</Pill>}
           </div>
         </div>
 
-        <div style={{ flex: 1, overflow: "hidden", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-          <div style={{ padding: "14px 20px", borderRight: "1px solid var(--border)", overflow: "auto" }}>
-            <div
-              className="text-xs muted"
-              style={{ textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}
-            >
-              Summary
-            </div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text)" }}>
-              <p style={{ margin: "0 0 10px" }}>
-                Sutton&apos;s central claim: the methods that scale with computation, end up winning. Hand-engineered shortcuts feel productive in the short term but consistently lose to general approaches that absorb compute.
-              </p>
-              <p style={{ margin: "0 0 10px" }}>
-                Three running examples: chess (Deep Blue → AlphaZero), speech recognition (HMMs → end-to-end neural), and computer vision (hand-crafted features → ConvNets). In each case, the lesson was learned painfully late.
-              </p>
-              <p style={{ margin: 0 }}>
-                The talk closes on the implication for current ML practice: stop trying to bake in the structure of human cognition. It&apos;s the bitter pill, but it&apos;s also the only one that has worked.
-              </p>
-            </div>
-            <div
-              style={{
-                marginTop: 14,
-                padding: "10px 12px",
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-              }}
-            >
-              <div
-                className="text-xs"
-                style={{
-                  color: "var(--text-2)",
-                  fontWeight: 500,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                }}
-              >
-                <span>Thinking · 4,128 tokens</span>
-                <ChevronDown size={12} />
-              </div>
-            </div>
-          </div>
-
-          <div style={{ padding: "14px 20px", overflow: "auto" }}>
-            <div
-              className="text-xs muted"
-              style={{ textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}
-            >
-              Transcript · 12,402 chars
-            </div>
-            <div
-              style={{
-                fontSize: 12.5,
-                lineHeight: 1.65,
-                color: "var(--text-2)",
-                fontFamily: "var(--mono)",
-              }}
-            >
-              <p style={{ margin: "0 0 10px" }}>
-                <span style={{ color: "var(--text-3)" }}>[00:00:14]</span> So I want to talk today about a pattern that I keep seeing in machine learning research, and that I think is the single most important thing for anyone working in the field to internalize…
-              </p>
-              <p style={{ margin: "0 0 10px" }}>
-                <span style={{ color: "var(--text-3)" }}>[00:01:32]</span> The bitter lesson is that general methods that leverage computation are ultimately the most effective, and by a large margin. The two methods that seem to scale arbitrarily in this way are search and learning…
-              </p>
-              <p style={{ margin: 0 }}>
-                <span style={{ color: "var(--text-3)" }}>[00:03:08]</span> Consider chess. In 1997, the methods that defeated the world champion were largely based on massive deep search. At the time, this was looked upon with dismay by the majority of researchers who…
-              </p>
-            </div>
-          </div>
+        <div
+          style={{
+            flex: 1,
+            overflow: "hidden",
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+          }}
+        >
+          <SummaryPane state={state} />
+          <TranscriptPane state={state} />
         </div>
 
         <div
@@ -166,13 +187,16 @@ export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
           }}
         >
           <div className="text-xs muted">
-            Reason logged: <strong style={{ color: "var(--text-2)" }}>abuse review · ticket #4821</strong>
+            {state.kind === "ready" && state.data.auditId
+              ? <>Audit row <span className="mono">{state.data.auditId.slice(0, 8)}…</span></>
+              : state.kind === "ready" && !state.data.auditId
+                ? <span style={{ color: "var(--warn)" }}>Audit write failed (logged for ops review)</span>
+                : "—"}
           </div>
           <div className="row gap-6">
-            <Btn size="sm" kind="ghost">
+            <Btn size="sm" kind="ghost" disabled>
               <Download size={12} /> Download .txt
             </Btn>
-            <Btn size="sm" kind="ghost">Copy link</Btn>
             <Btn size="sm" kind="primary" onClick={onClose}>
               Close
             </Btn>
@@ -181,4 +205,166 @@ export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
       </div>
     </div>
   );
+}
+
+function AuditBanner({
+  adminEmail,
+  ts,
+  state,
+}: {
+  adminEmail: string;
+  ts: string;
+  state: LoadState;
+}) {
+  const headline =
+    state.kind === "ready"
+      ? state.data.auditId
+        ? "You are viewing as admin · this view is logged"
+        : "You are viewing as admin · audit write failed"
+      : state.kind === "loading"
+        ? "You are viewing as admin · logging this view…"
+        : "You are viewing as admin · view did not load";
+  return (
+    <div className="banner-audit">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="dot" />
+        <strong>{headline}</strong>
+        <span style={{ color: "var(--text-3)", fontWeight: 400 }}>
+          · {adminEmail} · {ts} UTC
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SummaryPane({ state }: { state: LoadState }) {
+  return (
+    <div
+      style={{
+        padding: "14px 20px",
+        borderRight: "1px solid var(--border)",
+        overflow: "auto",
+      }}
+    >
+      <div
+        className="text-xs muted"
+        style={{
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          marginBottom: 8,
+        }}
+      >
+        Summary
+      </div>
+      {state.kind === "loading" && (
+        <div className="text-sm muted">Loading summary…</div>
+      )}
+      {state.kind === "error" && (
+        <div className="text-sm" style={{ color: "var(--warn)" }}>
+          Could not load summary: {state.reason.replace(/_/g, " ")}
+        </div>
+      )}
+      {state.kind === "ready" && (
+        <>
+          <div
+            style={{
+              fontSize: 13.5,
+              lineHeight: 1.6,
+              color: "var(--text)",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {state.data.summary || "(empty summary)"}
+          </div>
+          {state.data.thinking && (
+            <details
+              style={{
+                marginTop: 14,
+                padding: "10px 12px",
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+              }}
+            >
+              <summary
+                className="text-xs"
+                style={{
+                  color: "var(--text-2)",
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  listStyle: "none",
+                }}
+              >
+                <span>Thinking</span>
+                <ChevronDown size={12} />
+              </summary>
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                  color: "var(--text-2)",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {state.data.thinking}
+              </div>
+            </details>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TranscriptPane({ state }: { state: LoadState }) {
+  const charCount =
+    state.kind === "ready" && state.data.transcript
+      ? state.data.transcript.length
+      : 0;
+  return (
+    <div style={{ padding: "14px 20px", overflow: "auto" }}>
+      <div
+        className="text-xs muted"
+        style={{
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          marginBottom: 8,
+        }}
+      >
+        Transcript
+        {charCount > 0 && ` · ${charCount.toLocaleString("en-US")} chars`}
+      </div>
+      {state.kind === "loading" && (
+        <div className="text-sm muted">Loading transcript…</div>
+      )}
+      {state.kind === "error" && (
+        <div className="text-sm" style={{ color: "var(--warn)" }}>
+          Could not load transcript.
+        </div>
+      )}
+      {state.kind === "ready" && (
+        <div
+          style={{
+            fontSize: 12.5,
+            lineHeight: 1.65,
+            color: "var(--text-2)",
+            fontFamily: "var(--mono)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {state.data.transcript || "(no transcript text recorded)"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatCreatedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toUTCString().replace("GMT", "UTC");
 }
