@@ -53,7 +53,9 @@ describe("buildWebApplicationSchema", () => {
     expect(schema["@context"]).toBe("https://schema.org");
     expect(schema["@type"]).toBe("WebApplication");
     expect(schema.applicationCategory).toBe("ProductivityApplication");
-    expect(schema.name.length).toBeGreaterThan(0);
+    // Pin the brand name exactly — a typo that left length>0 (e.g.
+    // "youtubeai.cha") would still ship a broken brand string to Google.
+    expect(schema.name).toBe("youtubeai.chat");
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
   });
