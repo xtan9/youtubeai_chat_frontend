@@ -1,0 +1,14 @@
+---
+question: "Can I summarize private or unlisted YouTube videos?"
+category: "features"
+order: 2
+updatedAt: "2026-04-28"
+relatedBlogSlugs: []
+draft: false
+---
+
+Public and unlisted videos work. Truly private videos (set to "private" in YouTube Studio, viewable only to you and people you've invited) do not work, because our service can't authenticate as your YouTube account to access them.
+
+Unlisted videos — the kind with a shareable link that don't appear in search — are accessible via direct URL, so we can fetch them. Just paste the unlisted URL the same way you would a public one.
+
+If you have a private video you need to summarize, the workaround is to set it to unlisted briefly while running the summary, then back to private. We don't store the video content; we only need the URL during the summarization request.

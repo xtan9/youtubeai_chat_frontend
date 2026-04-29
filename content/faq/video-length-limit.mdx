@@ -1,0 +1,17 @@
+---
+question: "Is there a length limit on videos I can summarize?"
+category: "features"
+order: 1
+updatedAt: "2026-04-28"
+relatedBlogSlugs: ["summarize-long-podcast"]
+draft: false
+---
+
+There's no hard maximum. We've successfully summarized videos over 4 hours.
+
+In practice, two things vary with length:
+
+- **Time to first summary** — for a video with captions available, length barely matters; the response is usually under 30 seconds even for multi-hour content. For videos that need Whisper transcription, processing time scales with the audio length, so a 3-hour podcast may take a few minutes the first time.
+- **Summary depth** — for very long videos, we structure the summary by topic rather than chronologically, so a 4-hour podcast and a 1-hour interview get the same kind of scannable outline rather than a flat narrative.
+
+Very short videos (under ~2 minutes) are technically supported but often not worth summarizing — you can just watch them.

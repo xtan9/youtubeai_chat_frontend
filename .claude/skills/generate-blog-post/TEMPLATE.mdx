@@ -1,0 +1,48 @@
+---
+title: "{{ Specific, declarative — what the post does or shows. Include a number or named entity if natural. }}"
+description: "{{ 20-200 chars. The promise of the post in one sentence. Mentions what the reader will be able to do or understand after reading. }}"
+publishedAt: "{{ YYYY-MM-DD — today }}"
+updatedAt: "{{ YYYY-MM-DD — today }}"
+author: "YouTubeAI Team"
+category: "{{ workflows | tutorials | comparisons | news }}"
+tags: [{{ 2-5 lowercase, hyphenated tags. Tags drive related-post selection. }}]
+heroVideo:
+  url: "{{ Required for workflows. The full https://www.youtube.com/watch?v=... URL. }}"
+  title: "{{ The video's actual title. }}"
+  channel: "{{ The channel name. }}"
+  durationSec: {{ integer; can be omitted if unverified }}
+faq:
+  - q: "{{ A real question a reader might have after reading. Make it specific, not generic. }}"
+    a: "{{ A 60-180 word answer. Plain text, no markdown formatting. }}"
+  - q: "{{ second }}"
+    a: "{{ ... }}"
+  - q: "{{ third }}"
+    a: "{{ ... }}"
+draft: true
+---
+
+{{ HOOK PARAGRAPH (80-120 words). Open with a relatable observation about the problem the post addresses. No metaphors stacked on metaphors. Don't open with "In today's world" or any variant. The reader should know within the first sentence whether this post is for them. }}
+
+{{ TRANSITION SENTENCE: name what the post will walk through. One sentence. }}
+
+## Why this is hard manually
+
+{{ 150-300 words. Spell out *why* the obvious manual approach fails, with specifics. List 3 manual workarounds and the tradeoff each one makes. This section earns the reader's trust that the AI workflow is solving a real problem, not a manufactured one. }}
+
+## The workflow
+
+{{ 4-6 numbered steps. Each step is one paragraph (50-100 words). Reference the heroVideo as the concrete example — "Step 1: paste the URL. We'll use [video title] as the example." Don't invent timestamps; reference the workflow generally. The CtaCard component renders automatically before this section using the heroVideo. }}
+
+{{ End the workflow section with a sentence about what kinds of content this generalizes to. }}
+
+## Common pitfalls
+
+{{ 3-5 bullets. Each pitfall is 1-2 sentences. Be concrete: which mistake to avoid, why it fails. This section is what stops the post from reading like generic AI content — real pitfalls only come from real use. }}
+
+## When this doesn't work
+
+{{ 80-150 words. Be honest about limits. What kind of content does the workflow not work well for? Why? This section is critical for trust and for AEO — answer engines reward content that names its limits. }}
+
+## {{ optional closing section: "What good looks like" / "The leverage" / similar }}
+
+{{ 80-150 words. Pull back to the principle. Not "use our tool" — use of the tool is implied. The principle is what makes the post link-worthy and quotable. }}

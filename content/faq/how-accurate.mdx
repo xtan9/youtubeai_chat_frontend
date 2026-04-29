@@ -1,0 +1,14 @@
+---
+question: "How accurate are the summaries?"
+category: "accuracy"
+order: 1
+updatedAt: "2026-04-28"
+relatedBlogSlugs: ["summarize-long-podcast"]
+draft: false
+---
+
+Accuracy depends on two stages: getting the spoken text, and summarizing it.
+
+For the **transcript**, we prefer YouTube's official captions when they exist. These are generally very accurate (creator-uploaded) or good (auto-captioned). When captions aren't available, we fall back to Whisper transcription on the downloaded audio. Whisper is excellent for clear single-speaker or interview audio; it can struggle with heavy crosstalk, noisy environments, or rare proper nouns.
+
+For the **summary**, we use a Claude model from Anthropic via our gateway. Summaries are reliable for *structure* (topics, claims, takeaways, the order the conversation moved through) but they're paraphrases — don't quote them. If you're going to cite a fact, jump back to the cited timestamp and confirm.

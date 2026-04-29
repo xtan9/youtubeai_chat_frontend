@@ -1,0 +1,30 @@
+---
+question: "{{ The question, capitalized and punctuated like a real question. 8-200 chars. }}"
+category: "{{ pricing | accuracy | privacy | features | troubleshooting }}"
+order: {{ integer; lower numbers render first within the category. Default 100. }}
+updatedAt: "{{ YYYY-MM-DD — today }}"
+relatedBlogSlugs: [{{ optional list of blog slugs that go deeper on this topic }}]
+draft: true
+---
+
+{{ ANSWER. 60-180 words.
+
+Lead with the direct answer (yes / no / it depends), then expand. Be specific
+about what works, what doesn't, and any practical caveats. If the answer
+involves multiple cases, use a short bullet list — but don't bullet for the
+sake of structure when prose flows better.
+
+For "yes, but…" answers, structure as:
+  Direct answer.
+  
+  Two-sentence explanation of what's true.
+  
+  - Caveat 1.
+  - Caveat 2.
+
+For "no, but here's the workaround" answers:
+  Direct answer.
+  
+  Why not (one or two sentences).
+  
+  Workaround if there is one. }}
