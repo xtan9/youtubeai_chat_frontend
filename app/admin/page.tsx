@@ -1,17 +1,11 @@
-"use client";
-
-import { useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowUp,
   ArrowDown,
+  ArrowUp,
   ArrowUpRight,
   ChevronRight,
   ExternalLink,
   MoreHorizontal,
-  RefreshCcw,
-  Calendar,
-  ChevronDown,
 } from "lucide-react";
 import {
   Avatar,
@@ -21,83 +15,65 @@ import {
   BarChart,
   Donut,
 } from "./_components/atoms";
-import { DateRangePopover } from "./_components/date-range-popover";
-import { useDismissable } from "./_components/use-dismissable";
-import type { Delta } from "@/lib/admin/types";
+import { DashboardControls } from "./_components/dashboard-controls";
+import { requireAdminPage } from "./_components/admin-gate";
+import { requireAdminClient } from "@/lib/supabase/admin-client";
+import {
+  getDashboardKPIs,
+  lastNDays,
+  type DashboardKPIs,
+} from "@/lib/admin/queries";
+import type { Delta, TranscriptSource } from "@/lib/admin/types";
 
-interface TopUserRow {
-  email: string;
-  label: string;
-  av: number;
-  summaries: number;
-  whisper: number;
-  // Pre-formatted display string (e.g. "9.2s"); the source column is numeric on the users page.
-  p95: string;
-  lastSeen: string;
-  flagged?: true;
+export const dynamic = "force-dynamic";
+
+interface PageProps {
+  searchParams: Promise<{ window?: string }>;
 }
 
-// TODO(admin-data): replace mock arrays with service-role queries.
-const summariesPerDay = [
-  212, 238, 254, 201, 189, 246, 278, 285, 272, 294, 310, 288, 265, 302, 318,
-  325, 298, 341, 356, 330, 312, 328, 346, 362, 378, 341, 325, 358, 372, 389,
-];
-const p95PerDay = [
-  9.8, 10.2, 11.1, 10.5, 11.4, 12.0, 11.8, 11.5, 11.9, 12.4, 12.1, 11.6, 11.2,
-  11.5, 11.8, 12.0, 12.3, 11.9, 11.6, 12.2, 12.5, 12.8, 12.4, 11.9, 11.5, 11.7,
-  12.1, 11.8, 11.4, 11.2,
-];
-const dauPerDay = [
-  82, 98, 112, 89, 76, 104, 128, 131, 118, 142, 156, 138, 129, 148, 162, 168,
-  151, 182, 195, 176, 164, 178, 189, 201, 212, 189, 178, 196, 208, 219,
-];
-const cacheHitPerDay = [
-  71, 72, 75, 73, 76, 78, 77, 79, 80, 78, 77, 79, 81, 80, 78, 76, 79, 80, 82,
-  81, 79, 77, 80, 82, 83, 81, 79, 80, 82, 84,
-];
+export default async function AdminDashboardPage({ searchParams }: PageProps) {
+  const principal = await requireAdminPage();
+  const client = requireAdminClient(
+    { email: principal.email },
+    principal.allowlist,
+  );
 
-const TOP_USERS: TopUserRow[] = [
-  { email: "alex@cortexlabs.dev", label: "AL", av: 1, summaries: 142, whisper: 14, p95: "9.2s", lastSeen: "2m ago" },
-  { email: "mei@hk.gov.example", label: "ME", av: 2, summaries: 118, whisper: 8, p95: "8.4s", lastSeen: "12m ago" },
-  { email: "ben+yt@gmail.example", label: "BE", av: 3, summaries: 113, whisper: 62, p95: "16.8s", lastSeen: "3h ago", flagged: true },
-  { email: "saanvi@startup.io", label: "SA", av: 4, summaries: 87, whisper: 0, p95: "6.1s", lastSeen: "5h ago" },
-  { email: "ren@studio.jp", label: "RE", av: 5, summaries: 76, whisper: 21, p95: "11.4s", lastSeen: "1d ago" },
-];
+  const params = await searchParams;
+  const windowDays = parseWindowDays(params.window);
+  const window = lastNDays(windowDays);
+  const kpis = await getDashboardKPIs(client, window);
 
-export default function AdminDashboardPage() {
   return (
     <div className="surface-anim">
       <div className="page-h">
         <div>
           <h1 className="page-title">Dashboard</h1>
-          <p className="page-sub">Apr 1 – Apr 30, 2026 · compared to previous 30 days</p>
+          <p className="page-sub">
+            {formatRange(window)} · compared to previous {windowDays} days
+          </p>
         </div>
-        <div className="row gap-8">
-          <DateRangePicker />
-          <Btn size="sm" kind="ghost" aria-label="Refresh">
-            <RefreshCcw size={13} />
-          </Btn>
-        </div>
+        <DashboardControls windowDays={windowDays} />
       </div>
 
       <div className="page-body">
         <div className="kpi-grid cols-2" style={{ marginBottom: 16 }}>
           <HeroKPI
             label="Summaries"
-            value="8,896"
-            delta="+12.4%"
-            deltaTone="up"
-            sub="of which whisper · 1,872 (21%)"
-            data={summariesPerDay}
+            value={formatCount(kpis.summaries.current)}
+            delta={pctDelta(kpis.summaries.current, kpis.summaries.previous)}
+            sub={summariesSub(kpis)}
+            data={kpis.summariesPerDay.map((d) => d.value)}
             color="var(--text)"
           />
           <HeroKPI
             label="p95 latency"
-            value="11.4s"
-            delta="+1.2s"
-            deltaTone="warn"
-            sub="transcribe 8.9s · summarize 2.5s"
-            data={p95PerDay}
+            value={formatSeconds(kpis.p95Seconds.current)}
+            delta={absDeltaSeconds(
+              kpis.p95Seconds.current,
+              kpis.p95Seconds.previous,
+            )}
+            sub={latencySub(kpis)}
+            data={kpis.summariesPerDay.map(() => kpis.p95Seconds.current ?? 0)}
             color="var(--warn)"
           />
         </div>
@@ -105,18 +81,24 @@ export default function AdminDashboardPage() {
         <div className="kpi-grid cols-3">
           <ChartCard
             title="Daily active users"
-            sub="DAU · last 30d"
-            footer="WAU · 1,128"
-            chart={<BarChart data={dauPerDay} h={140} accentIndex={29} />}
+            sub={`DAU · last ${windowDays}d`}
+            footer={`Range avg · ${avg(kpis.dauPerDay.map((d) => d.value)).toFixed(0)}`}
+            chart={
+              <BarChart
+                data={kpis.dauPerDay.map((d) => d.value)}
+                h={140}
+                accentIndex={kpis.dauPerDay.length - 1}
+              />
+            }
           />
-          <DonutCard />
+          <DonutCard sourceMix={kpis.sourceMix} />
           <ChartCard
             title="Cache hit rate"
-            sub="last 30d · 78% avg"
-            footer="saved · $311.20"
+            sub={`last ${windowDays}d · ${formatPct(kpis.cacheHitRatePct.current)} avg`}
+            footer={cacheHitFooter(kpis)}
             chart={
               <AreaChart
-                data={cacheHitPerDay}
+                data={kpis.cacheHitPerDay.map((d) => d.value)}
                 h={140}
                 lineClass="chart-line-primary"
                 fillClass="chart-fill-primary"
@@ -126,11 +108,17 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="section-h">
-          <h3 className="section-title">Top users · last 7 days</h3>
+          <h3 className="section-title">Top users · last {windowDays} days</h3>
           <Link
             href="/admin/users"
             className="text-sm"
-            style={{ color: "var(--primary)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+            style={{
+              color: "var(--primary)",
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
           >
             View all users <ArrowUpRight size={11} />
           </Link>
@@ -148,35 +136,53 @@ export default function AdminDashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {TOP_USERS.map((u, i) => (
-                <tr key={i}>
-                  <td>
-                    <div className="user-cell">
-                      <Avatar idx={u.av} label={u.label} />
-                      <span className="email">{u.email}</span>
-                      {u.flagged && (
-                        <Pill tone="warn" style={{ marginLeft: 4 }}>
-                          <span className="dot" />
-                          flagged
-                        </Pill>
-                      )}
-                    </div>
-                  </td>
-                  <td className="num">{u.summaries}</td>
-                  <td className="num">
-                    {u.whisper > 30 ? (
-                      <Pill tone="warn">{u.whisper}%</Pill>
-                    ) : (
-                      <span className="muted">{u.whisper}%</span>
-                    )}
-                  </td>
-                  <td className="num muted">{u.p95}</td>
-                  <td className="muted">{u.lastSeen}</td>
-                  <td>
-                    <ChevronRight size={14} style={{ color: "var(--text-3)" }} />
+              {kpis.topUsers.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="muted"
+                    style={{ padding: 24, textAlign: "center" }}
+                  >
+                    No user activity in this window.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                kpis.topUsers.map((u) => (
+                  <tr key={u.userId}>
+                    <td>
+                      <div className="user-cell">
+                        <Avatar
+                          idx={hashToIdx(u.email ?? u.userId)}
+                          label={(u.email ?? u.userId).slice(0, 2)}
+                        />
+                        <span className="email">{u.email ?? u.userId}</span>
+                        {u.flagged && (
+                          <Pill tone="warn" style={{ marginLeft: 4 }}>
+                            <span className="dot" />
+                            flagged
+                          </Pill>
+                        )}
+                      </div>
+                    </td>
+                    <td className="num">{u.summaries}</td>
+                    <td className="num">
+                      {u.whisperPct > 30 ? (
+                        <Pill tone="warn">{u.whisperPct}%</Pill>
+                      ) : (
+                        <span className="muted">{u.whisperPct}%</span>
+                      )}
+                    </td>
+                    <td className="num muted">{formatSeconds(u.p95Seconds)}</td>
+                    <td className="muted">{formatRelative(u.lastSeen)}</td>
+                    <td>
+                      <ChevronRight
+                        size={14}
+                        style={{ color: "var(--text-3)" }}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -188,25 +194,33 @@ export default function AdminDashboardPage() {
 interface HeroKPIProps {
   label: string;
   value: string;
-  delta: string;
-  deltaTone?: Delta;
+  delta: { text: string; tone: Delta };
   sub: string;
   data: number[];
   color: string;
 }
 
-function HeroKPI({ label, value, delta, deltaTone = "up", sub, data, color }: HeroKPIProps) {
-  const ArrowIcon = deltaTone === "down" ? ArrowDown : deltaTone === "flat" ? null : ArrowUp;
+function HeroKPI({ label, value, delta, sub, data, color }: HeroKPIProps) {
+  const ArrowIcon =
+    delta.tone === "down" ? ArrowDown : delta.tone === "flat" ? null : ArrowUp;
   return (
     <div className="kpi" style={{ padding: "20px 22px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+        }}
+      >
         <div>
           <div className="kpi-label">{label}</div>
-          <div className="kpi-value" style={{ fontSize: 36, marginTop: 6 }}>{value}</div>
+          <div className="kpi-value" style={{ fontSize: 36, marginTop: 6 }}>
+            {value}
+          </div>
           <div className="kpi-row">
-            <span className={`kpi-delta ${deltaTone}`}>
+            <span className={`kpi-delta ${delta.tone}`}>
               {ArrowIcon && <ArrowIcon size={12} />}
-              {delta}
+              {delta.text}
             </span>
             <span>{sub}</span>
           </div>
@@ -220,7 +234,6 @@ function HeroKPI({ label, value, delta, deltaTone = "up", sub, data, color }: He
           data={data}
           h={110}
           grid
-          labels={["Apr 1", "", "Apr 15", "", "Apr 30"]}
           fillClass="chart-fill"
           lineClass="chart-line"
           color={color}
@@ -265,17 +278,30 @@ function ChartCard({ title, sub, footer, chart }: ChartCardProps) {
   );
 }
 
-function DonutCard() {
-  const segs = [
-    { label: "Manual captions", value: 58, color: "#0a0a0a" },
-    { label: "Auto captions", value: 21, color: "#525252" },
-    { label: "Whisper", value: 21, color: "var(--warn)" },
-  ];
+const SOURCE_COLOR: Record<TranscriptSource, string> = {
+  manual_captions: "#0a0a0a",
+  auto_captions: "#525252",
+  whisper: "var(--warn)",
+};
+
+const SOURCE_LABEL: Record<TranscriptSource, string> = {
+  manual_captions: "Manual captions",
+  auto_captions: "Auto captions",
+  whisper: "Whisper",
+};
+
+function DonutCard({ sourceMix }: { sourceMix: DashboardKPIs["sourceMix"] }) {
+  const total = sourceMix.reduce((sum, m) => sum + m.count, 0);
+  const segs = sourceMix.map((m) => ({
+    label: SOURCE_LABEL[m.source],
+    value: total > 0 ? Math.round((m.count / total) * 100) : 0,
+    color: SOURCE_COLOR[m.source],
+  }));
   return (
     <div className="card">
       <div style={{ padding: "14px 18px 10px" }}>
         <div className="card-title">Transcript source</div>
-        <div className="card-sub">last 30d</div>
+        <div className="card-sub">{total > 0 ? `${total} summaries` : "no data"}</div>
       </div>
       <div
         style={{
@@ -314,29 +340,105 @@ function DonutCard() {
   );
 }
 
-function DateRangePicker() {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  useDismissable(open, wrapperRef, () => setOpen(false));
+// ─── helpers ─────────────────────────────────────────────────────────────
 
-  return (
-    <div ref={wrapperRef} style={{ position: "relative" }}>
-      <Btn size="sm" onClick={() => setOpen(!open)}>
-        <Calendar size={13} /> Last 30 days
-        <ChevronDown size={12} />
-      </Btn>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            right: 0,
-            top: "calc(100% + 6px)",
-            zIndex: 50,
-          }}
-        >
-          <DateRangePopover onClose={() => setOpen(false)} />
-        </div>
-      )}
-    </div>
-  );
+function parseWindowDays(raw: string | undefined): number {
+  const ALLOWED = new Set([7, 14, 30, 90]);
+  const n = raw ? Number.parseInt(raw, 10) : 30;
+  return ALLOWED.has(n) ? n : 30;
+}
+
+function formatRange(window: { start: Date; end: Date }): string {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return `${fmt(window.start)} – ${fmt(window.end)}, ${window.end.getUTCFullYear()}`;
+}
+
+function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+function formatSeconds(s: number | null): string {
+  if (s == null) return "—";
+  return `${s.toFixed(1)}s`;
+}
+
+function formatPct(n: number | null): string {
+  if (n == null) return "—";
+  return `${n}%`;
+}
+
+function pctDelta(curr: number, prev: number): { text: string; tone: Delta } {
+  if (prev === 0) {
+    if (curr === 0) return { text: "0%", tone: "flat" };
+    return { text: "new", tone: "up" };
+  }
+  const pct = Math.round(((curr - prev) / prev) * 1000) / 10;
+  if (pct === 0) return { text: "0.0%", tone: "flat" };
+  const sign = pct > 0 ? "+" : "";
+  return {
+    text: `${sign}${pct.toFixed(1)}%`,
+    tone: pct > 0 ? "up" : "down",
+  };
+}
+
+function absDeltaSeconds(
+  curr: number | null,
+  prev: number | null,
+): { text: string; tone: Delta } {
+  if (curr == null || prev == null) return { text: "—", tone: "flat" };
+  const diff = Math.round((curr - prev) * 10) / 10;
+  if (diff === 0) return { text: "0.0s", tone: "flat" };
+  const sign = diff > 0 ? "+" : "";
+  return { text: `${sign}${diff.toFixed(1)}s`, tone: diff > 0 ? "warn" : "down" };
+}
+
+function summariesSub(kpis: DashboardKPIs): string {
+  const total = kpis.summaries.current;
+  const w = kpis.whisper.current;
+  const pct = total > 0 ? Math.round((w / total) * 100) : 0;
+  return `of which whisper · ${formatCount(w)} (${pct}%)`;
+}
+
+function latencySub(kpis: DashboardKPIs): string {
+  const t = kpis.transcribeP95Seconds;
+  const s = kpis.summarizeP95Seconds;
+  if (t == null && s == null) return "no latency samples";
+  return `transcribe ${formatSeconds(t)} · summarize ${formatSeconds(s)}`;
+}
+
+function cacheHitFooter(kpis: DashboardKPIs): string {
+  const c = kpis.cacheHitRatePct.current;
+  const p = kpis.cacheHitRatePct.previous;
+  if (c == null) return "no traffic";
+  if (p == null) return `${c}% (no prior data)`;
+  const diff = c - p;
+  const sign = diff > 0 ? "+" : "";
+  return `${c}% · ${sign}${diff}pp vs prev`;
+}
+
+function avg(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((s, v) => s + v, 0) / values.length;
+}
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const diffMs = Date.now() - d.getTime();
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return d.toISOString().slice(0, 10);
+}
+
+function hashToIdx(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) | 0;
+  return Math.abs(h) % 7;
 }
