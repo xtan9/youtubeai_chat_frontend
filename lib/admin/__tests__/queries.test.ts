@@ -13,6 +13,7 @@ import {
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
+  fetchUsersTotal,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
@@ -1090,5 +1091,45 @@ describe("listUsersWithStatsAndSort", () => {
     expect(byId.get("u-deleted")).toBe("deleted");
     expect(byId.get("u-anon")).toBe("anonymous");
     expect(byId.get("u-unverified")).toBe("unverified");
+  });
+});
+
+describe("fetchUsersTotal", () => {
+  it("returns total from auth.admin.listUsers", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: { users: [], total: 643 },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchUsersTotal(client);
+    expect(out).toBe(643);
+  });
+
+  it("returns null and logs on error", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "auth down" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchUsersTotal(client);
+    expect(out).toBeNull();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("fetchUsersTotal"),
+      expect.any(Object),
+    );
   });
 });

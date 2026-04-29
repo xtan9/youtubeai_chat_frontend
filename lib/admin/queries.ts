@@ -624,6 +624,24 @@ export async function listAllUsers(
   return { users: collected, total, truncated };
 }
 
+/** Cheap one-shot total user count for sidebar badge. Returns null on
+ * error so the badge can render gracefully. */
+export async function fetchUsersTotal(
+  client: SupabaseClient,
+): Promise<number | null> {
+  const { data, error } = await client.auth.admin.listUsers({
+    page: 1,
+    perPage: 1,
+  });
+  if (error) {
+    console.error("[admin-queries] fetchUsersTotal failed", {
+      message: error.message,
+    });
+    return null;
+  }
+  return data?.total ?? null;
+}
+
 
 interface UserActivity {
   summaries: number;
