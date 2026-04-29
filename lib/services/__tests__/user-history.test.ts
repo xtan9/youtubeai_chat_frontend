@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { getRecentHistory } from "../user-history";
+import { getRecentHistory, getHistoryPage } from "../user-history";
 
 type SupabaseLike = {
   from: ReturnType<typeof vi.fn>;
@@ -84,5 +84,105 @@ describe("getRecentHistory", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = await getRecentHistory(supabase as any, "u-1");
     expect(rows).toHaveLength(1);
+  });
+});
+
+type PageMockOptions = {
+  rowsData: unknown;
+  rowsError?: unknown;
+  total: number | null;
+  countError?: unknown;
+};
+
+function makeSupabaseForPage(opts: PageMockOptions) {
+  const rowsBuilder = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    range: vi
+      .fn()
+      .mockResolvedValue({ data: opts.rowsData, error: opts.rowsError ?? null }),
+  };
+  const countBuilder = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockResolvedValue({
+      count: opts.total,
+      error: opts.countError ?? null,
+    }),
+  };
+  let callCount = 0;
+  const from = vi.fn(() => {
+    callCount += 1;
+    return callCount === 1 ? rowsBuilder : countBuilder;
+  });
+  return { from, rowsBuilder, countBuilder };
+}
+
+describe("getHistoryPage", () => {
+  it("requests range [0, 24] for page 1, perPage 25", async () => {
+    const supabase = makeSupabaseForPage({ rowsData: [ROW], total: 1 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(supabase.rowsBuilder.range).toHaveBeenCalledWith(0, 24);
+  });
+
+  it("requests range [20, 29] for page 3, perPage 10", async () => {
+    const supabase = makeSupabaseForPage({ rowsData: [ROW], total: 25 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await getHistoryPage(supabase as any, "u-1", 3, 10);
+    expect(supabase.rowsBuilder.range).toHaveBeenCalledWith(20, 29);
+  });
+
+  it("returns total and totalPages from count query", async () => {
+    const supabase = makeSupabaseForPage({ rowsData: [ROW], total: 53 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result.total).toBe(53);
+    expect(result.totalPages).toBe(3);
+  });
+
+  it("clamps page<1 to 1", async () => {
+    const supabase = makeSupabaseForPage({ rowsData: [], total: 0 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 0, 25);
+    expect(supabase.rowsBuilder.range).toHaveBeenCalledWith(0, 24);
+    expect(result.totalPages).toBe(0);
+    expect(result.rows).toEqual([]);
+  });
+
+  it("returns empty result on rows error", async () => {
+    const supabase = makeSupabaseForPage({
+      rowsData: null,
+      rowsError: { message: "boom" },
+      total: 10,
+    });
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result).toEqual({ rows: [], total: 0, totalPages: 0 });
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it("returns empty result on count error", async () => {
+    const supabase = makeSupabaseForPage({
+      rowsData: [ROW],
+      total: null,
+      countError: { message: "boom" },
+    });
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result).toEqual({ rows: [], total: 0, totalPages: 0 });
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it("treats null count as 0", async () => {
+    const supabase = makeSupabaseForPage({ rowsData: [], total: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result.total).toBe(0);
+    expect(result.totalPages).toBe(0);
   });
 });

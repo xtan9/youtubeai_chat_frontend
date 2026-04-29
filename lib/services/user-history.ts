@@ -57,3 +57,44 @@ export async function getRecentHistory(
     .map(mapRow)
     .filter((r): r is HistoryRow => r !== null);
 }
+
+export async function getHistoryPage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  userId: string,
+  page: number,
+  perPage: number = 25,
+): Promise<{ rows: HistoryRow[]; total: number; totalPages: number }> {
+  const safePage = Math.max(1, Math.floor(page) || 1);
+  const offset = (safePage - 1) * perPage;
+
+  const [rowsResult, countResult] = await Promise.all([
+    supabase
+      .from("user_video_history")
+      .select(VIDEO_SELECT)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + perPage - 1),
+    supabase
+      .from("user_video_history")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId),
+  ]);
+
+  if (rowsResult.error) {
+    console.error("getHistoryPage rows failed", rowsResult.error);
+    return { rows: [], total: 0, totalPages: 0 };
+  }
+  if (countResult.error) {
+    console.error("getHistoryPage count failed", countResult.error);
+    return { rows: [], total: 0, totalPages: 0 };
+  }
+
+  const rows = ((rowsResult.data as RawRow[] | null) ?? [])
+    .map(mapRow)
+    .filter((r): r is HistoryRow => r !== null);
+  const total = countResult.count ?? 0;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
+
+  return { rows, total, totalPages };
+}
