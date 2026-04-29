@@ -45,20 +45,25 @@ visual decisions go through it.
 4. **Never use legacy shadcn token classes** like `bg-card`, `bg-popover`,
    `text-foreground`, `text-muted-foreground`, `border-input`. They were
    swept out in milestone C and the supporting CSS variables are gone.
-5. **Stay on the 4-px spacing grid; avoid arbitrary sizing values.** All
-   padding, margin, gap, width, and height utilities multiply the
+5. **Stay on the 4-px spacing grid; avoid arbitrary fixed-pixel values.**
+   All padding, margin, gap, width, and height utilities multiply the
    `--spacing: 0.25rem` base — see
    [`docs/design-system/tokens/spacing.mdx`](docs/design-system/tokens/spacing.mdx).
-   Use grid-aligned tokens (`px-2`, `py-8`, `gap-6`, `w-full`, etc.) and
+   Use grid-aligned tokens (`px-4`, `py-8`, `gap-6`, `w-full`, etc.) and
    half-steps (`p-3.5`) when the design needs them. Do **not** reach for
-   arbitrary values like `px-[13px]` or `max-w-[1800px]` to "make it fit"
-   — they bypass the design system. For page-level wrappers, pick from
+   arbitrary fixed-pixel values like `px-[13px]` or `max-w-[1280px]`
+   to "make it fit" — they bypass the design system. Percentage,
+   viewport-unit, and `calc()` arbitraries (e.g. `max-w-[85%]`,
+   `max-h-[calc(100vh-300px)]`) are fine when the value genuinely
+   depends on the runtime layout. For page-level wrappers, pick from
    the blessed layout patterns:
-   - `container mx-auto px-{N} py-{N}` — narrower content (blog, legal,
-     FAQ) where reading width matters; capped at `2xl: 1536px`.
-   - `mx-auto max-w-page px-{N} py-{N}` — wide content (summary, chat,
-     dashboards) that benefits from ultrawide room; capped at the
-     `--container-page` token in `app/globals.css` (1800px).
+   - `container mx-auto px-{N} py-{N}` — prose-dominant pages (blog,
+     legal, FAQ) where reading width matters more than horizontal
+     real estate; clamps to the active Tailwind breakpoint.
+   - `mx-auto max-w-page px-{N} py-{N}` — pages whose primary value
+     is showing two or more columns side-by-side (currently the
+     summary/chat shell + the global header so they share the same
+     cap); clamps to the `--container-page` token in `app/globals.css`.
    If a real product need genuinely requires escaping the grid or
    adding a new layout cap, extend the `--container-*` token in
    `app/globals.css` rather than inlining `max-w-[N]`, and document
