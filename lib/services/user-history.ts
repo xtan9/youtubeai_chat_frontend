@@ -53,7 +53,7 @@ export async function getRecentHistory(
     return [];
   }
 
-  return ((data as RawRow[] | null) ?? [])
+  return ((data as unknown as RawRow[] | null) ?? [])
     .map(mapRow)
     .filter((r): r is HistoryRow => r !== null);
 }
@@ -90,7 +90,7 @@ export async function getHistoryPage(
     return { rows: [], total: 0, totalPages: 0 };
   }
 
-  const rows = ((rowsResult.data as RawRow[] | null) ?? [])
+  const rows = ((rowsResult.data as unknown as RawRow[] | null) ?? [])
     .map(mapRow)
     .filter((r): r is HistoryRow => r !== null);
   const total = countResult.count ?? 0;
