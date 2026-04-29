@@ -63,6 +63,7 @@ const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 interface RouteHandlers {
   readonly onMessages?: (input: RequestInit | undefined) => Response;
   readonly onStream?: (input: RequestInit | undefined) => Response;
+  readonly onSuggestions?: (input: RequestInit | undefined) => Response;
 }
 
 function makeRouter(
@@ -81,6 +82,15 @@ function makeRouter(
         throw new Error(`Unexpected /api/chat/stream call (method=${method})`);
       }
       return handlers.onStream(init);
+    }
+    if (url.includes("/api/chat/suggestions")) {
+      // Default to "no dynamic suggestions" so existing tests don't
+      // need to wire one up — ChatEmptyState falls back to its static
+      // list, which every existing assertion already targets.
+      const handler =
+        handlers.onSuggestions ??
+        (() => jsonResponse({ suggestions: [] } as const));
+      return handler(init);
     }
     if (url.includes("/api/chat/messages")) {
       if (!handlers.onMessages) {
@@ -380,6 +390,50 @@ describe("ChatTab", () => {
       (screen.getByRole("button", { name: /send message/i }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it("renders dynamic suggestions when /api/chat/suggestions returns them", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onSuggestions: () =>
+        jsonResponse({
+          suggestions: [
+            "What did Karpathy say about Optimus?",
+            "Quote the most surprising claim about AGI.",
+            "List the open AI research questions raised.",
+          ],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    // Wait for the dynamic suggestion to appear — until the fetch
+    // resolves, ChatEmptyState falls back to the static list.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /What did Karpathy say about Optimus/ }),
+      ).toBeTruthy(),
+    );
+    // The static fallback is no longer rendered once dynamic land.
+    expect(
+      screen.queryByRole("button", { name: /Summarize the key takeaways/ }),
+    ).toBeNull();
+  });
+
+  it("falls back to static suggestions when /api/chat/suggestions returns []", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onSuggestions: () => jsonResponse({ suggestions: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Summarize the key takeaways/ }),
+      ).toBeTruthy(),
+    );
   });
 
   it("has no axe a11y violations on the empty-state orchestrator", async () => {

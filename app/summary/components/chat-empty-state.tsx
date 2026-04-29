@@ -4,12 +4,19 @@ import { Sparkles } from "lucide-react";
 
 interface ChatEmptyStateProps {
   readonly onPickSuggestion: (suggestion: string) => void;
+  /**
+   * Dynamic per-video suggestions when available. Falls back to the
+   * static list below when undefined or empty so the empty state
+   * always has *something* to click — generation latency or failure
+   * is invisible to the user.
+   */
+  readonly dynamicSuggestions?: readonly string[];
 }
 
 /**
- * Static suggestions for v1 — three prompts that work across most YouTube
- * videos. Dynamic per-video suggestions are a follow-up that requires
- * extending the summary stream's structured output.
+ * Static fallback suggestions — three prompts that work across most
+ * YouTube videos. Used when the per-video dynamic generation hasn't
+ * landed yet, failed, or produced an empty list.
  */
 const STATIC_SUGGESTIONS: readonly string[] = [
   "Summarize the key takeaways",
@@ -17,7 +24,14 @@ const STATIC_SUGGESTIONS: readonly string[] = [
   "Quote the most important moment",
 ];
 
-export function ChatEmptyState({ onPickSuggestion }: ChatEmptyStateProps) {
+export function ChatEmptyState({
+  onPickSuggestion,
+  dynamicSuggestions,
+}: ChatEmptyStateProps) {
+  const suggestions =
+    dynamicSuggestions && dynamicSuggestions.length > 0
+      ? dynamicSuggestions
+      : STATIC_SUGGESTIONS;
   return (
     <div className="flex flex-1 flex-col items-stretch justify-center gap-3 p-4 text-center">
       <div className="flex justify-center">
@@ -27,7 +41,7 @@ export function ChatEmptyState({ onPickSuggestion }: ChatEmptyStateProps) {
         Ask anything about this video, or start with a suggestion:
       </p>
       <ul className="flex flex-col gap-2">
-        {STATIC_SUGGESTIONS.map((s) => (
+        {suggestions.map((s) => (
           <li key={s}>
             <button
               type="button"
