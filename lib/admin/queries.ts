@@ -241,9 +241,68 @@ export interface UserListResult {
 
 interface AuthUserRecord {
   id: string;
-  email?: string;
+  email: string | null;
   created_at: string;
-  last_sign_in_at?: string | null;
+  last_sign_in_at: string | null;
+  email_confirmed_at: string | null;
+  banned_until: string | null;
+  deleted_at: string | null;
+  is_anonymous: boolean;
+  is_sso_user: boolean;
+  identities?: Array<{ provider?: string }>;
+  app_metadata?: Record<string, unknown>;
+  user_metadata?: Record<string, unknown>;
+}
+
+const ALL_USERS_ROW_CAP_DEFAULT = 5_000;
+const ALL_USERS_PER_PAGE = 200;
+
+export interface ListAllUsersResult {
+  users: AuthUserRecord[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface ListAllUsersOptions {
+  rowCap?: number;
+}
+
+export async function listAllUsers(
+  client: SupabaseClient,
+  opts: ListAllUsersOptions = {},
+): Promise<ListAllUsersResult> {
+  const cap = Math.max(1, opts.rowCap ?? ALL_USERS_ROW_CAP_DEFAULT);
+  const collected: AuthUserRecord[] = [];
+  let total = 0;
+  let truncated = false;
+
+  for (let page = 1; ; page++) {
+    const { data, error } = await client.auth.admin.listUsers({
+      page,
+      perPage: ALL_USERS_PER_PAGE,
+    });
+    if (error) throw new QueryError("listAllUsers", error.message);
+    const users = (data?.users ?? []) as AuthUserRecord[];
+    if (page === 1) total = data?.total ?? users.length;
+
+    for (const u of users) {
+      if (collected.length >= cap) {
+        truncated = true;
+        break;
+      }
+      collected.push(u);
+    }
+    if (truncated) break;
+    if (users.length < ALL_USERS_PER_PAGE) break;
+  }
+
+  if (truncated) {
+    console.warn("[admin-queries] listAllUsers cap hit", {
+      cap,
+      total,
+    });
+  }
+  return { users: collected, total, truncated };
 }
 
 export async function listUsersWithStats(

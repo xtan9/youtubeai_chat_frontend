@@ -12,6 +12,7 @@ import {
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
+import { listAllUsers } from "../queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
@@ -759,5 +760,81 @@ describe("user_video_history column drift guard", () => {
     expect(selectArg).toContain("created_at:accessed_at");
     expect(gteCol).toBe("accessed_at");
     expect(lteCol).toBe("accessed_at");
+  });
+});
+
+// ─── listAllUsers ────────────────────────────────────────────────────────
+
+describe("listAllUsers", () => {
+  function buildAuthClient(
+    pages: Array<{ users: Array<Record<string, unknown>>; total: number }>,
+  ): SupabaseClient {
+    let i = 0;
+    const listUsers = vi.fn(async () => {
+      const next = pages[i++] ?? { users: [], total: pages[0]?.total ?? 0 };
+      return { data: next, error: null };
+    });
+    return {
+      from: vi.fn(),
+      auth: { admin: { listUsers, getUserById: vi.fn() } },
+    } as unknown as SupabaseClient;
+  }
+
+  it("concatenates rows across paged calls until a partial page", async () => {
+    const full = Array.from({ length: 200 }, (_, i) => ({
+      id: `id-${i}`,
+      email: `${i}@x`,
+      created_at: "2026-04-29T00:00:00Z",
+      is_anonymous: false,
+    }));
+    const partial = Array.from({ length: 50 }, (_, i) => ({
+      id: `id-200-${i}`,
+      email: `${i}@y`,
+      created_at: "2026-04-29T00:00:00Z",
+      is_anonymous: false,
+    }));
+    const client = buildAuthClient([
+      { users: full, total: 250 },
+      { users: partial, total: 250 },
+    ]);
+    const out = await listAllUsers(client);
+    expect(out.users).toHaveLength(250);
+    expect(out.truncated).toBe(false);
+    expect(out.total).toBe(250);
+  });
+
+  it("stops at row cap and sets truncated=true with a warn", async () => {
+    const big = Array.from({ length: 200 }, (_, i) => ({
+      id: `id-${i}`,
+      email: `${i}@x`,
+      created_at: "2026-04-29T00:00:00Z",
+      is_anonymous: false,
+    }));
+    const client = buildAuthClient(
+      Array.from({ length: 30 }, () => ({ users: big, total: 6000 })),
+    );
+    const out = await listAllUsers(client, { rowCap: 5000 });
+    expect(out.users).toHaveLength(5000);
+    expect(out.truncated).toBe(true);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("listAllUsers cap hit"),
+      expect.any(Object),
+    );
+  });
+
+  it("propagates page-level errors as QueryError", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "boom" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    await expect(listAllUsers(client)).rejects.toBeInstanceOf(QueryError);
   });
 });
