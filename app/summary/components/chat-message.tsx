@@ -41,7 +41,7 @@ export function ChatMessage({ role, content }: ChatMessageProps) {
   }
   return (
     <div className="flex justify-start">
-      <div className="max-w-[90%] rounded-2xl rounded-bl-sm bg-surface-raised px-4 py-2 text-text-primary">
+      <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-2 text-text-primary">
         <p className="whitespace-pre-wrap text-body-md">{renderContent(content)}</p>
       </div>
     </div>
