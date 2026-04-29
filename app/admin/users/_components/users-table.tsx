@@ -28,6 +28,7 @@ import type {
   UsersTab,
 } from "@/lib/admin/queries";
 import { TABS } from "./filter";
+import { WHISPER_FLAG_THRESHOLD } from "@/lib/admin/constants";
 
 const SOURCE_PILL: Record<TranscriptSource, React.ReactNode> = {
   whisper: <Pill tone="warn">whisper</Pill>,
@@ -271,7 +272,7 @@ export function UsersTable({
                       </td>
                       <td className="num">{u.summaries}</td>
                       <td className="num">
-                        {u.whisperPct > 30 ? (
+                        {u.whisperPct > WHISPER_FLAG_THRESHOLD ? (
                           <Pill tone="warn">{u.whisperPct}%</Pill>
                         ) : (
                           <span className="muted tnum">{u.whisperPct}%</span>
@@ -390,7 +391,7 @@ function UserExpand({ user, summaries, audit, onOpenTranscript }: UserExpandProp
             <div className="mini-stat-label">Whisper rate</div>
             <div
               className="mini-stat-value tnum"
-              style={{ color: user.whisperPct > 30 ? "var(--warn)" : undefined }}
+              style={{ color: user.whisperPct > WHISPER_FLAG_THRESHOLD ? "var(--warn)" : undefined }}
             >
               {user.whisperPct}%
             </div>

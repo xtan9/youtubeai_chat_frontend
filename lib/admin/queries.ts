@@ -12,11 +12,8 @@ const ALL_SOURCES: readonly TranscriptSource[] = [
   "whisper",
 ] as const;
 
-/** Whisper share above this percent flips a user/account to "flagged". The
- * threshold is an organizational policy lever (whisper is the cost lever),
- * not a domain truth — single source so /admin and the users table never
- * drift. */
-export const WHISPER_FLAG_THRESHOLD = 30;
+import { WHISPER_FLAG_THRESHOLD } from "./constants";
+export { WHISPER_FLAG_THRESHOLD } from "./constants";
 
 /** Hard caps on rows pulled into Node memory for in-process aggregation.
  * In the current scale (low-thousands of summaries / month), these are

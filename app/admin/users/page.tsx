@@ -130,10 +130,10 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
             {sort !== DEFAULT_SORT && <input type="hidden" name="sort" value={sort} />}
             {dir !== DEFAULT_DIR && <input type="hidden" name="dir" value={dir} />}
           </form>
-          <Btn size="sm" kind="ghost">
+          <Btn size="sm" kind="ghost" disabled>
             <Filter size={13} /> Filter
           </Btn>
-          <Btn size="sm">
+          <Btn size="sm" disabled>
             <Download size={13} /> Export
           </Btn>
         </div>
