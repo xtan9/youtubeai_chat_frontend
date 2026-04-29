@@ -22,7 +22,13 @@ export function AdminTopbar() {
 
   async function handleSignOut() {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("[admin-topbar] signOut failed", {
+        status: error.status ?? null,
+        message: error.message,
+      });
+    }
     router.push("/");
     router.refresh();
   }

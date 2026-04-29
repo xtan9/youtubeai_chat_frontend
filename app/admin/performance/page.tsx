@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 import { AreaChart, Btn, Pill, Sparkline } from "../_components/atoms";
-import type { Delta } from "@/lib/admin/types";
+import { assertNever, type Delta } from "@/lib/admin/types";
 
 interface PerfStat {
   label: string;
@@ -31,6 +31,8 @@ function renderArrow(tone: Delta) {
       return <ArrowUp size={11} />;
     case "flat":
       return null;
+    default:
+      return assertNever(tone);
   }
 }
 

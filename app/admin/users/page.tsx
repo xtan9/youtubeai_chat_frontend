@@ -12,9 +12,22 @@ import {
   UserCheck,
   AlertTriangle,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { Avatar, Pill, Btn, Sparkline } from "../_components/atoms";
 import { TranscriptModal } from "../_components/transcript-modal";
-import type { AdminUser, TranscriptSummary } from "@/lib/admin/types";
+import type {
+  AdminUser,
+  TranscriptSource,
+  TranscriptSummary,
+} from "@/lib/admin/types";
+
+// Record<TranscriptSource, …> forces every enum member to map; adding a
+// future source ("upload", etc.) is a compile error here, not a silent no-render.
+const SOURCE_PILL: Record<TranscriptSource, ReactNode> = {
+  whisper: <Pill tone="warn">whisper</Pill>,
+  auto_captions: <Pill>auto</Pill>,
+  manual_captions: <Pill tone="ok">manual</Pill>,
+};
 
 // TODO(admin-data): replace mock arrays with service-role queries.
 const USERS: AdminUser[] = [
@@ -294,11 +307,7 @@ function UserExpand({ user, openTranscript }: UserExpandProps) {
                   {s.channel} · {s.lang} · <span className="mono">{s.model}</span> · {s.time}s · {RECENT_TIMES[i]}
                 </div>
               </div>
-              <div className="row gap-4">
-                {s.source === "whisper" && <Pill tone="warn">whisper</Pill>}
-                {s.source === "auto_captions" && <Pill>auto</Pill>}
-                {s.source === "manual_captions" && <Pill tone="ok">manual</Pill>}
-              </div>
+              <div className="row gap-4">{SOURCE_PILL[s.source]}</div>
               <Btn
                 size="sm"
                 kind="ghost"
