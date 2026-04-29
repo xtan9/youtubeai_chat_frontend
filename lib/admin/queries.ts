@@ -1053,7 +1053,6 @@ export async function getPerformanceStats(
   // see fetchHistoryForExclusion), we drop the filter and show all
   // summaries. Better to surface all-activity numbers than to error the
   // page; this matches the existing listAdminUserIds fail-soft default.
-  // Spec: docs/superpowers/specs/2026-04-29-admin-exclude-self-design.md
   const includedCurrent = new Set(history.map((h) => h.video_id));
   const includedPrev = new Set(prevHistory.map((h) => h.video_id));
   const filteredCurrent = wantFilter && history.length > 0
