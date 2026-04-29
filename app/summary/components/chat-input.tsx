@@ -70,8 +70,9 @@ export function ChatInput({
           size="icon"
           onClick={onStop}
           aria-label="Stop generating"
+          className="rounded-full"
         >
-          <Square className="size-4" />
+          <Square className="size-2.5 fill-current" />
         </Button>
       ) : (
         <Button

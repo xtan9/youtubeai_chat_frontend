@@ -244,8 +244,16 @@ describe("ChatTab", () => {
       expect(screen.getByText("what is this about?")).toBeTruthy(),
     );
 
+    // Before the first delta arrives, the user bubble has rendered but
+    // the assistant has nothing to show yet — a thinking indicator
+    // takes the assistant slot so the user can tell the LLM is working.
+    expect(screen.getByTestId("chat-thinking-indicator")).toBeTruthy();
+
     act(() => controlled.emit({ type: "delta", text: STREAMED_TEXT }));
     await waitFor(() => expect(screen.getByText(STREAMED_TEXT)).toBeTruthy());
+
+    // First delta replaces the indicator with the streaming bubble.
+    expect(screen.queryByTestId("chat-thinking-indicator")).toBeNull();
 
     streamCompleted = true;
     act(() => {

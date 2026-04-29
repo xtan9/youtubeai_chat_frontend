@@ -44,11 +44,32 @@ export function ChatMessageList({
       {draft && (
         <>
           <ChatMessage role="user" content={draft.user} />
-          {(draft.assistant.length > 0 || streaming) && (
+          {draft.assistant.length > 0 ? (
             <ChatMessage role="assistant" content={draft.assistant} />
-          )}
+          ) : streaming ? (
+            <ThinkingIndicator />
+          ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start" data-testid="chat-thinking-indicator">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label="Assistant is thinking"
+        className="rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-3"
+      >
+        <span className="flex items-center gap-1">
+          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:0ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:150ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:300ms]" />
+        </span>
+      </div>
     </div>
   );
 }
