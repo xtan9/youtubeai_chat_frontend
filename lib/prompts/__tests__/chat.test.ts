@@ -99,4 +99,28 @@ describe("buildChatMessages", () => {
     expect(typeof messages[1]?.content).toBe("string");
     expect(typeof messages[2]?.content).toBe("string");
   });
+
+  it("with cacheStablePrefix=true and a non-empty history, ONLY the primer is the breakpoint (history + ack + new user stay strings)", () => {
+    // Realistic chat scenario: a 4-turn history. Anthropic limits
+    // cache_control to 4 breakpoints, so spraying it across history is a
+    // real failure mode. Pin the single-breakpoint invariant.
+    const messages = buildChatMessages({
+      transcript: "T",
+      summary: "S",
+      history: [
+        { id: "1", role: "user", content: "Q1", createdAt: "" },
+        { id: "2", role: "assistant", content: "A1", createdAt: "" },
+        { id: "3", role: "user", content: "Q2", createdAt: "" },
+        { id: "4", role: "assistant", content: "A2", createdAt: "" },
+      ],
+      userMessage: "Q3",
+      cacheStablePrefix: true,
+    });
+    expect(Array.isArray(messages[0]?.content)).toBe(true);
+    // Every other message must remain a plain string — exactly one
+    // cache breakpoint, at the primer.
+    expect(
+      messages.slice(1).every((m) => typeof m.content === "string"),
+    ).toBe(true);
+  });
 });
