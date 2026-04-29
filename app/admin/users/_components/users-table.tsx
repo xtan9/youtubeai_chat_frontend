@@ -15,6 +15,7 @@ import { Avatar, Btn, Pill, Sparkline } from "../../_components/atoms";
 import { TranscriptModal } from "../../_components/transcript-modal";
 import type { TranscriptSource, TranscriptSummary, TranscriptModel } from "@/lib/admin/types";
 import type { AdminUserRow, UserSummaryRow } from "@/lib/admin/queries";
+import { applyUsersFilter } from "./filter";
 
 const SOURCE_PILL: Record<TranscriptSource, React.ReactNode> = {
   whisper: <Pill tone="warn">whisper</Pill>,
@@ -50,7 +51,7 @@ export function UsersTable({
   const [openTranscript, setOpenTranscript] = useState<TranscriptSummary | null>(null);
 
   const filter = searchParams.get("filter") ?? "all";
-  const visibleRows = applyFilter(rows, filter);
+  const visibleRows = applyUsersFilter(rows, filter);
 
   const setQuery = (mutate: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -97,7 +98,9 @@ export function UsersTable({
           ))}
         </div>
         <span className="text-sm muted" style={{ marginLeft: "auto" }}>
-          Showing {visibleRows.length} of {totalApprox.toLocaleString("en-US")}
+          {filter === "all"
+            ? `Showing ${visibleRows.length} of ${totalApprox.toLocaleString("en-US")}`
+            : `Showing ${visibleRows.length} matching this page · ${totalApprox.toLocaleString("en-US")} total`}
         </span>
       </div>
 
@@ -237,8 +240,9 @@ function PrevLink() {
   const searchParams = useSearchParams();
   const cursor = searchParams.get("cursor");
   if (!cursor) return null;
-  // Cursor pagination: "Previous" is one back via removing the cursor.
-  // We don't keep a full page stack — clicking Previous returns to page 1.
+  // No page stack kept; "First page" resets the cursor rather than walking
+  // back one page. Acceptable for an admin tool; if operators ask for a
+  // back-button, store recent cursors in URL state.
   return (
     <Link
       href={buildHref(searchParams, { cursor: null, expanded: null })}
@@ -261,12 +265,6 @@ function buildHref(
   }
   const qs = params.toString();
   return qs ? `?${qs}` : "?";
-}
-
-function applyFilter(rows: AdminUserRow[], filter: string): AdminUserRow[] {
-  if (filter === "flagged") return rows.filter((r) => r.flagged);
-  if (filter === "active") return rows.filter((r) => r.summaries > 0);
-  return rows;
 }
 
 interface UserExpandProps {

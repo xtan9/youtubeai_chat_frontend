@@ -16,6 +16,7 @@ import {
   Donut,
 } from "./_components/atoms";
 import { DashboardControls } from "./_components/dashboard-controls";
+import { parseWindowDays } from "./_components/window-days";
 import { requireAdminPage } from "./_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
@@ -279,8 +280,8 @@ function ChartCard({ title, sub, footer, chart }: ChartCardProps) {
 }
 
 const SOURCE_COLOR: Record<TranscriptSource, string> = {
-  manual_captions: "#0a0a0a",
-  auto_captions: "#525252",
+  manual_captions: "var(--text)",
+  auto_captions: "var(--text-2)",
   whisper: "var(--warn)",
 };
 
@@ -341,12 +342,6 @@ function DonutCard({ sourceMix }: { sourceMix: DashboardKPIs["sourceMix"] }) {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
-
-function parseWindowDays(raw: string | undefined): number {
-  const ALLOWED = new Set([7, 14, 30, 90]);
-  const n = raw ? Number.parseInt(raw, 10) : 30;
-  return ALLOWED.has(n) ? n : 30;
-}
 
 function formatRange(window: { start: Date; end: Date }): string {
   const fmt = (d: Date) =>

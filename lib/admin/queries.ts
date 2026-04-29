@@ -2,12 +2,35 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TranscriptSource } from "@/lib/admin/types";
+import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
+
+export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
 const ALL_SOURCES: readonly TranscriptSource[] = [
   "manual_captions",
   "auto_captions",
   "whisper",
 ] as const;
+
+/** Whisper share above this percent flips a user/account to "flagged". The
+ * threshold is an organizational policy lever (whisper is the cost lever),
+ * not a domain truth — single source so /admin and the users table never
+ * drift. */
+export const WHISPER_FLAG_THRESHOLD = 30;
+
+/** Hard caps on rows pulled into Node memory for in-process aggregation.
+ * In the current scale (low-thousands of summaries / month), these are
+ * far above the realistic window size; if a 90-day window starts hitting
+ * either cap the percentile/cache-hit math will silently understate, so
+ * raise both before that happens. Listed here so future growth flips one
+ * knob, not a scattered set. */
+const SUMMARIES_ROW_CAP = 50_000;
+const HISTORY_ROW_CAP = 100_000;
+/** Cap on per-page row count returned by listAuditLog. Bounds a single
+ * service-role table scan in the worst-case bad-cursor path. */
+const AUDIT_PAGE_SIZE_CAP = 200;
+/** Cap on per-page row count returned by listUsersWithStats. */
+const USERS_PAGE_SIZE_CAP = 100;
 
 type DailyPoint = { day: string; value: number };
 
@@ -69,28 +92,48 @@ export interface TimeWindow {
 }
 
 export function lastNDays(n: number): TimeWindow {
-  return { start: daysAgo(n - 1), end: daysAgo(0) };
+  // end = now (not midnight UTC) so "today" is included up to the moment
+  // of the request. daysAgo(n - 1) gives n full days inclusive.
+  return { start: daysAgo(n - 1), end: new Date() };
 }
 
 // ─── Audit log ────────────────────────────────────────────────────────────
 
-export type AuditAction =
-  | "view_transcript"
-  | "view_summary_text"
-  | "view_user_email_list"
-  | "reset_rate_limit"
-  | "suspend_user"
-  | "restore_user";
+const AUDIT_ACTIONS: readonly AuditAction[] = [
+  "view_transcript",
+  "view_summary_text",
+  "view_user_email_list",
+  "reset_rate_limit",
+  "suspend_user",
+  "restore_user",
+] as const;
 
-export type AuditResourceType = "summary" | "user" | "video" | "rate_limit";
+const AUDIT_RESOURCE_TYPES: readonly AuditResourceType[] = [
+  "summary",
+  "user",
+  "video",
+  "rate_limit",
+] as const;
+
+function isAuditAction(value: string): value is AuditAction {
+  return (AUDIT_ACTIONS as readonly string[]).includes(value);
+}
+
+function isAuditResourceType(value: string): value is AuditResourceType {
+  return (AUDIT_RESOURCE_TYPES as readonly string[]).includes(value);
+}
 
 export interface AuditRow {
   id: string;
   createdAt: string;
   adminId: string;
   adminEmail: string;
-  action: string;
-  resourceType: string;
+  /** Validated against the AuditAction union at read time; rows with an
+   * unknown value (e.g. after a future expansion lands in the DB before
+   * this code is redeployed) are surfaced as a string so the operator
+   * still sees them. */
+  action: AuditAction | string;
+  resourceType: AuditResourceType | string;
   resourceId: string;
   metadata: Record<string, unknown>;
 }
@@ -109,7 +152,7 @@ export async function listAuditLog(
   client: SupabaseClient,
   opts: ListAuditLogOptions = {},
 ): Promise<AuditListResult> {
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), 200);
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), AUDIT_PAGE_SIZE_CAP);
   let query = client
     .from("admin_audit_log")
     .select(
@@ -143,13 +186,23 @@ export async function listAuditLog(
 }
 
 function toAuditRow(row: Record<string, unknown>): AuditRow {
+  const action = String(row.action);
+  const resourceType = String(row.resource_type);
+  if (!isAuditAction(action)) {
+    console.error("[admin-queries] unknown audit action persisted", { action });
+  }
+  if (!isAuditResourceType(resourceType)) {
+    console.error("[admin-queries] unknown audit resource_type persisted", {
+      resourceType,
+    });
+  }
   return {
     id: String(row.id),
     createdAt: String(row.created_at),
     adminId: String(row.admin_id),
     adminEmail: String(row.admin_email),
-    action: String(row.action),
-    resourceType: String(row.resource_type),
+    action,
+    resourceType,
     resourceId: String(row.resource_id),
     metadata:
       row.metadata && typeof row.metadata === "object"
@@ -197,23 +250,35 @@ export async function listUsersWithStats(
   client: SupabaseClient,
   opts: UserListOptions = {},
 ): Promise<UserListResult> {
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), 100);
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), USERS_PAGE_SIZE_CAP);
   const window = opts.window ?? lastNDays(30);
 
-  // Cursor encodes the auth.admin.listUsers `page` index — `auth.admin`
-  // doesn't expose keyset pagination yet, so we honor its model rather
-  // than reinvent it.
+  // auth.admin.listUsers paginates by page index, not keyset. We honor that
+  // rather than reinvent it. To detect "is there a next page" without a
+  // separate count round-trip, we ask for one extra row and emit a cursor
+  // only if the API actually returned that extra — same pattern as
+  // listAuditLog. This avoids the off-by-one where an exactly-full last
+  // page would otherwise emit a Next button that dead-ends.
   const page = decodePageCursor(opts.cursor);
   const {
     data: usersData,
     error: usersErr,
-  } = await client.auth.admin.listUsers({ page, perPage: pageSize });
+  } = await client.auth.admin.listUsers({ page, perPage: pageSize + 1 });
   if (usersErr) throw new QueryError("listUsersWithStats:auth", usersErr.message);
 
   const raw = (usersData?.users ?? []) as AuthUserRecord[];
-  let users = raw.filter((u): u is AuthUserRecord & { email: string } =>
+  const hasMore = raw.length > pageSize;
+  const trimmed = raw.slice(0, pageSize);
+  let users = trimmed.filter((u): u is AuthUserRecord & { email: string } =>
     Boolean(u.email),
   );
+  const droppedNoEmail = trimmed.length - users.length;
+  if (droppedNoEmail > 0) {
+    console.warn("[admin-queries] users without email omitted", {
+      droppedNoEmail,
+      page,
+    });
+  }
 
   const search = opts.search?.trim().toLowerCase();
   if (search) {
@@ -243,13 +308,11 @@ export async function listUsersWithStats(
       whisper,
       whisperPct,
       p95Seconds: stat?.p95Seconds ?? null,
-      flagged: summaries > 0 && whisperPct > 30,
+      flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
     };
   });
 
-  // Cursor: if we got a full page, there may be more.
-  const nextCursor =
-    raw.length === pageSize ? encodePageCursor(page + 1) : null;
+  const nextCursor = hasMore ? encodePageCursor(page + 1) : null;
 
   return {
     rows,
@@ -360,57 +423,99 @@ export async function getUserSummaries(
   limit = 10,
 ): Promise<UserSummaryRow[]> {
   const cap = Math.min(Math.max(limit, 1), 100);
-  const { data, error } = await client
+  // Two-query approach instead of a nested PostgREST select. The earlier
+  // single-call form aliased the `videos` relationship twice (once for
+  // metadata, once as a parent for `summaries`) which PostgREST rejects.
+  // Splitting into history → videos+summaries is also clearer and lets us
+  // pick the canonical summary deterministically.
+  const { data: history, error: histErr } = await client
     .from("user_video_history")
-    .select(
-      "video_id, created_at, videos(title, channel_name, language), summaries:videos(summaries(id, transcript_source, model, processing_time_seconds, enable_thinking))",
-    )
+    .select("video_id, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(cap);
+  if (histErr) throw new QueryError("getUserSummaries:history", histErr.message);
 
-  if (error) throw new QueryError("getUserSummaries", error.message);
+  const videoIds = Array.from(
+    new Set(((history ?? []) as { video_id: string }[]).map((h) => h.video_id)),
+  );
+  if (videoIds.length === 0) return [];
 
-  // Supabase's nested select returns shapes that depend on relationship
-  // cardinality. Normalize into the flat row shape.
+  const [videosRes, summariesRes] = await Promise.all([
+    client
+      .from("videos")
+      .select("id, title, channel_name, language")
+      .in("id", videoIds),
+    client
+      .from("summaries")
+      .select(
+        "id, video_id, transcript_source, model, processing_time_seconds, enable_thinking",
+      )
+      .in("video_id", videoIds),
+  ]);
+  if (videosRes.error) {
+    throw new QueryError("getUserSummaries:videos", videosRes.error.message);
+  }
+  if (summariesRes.error) {
+    throw new QueryError("getUserSummaries:summaries", summariesRes.error.message);
+  }
+
+  const videoById = new Map<string, Record<string, unknown>>();
+  for (const v of (videosRes.data ?? []) as Record<string, unknown>[]) {
+    videoById.set(String(v.id), v);
+  }
+
+  // Pick canonical summary per video: prefer enable_thinking=false (the
+  // default user-visible variant); fall back to whichever exists. If a
+  // future write path produces both per video, the false-variant is the
+  // one mirrored on /summary.
+  const summaryByVideo = new Map<string, Record<string, unknown>>();
+  for (const s of (summariesRes.data ?? []) as Record<string, unknown>[]) {
+    const vid = String(s.video_id);
+    const existing = summaryByVideo.get(vid);
+    if (!existing) {
+      summaryByVideo.set(vid, s);
+      continue;
+    }
+    const newIsCanonical = s.enable_thinking === false;
+    const existingIsCanonical = existing.enable_thinking === false;
+    if (newIsCanonical && !existingIsCanonical) {
+      summaryByVideo.set(vid, s);
+    }
+  }
+
   const rows: UserSummaryRow[] = [];
-  for (const r of (data ?? []) as Record<string, unknown>[]) {
-    const video = readObject(r.videos);
-    const summaryGroup = readObject(r.summaries);
-    const summariesArr = readArray(summaryGroup?.summaries) ?? readArray(r.summaries);
-    const summary = summariesArr?.find(
-      (s) => readObject(s)?.enable_thinking === false,
-    ) ?? summariesArr?.[0];
-    const sObj = readObject(summary);
-    const source = (sObj?.transcript_source ?? "auto_captions") as TranscriptSource;
-    if (!ALL_SOURCES.includes(source)) continue;
+  for (const h of (history ?? []) as {
+    video_id: string;
+    created_at: string;
+  }[]) {
+    const video = videoById.get(h.video_id);
+    const summary = summaryByVideo.get(h.video_id);
+    const rawSource = (summary?.transcript_source ?? "auto_captions") as string;
+    if (!ALL_SOURCES.includes(rawSource as TranscriptSource)) {
+      console.warn("[admin-queries] unknown transcript_source dropped", {
+        videoId: h.video_id,
+        rawSource,
+      });
+      continue;
+    }
+    const source = rawSource as TranscriptSource;
     rows.push({
-      videoId: String(r.video_id),
+      videoId: h.video_id,
       videoTitle: (video?.title as string | null) ?? null,
       videoChannel: (video?.channel_name as string | null) ?? null,
       language: (video?.language as string | null) ?? null,
       source,
-      model: (sObj?.model as string | null) ?? null,
+      model: (summary?.model as string | null) ?? null,
       processingTimeSeconds:
-        typeof sObj?.processing_time_seconds === "number"
-          ? (sObj?.processing_time_seconds as number)
+        typeof summary?.processing_time_seconds === "number"
+          ? (summary.processing_time_seconds as number)
           : null,
-      pulledAt: String(r.created_at),
-      summaryId: String(sObj?.id ?? ""),
+      pulledAt: h.created_at,
+      summaryId: summary ? String(summary.id) : "",
     });
   }
   return rows;
-}
-
-function readObject(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-}
-
-function readArray(value: unknown): unknown[] | null {
-  return Array.isArray(value) ? value : null;
 }
 
 // ─── Dashboard KPIs ───────────────────────────────────────────────────────
@@ -423,6 +528,10 @@ export interface KpiDelta {
 export interface TopUserStat {
   userId: string;
   email: string | null;
+  /** False when the auth lookup for this user failed (network/permission)
+   * — UI can render "—" for missing email but distinguish a degraded
+   * lookup from a user genuinely missing an email. */
+  emailLookupOk: boolean;
   summaries: number;
   whisperPct: number;
   p95Seconds: number | null;
@@ -456,13 +565,13 @@ export async function getDashboardKPIs(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
-  const [current, previous] = await Promise.all([
+  const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
+    fetchHistoryIn(client, window),
+    fetchHistoryIn(client, prevWindow),
   ]);
-  const history = await fetchHistoryIn(client, window);
 
-  // Per-day buckets
   const summariesPerDay = bucketByDay(current, "created_at", window);
   const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
     const distinct = new Set<string>();
@@ -475,7 +584,6 @@ export async function getDashboardKPIs(
     return Math.round((hits / rows.length) * 100);
   });
 
-  // Source mix
   const sourceCounts = new Map<TranscriptSource, number>();
   for (const s of current) {
     sourceCounts.set(
@@ -488,13 +596,9 @@ export async function getDashboardKPIs(
     count: sourceCounts.get(source) ?? 0,
   }));
 
-  // Cache hit rate (overall) — proportion of history rows where the linked
-  // summary was created earlier than the history entry.
   const cacheHitCurrent = computeCacheHitRate(history);
-  const prevHistory = await fetchHistoryIn(client, prevWindow);
   const cacheHitPrevious = computeCacheHitRate(prevHistory);
 
-  // Top users by activity in window
   const topUsers = await computeTopUsers(client, history, current, 5);
 
   const whisperCount = current.filter((s) => s.transcript_source === "whisper")
@@ -535,7 +639,7 @@ export interface PerformanceStats {
     transcribeP95Seconds: number | null;
     summarizeP95Seconds: number | null;
   };
-  /** Hourly buckets aligned to UTC hour. */
+  /** Daily buckets keyed by UTC day (YYYY-MM-DD). */
   latencyByBucket: { day: string; p95Seconds: number | null }[];
 }
 
@@ -555,7 +659,6 @@ export async function getPerformanceStats(
     fetchSummariesIn(client, prevWindow),
   ]);
 
-  // Daily buckets of p95 — the chart on /admin/performance is daily.
   const byDay = new Map<string, number[]>();
   for (const s of current) {
     if (!s.created_at || s.processing_time_seconds == null) continue;
@@ -614,8 +717,14 @@ async function fetchSummariesIn(
     )
     .gte("created_at", window.start.toISOString())
     .lte("created_at", window.end.toISOString())
-    .limit(50_000);
+    .limit(SUMMARIES_ROW_CAP);
   if (error) throw new QueryError("fetchSummariesIn", error.message);
+  if (data && data.length === SUMMARIES_ROW_CAP) {
+    console.warn("[admin-queries] summaries cap hit — KPIs may understate", {
+      cap: SUMMARIES_ROW_CAP,
+      window: { start: window.start.toISOString(), end: window.end.toISOString() },
+    });
+  }
   return (data ?? []) as SummaryRow[];
 }
 
@@ -623,7 +732,7 @@ interface HistoryRow {
   user_id: string;
   video_id: string;
   created_at: string;
-  /** Filled in by computeCacheHitRate / fetchHistoryIn enrichment. */
+  /** Populated by fetchHistoryIn enrichment; consumed by computeCacheHitRate. */
   cacheHit?: boolean;
 }
 
@@ -636,12 +745,20 @@ async function fetchHistoryIn(
     .select("user_id, video_id, created_at")
     .gte("created_at", window.start.toISOString())
     .lte("created_at", window.end.toISOString())
-    .limit(100_000);
+    .limit(HISTORY_ROW_CAP);
   if (error) throw new QueryError("fetchHistoryIn:history", error.message);
+  if (history && history.length === HISTORY_ROW_CAP) {
+    console.warn("[admin-queries] history cap hit — DAU/cache-hit may understate", {
+      cap: HISTORY_ROW_CAP,
+      window: { start: window.start.toISOString(), end: window.end.toISOString() },
+    });
+  }
   if (!history || history.length === 0) return [];
 
-  // Enrich with cache-hit info: for each history row, compare against the
-  // earliest summary timestamp for that video.
+  // Cache hit = an earlier summary for this video already existed before
+  // the user's history entry was recorded (so we served from cache instead
+  // of generating a new one). Compare history.created_at against the
+  // earliest known summary for the same video.
   const videoIds = Array.from(new Set(history.map((h) => h.video_id as string)));
   if (videoIds.length === 0) return history as HistoryRow[];
 
@@ -699,6 +816,10 @@ async function computeTopUsers(
   summaries: SummaryRow[],
   limit: number,
 ): Promise<TopUserStat[]> {
+  // First summary per video wins. There can be both an enable_thinking=true
+  // and enable_thinking=false summary for the same video; for whisper-share
+  // and latency aggregation we treat them as one usage event — the first
+  // one returned is good enough since both share the same transcript_source.
   const summariesByVideo = new Map<string, SummaryRow>();
   for (const s of summaries) {
     if (!summariesByVideo.has(s.video_id)) summariesByVideo.set(s.video_id, s);
@@ -739,29 +860,51 @@ async function computeTopUsers(
 
   if (sorted.length === 0) return [];
 
-  const emails = new Map<string, string | null>();
-  for (const top of sorted) {
-    try {
-      const { data, error } = await client.auth.admin.getUserById(top.userId);
-      if (error) {
-        emails.set(top.userId, null);
-        continue;
+  // Resolve emails in parallel. Each lookup is independent — sequential
+  // awaits added 5x latency to every dashboard cold path. Failures are
+  // logged (not silently swallowed) and `emailLookupOk: false` lets the
+  // UI distinguish "auth lookup degraded" from "user genuinely has no
+  // email on record".
+  const emailLookups = await Promise.all(
+    sorted.map(async (top) => {
+      try {
+        const { data, error } = await client.auth.admin.getUserById(top.userId);
+        if (error) {
+          console.error("[admin-queries] auth.admin.getUserById error", {
+            userId: top.userId,
+            message: error.message,
+          });
+          return { userId: top.userId, email: null, ok: false };
+        }
+        return {
+          userId: top.userId,
+          email: data.user?.email ?? null,
+          ok: true,
+        };
+      } catch (err) {
+        console.error("[admin-queries] auth.admin.getUserById threw", {
+          userId: top.userId,
+          err,
+        });
+        return { userId: top.userId, email: null, ok: false };
       }
-      emails.set(top.userId, data.user?.email ?? null);
-    } catch {
-      emails.set(top.userId, null);
-    }
-  }
+    }),
+  );
+  const lookups = new Map(emailLookups.map((r) => [r.userId, r] as const));
 
-  return sorted.map((t) => ({
-    userId: t.userId,
-    email: emails.get(t.userId) ?? null,
-    summaries: t.summaries,
-    whisperPct: t.whisperPct,
-    p95Seconds: t.p95Seconds,
-    lastSeen: t.lastSeen,
-    flagged: t.summaries > 0 && t.whisperPct > 30,
-  }));
+  return sorted.map((t) => {
+    const lookup = lookups.get(t.userId);
+    return {
+      userId: t.userId,
+      email: lookup?.email ?? null,
+      emailLookupOk: lookup?.ok ?? false,
+      summaries: t.summaries,
+      whisperPct: t.whisperPct,
+      p95Seconds: t.p95Seconds,
+      lastSeen: t.lastSeen,
+      flagged: t.summaries > 0 && t.whisperPct > WHISPER_FLAG_THRESHOLD,
+    };
+  });
 }
 
 // ─── Cursors ──────────────────────────────────────────────────────────────
@@ -787,8 +930,14 @@ function decodeCursor(raw: string | null | undefined): KeysetCursor | null {
     ) {
       return parsed;
     }
-  } catch {
-    // fall through
+    console.warn("[admin-queries] invalid cursor shape — falling back to first page", {
+      cursorPrefix: raw.slice(0, 16),
+    });
+  } catch (err) {
+    console.warn("[admin-queries] cursor base64/json decode failed — falling back to first page", {
+      cursorPrefix: raw.slice(0, 16),
+      err: err instanceof Error ? err.message : String(err),
+    });
   }
   return null;
 }
@@ -805,8 +954,14 @@ function decodePageCursor(raw: string | null | undefined): number {
       const n = Number.parseInt(decoded.slice(2), 10);
       if (Number.isFinite(n) && n >= 1) return n;
     }
-  } catch {
-    // fall through
+    console.warn("[admin-queries] invalid page cursor — falling back to page 1", {
+      cursorPrefix: raw.slice(0, 16),
+    });
+  } catch (err) {
+    console.warn("[admin-queries] page cursor decode failed — falling back to page 1", {
+      cursorPrefix: raw.slice(0, 16),
+      err: err instanceof Error ? err.message : String(err),
+    });
   }
   return 1;
 }

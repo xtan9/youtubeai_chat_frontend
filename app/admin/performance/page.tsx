@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 import { AreaChart, Btn, Pill, Sparkline } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
+import { parseWindowDays } from "../_components/window-days";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
   getPerformanceStats,
@@ -30,7 +31,7 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
     principal.allowlist,
   );
   const params = await searchParams;
-  const windowDays = parseWindowDays(params.window);
+  const windowDays = parseWindowDays(params.window, [1, 7, 14, 30, 90]);
   const window = lastNDays(windowDays);
   const stats = await getPerformanceStats(client, window);
 
@@ -216,12 +217,6 @@ function delta(
 function formatSeconds(s: number | null): string {
   if (s == null) return "—";
   return `${s.toFixed(1)}s`;
-}
-
-function parseWindowDays(raw: string | undefined): number {
-  const allowed = new Set([1, 7, 14, 30, 90]);
-  const n = raw ? Number.parseInt(raw, 10) : 30;
-  return allowed.has(n) ? n : 30;
 }
 
 function renderArrow(tone: Delta) {
