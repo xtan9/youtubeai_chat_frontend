@@ -5,7 +5,10 @@ type SupabaseLike = {
   from: ReturnType<typeof vi.fn>;
 };
 
-function makeSupabase(rows: unknown[], error: unknown = null): SupabaseLike {
+function makeSupabase(
+  rows: unknown[] | null,
+  error: unknown = null,
+): SupabaseLike {
   const builder = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),

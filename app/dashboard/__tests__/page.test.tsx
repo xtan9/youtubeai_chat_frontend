@@ -6,7 +6,8 @@ import type { HistoryRow } from "@/lib/services/user-history";
 
 const mockGetUser = vi.fn();
 const mockGetRecentHistory = vi.fn();
-const mockRedirect = vi.fn(() => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const mockRedirect = vi.fn((_path: string) => {
   throw new Error("REDIRECT");
 });
 
