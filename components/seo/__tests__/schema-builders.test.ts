@@ -3,6 +3,7 @@ import { buildHowToSchema } from "@/components/seo/howto-schema";
 import { buildOrganizationSchema } from "@/components/seo/organization-schema";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 import { buildWebPageSchema } from "@/components/seo/webpage-schema";
+import { buildWebApplicationSchema } from "@/components/seo/webapp-schema";
 
 describe("buildHowToSchema", () => {
   const schema = buildHowToSchema();
@@ -42,6 +43,38 @@ describe("buildOrganizationSchema", () => {
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
     expect(schema.logo).toMatch(/^https:\/\/www\.youtubeai\.chat.+\.(png|jpg|svg)$/);
+  });
+});
+
+describe("buildWebApplicationSchema", () => {
+  const schema = buildWebApplicationSchema();
+
+  it("declares WebApplication in the productivity category", () => {
+    expect(schema["@context"]).toBe("https://schema.org");
+    expect(schema["@type"]).toBe("WebApplication");
+    expect(schema.applicationCategory).toBe("ProductivityApplication");
+    expect(schema.name.length).toBeGreaterThan(0);
+    expect(schema.description.length).toBeGreaterThan(0);
+    expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
+  });
+
+  it("advertises the chat-with-transcript capability in featureList", () => {
+    expect(schema.featureList).toContain("Chat with YouTube video transcript");
+    expect(schema.featureList.length).toBeGreaterThan(0);
+    schema.featureList.forEach((entry) => {
+      expect(typeof entry).toBe("string");
+      expect(entry.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("declares a free Offer", () => {
+    expect(schema.offers["@type"]).toBe("Offer");
+    expect(schema.offers.price).toBe("0");
+    expect(schema.offers.priceCurrency).toBe("USD");
+  });
+
+  it("serializes without throwing", () => {
+    expect(() => JSON.stringify(schema)).not.toThrow();
   });
 });
 
