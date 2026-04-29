@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -22,25 +16,20 @@ export type SummaryTabValue = (typeof SUMMARY_TAB_VALUES)[number];
 interface SummaryTabsProps {
   readonly chatLocked: boolean;
   readonly chatLockedReason?: string;
+  /**
+   * Distinguishes a permanent lock from a momentarily-disabled tab
+   * (cache lookup in flight, stream still producing). Only permanent
+   * locks should rewrite the URL away from `?tab=chat`; momentary
+   * locks resolve on their own and the user gets the chat surface
+   * they asked for.
+   *
+   * Parent computes this from `!!streamError` — the only state
+   * where we know chat will never unlock without user action.
+   */
+  readonly chatPermanentlyLocked?: boolean;
   readonly summaryContent: ReactNode;
   readonly chatContent: ReactNode;
 }
-
-// Window during which `?tab=chat` won't be auto-bounced even if the
-// chat tab is currently locked. Cache hits for previously-summarized
-// videos resolve in well under this (~500ms typical, observed up to
-// ~1s on cold Supabase reads); permanent locks (no summary exists)
-// outlast it and bounce normally. Tuned by observation in prod —
-// the predicate-based suppression in the prior round of this fix
-// flipped false before `dataWithLiveTimers` populated, causing the
-// bounce to fire anyway on cached reloads. 2s gives meaningful
-// headroom over the worst observed cache-read tail.
-//
-// Trade-off: a user who bookmarks `?tab=chat` for a freshly-pasted
-// (never-summarized) URL bounces after 2s, briefly stuck on a locked
-// tab. Acceptable — that flow is vanishingly rare and the bounce
-// just sends them where they'd land anyway.
-const BOUNCE_DELAY_MS = 2000;
 
 function isValidTab(value: string | null): value is SummaryTabValue {
   return value === "summary" || value === "chat";
@@ -54,6 +43,7 @@ function isValidTab(value: string | null): value is SummaryTabValue {
 export function SummaryTabs({
   chatLocked,
   chatLockedReason = "Available after summary completes",
+  chatPermanentlyLocked = false,
   summaryContent,
   chatContent,
 }: SummaryTabsProps) {
@@ -66,36 +56,22 @@ export function SummaryTabs({
     [tabParam]
   );
 
-  // If chat is locked but the URL still says ?tab=chat (e.g. user
-  // bookmarked the chat tab and came back to a non-cached video), bounce
-  // the URL state back to summary so the disabled tab doesn't render an
-  // empty content panel.
+  // If chat is PERMANENTLY locked (parent reports a streamError), the
+  // URL's `?tab=chat` will never resolve to a usable chat surface —
+  // rewrite it back to Summary so the user lands somewhere useful.
   //
-  // We delay the bounce by `BOUNCE_DELAY_MS` rather than gating on a
-  // parent-supplied "still loading" predicate: the prior predicate-
-  // based fix flipped false before `dataWithLiveTimers` populated on
-  // cached reloads, so the bounce fired anyway. The cleanup clears
-  // the timer when chatLocked flips false, so cache hits cancel
-  // before the timer fires.
-  //
-  // searchParams is read via a ref instead of the dep array so any
-  // unrelated URL mutation (parent writing `?url=…` after paste,
-  // language switch on the summary panel) doesn't reset the timer
-  // and indefinitely defer the bounce.
-  const searchParamsRef = useRef(searchParams);
+  // For momentary locks (cache lookup in flight, stream still
+  // producing) we DO NOT bounce: the prior time-based delays kept
+  // racing with the streaming pipeline and bouncing legitimate
+  // cached reloads in production. Tying the bounce to a
+  // "definitively won't unlock" signal eliminates the race entirely.
   useEffect(() => {
-    searchParamsRef.current = searchParams;
-  }, [searchParams]);
-  useEffect(() => {
-    if (active !== "chat" || !chatLocked) return;
-    const id = setTimeout(() => {
-      const next = new URLSearchParams(searchParamsRef.current.toString());
-      next.delete("tab");
-      const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname);
-    }, BOUNCE_DELAY_MS);
-    return () => clearTimeout(id);
-  }, [active, chatLocked, pathname, router]);
+    if (active !== "chat" || !chatPermanentlyLocked) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("tab");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }, [active, chatPermanentlyLocked, pathname, router, searchParams]);
 
   const setTab = useCallback(
     (value: string) => {
