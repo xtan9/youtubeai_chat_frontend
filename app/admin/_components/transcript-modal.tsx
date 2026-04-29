@@ -1,43 +1,35 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { X, Download, ChevronDown } from "lucide-react";
 import { Btn, Pill } from "./atoms";
-
-export interface TranscriptSummary {
-  title: string;
-  channel: string;
-  lang: string;
-  source: string;
-  model: string;
-  time: number;
-}
+import { useAdmin } from "./admin-context";
+import type { TranscriptSummary } from "@/lib/admin/types";
 
 interface TranscriptModalProps {
-  summary?: TranscriptSummary;
-  adminEmail: string;
+  summary: TranscriptSummary;
   onClose: () => void;
 }
 
-const FALLBACK: TranscriptSummary = {
-  title: "The Bitter Lesson — Rich Sutton",
-  channel: "Pioneer Works",
-  lang: "en→en",
-  source: "whisper",
-  model: "opus-4-7",
-  time: 38.4,
-};
+export function TranscriptModal({ summary: s, onClose }: TranscriptModalProps) {
+  const { email: adminEmail } = useAdmin();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const ts = new Date().toISOString().replace("T", " ").slice(11, 19);
 
-export function TranscriptModal({ summary, adminEmail, onClose }: TranscriptModalProps) {
-  const s = summary ?? FALLBACK;
-  const ts = new Date()
-    .toISOString()
-    .replace("T", " ")
-    .slice(11, 19);
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    closeRef.current?.focus();
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
+      aria-label="Transcript and summary"
       style={{
         position: "fixed",
         inset: 0,
@@ -58,13 +50,13 @@ export function TranscriptModal({ summary, adminEmail, onClose }: TranscriptModa
         <div className="banner-audit">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="dot" />
-            <strong>You are viewing as admin · this view is logged</strong>
+            <strong>You are viewing as admin · this view will be logged</strong>
             <span style={{ color: "var(--text-3)", fontWeight: 400 }}>
               · {adminEmail} · {ts} UTC
             </span>
           </div>
           <span className="mono text-xs" style={{ color: "var(--text-3)" }}>
-            audit_id 8f3a7c2e…
+            mock data · audit-write pending
           </span>
         </div>
 
@@ -78,16 +70,15 @@ export function TranscriptModal({ summary, adminEmail, onClose }: TranscriptModa
                 {s.channel} · created Apr 21, 2026 09:14 UTC
               </div>
             </div>
-            <Btn size="sm" kind="ghost" onClick={onClose} aria-label="Close">
+            <Btn ref={closeRef} size="sm" kind="ghost" onClick={onClose} aria-label="Close">
               <X size={14} />
             </Btn>
           </div>
           <div className="row gap-6" style={{ marginTop: 10, flexWrap: "wrap" }}>
             <Pill mono>youtube.com/watch?v=…aQF</Pill>
             <Pill>{s.lang}</Pill>
-            <Pill tone="warn">{s.source}</Pill>
+            <Pill tone={s.source === "whisper" ? "warn" : "ok"}>{s.source}</Pill>
             <Pill mono>{s.model}</Pill>
-            <Pill>thinking ON</Pill>
             <Pill>{s.time}s</Pill>
           </div>
         </div>

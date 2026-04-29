@@ -1,14 +1,4 @@
-/* ============================================================
- * Admin Console — scoped tokens & utility classes
- *
- * The admin route is its own visual contract from a separate Claude design
- * session (Linear/Vercel aesthetic). Tokens here intentionally live in
- * `[data-admin-scope]` and do not leak to the rest of the app.
- *
- * Globals from `app/globals.css` still apply (Inter font, base resets,
- * dark-mode bridge). This file adds admin-specific tokens + utility
- * classes used by the admin pages and components.
- * ============================================================ */
+/* Tokens are intentionally scoped to [data-admin-scope] so they don't leak to the rest of the app. */
 
 [data-admin-scope] {
   /* Surfaces */

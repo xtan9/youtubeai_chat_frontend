@@ -2,12 +2,13 @@
 
 import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 import { AreaChart, Btn, Pill, Sparkline } from "../_components/atoms";
+import type { Delta } from "@/lib/admin/types";
 
 interface PerfStat {
   label: string;
   val: string;
   delta: string;
-  tone: "up" | "warn" | "flat";
+  tone: Delta;
   spark: number[];
 }
 
@@ -20,6 +21,18 @@ const STATS: PerfStat[] = [
 ];
 
 const TIME_TABS = ["1h", "24h", "7d", "30d", "90d"];
+
+function renderArrow(tone: Delta) {
+  switch (tone) {
+    case "up":
+      return <ArrowDown size={11} />;
+    case "down":
+    case "warn":
+      return <ArrowUp size={11} />;
+    case "flat":
+      return null;
+  }
+}
 
 export default function AdminPerformancePage() {
   return (
@@ -45,7 +58,7 @@ export default function AdminPerformancePage() {
         <div className="card" style={{ overflow: "hidden", marginBottom: 18 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
             {STATS.map((c, i) => {
-              const ArrowIcon = c.tone === "up" ? ArrowDown : ArrowUp;
+              const arrow = renderArrow(c.tone);
               return (
                 <div
                   key={c.label}
@@ -57,11 +70,8 @@ export default function AdminPerformancePage() {
                   <div className="kpi-label">{c.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
                     <div className="kpi-value kpi-mini">{c.val}</div>
-                    <span
-                      className={`kpi-delta ${c.tone === "warn" ? "warn" : c.tone === "up" ? "up" : ""}`}
-                      style={{ fontSize: 12 }}
-                    >
-                      {c.tone !== "flat" && <ArrowIcon size={11} />}
+                    <span className={`kpi-delta ${c.tone}`} style={{ fontSize: 12 }}>
+                      {arrow}
                       {c.delta}
                     </span>
                   </div>

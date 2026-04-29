@@ -1,31 +1,19 @@
 "use client";
 
-/**
- * Admin shared atoms — pills, buttons, avatars, charts.
- *
- * Each atom maps to a custom class defined in `admin.css`. Lucide icons
- * come from `lucide-react` (already a project dependency) instead of the
- * inline SVG icon component used in the design prototype.
- */
-
-import type { ReactNode, ButtonHTMLAttributes, CSSProperties } from "react";
+import type { ReactNode, ButtonHTMLAttributes, CSSProperties, Ref } from "react";
 import { cn } from "@/lib/utils";
-
-// ============================================================
-// Avatar
-// ============================================================
+import type { Tone } from "@/lib/admin/types";
 
 interface AvatarProps {
-  /** Gradient palette index 1–7. Maps to .av-1 ... .av-7 in admin.css. */
   idx?: number;
-  /** Two-letter label (uppercased automatically). */
   label?: string;
   size?: number;
   className?: string;
 }
 
 export function Avatar({ idx = 1, label = "?", size = 24, className }: AvatarProps) {
-  const palette = ((idx - 1) % 7) + 1;
+  // Wrap idx into the 1-7 palette so any numeric input stays in-range.
+  const palette = (((idx - 1) % 7) + 7) % 7 + 1;
   return (
     <span
       className={cn(`av-${palette}`, className)}
@@ -46,15 +34,9 @@ export function Avatar({ idx = 1, label = "?", size = 24, className }: AvatarPro
   );
 }
 
-// ============================================================
-// Pill
-// ============================================================
-
-type PillTone = "ok" | "warn" | "bad" | "primary";
-
 interface PillProps {
   children: ReactNode;
-  tone?: PillTone;
+  tone?: Tone;
   mono?: boolean;
   style?: CSSProperties;
   className?: string;
@@ -71,21 +53,19 @@ export function Pill({ children, tone, mono, style, className }: PillProps) {
   );
 }
 
-// ============================================================
-// Button
-// ============================================================
-
 type BtnKind = "default" | "primary" | "ghost" | "danger";
 type BtnSize = "sm" | "md" | "lg";
 
 interface BtnProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   kind?: BtnKind;
   size?: BtnSize;
+  ref?: Ref<HTMLButtonElement>;
 }
 
-export function Btn({ kind = "default", size = "md", className, children, ...rest }: BtnProps) {
+export function Btn({ kind = "default", size = "md", className, children, ref, ...rest }: BtnProps) {
   return (
     <button
+      ref={ref}
       type="button"
       className={cn(
         "btn",
@@ -102,10 +82,6 @@ export function Btn({ kind = "default", size = "md", className, children, ...res
     </button>
   );
 }
-
-// ============================================================
-// Charts — pure-SVG, no external chart lib
-// ============================================================
 
 interface AreaChartProps {
   data: number[];
@@ -129,7 +105,9 @@ export function AreaChart({
   labels,
 }: AreaChartProps) {
   if (data.length === 0) return null;
-  const max = Math.max(...data) * 1.15;
+  // Min anchored to 0 so positive series start from the baseline. Negative
+  // values would clip — assume series are non-negative (latency, counts, %).
+  const max = Math.max(...data, 0) * 1.15;
   const min = 0;
   const xs = data.map((_, i) => (i / Math.max(1, data.length - 1)) * (w - 8) + 4);
   const ys = data.map((v) => h - 8 - ((v - min) / (max - min || 1)) * (h - 16));
@@ -223,13 +201,14 @@ interface BarChartProps {
   data: number[];
   w?: number;
   h?: number;
-  /** Index of the bar to render in the accent color (others muted). */
   accentIndex?: number;
 }
 
 export function BarChart({ data, w = 600, h = 140, accentIndex }: BarChartProps) {
   if (data.length === 0) return null;
-  const max = Math.max(...data) * 1.1;
+  // All-zero data divides by zero — guard with `|| 1` so bars render at 0
+  // height instead of producing NaN heights that make the SVG invisible.
+  const max = Math.max(...data) * 1.1 || 1;
   const barW = (w - 8) / data.length - 4;
   return (
     <svg
@@ -275,12 +254,16 @@ export function Donut({ size = 140, segments }: DonutProps) {
   const r = size / 2 - 12;
   const cx = size / 2;
   const cy = size / 2;
-  const total = segments.reduce((a, b) => a + b.value, 0) || 1;
+  // Filter NaN / negative segments — a single bad value would make every
+  // downstream angle NaN and silently render an empty path.
+  const safeSegments = segments.filter(
+    (s) => Number.isFinite(s.value) && s.value >= 0,
+  );
+  const total = safeSegments.reduce((a, b) => a + b.value, 0) || 1;
 
-  // Pre-compute the cumulative start angle for each segment via reduce
-  // (avoids `let` reassignment inside .map, which React 19 strict mode
-  // flags as `react-hooks/immutability` after render).
-  const startAngles = segments.reduce<number[]>(
+  // Cumulative start angles via reduce, not a let-mutation in .map — keeps
+  // the render function pure (eslint react-compiler / strict-mode safe).
+  const startAngles = safeSegments.reduce<number[]>(
     (acc, seg) => {
       const next = acc[acc.length - 1] + (seg.value / total) * Math.PI * 2;
       return [...acc, next];
@@ -288,7 +271,7 @@ export function Donut({ size = 140, segments }: DonutProps) {
     [-Math.PI / 2],
   );
 
-  const arcs = segments.map((seg, i) => {
+  const arcs = safeSegments.map((seg, i) => {
     const a0 = startAngles[i];
     const a1 = startAngles[i + 1];
     const angle = a1 - a0;

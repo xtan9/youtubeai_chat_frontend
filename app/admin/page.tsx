@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowUp,
@@ -22,11 +22,22 @@ import {
   Donut,
 } from "./_components/atoms";
 import { DateRangePopover } from "./_components/date-range-popover";
+import { useDismissable } from "./_components/use-dismissable";
+import type { Delta } from "@/lib/admin/types";
 
-// ============================================================
-// Mock data — replace with Supabase service-role queries when wired.
-// Shapes mirror the production schema; safe to swap to real data later.
-// ============================================================
+interface TopUserRow {
+  email: string;
+  label: string;
+  av: number;
+  summaries: number;
+  whisper: number;
+  // Pre-formatted display string (e.g. "9.2s"); the source column is numeric on the users page.
+  p95: string;
+  lastSeen: string;
+  flagged?: true;
+}
+
+// TODO(admin-data): replace mock arrays with service-role queries.
 const summariesPerDay = [
   212, 238, 254, 201, 189, 246, 278, 285, 272, 294, 310, 288, 265, 302, 318,
   325, 298, 341, 356, 330, 312, 328, 346, 362, 378, 341, 325, 358, 372, 389,
@@ -45,17 +56,13 @@ const cacheHitPerDay = [
   81, 79, 77, 80, 82, 83, 81, 79, 80, 82, 84,
 ];
 
-const TOP_USERS = [
+const TOP_USERS: TopUserRow[] = [
   { email: "alex@cortexlabs.dev", label: "AL", av: 1, summaries: 142, whisper: 14, p95: "9.2s", lastSeen: "2m ago" },
   { email: "mei@hk.gov.example", label: "ME", av: 2, summaries: 118, whisper: 8, p95: "8.4s", lastSeen: "12m ago" },
   { email: "ben+yt@gmail.example", label: "BE", av: 3, summaries: 113, whisper: 62, p95: "16.8s", lastSeen: "3h ago", flagged: true },
   { email: "saanvi@startup.io", label: "SA", av: 4, summaries: 87, whisper: 0, p95: "6.1s", lastSeen: "5h ago" },
   { email: "ren@studio.jp", label: "RE", av: 5, summaries: 76, whisper: 21, p95: "11.4s", lastSeen: "1d ago" },
 ];
-
-// ============================================================
-// Page
-// ============================================================
 
 export default function AdminDashboardPage() {
   return (
@@ -74,7 +81,6 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="page-body">
-        {/* Hero KPIs */}
         <div className="kpi-grid cols-2" style={{ marginBottom: 16 }}>
           <HeroKPI
             label="Summaries"
@@ -96,7 +102,6 @@ export default function AdminDashboardPage() {
           />
         </div>
 
-        {/* Secondary chart grid */}
         <div className="kpi-grid cols-3">
           <ChartCard
             title="Daily active users"
@@ -120,7 +125,6 @@ export default function AdminDashboardPage() {
           />
         </div>
 
-        {/* Top users preview */}
         <div className="section-h">
           <h3 className="section-title">Top users · last 7 days</h3>
           <Link
@@ -181,22 +185,18 @@ export default function AdminDashboardPage() {
   );
 }
 
-// ============================================================
-// Sub-components
-// ============================================================
-
 interface HeroKPIProps {
   label: string;
   value: string;
   delta: string;
-  deltaTone?: "up" | "down" | "warn";
+  deltaTone?: Delta;
   sub: string;
   data: number[];
   color: string;
 }
 
 function HeroKPI({ label, value, delta, deltaTone = "up", sub, data, color }: HeroKPIProps) {
-  const ArrowIcon = deltaTone === "down" ? ArrowDown : ArrowUp;
+  const ArrowIcon = deltaTone === "down" ? ArrowDown : deltaTone === "flat" ? null : ArrowUp;
   return (
     <div className="kpi" style={{ padding: "20px 22px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -205,7 +205,7 @@ function HeroKPI({ label, value, delta, deltaTone = "up", sub, data, color }: He
           <div className="kpi-value" style={{ fontSize: 36, marginTop: 6 }}>{value}</div>
           <div className="kpi-row">
             <span className={`kpi-delta ${deltaTone}`}>
-              <ArrowIcon size={12} />
+              {ArrowIcon && <ArrowIcon size={12} />}
               {delta}
             </span>
             <span>{sub}</span>
@@ -316,8 +316,11 @@ function DonutCard() {
 
 function DateRangePicker() {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  useDismissable(open, wrapperRef, () => setOpen(false));
+
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={wrapperRef} style={{ position: "relative" }}>
       <Btn size="sm" onClick={() => setOpen(!open)}>
         <Calendar size={13} /> Last 30 days
         <ChevronDown size={12} />

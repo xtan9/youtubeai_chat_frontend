@@ -1,27 +1,31 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { ChevronDown, Search, Command } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { Btn, Avatar } from "./atoms";
 import { AdminAvatarMenu } from "./avatar-menu";
+import { findNavLabel } from "./nav-config";
+import { useAdmin } from "./admin-context";
+import { useDismissable } from "./use-dismissable";
 
-const PATH_LABELS: Record<string, string> = {
-  "/admin": "Dashboard",
-  "/admin/users": "Users",
-  "/admin/audit": "Audit log",
-  "/admin/performance": "Performance",
-};
-
-interface TopbarProps {
-  adminEmail: string;
-}
-
-export function AdminTopbar({ adminEmail }: TopbarProps) {
+export function AdminTopbar() {
   const pathname = usePathname() ?? "/admin";
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const current = PATH_LABELS[pathname] ?? "Page";
+  const menuWrapperRef = useRef<HTMLDivElement>(null);
+  const { email: adminEmail } = useAdmin();
+  const current = findNavLabel(pathname);
   const initials = adminEmail.slice(0, 2).toUpperCase();
+  useDismissable(menuOpen, menuWrapperRef, () => setMenuOpen(false));
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/");
+    router.refresh();
+  }
 
   return (
     <div className="topbar">
@@ -37,7 +41,7 @@ export function AdminTopbar({ adminEmail }: TopbarProps) {
             <Command size={9} />K
           </span>
         </Btn>
-        <div style={{ position: "relative" }}>
+        <div ref={menuWrapperRef} style={{ position: "relative" }}>
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
@@ -59,8 +63,7 @@ export function AdminTopbar({ adminEmail }: TopbarProps) {
               }}
             >
               <AdminAvatarMenu
-                adminEmail={adminEmail}
-                onClose={() => setMenuOpen(false)}
+                onSignOut={handleSignOut}
               />
             </div>
           )}

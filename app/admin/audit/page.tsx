@@ -8,11 +8,9 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { Avatar, Btn, Pill } from "../_components/atoms";
+import type { Tone } from "@/lib/admin/types";
 
-// ============================================================
-// Mock audit events (real-shape, matches admin_audit_log schema)
-// ============================================================
-
+// TODO(admin-data): replace with `admin_audit_log` SELECT once spike-003 migration lands.
 interface AuditEvent {
   t: string;
   admin: string;
@@ -20,7 +18,7 @@ interface AuditEvent {
   res: string;
   reason: string;
   ip: string;
-  actionTone?: "warn" | "primary";
+  actionTone?: Tone;
 }
 
 const AUDIT: AuditEvent[] = [

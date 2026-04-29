@@ -13,32 +13,11 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Avatar, Pill, Btn, Sparkline } from "../_components/atoms";
-import {
-  TranscriptModal,
-  type TranscriptSummary,
-} from "../_components/transcript-modal";
-import { useAdmin } from "../_components/admin-context";
+import { TranscriptModal } from "../_components/transcript-modal";
+import type { AdminUser, TranscriptSummary } from "@/lib/admin/types";
 
-// ============================================================
-// Mock data — same shape as production schema
-// ============================================================
-
-interface User {
-  id: string;
-  email: string;
-  avIdx: number;
-  label: string;
-  plan: "free" | "pro";
-  summaries: number;
-  whisper: number;
-  p95: number;
-  lastSeen: string;
-  joined: string;
-  flagged?: boolean;
-  tokens: string;
-}
-
-const USERS: User[] = [
+// TODO(admin-data): replace mock arrays with service-role queries.
+const USERS: AdminUser[] = [
   { id: "8af2e1c0", email: "ben+yt@gmail.example", avIdx: 3, label: "BE", plan: "free", summaries: 113, whisper: 62, p95: 16.8, lastSeen: "3h ago", joined: "Mar 2, 2026", flagged: true, tokens: "412.8k" },
   { id: "2c40b9a3", email: "alex@cortexlabs.dev", avIdx: 1, label: "AL", plan: "pro", summaries: 142, whisper: 14, p95: 9.2, lastSeen: "2m ago", joined: "Jan 18, 2026", tokens: "356.1k" },
   { id: "5e91d22f", email: "mei@hk.gov.example", avIdx: 2, label: "ME", plan: "pro", summaries: 118, whisper: 8, p95: 8.4, lastSeen: "12m ago", joined: "Feb 4, 2026", tokens: "298.4k" },
@@ -49,11 +28,11 @@ const USERS: User[] = [
 ];
 
 const RECENT_SUMMARIES: TranscriptSummary[] = [
-  { title: "The Bitter Lesson — Rich Sutton", channel: "Pioneer Works", lang: "en→en", source: "whisper", model: "opus-4-7", time: 38.4 },
-  { title: "GPU memory: a primer for ML eng", channel: "Modal", lang: "en→en", source: "auto_captions", model: "sonnet-4-6", time: 12.1 },
-  { title: "Why founders don't focus enough", channel: "Y Combinator", lang: "en→en", source: "manual_captions", model: "haiku-4-5", time: 6.4 },
-  { title: "李飞飞 · 视觉智能的下一个十年", channel: "TED", lang: "zh→en", source: "auto_captions", model: "sonnet-4-6", time: 14.2 },
-  { title: "Building Anthropic's MCP", channel: "Latent.Space", lang: "en→en", source: "manual_captions", model: "opus-4-7", time: 8.9 },
+  { title: "The Bitter Lesson — Rich Sutton", channel: "Pioneer Works", lang: "en→en", source: "whisper", model: "claude-opus-4-7", time: 38.4 },
+  { title: "GPU memory: a primer for ML eng", channel: "Modal", lang: "en→en", source: "auto_captions", model: "claude-sonnet-4-6", time: 12.1 },
+  { title: "Why founders don't focus enough", channel: "Y Combinator", lang: "en→en", source: "manual_captions", model: "claude-haiku-4-5", time: 6.4 },
+  { title: "李飞飞 · 视觉智能的下一个十年", channel: "TED", lang: "zh→en", source: "auto_captions", model: "claude-sonnet-4-6", time: 14.2 },
+  { title: "Building Anthropic's MCP", channel: "Latent.Space", lang: "en→en", source: "manual_captions", model: "claude-opus-4-7", time: 8.9 },
 ];
 
 const RECENT_TIMES = ["9 min ago", "47 min ago", "3h ago", "5h ago", "8h ago"];
@@ -66,15 +45,11 @@ const TABS: { key: string; label: string }[] = [
   { key: "pro", label: "Pro" },
 ];
 
-// ============================================================
-// Page
-// ============================================================
-
 export default function AdminUsersPage() {
   const [expanded, setExpanded] = useState<string | null>("8af2e1c0");
+  // TODO(admin-data): wire `filter` to actually filter rows once real data lands.
   const [filter, setFilter] = useState("all");
   const [openTranscript, setOpenTranscript] = useState<TranscriptSummary | null>(null);
-  const { email: adminEmail } = useAdmin();
 
   return (
     <div className="surface-anim">
@@ -216,7 +191,6 @@ export default function AdminUsersPage() {
       {openTranscript && (
         <TranscriptModal
           summary={openTranscript}
-          adminEmail={adminEmail}
           onClose={() => setOpenTranscript(null)}
         />
       )}
@@ -224,12 +198,8 @@ export default function AdminUsersPage() {
   );
 }
 
-// ============================================================
-// User expand panel
-// ============================================================
-
 interface UserExpandProps {
-  user: User;
+  user: AdminUser;
   openTranscript: (s: TranscriptSummary) => void;
 }
 

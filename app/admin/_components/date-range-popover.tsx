@@ -12,18 +12,33 @@ const PRESETS = [
   "Last 90 days",
   "Quarter to date",
   "Year to date",
-  "Custom range…",
 ];
 
 interface DateRangePopoverProps {
   onClose: () => void;
 }
 
+// TODO(admin-data): wire month nav, day-cell click, and "Custom range…" — currently a static April 2026 view.
+const VISIBLE_MONTH = new Date(2026, 3, 1); // April 2026
+
 export function DateRangePopover({ onClose }: DateRangePopoverProps) {
   const [active, setActive] = useState("Last 30 days");
-  // Apr 2026 grid — 30 days, first day is Wednesday (firstDay=3)
-  const monthDays = 30;
-  const firstDay = 3;
+
+  const monthLabel = VISIBLE_MONTH.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const monthDays = new Date(
+    VISIBLE_MONTH.getFullYear(),
+    VISIBLE_MONTH.getMonth() + 1,
+    0,
+  ).getDate();
+  const firstDay = VISIBLE_MONTH.getDay();
+  const prevMonthLastDay = new Date(
+    VISIBLE_MONTH.getFullYear(),
+    VISIBLE_MONTH.getMonth(),
+    0,
+  ).getDate();
   const cells = Array.from({ length: 35 });
 
   return (
@@ -44,15 +59,23 @@ export function DateRangePopover({ onClose }: DateRangePopoverProps) {
               {p}
             </div>
           ))}
+          <div
+            className="menu-item"
+            aria-disabled="true"
+            style={{ opacity: 0.5, cursor: "default" }}
+            title="Coming soon"
+          >
+            Custom range…
+          </div>
         </div>
         <div style={{ padding: 12 }}>
           <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 500 }}>April 2026</div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{monthLabel}</div>
             <div className="row gap-4">
-              <Btn size="sm" kind="ghost" aria-label="Previous month">
+              <Btn size="sm" kind="ghost" disabled aria-label="Previous month (coming soon)">
                 <ChevronLeft size={12} />
               </Btn>
-              <Btn size="sm" kind="ghost" aria-label="Next month">
+              <Btn size="sm" kind="ghost" disabled aria-label="Next month (coming soon)">
                 <ChevronRight size={12} />
               </Btn>
             </div>
@@ -67,8 +90,12 @@ export function DateRangePopover({ onClose }: DateRangePopoverProps) {
               const d = i - firstDay + 1;
               const inMonth = d >= 1 && d <= monthDays;
               const start = d === 1;
-              const end = d === 30;
-              const display = d > 0 && d <= monthDays ? d : d <= 0 ? 31 + d : d - monthDays;
+              const end = d === monthDays;
+              const display = inMonth
+                ? d
+                : d <= 0
+                ? prevMonthLastDay + d
+                : d - monthDays;
               return (
                 <div
                   key={i}
@@ -81,6 +108,8 @@ export function DateRangePopover({ onClose }: DateRangePopoverProps) {
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  style={{ cursor: "default" }}
+                  aria-disabled="true"
                 >
                   {display}
                 </div>

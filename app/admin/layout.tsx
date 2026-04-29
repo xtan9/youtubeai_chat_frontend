@@ -16,7 +16,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <div className="admin-app">
           <AdminSidebar adminEmail={email} />
           <main className="admin-main">
-            <AdminTopbar adminEmail={email} />
+            <AdminTopbar />
             {children}
           </main>
         </div>
