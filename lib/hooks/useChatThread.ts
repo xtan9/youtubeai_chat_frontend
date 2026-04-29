@@ -3,7 +3,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChatMessagesResponseSchema,
-  type ChatMessage,
   type ChatMessagesResponse,
 } from "@/lib/api-contracts/chat";
 

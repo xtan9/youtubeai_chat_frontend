@@ -168,8 +168,12 @@ export async function POST(request: Request) {
           // Stream-emit failures are usually a torn-down consumer reader,
           // but real bugs (encoder failure, controller in invalid state
           // we didn't see coming) need a stable errorId for log search.
+          // Tag the eventType so post-incident triage can tell whether
+          // a delta was lost (annoying) vs. the terminal `done` was lost
+          // (the client falls back to reader-close, but we want to know).
           console.error("[chat/stream] enqueue failed", {
             errorId: "CHAT_ENQUEUE_FAILED",
+            eventType: data.type,
             err,
           });
         }
@@ -244,18 +248,25 @@ export async function POST(request: Request) {
             videoId,
             err,
           });
+          // The thread is the artifact — preserve the user's question
+          // even when the LLM call failed so they can retry without
+          // retyping. The dedupe inside persistUserOnly keeps cancel()
+          // from also scheduling.
+          persistUserOnly("CHAT_LLM_FAILED_PERSIST_FAILED");
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
           return;
         }
 
         if (assistantBuffer.length === 0) {
           // Gateway closed without any content — surface it so the
-          // client doesn't hang in a "streaming" state forever.
+          // client doesn't hang in a "streaming" state forever, but
+          // still preserve the user's question for retry.
           console.error("[chat/stream] empty assistant response", {
             errorId: "CHAT_EMPTY_RESPONSE",
             userId,
             videoId,
           });
+          persistUserOnly("CHAT_EMPTY_RESPONSE_PERSIST_FAILED");
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
           return;
         }
@@ -266,10 +277,6 @@ export async function POST(request: Request) {
         // a silent persist failure here would let the user see a
         // complete answer that vanishes on reload. Adding ~50–200ms of
         // DB-write latency to the perceived close is the right trade.
-        // Mark the user-message-persisted flag BEFORE the await so a
-        // racing cancel() doesn't double-insert if the flush happens
-        // mid-await.
-        userMessagePersisted = true;
         try {
           await appendChatTurn({
             userId,
@@ -277,6 +284,11 @@ export async function POST(request: Request) {
             userMessage: message,
             assistantMessage: assistantBuffer,
           });
+          // Only flip the dedupe flag AFTER the insert succeeded. If
+          // we'd flipped it before the await and the insert threw,
+          // a racing cancel() would short-circuit and we'd silently
+          // drop the user's question on reload (round-2 review I-B).
+          userMessagePersisted = true;
           sendEvent({ type: "done" });
         } catch (persistErr) {
           console.error("[chat/stream] persist failed", {
@@ -285,6 +297,15 @@ export async function POST(request: Request) {
             videoId,
             err: persistErr,
           });
+          // Best-effort fallback: the joint insert failed, so try a
+          // user-only insert so the question survives reload. Both
+          // calls landing on the same Supabase blip is rare; if it
+          // also fails the helper logs it. The flag is still false at
+          // this point, so persistUserOnly's dedupe doesn't short-
+          // circuit, and a future cancel() will also see false and be
+          // a no-op (the after() callback is the only thing that
+          // would still fire).
+          persistUserOnly("CHAT_PERSIST_FALLBACK_FAILED");
           sendEvent({
             type: "error",
             message:

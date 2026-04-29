@@ -322,7 +322,7 @@ describe("POST /api/chat/stream", () => {
     await readSse(res.body!);
   });
 
-  it("persists turn BEFORE sending done; persist failure surfaces error event", async () => {
+  it("persists turn BEFORE sending done; persist failure surfaces error and falls back to user-only", async () => {
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "answer" };
       yield { type: "done" as const };
@@ -334,8 +334,104 @@ describe("POST /api/chat/stream", () => {
       makeRequest({ youtube_url: VALID_URL, message: "Hi" })
     );
     const events = (await readSse(res.body!)).join("");
-    // The done event should NOT appear because persist failed.
     expect(events).not.toContain('"type":"done"');
     expect(events).toContain('"type":"error"');
+    // Fallback: even though the joint insert failed, the user's
+    // question is preserved via appendChatUserMessage so it survives
+    // reload and the user can retry without retyping.
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+      "Hi"
+    );
+  });
+
+  it("LLM failure preserves the user message via user-only persist", async () => {
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "partial" };
+      throw new Error("gateway 502");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    const events = (await readSse(res.body!)).join("");
+    expect(events).toContain('"type":"error"');
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+      "Hi"
+    );
+  });
+
+  it("empty assistant response preserves the user message via user-only persist", async () => {
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "done" as const };
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    const events = (await readSse(res.body!)).join("");
+    expect(events).toContain('"type":"error"');
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+      "Hi"
+    );
+  });
+
+  it("history cap boundary: 16-row history is passed unchanged", async () => {
+    const exactly16 = Array.from({ length: 16 }, (_, i) => ({
+      id: `m${i}`,
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `msg-${i}`,
+      createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
+    }));
+    mocks.listChatMessages.mockResolvedValue(exactly16);
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: ReadonlyArray<{ role: string; content: string }>;
+    }) {
+      // 1 system + 16 history + 1 new user = 18
+      expect(opts.messages.length).toBe(18);
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    await readSse(res.body!);
+  });
+
+  it("history cap boundary: 17-row history truncates to 16", async () => {
+    const seventeen = Array.from({ length: 17 }, (_, i) => ({
+      id: `m${i}`,
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `msg-${i}`,
+      createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
+    }));
+    mocks.listChatMessages.mockResolvedValue(seventeen);
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: ReadonlyArray<{ role: string; content: string }>;
+    }) {
+      // 1 system + 16 history (oldest dropped) + 1 new user = 18
+      expect(opts.messages.length).toBe(18);
+      // The oldest message ("msg-0") should be dropped — verify the
+      // first history item (after the system message) is "msg-1".
+      const firstHistory = opts.messages[1];
+      expect(firstHistory?.content).toBe("msg-1");
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    await readSse(res.body!);
   });
 });

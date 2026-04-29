@@ -64,26 +64,12 @@ describe("SummaryTabs", () => {
     expect(calledWith).not.toMatch(/tab=chat/);
   });
 
-  it("clicking the Chat trigger from Summary writes ?tab=chat", () => {
-    renderTabs({ chatLocked: false });
-    const chatTrigger = screen.getByRole("tab", { name: "Chat" });
-    // Radix's pointer activation runs on pointer-down + pointer-up; in
-    // happy-dom the synthetic click works because react-tabs falls back
-    // to onClick for keyboard-driven activation paths. Use mouseDown +
-    // mouseUp + click for portability across Radix versions.
-    fireEvent.mouseDown(chatTrigger);
-    fireEvent.mouseUp(chatTrigger);
-    fireEvent.click(chatTrigger);
-    const calls = replaceMock.mock.calls;
-    const lastCall = calls.at(-1)?.[0] as string | undefined;
-    if (lastCall) {
-      expect(lastCall).toMatch(/tab=chat/);
-    } else {
-      // If Radix's happy-dom interaction doesn't reach onValueChange we
-      // skip the assertion rather than fight the synthetic-event matrix.
-      // The auto-bounce + default-tab + disabled tests above already
-      // exercise setTab via the URL effect path.
-      expect(true).toBe(true);
-    }
-  });
+  // Radix Tabs's pointer/keyboard activation doesn't reach
+  // onValueChange under happy-dom — neither click+pointerdown nor
+  // ArrowRight+focus drive the roving-tabindex state. The
+  // setTab callback is exercised indirectly by the URL-bounce effect
+  // (auto-bounce-when-locked test above) and by the deep-link test;
+  // a click-propagation test here would either be a no-op fallback
+  // (misleading) or require @testing-library/user-event which isn't
+  // a project dependency. Intentionally omitted.
 });
