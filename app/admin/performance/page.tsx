@@ -5,6 +5,7 @@ import { parseWindowDays } from "../_components/window-days";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
   getPerformanceStats,
+  listAdminUserIds,
   lastNDays,
   type PerformanceStats,
 } from "@/lib/admin/queries";
@@ -21,7 +22,7 @@ const TIME_TABS: { key: number; label: string }[] = [
 ];
 
 interface PageProps {
-  searchParams: Promise<{ window?: string }>;
+  searchParams: Promise<{ window?: string; include_admins?: string }>;
 }
 
 export default async function AdminPerformancePage({ searchParams }: PageProps) {
@@ -33,7 +34,11 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
   const params = await searchParams;
   const windowDays = parseWindowDays(params.window, [1, 7, 14, 30, 90]);
   const window = lastNDays(windowDays);
-  const stats = await getPerformanceStats(client, window);
+  const includeAdmins = params.include_admins === "1";
+  const adminUserIds = includeAdmins ? [] : await listAdminUserIds(client);
+  const stats = await getPerformanceStats(client, window, {
+    excludeAdminUserIds: adminUserIds,
+  });
 
   const cards = buildCards(stats);
 
@@ -43,15 +48,37 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
         <div>
           <h1 className="page-title">Performance</h1>
           <p className="page-sub">
-            Last {windowDays} days · processing latency by stage
+            Last {windowDays} days · processing latency by stage ·{" "}
+            <span className="muted">
+              {includeAdmins ? "including admins" : "excluding admin activity"}
+            </span>
           </p>
         </div>
         <div className="row gap-8">
+          <a
+            href={(() => {
+              const sp = new URLSearchParams();
+              if (windowDays !== 30) sp.set("window", String(windowDays));
+              if (!includeAdmins) sp.set("include_admins", "1");
+              const qs = sp.toString();
+              return qs ? `?${qs}` : "?";
+            })()}
+            className={`tab ${includeAdmins ? "active" : ""}`}
+            title="Toggle whether admin-account activity is included in metrics"
+          >
+            {includeAdmins ? "incl. admins" : "real users"}
+          </a>
           <div className="tabs">
             {TIME_TABS.map((t) => (
               <a
                 key={t.key}
-                href={t.key === 30 ? "?" : `?window=${t.key}`}
+                href={(() => {
+                  const sp = new URLSearchParams();
+                  if (t.key !== 30) sp.set("window", String(t.key));
+                  if (includeAdmins) sp.set("include_admins", "1");
+                  const qs = sp.toString();
+                  return qs ? `?${qs}` : "?";
+                })()}
                 className={`tab ${windowDays === t.key ? "active" : ""}`}
               >
                 {t.label}
