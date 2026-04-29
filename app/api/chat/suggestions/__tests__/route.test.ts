@@ -134,7 +134,13 @@ describe("GET /api/chat/suggestions", () => {
     );
     expect(await res.json()).toEqual({ suggestions: ["q1?", "q2?", "q3?"] });
     expect(mocks.generateSuggestedFollowups).toHaveBeenCalledWith(
-      expect.objectContaining({ summary: SUMMARY_FIXTURE.summary }),
+      expect.objectContaining({
+        summary: SUMMARY_FIXTURE.summary,
+        // Pin the LLM timeout — without this, a future refactor that
+        // drops the option silently exposes the empty state to
+        // multi-minute upstream stalls.
+        timeoutMs: 12_000,
+      }),
     );
     expect(mocks.writeSuggestedFollowups).toHaveBeenCalledWith(
       "video-uuid",

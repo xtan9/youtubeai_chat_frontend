@@ -1,13 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { z } from "zod";
+import {
+  ChatSuggestionsResponseSchema,
+  type ChatSuggestionsResponse,
+} from "@/lib/api-contracts/chat";
 
-const SuggestionsResponseSchema = z.object({
-  suggestions: z.array(z.string()).min(0).max(3),
-});
-
-export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
+export type SuggestionsResponse = ChatSuggestionsResponse;
 
 export const chatSuggestionsQueryKey = (youtubeUrl: string) =>
   ["chat-suggestions", youtubeUrl] as const;
@@ -45,7 +44,7 @@ export function useChatSuggestions(youtubeUrl: string | null, enabled: boolean) 
         return { suggestions: [] };
       }
       const raw = await res.json();
-      const parsed = SuggestionsResponseSchema.safeParse(raw);
+      const parsed = ChatSuggestionsResponseSchema.safeParse(raw);
       if (!parsed.success) {
         console.warn(
           "[useChatSuggestions] response schema drift — using static fallback",
@@ -64,5 +63,11 @@ export function useChatSuggestions(youtubeUrl: string | null, enabled: boolean) 
     // suggestions are stable for this video — share across sessions
     // until the route's cache changes.
     staleTime: 5 * 60_000,
+    // The route already returns 200 + `[]` on its own failure paths,
+    // so retries only fire on a real 5xx (e.g. auth-service-unavailable
+    // 503). Disabling them lets the static fallback show ~immediately
+    // instead of after 3× exponential backoff — the empty state is a
+    // nice-to-have, not load-bearing.
+    retry: 0,
   });
 }

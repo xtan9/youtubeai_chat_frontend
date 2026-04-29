@@ -72,3 +72,17 @@ export type ChatSseEvent = z.infer<typeof ChatSseEventSchema>;
 export type ChatSseDelta = z.infer<typeof ChatSseDeltaSchema>;
 export type ChatSseDone = z.infer<typeof ChatSseDoneSchema>;
 export type ChatSseError = z.infer<typeof ChatSseErrorSchema>;
+
+// ---------------- Suggested follow-ups (chat empty state) ----------------
+//
+// Lives here (the shared contract module, not the route file) so the
+// client hook can import the same schema without dragging the route's
+// `server-only`-tagged dependencies into the bundle. Single source of
+// truth → no hand-duplicated zod schema to drift between sides.
+
+export const ChatSuggestionsResponseSchema = z.object({
+  suggestions: z.array(z.string()).min(0).max(3),
+});
+export type ChatSuggestionsResponse = z.infer<
+  typeof ChatSuggestionsResponseSchema
+>;

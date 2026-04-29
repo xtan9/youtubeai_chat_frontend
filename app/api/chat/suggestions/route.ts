@@ -1,5 +1,4 @@
 import type { User } from "@supabase/supabase-js";
-import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getCachedSummary, getCachedTranscript } from "@/lib/services/summarize-cache";
 import {
@@ -8,15 +7,10 @@ import {
   writeSuggestedFollowups,
   type SuggestedFollowups,
 } from "@/lib/services/suggested-followups";
-import { ChatMessagesQuerySchema } from "@/lib/api-contracts/chat";
-
-// Wire shape — keep narrow; the client renders these strings directly
-// in ChatEmptyState. A future "include LLM cost" field would go here
-// behind an additive migration.
-export const SuggestionsResponseSchema = z.object({
-  suggestions: z.array(z.string()).min(0).max(3),
-});
-export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
+import {
+  ChatMessagesQuerySchema,
+  type ChatSuggestionsResponse,
+} from "@/lib/api-contracts/chat";
 
 const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
 // Tight cap on the LLM call so an upstream stall doesn't block the
@@ -66,7 +60,7 @@ async function authenticate(): Promise<
 }
 
 function emptyResponse(): Response {
-  const body: SuggestionsResponse = { suggestions: [] };
+  const body: ChatSuggestionsResponse = { suggestions: [] };
   return Response.json(body);
 }
 
@@ -116,7 +110,7 @@ export async function GET(request: Request) {
     // is itself a fallback to "[]".
   }
   if (cached) {
-    const body: SuggestionsResponse = { suggestions: [...cached] };
+    const body: ChatSuggestionsResponse = { suggestions: [...cached] };
     return Response.json(body);
   }
 
@@ -151,6 +145,6 @@ export async function GET(request: Request) {
     });
   }
 
-  const body: SuggestionsResponse = { suggestions: [...generated] };
+  const body: ChatSuggestionsResponse = { suggestions: [...generated] };
   return Response.json(body);
 }
