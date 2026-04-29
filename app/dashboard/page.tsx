@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getRecentHistory } from "@/lib/services/user-history";
+import { getChatMessageCounts } from "@/lib/services/chat-counts";
 import { InputForm } from "@/app/components/input-form";
 import { HistoryList } from "@/app/components/history/history-list";
 import { HistoryFetchError } from "@/app/components/history/history-fetch-error";
@@ -23,6 +24,17 @@ export default async function DashboardPage() {
 
   const result = await getRecentHistory(supabase, user.id, RECENT_LIMIT);
   const showViewAll = result.ok && result.rows.length >= RECENT_LIMIT;
+
+  // Chat-count badges next to each row. Fetch only when history loaded;
+  // a counts failure falls back to "no badges" rather than failing the
+  // whole page (the badge is a nice-to-have).
+  const chatCounts = result.ok
+    ? await getChatMessageCounts(
+        supabase,
+        user.id,
+        result.rows.map((row) => row.videoId),
+      )
+    : new Map<string, number>();
 
   const fullName = user.user_metadata?.full_name as string | undefined;
   const emailLocal = user.email?.split("@")[0];
@@ -56,7 +68,7 @@ export default async function DashboardPage() {
           ) : null}
         </div>
         {result.ok ? (
-          <HistoryList rows={result.rows} />
+          <HistoryList rows={result.rows} chatCounts={chatCounts} />
         ) : (
           <HistoryFetchError message="Couldn't load your history right now. Please refresh in a moment." />
         )}

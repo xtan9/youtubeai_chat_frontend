@@ -1,17 +1,20 @@
 import Link from "next/link";
-import { Video } from "lucide-react";
+import { MessageCircle, Video } from "lucide-react";
 import type { HistoryRow as HistoryRowType } from "@/lib/services/user-history";
 import { formatRelativeTime } from "@/lib/utils/relative-time";
 
 type HistoryRowProps = {
   row: HistoryRowType;
   now?: number;
+  /** Total chat messages this user has on this video. Hidden when 0 / undefined. */
+  chatCount?: number;
 };
 
-export function HistoryRow({ row, now }: HistoryRowProps) {
+export function HistoryRow({ row, now, chatCount }: HistoryRowProps) {
   const title = row.title ?? "Untitled";
   const summaryHref = `/summary?url=${encodeURIComponent(row.youtubeUrl)}`;
   const dateLabel = formatRelativeTime(row.viewedAt, now);
+  const showChatBadge = typeof chatCount === "number" && chatCount > 0;
 
   return (
     <li className="list-none">
@@ -45,9 +48,19 @@ export function HistoryRow({ row, now }: HistoryRowProps) {
             </p>
           ) : null}
         </div>
-        <span className="shrink-0 text-caption text-text-muted">
-          {dateLabel}
-        </span>
+        <div className="flex shrink-0 items-center gap-3">
+          {showChatBadge ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-caption text-text-secondary"
+              aria-label={`${chatCount} chat message${chatCount === 1 ? "" : "s"}`}
+              data-testid="chat-count-badge"
+            >
+              <MessageCircle className="h-3 w-3" aria-hidden="true" />
+              {chatCount}
+            </span>
+          ) : null}
+          <span className="text-caption text-text-muted">{dateLabel}</span>
+        </div>
       </Link>
     </li>
   );

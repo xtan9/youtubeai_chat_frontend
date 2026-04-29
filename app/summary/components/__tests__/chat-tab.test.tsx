@@ -37,6 +37,17 @@ vi.mock("@/lib/contexts/user-context", () => ({
   })),
 }));
 
+// Mock sonner so the clear-button test can assert on the toast options
+// without mounting a `<Toaster />` in the test wrapper.
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccessMock(...args),
+    error: (...args: unknown[]) => toastErrorMock(...args),
+  },
+}));
+
 const supabaseAuthMock = {
   getSession: vi.fn().mockResolvedValue({
     data: { session: null },
@@ -284,20 +295,18 @@ describe("ChatTab", () => {
     });
   });
 
-  it("clearing during a stream stops the streaming UI and fires DELETE on /api/chat/messages", async () => {
-    let deleteFired = false;
+  it("clearing during a stream aborts the stream, optimistically empties the list, and shows the undo toast", async () => {
     const controlled = controlledSseResponse();
     const fetchMock = makeRouter({
-      onMessages: (init) => {
-        if ((init?.method ?? "GET").toUpperCase() === "DELETE") {
-          deleteFired = true;
-          return new Response(null, { status: 204 });
-        }
-        return jsonResponse({ messages: [] });
-      },
+      onMessages: () => jsonResponse({ messages: [] }),
       onStream: () => controlled.response,
     });
     vi.stubGlobal("fetch", fetchMock);
+    // Sonner is mocked at module level in this file so we can capture
+    // the toast call without mounting a Toaster — the optimistic clear
+    // + abort happen synchronously, the DELETE is deferred to the
+    // toast's onAutoClose (verified in chat-clear-button.test.tsx).
+    toastSuccessMock.mockClear();
 
     renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
 
@@ -307,8 +316,6 @@ describe("ChatTab", () => {
       ).toBeTruthy(),
     );
 
-    // Start a stream so the abort path is meaningful — without an
-    // in-flight stream, `onBeforeClear` would have nothing to interrupt.
     fireEvent.change(screen.getByLabelText(/chat message/i), {
       target: { value: "anything" },
     });
@@ -317,25 +324,62 @@ describe("ChatTab", () => {
       expect(screen.getByRole("button", { name: /stop generating/i })).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /clear chat history/i }));
-    const confirmBtn = await waitFor(() =>
-      screen.getByRole("button", { name: /^clear$/i }),
-    );
-
     act(() => {
-      fireEvent.click(confirmBtn);
-      // Simulate fetch's abort behavior — the `onBeforeClear` handler in
-      // chat-tab fires `stream.abort()`, which in production rejects the
-      // in-flight reader with an AbortError.
+      fireEvent.click(
+        screen.getByRole("button", { name: /clear chat history/i }),
+      );
+      // Mirror what production fetch does on abort.
       controlled.error(new DOMException("aborted", "AbortError"));
     });
 
-    await waitFor(() => expect(deleteFired).toBe(true));
     await waitFor(() =>
       expect(
         screen.queryByRole("button", { name: /stop generating/i }),
       ).toBeNull(),
     );
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "Chat cleared",
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Undo" }),
+      }),
+    );
+  });
+
+  it("locks the message input while the clear-button is in its 5s undo window", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () =>
+        jsonResponse({
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              content: "what's this about",
+              createdAt: "2026-04-28T00:00:00Z",
+            },
+          ],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    toastSuccessMock.mockClear();
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+    await waitFor(() =>
+      expect(screen.getByText("what's this about")).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /clear chat history/i }),
+    );
+    // After click: optimistic clear + toast pending. The input must be
+    // disabled now so a message sent during the window doesn't get
+    // wiped by the deferred DELETE.
+    const input = screen.getByLabelText(/chat message/i) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    // Send button is also disabled.
+    expect(
+      (screen.getByRole("button", { name: /send message/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 
   it("has no axe a11y violations on the empty-state orchestrator", async () => {

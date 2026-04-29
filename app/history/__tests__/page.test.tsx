@@ -19,6 +19,10 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/services/user-history", () => ({
   getHistoryPage: (...args: unknown[]) => mockGetHistoryPage(...args),
 }));
+const mockGetChatMessageCounts = vi.fn();
+vi.mock("@/lib/services/chat-counts", () => ({
+  getChatMessageCounts: (...args: unknown[]) => mockGetChatMessageCounts(...args),
+}));
 vi.mock("next/navigation", () => ({
   redirect: (path: string) => mockRedirect(path),
 }));
@@ -39,6 +43,8 @@ describe("HistoryPage", () => {
     mockGetUser.mockReset();
     mockGetHistoryPage.mockReset();
     mockRedirect.mockClear();
+    mockGetChatMessageCounts.mockReset();
+    mockGetChatMessageCounts.mockResolvedValue(new Map());
   });
 
   it("redirects unauthenticated users to /auth/login", async () => {
