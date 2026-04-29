@@ -3,12 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ADMIN_NAV, isNavItemActive } from "./nav-config";
+import { buildAdminNav, isNavItemActive } from "./nav-config";
 
-export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
+interface AdminSidebarProps {
+  adminEmail: string;
+  usersTotal: number | null;
+}
+
+export function AdminSidebar({ adminEmail, usersTotal }: AdminSidebarProps) {
   const pathname = usePathname() ?? "";
   const initials = adminEmail.slice(0, 2).toUpperCase();
   const handle = adminEmail.split("@")[0];
+  const nav = buildAdminNav({ usersTotal });
 
   return (
     <aside className="sidebar">
@@ -23,7 +29,7 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
       </div>
 
       <nav className="sb-nav">
-        {ADMIN_NAV.map((section) => (
+        {nav.map((section) => (
           <div key={section.label}>
             <div className="sb-section">{section.label}</div>
             {section.items.map((item) => {

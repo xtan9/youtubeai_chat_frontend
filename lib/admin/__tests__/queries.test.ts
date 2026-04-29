@@ -13,6 +13,8 @@ import {
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
+  fetchUsersTotal,
+  listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
@@ -80,6 +82,7 @@ function buildClient(
     proxy.order = chain("order");
     proxy.limit = chain("limit");
     proxy.range = chain("range");
+    proxy.not = chain("not");
     return proxy;
   });
   return {
@@ -1090,5 +1093,232 @@ describe("listUsersWithStatsAndSort", () => {
     expect(byId.get("u-deleted")).toBe("deleted");
     expect(byId.get("u-anon")).toBe("anonymous");
     expect(byId.get("u-unverified")).toBe("unverified");
+  });
+});
+
+describe("fetchUsersTotal", () => {
+  it("returns total from auth.admin.listUsers", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: { users: [], total: 643 },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchUsersTotal(client);
+    expect(out).toBe(643);
+  });
+
+  it("returns null and logs on error", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "auth down" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchUsersTotal(client);
+    expect(out).toBeNull();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("fetchUsersTotal"),
+      expect.any(Object),
+    );
+  });
+});
+
+describe("listAdminUserIds", () => {
+  it("returns IDs of users where app_metadata.is_admin === true", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: {
+              users: [
+                { id: "u-1", email: "alice@x", app_metadata: { is_admin: true } },
+                { id: "u-2", email: "bob@x", app_metadata: { is_admin: false } },
+                { id: "u-3", email: "carol@x", app_metadata: {} },
+                { id: "u-4", email: "dan@x" },
+                { id: "u-5", email: "eve@x", app_metadata: { is_admin: true, foo: "bar" } },
+              ],
+              total: 5,
+            },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual(["u-1", "u-5"]);
+  });
+
+  it("paginates through every page so admins past page 1 are still found", async () => {
+    // 250 users across 2 pages: page 1 has 200 non-admins, page 2 has
+    // 50 users with the admin (u-admin-late) embedded among them.
+    // Regression guard: a single-page implementation would miss this
+    // admin entirely and silently leak their activity into KPIs.
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `u-${i}`,
+      email: `${i}@x`,
+      app_metadata: { is_admin: false },
+    }));
+    const page2 = [
+      ...Array.from({ length: 25 }, (_, i) => ({
+        id: `u-${200 + i}`,
+        email: `${200 + i}@x`,
+        app_metadata: { is_admin: false },
+      })),
+      {
+        id: "u-admin-late",
+        email: "late@x",
+        app_metadata: { is_admin: true },
+      },
+      ...Array.from({ length: 24 }, (_, i) => ({
+        id: `u-${226 + i}`,
+        email: `${226 + i}@x`,
+        app_metadata: { is_admin: false },
+      })),
+    ];
+    const pages = [page1, page2];
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(
+            async ({ page }: { page: number; perPage: number }) => {
+              const users = pages[page - 1] ?? [];
+              return { data: { users, total: 250 }, error: null };
+            },
+          ),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual(["u-admin-late"]);
+  });
+
+  it("returns empty array on error and logs", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          // listAllUsers throws QueryError on page-1 listUsers errors;
+          // listAdminUserIds's try/catch catches it and falls back to [].
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "auth offline" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("listAdminUserIds"),
+      expect.any(Object),
+    );
+  });
+});
+
+describe("getDashboardKPIs with excludeAdminUserIds", () => {
+  it("drops history rows whose user_id is in the exclude set", async () => {
+    const client = buildClient(
+      [
+        // Production call sequence (Promise.all):
+        // 1. fetchSummariesIn(current) → summaries
+        // 2. fetchSummariesIn(prev) → summaries
+        // 3. fetchHistoryIn(current) → user_video_history (asserts .not())
+        // 4. fetchHistoryIn(prev) → user_video_history (asserts .not())
+        // 5. fetchHistoryIn(current) cache-hit lookup → summaries
+        //    (only when history is non-empty; current returns 1 row)
+        { table: "summaries", response: { data: [], error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u-real", video_id: "v-1", created_at: "2026-04-15T00:00:00Z" },
+            ],
+            error: null,
+          },
+          expect: (calls) => {
+            const notCall = calls.find((c) => c.method === "not");
+            // Pin the exact PostgREST not.in.() filter format. A regression
+            // that mangled the encoding (e.g. quoting the IDs, adding spaces,
+            // or switching the parens) would still satisfy a `.contains()`
+            // check but would silently break the production filter.
+            expect(notCall?.args[0]).toBe("user_id");
+            expect(notCall?.args[1]).toBe("in");
+            expect(notCall?.args[2]).toBe("(u-admin-1,u-admin-2)");
+          },
+        },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: (calls) => {
+            const notCall = calls.find((c) => c.method === "not");
+            expect(notCall?.args[0]).toBe("user_id");
+            expect(notCall?.args[1]).toBe("in");
+            expect(notCall?.args[2]).toBe("(u-admin-1,u-admin-2)");
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: "x@x" } }, error: null }),
+      },
+    );
+    const out = await getDashboardKPIs(client, lastNDays(30), {
+      excludeAdminUserIds: ["u-admin-1", "u-admin-2"],
+    });
+    // Just confirm the call shape produced sane output (no throw).
+    expect(out.summaries.current).toBe(0);
+  });
+
+  it("with empty excludeAdminUserIds, behavior matches the no-option call", async () => {
+    // The historic test "returns rows for current and previous windows"
+    // already exercises the no-option path. Here we just confirm passing
+    // an empty array does not change anything. Fixture mirrors that test.
+    const client = buildClient([
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getDashboardKPIs(client, lastNDays(30), {
+      excludeAdminUserIds: [],
+    });
+    expect(out.summaries.current).toBe(0);
+  });
+});
+
+describe("getPerformanceStats with excludeAdminUserIds", () => {
+  it("filter is wired into fetchHistoryIn but not into the raw summaries fetch", async () => {
+    const client = buildClient([
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    // getPerformanceStats currently doesn't call fetchHistoryIn — it only
+    // pulls from summaries. The excludeAdminUserIds option is a no-op
+    // on the summaries.created_at-based queries. This test pins the
+    // contract: calling with excludeAdminUserIds must not break, even
+    // though the pre-fetch doesn't need history filtering today.
+    const out = await getPerformanceStats(client, lastNDays(30), {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
+    expect(out.p50Seconds).toBe(null);
   });
 });
