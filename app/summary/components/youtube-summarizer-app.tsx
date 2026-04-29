@@ -30,8 +30,8 @@ export function YouTubeSummarizerApp({
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const [url, setUrl] = useState(initialUrl || "");
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
