@@ -12,11 +12,8 @@ const ALL_SOURCES: readonly TranscriptSource[] = [
   "whisper",
 ] as const;
 
-/** Whisper share above this percent flips a user/account to "flagged". The
- * threshold is an organizational policy lever (whisper is the cost lever),
- * not a domain truth — single source so /admin and the users table never
- * drift. */
-export const WHISPER_FLAG_THRESHOLD = 30;
+import { WHISPER_FLAG_THRESHOLD } from "./constants";
+export { WHISPER_FLAG_THRESHOLD } from "./constants";
 
 /** Hard caps on rows pulled into Node memory for in-process aggregation.
  * In the current scale (low-thousands of summaries / month), these are
@@ -29,7 +26,7 @@ const HISTORY_ROW_CAP = 100_000;
 /** Cap on per-page row count returned by listAuditLog. Bounds a single
  * service-role table scan in the worst-case bad-cursor path. */
 const AUDIT_PAGE_SIZE_CAP = 200;
-/** Cap on per-page row count returned by listUsersWithStats. */
+/** Cap on per-page row count returned by listUsersWithStatsAndSort. */
 const USERS_PAGE_SIZE_CAP = 100;
 
 type DailyPoint = { day: string; value: number };
@@ -211,115 +208,422 @@ function toAuditRow(row: Record<string, unknown>): AuditRow {
   };
 }
 
+const PER_USER_AUDIT_DEFAULT_LIMIT = 10;
+const PER_USER_AUDIT_LIMIT_CAP = 50;
+
+export async function getUserAuditEvents(
+  client: SupabaseClient,
+  userId: string,
+  limit: number = PER_USER_AUDIT_DEFAULT_LIMIT,
+): Promise<AuditRow[]> {
+  const cap = Math.min(Math.max(limit, 1), PER_USER_AUDIT_LIMIT_CAP);
+  // admin_audit_log uses two row shapes for "events about a user":
+  //   1. view_transcript (and similar content-revealing actions): the row's
+  //      resource_type is "summary" and resource_id is the summary UUID; the
+  //      user being viewed is in metadata.viewed_user_id.
+  //   2. user-targeted actions (suspend_user / restore_user, etc.): the row's
+  //      resource_type is "user" and resource_id is the user UUID directly.
+  // Match both shapes so the per-user drilldown surfaces all events that
+  // reference the user, regardless of which schema the action used.
+  const { data, error } = await client
+    .from("admin_audit_log")
+    .select(
+      "id, created_at, admin_id, admin_email, action, resource_type, resource_id, metadata",
+    )
+    .or(
+      `and(resource_type.eq.user,resource_id.eq.${userId}),metadata->>viewed_user_id.eq.${userId}`,
+    )
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(cap);
+  if (error) {
+    console.error("[admin-queries] getUserAuditEvents failed", {
+      userId,
+      message: error.message,
+    });
+    return [];
+  }
+  return (data ?? []).map(toAuditRow);
+}
+
 // ─── Users + per-user stats ───────────────────────────────────────────────
+
+export type UserStatus =
+  | "active"
+  | "anonymous"
+  | "banned"
+  | "deleted"
+  | "unverified";
+
+export type SortKey =
+  | "email"
+  | "providers"
+  | "status"
+  | "emailVerified"
+  | "createdAt"
+  | "lastSignIn"
+  | "lastActivity"
+  | "summaries"
+  | "whisperPct";
+
+export type SortDir = "asc" | "desc";
+
+export type UsersTab =
+  | "exclude_anon"
+  | "anon_only"
+  | "active"
+  | "flagged"
+  | "all";
 
 export interface AdminUserRow {
   userId: string;
-  email: string;
+  email: string | null;
+  emailVerified: boolean;
+  providers: string[];
+  status: UserStatus;
   createdAt: string;
-  lastSeen: string | null;
+  lastSignIn: string | null;
+  lastActivity: string | null;
   summaries: number;
   whisper: number;
   whisperPct: number;
-  p95Seconds: number | null;
   flagged: boolean;
+  isAnonymous: boolean;
+  isSsoUser: boolean;
+  bannedUntil: string | null;
+  deletedAt: string | null;
+  appMetadata: Record<string, unknown>;
+  userMetadata: Record<string, unknown>;
 }
 
-export interface UserListOptions {
-  pageSize?: number;
-  cursor?: string | null;
-  search?: string | null;
+export function filterUsers(
+  rows: AdminUserRow[],
+  tab: UsersTab,
+  search: string | null,
+): AdminUserRow[] {
+  let out = rows;
+  switch (tab) {
+    case "exclude_anon":
+      out = out.filter((r) => !r.isAnonymous);
+      break;
+    case "anon_only":
+      out = out.filter((r) => r.isAnonymous);
+      break;
+    case "active":
+      out = out.filter((r) => !r.isAnonymous && r.summaries > 0);
+      break;
+    case "flagged":
+      out = out.filter((r) => !r.isAnonymous && r.flagged);
+      break;
+    case "all":
+      break;
+  }
+  const q = search?.trim().toLowerCase();
+  if (q) {
+    out = out.filter(
+      (r) =>
+        (r.email?.toLowerCase().includes(q) ?? false) ||
+        r.userId.toLowerCase().includes(q),
+    );
+  }
+  return out;
+}
+
+function compareNullable<T>(
+  a: T | null,
+  b: T | null,
+  dir: SortDir,
+  cmp: (a: T, b: T) => number,
+): number {
+  // Null-last regardless of direction.
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return dir === "asc" ? cmp(a, b) : -cmp(a, b);
+}
+
+const stringCmp = (a: string, b: string) => a.localeCompare(b);
+const numCmp = (a: number, b: number) => a - b;
+
+export function sortUsers(
+  rows: AdminUserRow[],
+  sort: SortKey,
+  dir: SortDir,
+): AdminUserRow[] {
+  const sorted = rows.slice();
+  sorted.sort((a, b) => {
+    const primary = primaryCompare(a, b, sort, dir);
+    if (primary !== 0) return primary;
+    // Stable secondary tie-break: ascending userId, regardless of dir.
+    return a.userId.localeCompare(b.userId);
+  });
+  return sorted;
+}
+
+function primaryCompare(
+  a: AdminUserRow,
+  b: AdminUserRow,
+  sort: SortKey,
+  dir: SortDir,
+): number {
+  switch (sort) {
+    case "email":
+      return compareNullable(a.email, b.email, dir, stringCmp);
+    case "providers": {
+      const av = a.providers.join(",") || null;
+      const bv = b.providers.join(",") || null;
+      return compareNullable(av, bv, dir, stringCmp);
+    }
+    case "status":
+      return compareNullable(a.status, b.status, dir, stringCmp);
+    case "emailVerified":
+      return compareNullable(
+        a.emailVerified ? 1 : 0,
+        b.emailVerified ? 1 : 0,
+        dir,
+        numCmp,
+      );
+    case "createdAt":
+      return compareNullable(a.createdAt, b.createdAt, dir, stringCmp);
+    case "lastSignIn":
+      return compareNullable(a.lastSignIn, b.lastSignIn, dir, stringCmp);
+    case "lastActivity":
+      return compareNullable(a.lastActivity, b.lastActivity, dir, stringCmp);
+    case "summaries":
+      return compareNullable(a.summaries, b.summaries, dir, numCmp);
+    case "whisperPct":
+      return compareNullable(a.whisperPct, b.whisperPct, dir, numCmp);
+  }
+}
+
+export interface UserListSortFilterOptions {
+  sort: SortKey;
+  dir: SortDir;
+  tab: UsersTab;
+  search: string | null;
+  page: number;
+  pageSize: number;
   /** Aggregate window for the per-row stats. Defaults to last 30 days. */
   window?: TimeWindow;
+  /** Cap on raw users pulled from auth.admin.listUsers. */
+  rowCap?: number;
 }
 
 export interface UserListResult {
   rows: AdminUserRow[];
-  nextCursor: string | null;
-  totalApprox: number;
+  total: number;
+  truncated: boolean;
+  page: number;
+  pageCount: number;
 }
 
-interface AuthUserRecord {
-  id: string;
-  email?: string;
-  created_at: string;
-  last_sign_in_at?: string | null;
-}
-
-export async function listUsersWithStats(
+export async function listUsersWithStatsAndSort(
   client: SupabaseClient,
-  opts: UserListOptions = {},
+  opts: UserListSortFilterOptions,
 ): Promise<UserListResult> {
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), USERS_PAGE_SIZE_CAP);
+  const pageSize = Math.min(Math.max(opts.pageSize, 1), USERS_PAGE_SIZE_CAP);
+  const page = Math.max(1, opts.page);
   const window = opts.window ?? lastNDays(30);
 
-  // auth.admin.listUsers paginates by page index, not keyset. We honor that
-  // rather than reinvent it. To detect "is there a next page" without a
-  // separate count round-trip, we ask for one extra row and emit a cursor
-  // only if the API actually returned that extra — same pattern as
-  // listAuditLog. This avoids the off-by-one where an exactly-full last
-  // page would otherwise emit a Next button that dead-ends.
-  const page = decodePageCursor(opts.cursor);
-  const {
-    data: usersData,
-    error: usersErr,
-  } = await client.auth.admin.listUsers({ page, perPage: pageSize + 1 });
-  if (usersErr) throw new QueryError("listUsersWithStats:auth", usersErr.message);
+  const { users: raw, truncated } = await listAllUsers(client, {
+    rowCap: opts.rowCap,
+  });
 
-  const raw = (usersData?.users ?? []) as AuthUserRecord[];
-  const hasMore = raw.length > pageSize;
-  const trimmed = raw.slice(0, pageSize);
-  let users = trimmed.filter((u): u is AuthUserRecord & { email: string } =>
-    Boolean(u.email),
+  // Pre-filter on stats-independent fields (cheap path) so we only
+  // aggregate history for the rows we actually need stats on.
+  const noStatsRows: AdminUserRow[] = raw.map((u) =>
+    toAdminUserRow(u, undefined),
   );
-  const droppedNoEmail = trimmed.length - users.length;
-  if (droppedNoEmail > 0) {
-    console.warn("[admin-queries] users without email omitted", {
-      droppedNoEmail,
-      page,
-    });
-  }
 
-  const search = opts.search?.trim().toLowerCase();
-  if (search) {
-    users = users.filter(
-      (u) =>
-        u.email.toLowerCase().includes(search) ||
-        u.id.toLowerCase().includes(search),
+  // For tabs whose predicate uses stat-derived fields (active / flagged),
+  // we need stats before filtering. For the other tabs (exclude_anon /
+  // anon_only / all), we can filter first and aggregate only that subset.
+  const requiresStatsFirst =
+    opts.tab === "active" || opts.tab === "flagged";
+
+  const preFiltered = requiresStatsFirst
+    ? noStatsRows
+    : filterUsers(noStatsRows, opts.tab, opts.search);
+
+  const targetIds = preFiltered.map((r) => r.userId);
+  let stats: Map<string, UserActivity>;
+  try {
+    stats = targetIds.length
+      ? await aggregateUserActivity(client, targetIds, window)
+      : new Map<string, UserActivity>();
+  } catch (err) {
+    console.error(
+      "[admin-queries] aggregateUserActivity failed; rendering users without stats",
+      {
+        message: err instanceof Error ? err.message : String(err),
+        userCount: targetIds.length,
+      },
     );
+    stats = new Map<string, UserActivity>();
   }
 
-  const userIds = users.map((u) => u.id);
-  const stats = userIds.length
-    ? await aggregateUserActivity(client, userIds, window)
-    : new Map<string, UserActivity>();
-
-  const rows: AdminUserRow[] = users.map((u) => {
-    const stat = stats.get(u.id);
-    const summaries = stat?.summaries ?? 0;
-    const whisper = stat?.whisper ?? 0;
-    const whisperPct = summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
+  const withStats: AdminUserRow[] = preFiltered.map((r) => {
+    const stat = stats.get(r.userId);
+    if (!stat) return r;
+    const summaries = stat.summaries;
+    const whisper = stat.whisper;
+    const whisperPct =
+      summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
     return {
-      userId: u.id,
-      email: u.email,
-      createdAt: u.created_at,
-      lastSeen: stat?.lastSeen ?? u.last_sign_in_at ?? null,
+      ...r,
       summaries,
       whisper,
       whisperPct,
-      p95Seconds: stat?.p95Seconds ?? null,
+      lastActivity: stat.lastSeen ?? r.lastActivity,
       flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
     };
   });
 
-  const nextCursor = hasMore ? encodePageCursor(page + 1) : null;
+  // For active/flagged tabs the filter still needs to run AFTER stats,
+  // including any search term.
+  const fullyFiltered = requiresStatsFirst
+    ? filterUsers(withStats, opts.tab, opts.search)
+    : opts.search
+      ? filterUsers(withStats, "all", opts.search)
+      : withStats;
+
+  const sorted = sortUsers(fullyFiltered, opts.sort, opts.dir);
+  const total = sorted.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize;
+  const slice = sorted.slice(start, start + pageSize);
+
+  return { rows: slice, total, truncated, page, pageCount };
+}
+
+function toAdminUserRow(
+  u: AuthUserRecord,
+  stat: UserActivity | undefined,
+): AdminUserRow {
+  const summaries = stat?.summaries ?? 0;
+  const whisper = stat?.whisper ?? 0;
+  const whisperPct =
+    summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
+  const providers = Array.from(
+    new Set(
+      (u.identities ?? [])
+        .map((i) => i.provider)
+        .filter((p): p is string => Boolean(p)),
+    ),
+  );
+  let isBanned = false;
+  if (u.banned_until) {
+    const t = new Date(u.banned_until).getTime();
+    if (Number.isNaN(t)) {
+      console.error("[admin-queries] toAdminUserRow: invalid banned_until value", {
+        userId: u.id,
+        bannedUntil: u.banned_until,
+      });
+    } else if (t > Date.now()) {
+      isBanned = true;
+    }
+  }
+  const isDeleted = !!u.deleted_at;
+  const emailVerified = !!u.email_confirmed_at;
+  const status: UserStatus = isDeleted
+    ? "deleted"
+    : isBanned
+      ? "banned"
+      : u.is_anonymous
+        ? "anonymous"
+        : emailVerified
+          ? "active"
+          : "unverified";
 
   return {
-    rows,
-    nextCursor,
-    totalApprox: usersData?.total ?? rows.length,
+    userId: u.id,
+    email: u.email ?? null,
+    emailVerified,
+    providers,
+    status,
+    createdAt: u.created_at,
+    lastSignIn: u.last_sign_in_at ?? null,
+    lastActivity: stat?.lastSeen ?? null,
+    summaries,
+    whisper,
+    whisperPct,
+    flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
+    isAnonymous: !!u.is_anonymous,
+    isSsoUser: !!u.is_sso_user,
+    bannedUntil: u.banned_until ?? null,
+    deletedAt: u.deleted_at ?? null,
+    appMetadata: u.app_metadata ?? {},
+    userMetadata: u.user_metadata ?? {},
   };
 }
+
+interface AuthUserRecord {
+  id: string;
+  email: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  email_confirmed_at: string | null;
+  banned_until: string | null;
+  deleted_at: string | null;
+  is_anonymous?: boolean;
+  is_sso_user?: boolean;
+  identities?: Array<{ provider?: string }>;
+  app_metadata?: Record<string, unknown>;
+  user_metadata?: Record<string, unknown>;
+}
+
+const ALL_USERS_ROW_CAP_DEFAULT = 5_000;
+const ALL_USERS_PER_PAGE = 200;
+
+export interface ListAllUsersResult {
+  users: AuthUserRecord[];
+  /** Count reported by the auth service on the first page; may exceed `users.length` when `truncated` is true. */
+  total: number;
+  truncated: boolean;
+}
+
+export interface ListAllUsersOptions {
+  rowCap?: number;
+}
+
+export async function listAllUsers(
+  client: SupabaseClient,
+  opts: ListAllUsersOptions = {},
+): Promise<ListAllUsersResult> {
+  const cap = Math.max(1, opts.rowCap ?? ALL_USERS_ROW_CAP_DEFAULT);
+  const collected: AuthUserRecord[] = [];
+  let total = 0;
+  let truncated = false;
+
+  for (let page = 1; ; page++) {
+    const { data, error } = await client.auth.admin.listUsers({
+      page,
+      perPage: ALL_USERS_PER_PAGE,
+    });
+    if (error) throw new QueryError("listAllUsers", error.message);
+    const users = (data?.users ?? []) as AuthUserRecord[];
+    if (page === 1) total = data?.total ?? users.length;
+
+    for (const u of users) {
+      if (collected.length >= cap) {
+        truncated = true;
+        break;
+      }
+      collected.push(u);
+    }
+    if (truncated) break;
+    if (users.length < ALL_USERS_PER_PAGE) break;
+  }
+
+  if (truncated) {
+    console.warn("[admin-queries] listAllUsers cap hit", {
+      cap,
+      total,
+    });
+  }
+  return { users: collected, total, truncated };
+}
+
 
 interface UserActivity {
   summaries: number;
@@ -953,30 +1257,6 @@ function decodeCursor(raw: string | null | undefined): KeysetCursor | null {
     });
   }
   return null;
-}
-
-function encodePageCursor(page: number): string {
-  return Buffer.from(`p:${page}`).toString("base64url");
-}
-
-function decodePageCursor(raw: string | null | undefined): number {
-  if (!raw) return 1;
-  try {
-    const decoded = Buffer.from(raw, "base64url").toString("utf8");
-    if (decoded.startsWith("p:")) {
-      const n = Number.parseInt(decoded.slice(2), 10);
-      if (Number.isFinite(n) && n >= 1) return n;
-    }
-    console.warn("[admin-queries] invalid page cursor — falling back to page 1", {
-      cursorPrefix: raw.slice(0, 16),
-    });
-  } catch (err) {
-    console.warn("[admin-queries] page cursor decode failed — falling back to page 1", {
-      cursorPrefix: raw.slice(0, 16),
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return 1;
 }
 
 export class QueryError extends Error {

@@ -4,14 +4,19 @@ vi.mock("server-only", () => ({}));
 
 import {
   listAuditLog,
-  listUsersWithStats,
+  listAllUsers,
+  listUsersWithStatsAndSort,
+  filterUsers,
+  sortUsers,
   getDashboardKPIs,
   getPerformanceStats,
+  getUserAuditEvents,
   getUserSummaries,
   lastNDays,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
+import type { AdminUserRow } from "../queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
@@ -227,149 +232,6 @@ describe("listAuditLog", () => {
   });
 });
 
-// ─── listUsersWithStats ──────────────────────────────────────────────────
-
-describe("listUsersWithStats", () => {
-  it("returns rows joined with per-user activity aggregates", async () => {
-    const window = lastNDays(30);
-    const client = buildClient(
-      [
-        {
-          table: "user_video_history",
-          response: {
-            data: [
-              { user_id: "u1", video_id: "v1", created_at: window.end.toISOString() },
-              { user_id: "u1", video_id: "v2", created_at: window.end.toISOString() },
-              { user_id: "u2", video_id: "v3", created_at: window.end.toISOString() },
-            ],
-            error: null,
-          },
-        },
-        {
-          table: "summaries",
-          response: {
-            data: [
-              { video_id: "v1", transcript_source: "whisper", processing_time_seconds: 10 },
-              { video_id: "v2", transcript_source: "auto_captions", processing_time_seconds: 5 },
-              { video_id: "v3", transcript_source: "manual_captions", processing_time_seconds: 3 },
-            ],
-            error: null,
-          },
-        },
-      ],
-      {
-        listUsers: {
-          data: {
-            users: [
-              { id: "u1", email: "u1@example.com", created_at: "2026-01-01T00:00:00Z", last_sign_in_at: "2026-04-15T00:00:00Z" },
-              { id: "u2", email: "u2@example.com", created_at: "2026-02-01T00:00:00Z", last_sign_in_at: null },
-              { id: "u3", email: "u3@example.com", created_at: "2026-03-01T00:00:00Z", last_sign_in_at: "2026-04-20T00:00:00Z" },
-            ],
-            total: 3,
-          },
-          error: null,
-        },
-      },
-    );
-
-    const result = await listUsersWithStats(client, { pageSize: 25, window });
-    expect(result.rows).toHaveLength(3);
-    const u1 = result.rows.find((r) => r.userId === "u1");
-    expect(u1?.summaries).toBe(2);
-    expect(u1?.whisper).toBe(1);
-    expect(u1?.whisperPct).toBe(50);
-    expect(u1?.flagged).toBe(true); // 50% > WHISPER_FLAG_THRESHOLD (30)
-
-    const u3 = result.rows.find((r) => r.userId === "u3");
-    expect(u3?.summaries).toBe(0);
-    expect(u3?.flagged).toBe(false);
-  });
-
-  it("falls back to last_sign_in_at when no history rows exist", async () => {
-    const window = lastNDays(30);
-    const client = buildClient(
-      [{ table: "user_video_history", response: { data: [], error: null } }],
-      {
-        listUsers: {
-          data: {
-            users: [
-              {
-                id: "u1",
-                email: "u1@example.com",
-                created_at: "2026-01-01T00:00:00Z",
-                last_sign_in_at: "2026-04-20T00:00:00Z",
-              },
-            ],
-            total: 1,
-          },
-          error: null,
-        },
-      },
-    );
-    const result = await listUsersWithStats(client, { pageSize: 25, window });
-    expect(result.rows[0].lastSeen).toBe("2026-04-20T00:00:00Z");
-    expect(result.rows[0].summaries).toBe(0);
-  });
-
-  it("filters by search term against email and id", async () => {
-    const window = lastNDays(30);
-    const client = buildClient(
-      [{ table: "user_video_history", response: { data: [], error: null } }],
-      {
-        listUsers: {
-          data: {
-            users: [
-              { id: "u1", email: "alice@example.com", created_at: "2026-01-01", last_sign_in_at: null },
-              { id: "u2", email: "bob@example.com", created_at: "2026-01-02", last_sign_in_at: null },
-            ],
-            total: 2,
-          },
-          error: null,
-        },
-      },
-    );
-    const result = await listUsersWithStats(client, {
-      pageSize: 25,
-      search: "alice",
-      window,
-    });
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].email).toBe("alice@example.com");
-  });
-
-  it("emits nextCursor only when the +1 peek returns an extra row", async () => {
-    // pageSize = 25 ⇒ +1 peek requests 26.
-    const users = Array.from({ length: 26 }, (_, idx) => ({
-      id: `u${idx}`,
-      email: `u${idx}@example.com`,
-      created_at: "2026-01-01",
-      last_sign_in_at: null,
-    }));
-    const client = buildClient(
-      [{ table: "user_video_history", response: { data: [], error: null } }],
-      { listUsers: { data: { users, total: 100 }, error: null } },
-    );
-    const result = await listUsersWithStats(client, { pageSize: 25 });
-    expect(result.rows).toHaveLength(25);
-    expect(result.nextCursor).not.toBeNull();
-  });
-
-  it("does NOT emit nextCursor when the last page is exactly full", async () => {
-    // 25 returned (pageSize) means no more — peek would have brought 26.
-    const users = Array.from({ length: 25 }, (_, idx) => ({
-      id: `u${idx}`,
-      email: `u${idx}@example.com`,
-      created_at: "2026-01-01",
-      last_sign_in_at: null,
-    }));
-    const client = buildClient(
-      [{ table: "user_video_history", response: { data: [], error: null } }],
-      { listUsers: { data: { users, total: 25 }, error: null } },
-    );
-    const result = await listUsersWithStats(client, { pageSize: 25 });
-    expect(result.nextCursor).toBeNull();
-  });
-});
 
 // ─── getDashboardKPIs ────────────────────────────────────────────────────
 
@@ -668,6 +530,59 @@ describe("getUserSummaries", () => {
   });
 });
 
+// ─── getUserAuditEvents ──────────────────────────────────────────────────
+
+describe("getUserAuditEvents", () => {
+  it("filters by both resource_id and metadata.viewed_user_id and limits to N rows newest-first", async () => {
+    const client = buildClient([
+      {
+        table: "admin_audit_log",
+        response: {
+          data: [
+            {
+              id: "a-1",
+              created_at: "2026-04-29T00:00:00Z",
+              admin_id: "admin-1",
+              admin_email: "alice@x",
+              action: "view_transcript",
+              resource_type: "user",
+              resource_id: "user-X",
+              metadata: {},
+            },
+          ],
+          error: null,
+        },
+        expect: (calls) => {
+          const orCall = calls.find((c) => c.method === "or");
+          expect(orCall).toBeDefined();
+          expect(String(orCall?.args[0])).toContain("resource_id.eq.user-X");
+          expect(String(orCall?.args[0])).toContain("metadata->>viewed_user_id.eq.user-X");
+          const limit = calls.find((c) => c.method === "limit");
+          expect(limit?.args).toEqual([10]);
+        },
+      },
+    ]);
+    const out = await getUserAuditEvents(client, "user-X", 10);
+    expect(out).toHaveLength(1);
+    expect(out[0].action).toBe("view_transcript");
+  });
+
+  it("returns empty array on db error and logs", async () => {
+    const client = buildClient([
+      {
+        table: "admin_audit_log",
+        response: { data: null, error: { message: "boom" } },
+      },
+    ]);
+    const out = await getUserAuditEvents(client, "user-X", 10);
+    expect(out).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("getUserAuditEvents"),
+      expect.any(Object),
+    );
+  });
+});
+
 // ─── Constants exposed for cross-file consistency ────────────────────────
 
 describe("WHISPER_FLAG_THRESHOLD", () => {
@@ -686,7 +601,7 @@ describe("WHISPER_FLAG_THRESHOLD", () => {
 // `accessed_at`; downstream code still consumes the field as
 // `created_at` thanks to PostgREST aliasing on the select clause.
 describe("user_video_history column drift guard", () => {
-  it("aggregateUserActivity (via listUsersWithStats) filters on accessed_at", async () => {
+  it("aggregateUserActivity (via listUsersWithStatsAndSort) filters on accessed_at", async () => {
     const seen: ChainCall[] = [];
     const window = lastNDays(30);
     const client = buildClient(
@@ -714,7 +629,15 @@ describe("user_video_history column drift guard", () => {
         },
       },
     );
-    await listUsersWithStats(client, { pageSize: 25, window });
+    await listUsersWithStatsAndSort(client, {
+      sort: "createdAt",
+      dir: "desc",
+      tab: "exclude_anon",
+      search: null,
+      page: 1,
+      pageSize: 25,
+      window,
+    });
     const selectArg = String(seen.find((c) => c.method === "select")?.args[0] ?? "");
     const gteCol = String(seen.find((c) => c.method === "gte")?.args[0] ?? "");
     const lteCol = String(seen.find((c) => c.method === "lte")?.args[0] ?? "");
@@ -759,5 +682,413 @@ describe("user_video_history column drift guard", () => {
     expect(selectArg).toContain("created_at:accessed_at");
     expect(gteCol).toBe("accessed_at");
     expect(lteCol).toBe("accessed_at");
+  });
+});
+
+// ─── listAllUsers ────────────────────────────────────────────────────────
+
+describe("listAllUsers", () => {
+  function buildAuthClient(
+    pages: Array<{ users: Array<Record<string, unknown>>; total: number }>,
+  ): SupabaseClient {
+    let i = 0;
+    const listUsers = vi.fn(async () => {
+      const next = pages[i++] ?? { users: [], total: pages[0]?.total ?? 0 };
+      return { data: next, error: null };
+    });
+    return {
+      from: vi.fn(),
+      auth: { admin: { listUsers, getUserById: vi.fn() } },
+    } as unknown as SupabaseClient;
+  }
+
+  it("concatenates rows across paged calls until a partial page", async () => {
+    const full = Array.from({ length: 200 }, (_, i) => ({
+      id: `id-${i}`,
+      email: `${i}@x`,
+      created_at: "2026-04-29T00:00:00Z",
+      is_anonymous: false,
+    }));
+    const partial = Array.from({ length: 50 }, (_, i) => ({
+      id: `id-200-${i}`,
+      email: `${i}@y`,
+      created_at: "2026-04-29T00:00:00Z",
+      is_anonymous: false,
+    }));
+    const client = buildAuthClient([
+      { users: full, total: 250 },
+      { users: partial, total: 250 },
+    ]);
+    const out = await listAllUsers(client);
+    expect(out.users).toHaveLength(250);
+    expect(out.truncated).toBe(false);
+    expect(out.total).toBe(250);
+  });
+
+  it("stops at row cap and sets truncated=true with a warn", async () => {
+    const client = buildAuthClient(
+      Array.from({ length: 30 }, (_, pageIdx) => ({
+        users: Array.from({ length: 200 }, (_, i) => ({
+          id: `id-${pageIdx * 200 + i}`,
+          email: `${pageIdx * 200 + i}@x`,
+          created_at: "2026-04-29T00:00:00Z",
+          is_anonymous: false,
+        })),
+        total: 6000,
+      })),
+    );
+    const out = await listAllUsers(client, { rowCap: 5000 });
+    expect(out.users).toHaveLength(5000);
+    expect(out.truncated).toBe(true);
+    // Pin distinct-ID contract — the 5,000th user is the 4999-th index
+    // across pages (id-4999), and id-0 must still be the first.
+    expect(out.users[0].id).toBe("id-0");
+    expect(out.users[4999].id).toBe("id-4999");
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("listAllUsers cap hit"),
+      expect.any(Object),
+    );
+  });
+
+  it("propagates page-level errors as QueryError", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "boom" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    await expect(listAllUsers(client)).rejects.toBeInstanceOf(QueryError);
+  });
+});
+
+// ─── filterUsers ─────────────────────────────────────────────────────────
+
+const baseAdminRow = (over: Partial<AdminUserRow>): AdminUserRow => ({
+  userId: "u",
+  email: "u@x",
+  emailVerified: true,
+  providers: ["email"],
+  status: "active",
+  createdAt: "2026-01-01T00:00:00Z",
+  lastSignIn: null,
+  lastActivity: null,
+  summaries: 0,
+  whisper: 0,
+  whisperPct: 0,
+  flagged: false,
+  isAnonymous: false,
+  isSsoUser: false,
+  bannedUntil: null,
+  deletedAt: null,
+  appMetadata: {},
+  userMetadata: {},
+  ...over,
+});
+
+describe("filterUsers", () => {
+  const rows: AdminUserRow[] = [
+    baseAdminRow({ userId: "a", isAnonymous: false, summaries: 5, flagged: false }),
+    baseAdminRow({ userId: "b", isAnonymous: true, summaries: 0 }),
+    baseAdminRow({ userId: "c", isAnonymous: false, summaries: 0, flagged: false }),
+    baseAdminRow({ userId: "d", isAnonymous: false, summaries: 10, whisperPct: 50, flagged: true }),
+  ];
+
+  it("'exclude_anon' drops anonymous users", () => {
+    const out = filterUsers(rows, "exclude_anon", null);
+    expect(out.map((r) => r.userId)).toEqual(["a", "c", "d"]);
+  });
+
+  it("'anon_only' keeps only anonymous users", () => {
+    const out = filterUsers(rows, "anon_only", null);
+    expect(out.map((r) => r.userId)).toEqual(["b"]);
+  });
+
+  it("'active' = exclude_anon + summaries > 0", () => {
+    const out = filterUsers(rows, "active", null);
+    expect(out.map((r) => r.userId)).toEqual(["a", "d"]);
+  });
+
+  it("'flagged' = exclude_anon + flagged=true", () => {
+    const out = filterUsers(rows, "flagged", null);
+    expect(out.map((r) => r.userId)).toEqual(["d"]);
+  });
+
+  it("'all' returns everything", () => {
+    const out = filterUsers(rows, "all", null);
+    expect(out).toHaveLength(4);
+  });
+
+  it("search filters by email substring (case-insensitive)", () => {
+    const local = [
+      baseAdminRow({ userId: "x", email: "Alice@example.com" }),
+      baseAdminRow({ userId: "y", email: "bob@example.com" }),
+    ];
+    const out = filterUsers(local, "all", "ALICE");
+    expect(out.map((r) => r.userId)).toEqual(["x"]);
+  });
+
+  it("search also matches userId substring", () => {
+    const local = [
+      baseAdminRow({ userId: "abc-123", email: null }),
+      baseAdminRow({ userId: "def-456", email: null }),
+    ];
+    const out = filterUsers(local, "all", "abc");
+    expect(out.map((r) => r.userId)).toEqual(["abc-123"]);
+  });
+});
+
+// ─── sortUsers ───────────────────────────────────────────────────────────
+
+describe("sortUsers", () => {
+  const rows: AdminUserRow[] = [
+    baseAdminRow({
+      userId: "a",
+      email: "alice@x",
+      createdAt: "2026-01-01T00:00:00Z",
+      summaries: 1,
+      lastSignIn: "2026-04-20T00:00:00Z",
+    }),
+    baseAdminRow({
+      userId: "b",
+      email: null,
+      createdAt: "2026-03-01T00:00:00Z",
+      summaries: 5,
+      lastSignIn: null,
+    }),
+    baseAdminRow({
+      userId: "c",
+      email: "carol@x",
+      createdAt: "2026-02-01T00:00:00Z",
+      summaries: 10,
+      lastSignIn: "2026-04-01T00:00:00Z",
+    }),
+  ];
+
+  it("sorts by createdAt desc by default", () => {
+    const out = sortUsers(rows, "createdAt", "desc");
+    expect(out.map((r) => r.userId)).toEqual(["b", "c", "a"]);
+  });
+
+  it("sorts by createdAt asc", () => {
+    const out = sortUsers(rows, "createdAt", "asc");
+    expect(out.map((r) => r.userId)).toEqual(["a", "c", "b"]);
+  });
+
+  it("sorts by summaries desc (numeric)", () => {
+    const out = sortUsers(rows, "summaries", "desc");
+    expect(out.map((r) => r.userId)).toEqual(["c", "b", "a"]);
+  });
+
+  it("places null email last on email asc", () => {
+    const out = sortUsers(rows, "email", "asc");
+    expect(out.map((r) => r.userId)).toEqual(["a", "c", "b"]);
+  });
+
+  it("places null email last on email desc (null-last regardless of dir)", () => {
+    const out = sortUsers(rows, "email", "desc");
+    expect(out.map((r) => r.userId)).toEqual(["c", "a", "b"]);
+  });
+
+  it("breaks ties stably by userId", () => {
+    const tied = [
+      baseAdminRow({ userId: "z", summaries: 1 }),
+      baseAdminRow({ userId: "a", summaries: 1 }),
+      baseAdminRow({ userId: "m", summaries: 1 }),
+    ];
+    const out = sortUsers(tied, "summaries", "desc");
+    expect(out.map((r) => r.userId)).toEqual(["a", "m", "z"]);
+  });
+});
+
+// ─── listUsersWithStatsAndSort ───────────────────────────────────────────
+
+describe("listUsersWithStatsAndSort", () => {
+  function buildClientWithUsers(
+    users: Array<Record<string, unknown>>,
+    historyScripts: SelectScript[],
+  ): SupabaseClient {
+    return buildClient(historyScripts, {
+      listUsers: { data: { users, total: users.length }, error: null },
+    });
+  }
+
+  it("returns sorted page slice with anonymous excluded by default tab", async () => {
+    const users = [
+      {
+        id: "u-1",
+        email: "alice@x",
+        created_at: "2026-04-01T00:00:00Z",
+        is_anonymous: false,
+        identities: [{ provider: "email" }],
+      },
+      {
+        id: "u-2",
+        email: null,
+        created_at: "2026-04-02T00:00:00Z",
+        is_anonymous: true,
+      },
+      {
+        id: "u-3",
+        email: "carol@x",
+        created_at: "2026-04-03T00:00:00Z",
+        is_anonymous: false,
+        identities: [{ provider: "google" }],
+      },
+    ];
+    const client = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+
+    const out = await listUsersWithStatsAndSort(client, {
+      sort: "createdAt",
+      dir: "desc",
+      tab: "exclude_anon",
+      search: null,
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(out.rows.map((r) => r.userId)).toEqual(["u-3", "u-1"]);
+    expect(out.rows[0].providers).toEqual(["google"]);
+    expect(out.total).toBe(2); // post-filter total
+    expect(out.pageCount).toBe(1);
+  });
+
+  it("paginates after sort", async () => {
+    const users = Array.from({ length: 30 }, (_, i) => ({
+      id: `u-${String(i).padStart(2, "0")}`,
+      email: `${String(i).padStart(2, "0")}@x`, // zero-padded so lexicographic = numeric
+      created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
+      is_anonymous: false,
+    }));
+
+    // Use a single client for a full unsorted fetch first, to know the expected
+    // ordering. Two clients are needed for two listUsersWithStatsAndSort calls
+    // because the mock's history script is consumed once per call.
+    const client1 = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const page1 = await listUsersWithStatsAndSort(client1, {
+      sort: "email",
+      dir: "asc",
+      tab: "exclude_anon",
+      search: null,
+      page: 1,
+      pageSize: 10,
+    });
+
+    const client2 = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const page2 = await listUsersWithStatsAndSort(client2, {
+      sort: "email",
+      dir: "asc",
+      tab: "exclude_anon",
+      search: null,
+      page: 2,
+      pageSize: 10,
+    });
+
+    // Combined coverage check: pages 1+2 should be the FIRST 20 users in
+    // sorted order, with no gap between them and no overlap.
+    const combined = [...page1.rows, ...page2.rows].map((r) => r.userId);
+    const expected = Array.from({ length: 20 }, (_, i) =>
+      `u-${String(i).padStart(2, "0")}`,
+    );
+    expect(combined).toEqual(expected);
+    expect(new Set(combined).size).toBe(20); // no duplicates
+    expect(page1.pageCount).toBe(3);
+  });
+
+  it("logs when banned_until is unparseable and falls back to non-banned status", async () => {
+    const users = [
+      {
+        id: "u-bad-ban",
+        email: "x@x",
+        created_at: "2026-04-01T00:00:00Z",
+        email_confirmed_at: "2026-04-01T00:00:00Z",
+        banned_until: "not a date",
+        is_anonymous: false,
+      },
+    ];
+    const client = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await listUsersWithStatsAndSort(client, {
+      sort: "createdAt",
+      dir: "desc",
+      tab: "all",
+      search: null,
+      page: 1,
+      pageSize: 25,
+    });
+    expect(out.rows[0].status).toBe("active");
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("invalid banned_until"),
+      expect.objectContaining({ bannedUntil: "not a date" }),
+    );
+  });
+
+  it("status reflects banned/deleted/anonymous/unverified", async () => {
+    const users = [
+      {
+        id: "u-active",
+        email: "ok@x",
+        created_at: "2026-04-01T00:00:00Z",
+        email_confirmed_at: "2026-04-01T00:00:00Z",
+        is_anonymous: false,
+      },
+      {
+        id: "u-banned",
+        email: "ban@x",
+        created_at: "2026-04-01T00:00:00Z",
+        email_confirmed_at: "2026-04-01T00:00:00Z",
+        banned_until: "2030-01-01T00:00:00Z",
+        is_anonymous: false,
+      },
+      {
+        id: "u-deleted",
+        email: "del@x",
+        created_at: "2026-04-01T00:00:00Z",
+        deleted_at: "2026-04-15T00:00:00Z",
+        is_anonymous: false,
+      },
+      {
+        id: "u-anon",
+        email: null,
+        created_at: "2026-04-01T00:00:00Z",
+        is_anonymous: true,
+      },
+      {
+        id: "u-unverified",
+        email: "uv@x",
+        created_at: "2026-04-01T00:00:00Z",
+        email_confirmed_at: null,
+        is_anonymous: false,
+      },
+    ];
+    const client = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await listUsersWithStatsAndSort(client, {
+      sort: "createdAt",
+      dir: "desc",
+      tab: "all",
+      search: null,
+      page: 1,
+      pageSize: 25,
+    });
+    const byId = new Map(out.rows.map((r) => [r.userId, r.status]));
+    expect(byId.get("u-active")).toBe("active");
+    expect(byId.get("u-banned")).toBe("banned");
+    expect(byId.get("u-deleted")).toBe("deleted");
+    expect(byId.get("u-anon")).toBe("anonymous");
+    expect(byId.get("u-unverified")).toBe("unverified");
   });
 });
