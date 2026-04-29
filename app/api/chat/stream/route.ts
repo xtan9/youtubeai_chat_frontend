@@ -19,6 +19,7 @@ import {
   ChatStreamRequestSchema,
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
+import { formatTimestamp } from "@/lib/utils/timestamp-citations";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -112,9 +113,16 @@ export async function POST(request: Request) {
   }
 
   const videoId = cachedTranscript.videoId;
+  // Prefix each segment with its [mm:ss] start time so the model can
+  // cite real video timestamps in answers. Without this, the assistant
+  // sees a flat run-on transcript and (correctly) refuses to invent
+  // `[mm:ss]` positions — caught in production e2e where the model
+  // explicitly told the user "the transcript does not include video
+  // timestamps." formatTimestamp uses the same shape the citation
+  // parser on the frontend recognizes, so the round-trip is closed.
   const transcriptText = cachedTranscript.segments
-    .map((s) => s.text)
-    .join(" ");
+    .map((s) => `${formatTimestamp(s.start)} ${s.text}`)
+    .join("\n");
   if (transcriptText.length > TRANSCRIPT_HARD_CAP_CHARS) {
     return jsonError(413, USER_ERROR_TRANSCRIPT_TOO_LONG);
   }

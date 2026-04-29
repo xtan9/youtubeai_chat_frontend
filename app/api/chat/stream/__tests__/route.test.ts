@@ -190,6 +190,29 @@ describe("POST /api/chat/stream", () => {
     expect(res.status).toBe(413);
   });
 
+  it("primes the LLM with a transcript that includes [mm:ss] segment timestamps", async () => {
+    let observed: ReadonlyArray<{ role: string; content: string }> | null = null;
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: ReadonlyArray<{ role: string; content: string }>;
+    }) {
+      observed = opts.messages;
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" })
+    );
+    await readSse(res.body!);
+    expect(observed).not.toBeNull();
+    // First message is the synthetic primer (user role) carrying the
+    // transcript+summary. It must include [mm:ss] markers so the model
+    // can cite real timestamps in its answer.
+    const primer = observed![0]?.content ?? "";
+    expect(primer).toMatch(/\[0:00\]\s+Welcome\./);
+    expect(primer).toMatch(/\[0:01\]\s+Today we discuss flow\./);
+  });
+
   it("happy path streams delta events, ends with done, and persists turn", async () => {
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "Hello" };
