@@ -46,7 +46,9 @@ test("admin dashboard shows real-count badge and toggles admin exclusion", async
   // exists and isn't the placeholder.
   await page.goto(`${PROD_URL}/admin`);
   await expect(page.getByRole("heading", { name: /^Dashboard$/ })).toBeVisible();
-  const usersLink = page.locator(`a[href="/admin/users"]`);
+  // Scope to the sidebar so this doesn't collide with the dashboard's
+  // "View all users" anchor that points at the same href.
+  const usersLink = page.locator(`aside.sidebar a[href="/admin/users"]`);
   await expect(usersLink).toBeVisible();
   const badgeText = await usersLink.locator(".badge").textContent();
   expect(badgeText).toBeTruthy();
