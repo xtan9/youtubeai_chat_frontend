@@ -3,6 +3,18 @@
 export type { TranscriptSource } from "@/lib/services/summarize-cache";
 import type { TranscriptSource } from "@/lib/services/summarize-cache";
 
+/**
+ * A user identity that has passed the admin-allowlist gate. Produced only
+ * by `requireAdminPage()` / `requireAdmin()` — callers must not construct
+ * it by hand. Threading this through `writeAudit` (instead of separate
+ * scalar fields) prevents the "wrong email logged for the wrong user"
+ * mismatch class at the type system, since the gate is the only producer.
+ */
+export interface AdminPrincipal {
+  readonly userId: string;
+  readonly email: string;
+}
+
 export type TranscriptModel = "claude-opus-4-7" | "claude-sonnet-4-6" | "claude-haiku-4-5";
 
 export function assertNever(x: never): never {

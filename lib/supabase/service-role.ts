@@ -2,9 +2,16 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cached: SupabaseClient | null = null;
 
-// Single memoized service-role Supabase client shared across server modules.
-// Returns null when env vars are missing so each caller can choose its own
-// fail-open vs hard-fail policy.
+// Service-role Supabase client for non-admin pipeline writes (cache,
+// rate limits). Returns null when env is missing so each caller picks
+// its own fail policy.
+//
+// Admin paths (anything that exposes service-role-scoped data to a
+// logged-in admin user) MUST go through `lib/supabase/admin-client.ts`
+// instead — that module gates the client behind `requireAdminClient`
+// so a non-admin can't reach service-role queries by construction. This
+// file's exit is ungated and exists for app-internal pipeline code paths
+// unrelated to user identity.
 export function getServiceRoleClient(): SupabaseClient | null {
   if (cached) return cached;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
