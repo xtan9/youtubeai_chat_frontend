@@ -85,6 +85,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Sibling git worktrees keep their own `.next/` build artifacts under
+    // `.worktrees/<branch>/.next/`. Flat-config ignore patterns are
+    // anchored to the project root, so the default `.next/**` only matches
+    // the top-level build dir — the CLI then walks the worktree subtrees
+    // and surfaces hundreds of generated-code lint errors. Ignore the
+    // whole worktree tree to short-circuit the walk.
+    ".worktrees/**",
     // The examples/ directory is documentation: deliberately-bad and
     // deliberately-good patterns side by side. Linting it produces noise
     // about unused vars (the bad example *must* exist as code) without

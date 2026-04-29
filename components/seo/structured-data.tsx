@@ -1,28 +1,6 @@
 import { JsonLd } from "./json-ld";
 import { buildOrganizationSchema } from "./organization-schema";
-
-const webAppSchema = {
-  "@context": "https://schema.org",
-  "@type": "WebApplication",
-  name: "YouTubeAI Summary",
-  applicationCategory: "UtilityApplication",
-  description:
-    "Transform any YouTube video into a concise summary instantly using AI technology.",
-  operatingSystem: "All",
-  browserRequirements: "Requires JavaScript. Requires HTML5.",
-  url: "https://www.youtubeai.chat",
-  offers: {
-    "@type": "Offer",
-    price: "0",
-    priceCurrency: "USD",
-  },
-  featureList: [
-    "Instant video summarization",
-    "AI-powered analysis",
-    "Key points extraction",
-    "Free to use",
-  ],
-};
+import { buildWebApplicationSchema } from "./webapp-schema";
 
 const serviceSchema = {
   "@context": "https://schema.org",
@@ -38,7 +16,7 @@ const serviceSchema = {
 export default function StructuredData() {
   return (
     <>
-      <JsonLd id="structured-data-webapp" data={webAppSchema} />
+      <JsonLd id="structured-data-webapp" data={buildWebApplicationSchema()} />
       <JsonLd id="structured-data-service" data={serviceSchema} />
       <JsonLd
         id="structured-data-organization"

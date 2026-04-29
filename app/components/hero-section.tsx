@@ -24,17 +24,14 @@ export function HeroSection() {
           </div>
 
           <h1 className="text-4xl md:text-6xl font-bold bg-gradient-brand-accent bg-clip-text text-transparent mb-6">
-            Understand YouTube Videos
-            <br />
-            <span className="text-3xl md:text-5xl">
-              In a Fraction of the Time
-            </span>
+            Summarize YouTube Videos with AI
           </h1>
 
           <p className="text-xl text-text-muted mb-8 max-w-3xl mx-auto">
-            Our AI instantly transforms lengthy videos into comprehensive
-            summaries, key points, and actionable insights—completely free, with
-            no restrictions or hidden costs.
+            Powered by YouTube transcript AI, this free YouTube summarizer
+            turns any video into a concise summary in seconds. Paste a link to
+            summarize a YouTube video, then chat with the YouTube video
+            transcript to jump straight to the moments that matter.
           </p>
 
           <div className="flex flex-wrap justify-center gap-4 mb-8">
