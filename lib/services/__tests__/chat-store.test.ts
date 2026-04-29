@@ -91,7 +91,33 @@ describe("chat-store", () => {
       const result = await listChatMessages("user-1", "video-1");
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe("m1");
-      expect(errSpy).toHaveBeenCalled();
+      // Per-row error log + aggregate "N out of M dropped" log so a
+      // single greppable line correlates user complaints with drift.
+      expect(errSpy).toHaveBeenCalledWith(
+        "[chat-store] row schema mismatch — dropping row",
+        expect.objectContaining({ errorId: "CHAT_ROW_SCHEMA_MISMATCH" }),
+      );
+      expect(errSpy).toHaveBeenCalledWith(
+        "[chat-store] dropped rows due to schema mismatch",
+        expect.objectContaining({
+          errorId: "CHAT_ROW_SCHEMA_MISMATCH_AGGREGATE",
+          droppedCount: 1,
+          totalCount: 2,
+        }),
+      );
+    });
+
+    it("does not log the aggregate when all rows pass validation", async () => {
+      mocks.setImpl(() => ({
+        data: [
+          { id: "m1", role: "user", content: "valid", created_at: "2026-04-28T00:00:00Z" },
+        ],
+        error: null,
+      }));
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { listChatMessages } = await loadFresh();
+      await listChatMessages("user-1", "video-1");
+      expect(errSpy).not.toHaveBeenCalled();
     });
 
     it("throws when service role client is unavailable", async () => {

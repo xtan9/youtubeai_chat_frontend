@@ -68,6 +68,15 @@ export async function GET(request: Request) {
   // than 404 so the chat tab can render its empty state without a banner.
   const transcript = await getCachedTranscript(parsed.data.youtube_url);
   if (!transcript) {
+    // Log so ops can distinguish "user navigated to chat for a brand-new
+    // URL" (expected, brief) from "transcript cache evicted while a chat
+    // tab was open" (would point at a cache-policy regression). Without
+    // this signal the 200/empty response is silent in production logs.
+    console.info("[chat/messages] empty list — no transcript cached", {
+      errorId: "CHAT_MESSAGES_NO_TRANSCRIPT",
+      userId: auth.user.id,
+      youtubeUrl: parsed.data.youtube_url,
+    });
     const empty: ChatMessagesResponse = { messages: [] };
     return Response.json(empty);
   }
@@ -105,6 +114,11 @@ export async function DELETE(request: Request) {
   // Same fail-soft as GET: no videos row → nothing to clear, return 204.
   const transcript = await getCachedTranscript(parsed.data.youtube_url);
   if (!transcript) {
+    console.info("[chat/messages] clear no-op — no transcript cached", {
+      errorId: "CHAT_MESSAGES_CLEAR_NO_TRANSCRIPT",
+      userId: auth.user.id,
+      youtubeUrl: parsed.data.youtube_url,
+    });
     return new Response(null, { status: 204 });
   }
 

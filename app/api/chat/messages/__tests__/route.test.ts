@@ -59,6 +59,7 @@ describe("/api/chat/messages", () => {
 
     it("returns empty messages when no transcript yet", async () => {
       mocks.getCachedTranscript.mockResolvedValue(null);
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
@@ -66,6 +67,12 @@ describe("/api/chat/messages", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toEqual({ messages: [] });
+      // Structured log so ops can distinguish brand-new URL from cache eviction.
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[chat/messages] empty list — no transcript cached",
+        expect.objectContaining({ errorId: "CHAT_MESSAGES_NO_TRANSCRIPT" }),
+      );
+      infoSpy.mockRestore();
     });
 
     it("returns the persisted thread", async () => {
@@ -159,6 +166,7 @@ describe("/api/chat/messages", () => {
 
     it("returns 204 when no transcript yet (idempotent)", async () => {
       mocks.getCachedTranscript.mockResolvedValue(null);
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
       const { DELETE } = await import("../route");
       const res = await DELETE(
         makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`, {
@@ -166,6 +174,13 @@ describe("/api/chat/messages", () => {
         })
       );
       expect(res.status).toBe(204);
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[chat/messages] clear no-op — no transcript cached",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_CLEAR_NO_TRANSCRIPT",
+        }),
+      );
+      infoSpy.mockRestore();
     });
 
     it("clears the thread and returns 204", async () => {

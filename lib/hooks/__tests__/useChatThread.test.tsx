@@ -110,4 +110,61 @@ describe("useChatThread", () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toBe("rate limited");
   });
+
+  it("logs structured breadcrumb when fetch fails (so error survives react-query auto-clear)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "rate limited" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => useChatThread(VALID_URL, true), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[useChatThread] fetch failed",
+      expect.objectContaining({
+        errorId: "CHAT_THREAD_FETCH_FAILED",
+        status: 429,
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("logs structured breadcrumb when response is malformed", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            messages: [
+              { role: "user", content: "hi", createdAt: "2026-04-28T00:00:00Z" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => useChatThread(VALID_URL, true), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[useChatThread] response schema drift",
+      expect.objectContaining({ errorId: "CHAT_THREAD_SCHEMA_DRIFT" }),
+    );
+    errorSpy.mockRestore();
+  });
 });

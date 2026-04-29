@@ -103,8 +103,13 @@ export async function* streamChatCompletion(
   } finally {
     try {
       reader.releaseLock();
-    } catch {
-      // Reader may already be released by an upstream cancel(); ignore.
+    } catch (err) {
+      // Spec'd failure modes are TypeError ("reader released" /
+      // "pending read"). Swallowing those is the original intent —
+      // they fire when upstream cancel() raced ahead. Anything else
+      // (encoder explosion, runtime bug) is a real defect and should
+      // surface, not get silently eaten.
+      if (!(err instanceof TypeError)) throw err;
     }
   }
   yield { type: "done" };

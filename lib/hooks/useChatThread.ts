@@ -36,6 +36,15 @@ export function useChatThread(
         } catch {
           // body wasn't JSON — keep the default message
         }
+        // React-query auto-clears the `error` returned to consumers on
+        // the next successful refetch, so without this breadcrumb a
+        // transient 4xx/5xx leaves no trace once the banner clears.
+        console.warn("[useChatThread] fetch failed", {
+          errorId: "CHAT_THREAD_FETCH_FAILED",
+          youtubeUrl,
+          status: res.status,
+          message,
+        });
         throw new Error(message);
       }
       // Validate the response shape against the shared contract so a
@@ -45,6 +54,15 @@ export function useChatThread(
       const raw = await res.json();
       const parsed = ChatMessagesResponseSchema.safeParse(raw);
       if (!parsed.success) {
+        // Log the schema-drift error here too — react-query auto-clears
+        // the surfaced `error` on the next successful refetch, so without
+        // this breadcrumb a transient drift would leave no trace once the
+        // banner disappeared on its own.
+        console.error("[useChatThread] response schema drift", {
+          errorId: "CHAT_THREAD_SCHEMA_DRIFT",
+          youtubeUrl,
+          issues: parsed.error.issues,
+        });
         throw new Error("Chat history response was malformed.");
       }
       return parsed.data;

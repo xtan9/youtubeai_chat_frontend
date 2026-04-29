@@ -67,10 +67,13 @@ export async function listChatMessages(
     throw error;
   }
 
+  const rawRows = data ?? [];
   const rows: ChatMessageRow[] = [];
-  for (const raw of data ?? []) {
+  let droppedCount = 0;
+  for (const raw of rawRows) {
     const parsed = ChatMessageRowSchema.safeParse(raw);
     if (!parsed.success) {
+      droppedCount += 1;
       console.error("[chat-store] row schema mismatch — dropping row", {
         errorId: "CHAT_ROW_SCHEMA_MISMATCH",
         userId,
@@ -84,6 +87,19 @@ export async function listChatMessages(
       role: parsed.data.role,
       content: parsed.data.content,
       createdAt: parsed.data.created_at,
+    });
+  }
+  if (droppedCount > 0) {
+    // Aggregate signal — the per-row logs above are useful for forensics,
+    // but routes / dashboards / Sentry alerts want a single greppable
+    // "N out of M dropped" line per request to correlate user complaints
+    // ("my chat is missing messages") with schema drift.
+    console.error("[chat-store] dropped rows due to schema mismatch", {
+      errorId: "CHAT_ROW_SCHEMA_MISMATCH_AGGREGATE",
+      userId,
+      videoId,
+      droppedCount,
+      totalCount: rawRows.length,
     });
   }
   return rows;
