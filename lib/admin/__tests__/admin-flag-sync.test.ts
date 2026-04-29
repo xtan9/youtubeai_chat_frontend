@@ -53,7 +53,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-1", email: "alice@x.com" },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 1, demoted: 0, failed: 0, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 1, demoted: 0, failed: 0, truncated: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([
       { id: "u-1", patch: { app_metadata: { is_admin: true } } },
@@ -65,7 +65,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-2", email: "ex-admin@x.com", app_metadata: { is_admin: true, other: "preserved" } },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 1, failed: 0, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 1, failed: 0, truncated: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([
       { id: "u-2", patch: { app_metadata: { is_admin: false, other: "preserved" } } },
@@ -79,7 +79,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-3", email: "carol@x.com" }, // no flag, not admin → expected
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 3, promoted: 0, demoted: 0, failed: 0, ok: true });
+    expect(out).toEqual({ checked: 3, promoted: 0, demoted: 0, failed: 0, truncated: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([]);
   });
@@ -101,7 +101,7 @@ describe("reconcileAdminFlags", () => {
       (id) => (id === "u-1" ? { error: { message: "auth busy" } } : { error: null }),
     );
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com", "bob@x.com"]));
-    expect(out).toEqual({ checked: 2, promoted: 1, demoted: 0, failed: 1, ok: false });
+    expect(out).toEqual({ checked: 2, promoted: 1, demoted: 0, failed: 1, truncated: false, ok: false });
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("reconcileAdminFlags: updateUserById failed"),
       expect.objectContaining({ userId: "u-1" }),
@@ -113,6 +113,6 @@ describe("reconcileAdminFlags", () => {
       { id: "u-anon", email: null },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 0, failed: 0, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 0, failed: 0, truncated: false, ok: true });
   });
 });

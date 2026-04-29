@@ -8,7 +8,9 @@ export interface ReconcileAdminFlagsResult {
   promoted: number;
   demoted: number;
   failed: number;
-  /** True when no per-row update errors occurred. */
+  /** True when listAllUsers hit its row cap; reconcile is incomplete past it. */
+  truncated: boolean;
+  /** True when no per-row update errors occurred AND the run examined all users. */
   ok: boolean;
 }
 
@@ -30,7 +32,7 @@ export async function reconcileAdminFlags(
   client: SupabaseClient,
   allowlist: Set<string>,
 ): Promise<ReconcileAdminFlagsResult> {
-  const { users } = await listAllUsers(client);
+  const { users, truncated } = await listAllUsers(client);
 
   let promoted = 0;
   let demoted = 0;
@@ -66,6 +68,7 @@ export async function reconcileAdminFlags(
     promoted,
     demoted,
     failed,
+    truncated,
   });
 
   return {
@@ -73,6 +76,7 @@ export async function reconcileAdminFlags(
     promoted,
     demoted,
     failed,
-    ok: failed === 0,
+    truncated,
+    ok: failed === 0 && !truncated,
   };
 }
