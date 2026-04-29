@@ -21,7 +21,7 @@ import {
   freshQueryClient,
   rawSseResponse,
   sseResponse,
-} from "@/lib/test-utils/chat-test-helpers";
+} from "@/tests-utils/chat-test-helpers";
 
 // Mock UserContext at module load — every test then dictates session state
 // via `(useUser as Mock).mockReturnValue(...)` instead of mounting the real
@@ -114,10 +114,10 @@ function setGetSessionThrows() {
 }
 
 beforeEach(() => {
-  // Reset the user-context fake to "no session" so a previous test's
-  // override doesn't leak into this one. Other state (fetch, supabase)
-  // is restored by `vi.restoreAllMocks` in afterEach + the mockReset of
-  // the supabase auth helper below.
+  // The `vi.mock(...)` factories install module-level mocks once at import
+  // time, so a previous test's `mockReturnValue` override survives into the
+  // next test. Reset the relevant ones here to a known "no session" baseline
+  // and let each test re-configure as needed.
   (useUser as unknown as Mock).mockReturnValue({
     user: null,
     session: null,
@@ -135,7 +135,7 @@ beforeEach(() => {
 });
 
 describe("useChatStream", () => {
-  it("uses the live session token without calling getSession", async () => {
+  it("uses the live session token and posts the {youtube_url, message} contract without calling getSession", async () => {
     setLiveSession();
     const fetchMock = vi
       .fn()
@@ -149,12 +149,23 @@ describe("useChatStream", () => {
     });
 
     await act(async () => {
-      await result.current.send("hi");
+      await result.current.send("what is this video about?");
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/chat/stream");
+    expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer live-token");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    // Assert the wire contract — gateway hotfix #74 was caused by a
+    // request-body shape mismatch, so the body keys are load-bearing
+    // and worth a regression assertion here.
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({
+      youtube_url: VALID_URL,
+      message: "what is this video about?",
+    });
     expect(supabaseAuthMock.getSession).not.toHaveBeenCalled();
   });
 
@@ -352,7 +363,7 @@ describe("useChatStream", () => {
     setGetSessionThrows();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    // The hook deliberately logs this class of failure so a Sentry
+    // The hook deliberately logs this class of failure so a structured
     // breadcrumb ties the user-facing toast to the underlying cause.
     // Silence it here to keep the test output clean.
     const errorSpy = vi
@@ -413,18 +424,22 @@ describe("useChatStream", () => {
     expect(result.current.streaming).toBe(false);
   });
 
-  it("warns at most three times for malformed SSE chunks within a single stream", async () => {
+  it("warns at most three times for malformed SSE chunks (covers both JSON.parse and zod-rejection branches)", async () => {
     setLiveSession();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    // Five malformed lines + one valid done so the loop terminates without
-    // tripping the "no delta received" branch.
+    // Mix `JSON.parse` failures (non-JSON payloads) with `safeParse`
+    // failures (well-formed JSON, unknown event shape) so both warn
+    // branches in `parseSseLine` are exercised. Five reject candidates
+    // (3 JSON-parse + 2 zod-reject) → cap should fire at 3, the trailing
+    // valid `delta` + `done` ensures the loop terminates without tripping
+    // "no delta received".
     const fetchMock = vi.fn().mockResolvedValue(
       rawSseResponse([
         "data: {not-json-1",
         "data: {not-json-2",
         "data: {not-json-3",
-        "data: {not-json-4",
-        "data: {not-json-5",
+        `data: {"type":"unknown","text":"x"}`,
+        `data: {"type":"delta"}`,
         `data: {"type":"delta","text":"x"}`,
         `data: {"type":"done"}`,
       ]),
@@ -439,9 +454,59 @@ describe("useChatStream", () => {
       await result.current.send("hi");
     });
 
-    // The hook caps warnings at MAX_PARSE_WARNINGS_PER_STREAM (= 3) — five
-    // malformed chunks should produce exactly three warn calls, no more.
+    // Cap is MAX_PARSE_WARNINGS_PER_STREAM (= 3). Five reject candidates
+    // → exactly three warn calls. Asserting on the warn payloads also
+    // verifies the JSON-parse branch and the zod-reject branch each
+    // surface their distinct error ids before the cap silences further
+    // calls.
     expect(warnSpy).toHaveBeenCalledTimes(3);
+    const warnCalls = warnSpy.mock.calls.map(
+      (args) => (args[1] as { errorId?: string } | undefined)?.errorId,
+    );
+    expect(warnCalls).toContain("CHAT_SSE_PARSE_FAILED");
+    expect(result.current.error).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it("carries SSE buffer across chunk boundaries when a single frame is split mid-stream", async () => {
+    setLiveSession();
+    const controlled = controlledSseResponse();
+    const fetchMock = vi.fn().mockResolvedValue(controlled.response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useChatStream({ youtubeUrl: VALID_URL }), {
+      wrapper: wrapper(freshQueryClient()),
+    });
+
+    let pending: Promise<void>;
+    act(() => {
+      pending = result.current.send("hi");
+    });
+    await waitFor(() => expect(result.current.streaming).toBe(true));
+
+    // Emit a single SSE frame split across two enqueues — the production
+    // hook keeps a per-chunk buffer (`buffer = lines.pop() ?? ""`) so the
+    // second half can find the framing newlines from the first. A
+    // regression that drops that carry-over would silently turn streaming
+    // chunks into "no response received".
+    act(() => {
+      controlled.enqueueRaw('data: {"type":"delta","text":"split');
+    });
+    act(() => {
+      controlled.enqueueRaw('-frame"}\n\n');
+    });
+    await waitFor(() =>
+      expect(result.current.draft?.assistant).toBe("split-frame"),
+    );
+
+    act(() => {
+      controlled.emit({ type: "done" });
+      controlled.close();
+    });
+    await act(async () => {
+      await pending!;
+    });
+
     expect(result.current.error).toBeNull();
   });
 

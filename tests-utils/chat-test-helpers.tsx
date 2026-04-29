@@ -1,17 +1,16 @@
 // Test helpers shared by chat-related vitest suites:
 //   - SSE stream / Response builders that exercise the real parser path
-//   - Provider wrapper (QueryClientProvider + fake UserContext)
-//   - Supabase-client mock for the auth-fallback branches in useChatStream
+//   - QueryClientProvider wrapper for component renders
 //
-// Lives in `lib/test-utils/` (not test-adjacent) because the helpers cross
-// directories: `lib/hooks/__tests__/` and `app/summary/components/__tests__/`
-// both consume them.
+// UserContext and the Supabase browser client are mocked inline in each
+// test file (via `vi.mock(...)` at module load) — the slice of those
+// modules under test is small enough that a shared mock helper would add
+// ceremony without saving lines.
 
 import type { ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, type RenderOptions } from "@testing-library/react";
-import { vi } from "vitest";
 import type { ChatSseEvent } from "@/lib/api-contracts/chat";
 
 // ---------------- React Query ----------------
@@ -26,16 +25,14 @@ export function freshQueryClient(): QueryClient {
   });
 }
 
-// ---------------- UserContext (mocked) ----------------
+// ---------------- Session fixture ----------------
 
-// We `vi.mock("@/lib/contexts/user-context")` in the test file so that
-// importing `useUser` returns this controllable fake instead of the real
-// provider (which would need a Supabase env at module load).
-export interface FakeUser {
-  readonly session: Session | null;
-}
-
-export function fakeSession(accessToken = "test-access-token"): Session {
+/**
+ * Minimal session object for the `useUser` mock. `satisfies Session` (not
+ * `as Session`) so a future SDK upgrade that adds a required field fails
+ * the build here instead of silently shipping a partially-valid fixture.
+ */
+export function fakeSession(accessToken = "test-access-token") {
   return {
     access_token: accessToken,
     token_type: "bearer",
@@ -49,7 +46,7 @@ export function fakeSession(accessToken = "test-access-token"): Session {
       aud: "authenticated",
       created_at: "2026-01-01T00:00:00Z",
     },
-  } as Session;
+  } satisfies Session;
 }
 
 // ---------------- Provider wrapper ----------------
@@ -69,11 +66,6 @@ interface RenderWithChatProvidersOptions extends Omit<RenderOptions, "wrapper"> 
   readonly queryClient?: QueryClient;
 }
 
-/**
- * Render that wraps in QueryClientProvider only — UserContext is supplied
- * via `vi.mock` in the test file because mocking the module is cleaner
- * than threading a context provider through every hook test.
- */
 export function renderWithChatProviders(
   ui: ReactNode,
   options: RenderWithChatProvidersOptions = {},
@@ -144,17 +136,19 @@ export function rawSseResponse(rawLines: readonly string[]): Response {
 }
 
 /**
- * Hand-controlled SSE stream — the test pushes events one at a time and
- * asserts intermediate hook state between pushes. Used to verify delta
- * accumulation into `draft.assistant` and that streaming → completed
- * transitions surface in the right order.
+ * Hand-controlled SSE stream — tests push events one at a time and assert
+ * intermediate hook state between pushes. The split between `emit` (typed
+ * to `ChatSseEvent`) and `emitRaw` (arbitrary string) and `enqueueRaw`
+ * (arbitrary bytes, no `\n\n` framing) is deliberate: typed happy path,
+ * explicit escape hatches for malformed-input and chunk-boundary tests.
  */
 export interface ControlledSseStream {
   readonly response: Response;
   readonly emit: (event: ChatSseEvent) => void;
   readonly emitRaw: (line: string) => void;
+  readonly enqueueRaw: (bytes: string) => void;
   readonly close: () => void;
-  readonly error: (reason: unknown) => void;
+  readonly error: (reason: Error | DOMException) => void;
 }
 
 export function controlledSseResponse(): ControlledSseStream {
@@ -176,6 +170,11 @@ export function controlledSseResponse(): ControlledSseStream {
     emitRaw(line) {
       controller.enqueue(encoder.encode(`${line}\n\n`));
     },
+    // No `\n\n` framing appended — used to verify the hook's buffer
+    // carry-over splits a single SSE frame across two enqueues.
+    enqueueRaw(bytes) {
+      controller.enqueue(encoder.encode(bytes));
+    },
     close() {
       controller.close();
     },
@@ -184,30 +183,6 @@ export function controlledSseResponse(): ControlledSseStream {
     // path through the hook's catch block.
     error(reason) {
       controller.error(reason);
-    },
-  };
-}
-
-// ---------------- Supabase-client mock ----------------
-
-interface MockSupabaseOptions {
-  readonly session?: Session | null;
-  readonly throws?: boolean;
-}
-
-/**
- * Returns a stub matching the slice of `@/lib/supabase/client` that
- * useChatStream calls: `createClient().auth.getSession()`. Tests pass
- * the result into `vi.mock("@/lib/supabase/client", ...)` factories.
- */
-export function mockSupabaseClient(options: MockSupabaseOptions = {}) {
-  const { session = null, throws = false } = options;
-  return {
-    auth: {
-      getSession: vi.fn().mockImplementation(async () => {
-        if (throws) throw new Error("getSession bombed");
-        return { data: { session }, error: null };
-      }),
     },
   };
 }

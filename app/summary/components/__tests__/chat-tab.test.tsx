@@ -25,7 +25,7 @@ import {
   freshQueryClient,
   renderWithChatProviders,
   sseResponse,
-} from "@/lib/test-utils/chat-test-helpers";
+} from "@/tests-utils/chat-test-helpers";
 import { axe } from "@/tests-utils/axe";
 
 vi.mock("@/lib/contexts/user-context", () => ({
@@ -168,7 +168,13 @@ describe("ChatTab", () => {
   });
 
   it("end-to-end: send a message → draft streams in → done → cache invalidates → persisted row replaces draft", async () => {
-    let messagesCallCount = 0;
+    // Streamed delta text and persisted assistant text deliberately
+    // differ so the assertion proves the cache invalidation actually
+    // replaced the draft with the canonical row — not just that some
+    // bubble with the right text happened to remain on screen.
+    const STREAMED_TEXT = "Hello"; // what the SSE delta emits
+    const PERSISTED_TEXT = "Hello there, friend!"; // what the route returns
+    let streamCompleted = false;
     const persisted = [
       {
         id: "m-user",
@@ -179,19 +185,21 @@ describe("ChatTab", () => {
       {
         id: "m-asst",
         role: "assistant" as const,
-        content: "Hello there",
+        content: PERSISTED_TEXT,
         createdAt: "2026-04-28T00:00:01Z",
       },
     ];
     const controlled = controlledSseResponse();
     const fetchMock = makeRouter({
-      onMessages: () => {
-        messagesCallCount += 1;
-        // First call (initial fetch) → empty thread; subsequent calls (post
-        // stream invalidation) → the canonical persisted pair.
-        return jsonResponse({
-          messages: messagesCallCount === 1 ? [] : persisted,
-        });
+      onMessages: (init) => {
+        // Route on the explicit "stream completed" signal — not raw call
+        // count — so a future react-query refetch policy change (e.g.
+        // background refetch on window focus) cannot silently flip the
+        // test into the persisted branch early.
+        if ((init?.method ?? "GET").toUpperCase() === "GET" && streamCompleted) {
+          return jsonResponse({ messages: persisted });
+        }
+        return jsonResponse({ messages: [] });
       },
       onStream: () => controlled.response,
     });
@@ -205,41 +213,31 @@ describe("ChatTab", () => {
       ).toBeTruthy(),
     );
 
-    // Type and send.
     const input = screen.getByLabelText(/chat message/i) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "what is this about?" } });
-    const sendBtn = screen.getByRole("button", { name: /send message/i });
-    fireEvent.click(sendBtn);
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
 
-    // Draft user message appears immediately; deltas accumulate into draft
-    // assistant. The list switches in once the draft exists.
-    await waitFor(() =>
-      expect(screen.getByTestId("chat-message-list")).toBeTruthy(),
-    );
+    // The list switches in once the draft exists, replacing the empty
+    // state. Wait for the draft user bubble specifically.
     await waitFor(() =>
       expect(screen.getByText("what is this about?")).toBeTruthy(),
     );
 
-    act(() => controlled.emit({ type: "delta", text: "Hello" }));
-    await waitFor(() => expect(screen.getByText("Hello")).toBeTruthy());
-    act(() => controlled.emit({ type: "delta", text: " there" }));
-    await waitFor(() => expect(screen.getByText("Hello there")).toBeTruthy());
+    act(() => controlled.emit({ type: "delta", text: STREAMED_TEXT }));
+    await waitFor(() => expect(screen.getByText(STREAMED_TEXT)).toBeTruthy());
 
+    streamCompleted = true;
     act(() => {
       controlled.emit({ type: "done" });
       controlled.close();
     });
 
     // After done, useChatStream invalidates the thread query → second
-    // /api/chat/messages call returns the canonical pair → draft is
-    // cleared and persisted bubbles render with their server ids.
-    await waitFor(() => expect(messagesCallCount).toBeGreaterThanOrEqual(2));
-    await waitFor(() => {
-      const matches = screen.getAllByText("Hello there");
-      // Exactly one bubble for the assistant — the draft is gone, only
-      // the persisted message remains.
-      expect(matches.length).toBe(1);
-    });
+    // /api/chat/messages GET returns the canonical pair → draft is
+    // cleared and the persisted assistant text (different from the
+    // streamed delta) appears.
+    await waitFor(() => expect(screen.getByText(PERSISTED_TEXT)).toBeTruthy());
+    expect(screen.queryByText(STREAMED_TEXT)).toBeNull();
   });
 
   it("renders an alert banner when the thread fetch errors", async () => {
@@ -309,7 +307,8 @@ describe("ChatTab", () => {
       ).toBeTruthy(),
     );
 
-    // Start a stream so streaming=true and the Stop button is mounted.
+    // Start a stream so the abort path is meaningful — without an
+    // in-flight stream, `onBeforeClear` would have nothing to interrupt.
     fireEvent.change(screen.getByLabelText(/chat message/i), {
       target: { value: "anything" },
     });
@@ -318,7 +317,6 @@ describe("ChatTab", () => {
       expect(screen.getByRole("button", { name: /stop generating/i })).toBeTruthy(),
     );
 
-    // Open the AlertDialog confirmation and confirm.
     fireEvent.click(screen.getByRole("button", { name: /clear chat history/i }));
     const confirmBtn = await waitFor(() =>
       screen.getByRole("button", { name: /^clear$/i }),
@@ -326,8 +324,9 @@ describe("ChatTab", () => {
 
     act(() => {
       fireEvent.click(confirmBtn);
-      // Simulate fetch's abort behavior — onBeforeClear fires
-      // stream.abort(), which in production rejects the in-flight reader.
+      // Simulate fetch's abort behavior — the `onBeforeClear` handler in
+      // chat-tab fires `stream.abort()`, which in production rejects the
+      // in-flight reader with an AbortError.
       controlled.error(new DOMException("aborted", "AbortError"));
     });
 
