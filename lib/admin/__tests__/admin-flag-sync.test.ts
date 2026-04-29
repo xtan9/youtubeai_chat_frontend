@@ -3,7 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { reconcileAdminFlags } from "../admin-flag-sync";
+import {
+  reconcileAdminFlags,
+  __resetReconcileCooldownForTests,
+} from "../admin-flag-sync";
 
 interface FakeUser {
   id: string;
@@ -45,6 +48,7 @@ function buildClient(
 beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
+  __resetReconcileCooldownForTests();
 });
 
 describe("reconcileAdminFlags", () => {
@@ -53,7 +57,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-1", email: "alice@x.com" },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 1, demoted: 0, failed: 0, truncated: false, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 1, demoted: 0, failed: 0, truncated: false, skipped: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([
       { id: "u-1", patch: { app_metadata: { is_admin: true } } },
@@ -65,7 +69,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-2", email: "ex-admin@x.com", app_metadata: { is_admin: true, other: "preserved" } },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 1, failed: 0, truncated: false, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 1, failed: 0, truncated: false, skipped: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([
       { id: "u-2", patch: { app_metadata: { is_admin: false, other: "preserved" } } },
@@ -79,7 +83,7 @@ describe("reconcileAdminFlags", () => {
       { id: "u-3", email: "carol@x.com" }, // no flag, not admin → expected
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 3, promoted: 0, demoted: 0, failed: 0, truncated: false, ok: true });
+    expect(out).toEqual({ checked: 3, promoted: 0, demoted: 0, failed: 0, truncated: false, skipped: false, ok: true });
     const updates = (client.auth.admin as unknown as { __updates: Array<{ id: string; patch: Record<string, unknown> }> }).__updates;
     expect(updates).toEqual([]);
   });
@@ -101,7 +105,7 @@ describe("reconcileAdminFlags", () => {
       (id) => (id === "u-1" ? { error: { message: "auth busy" } } : { error: null }),
     );
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com", "bob@x.com"]));
-    expect(out).toEqual({ checked: 2, promoted: 1, demoted: 0, failed: 1, truncated: false, ok: false });
+    expect(out).toEqual({ checked: 2, promoted: 1, demoted: 0, failed: 1, truncated: false, skipped: false, ok: false });
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("reconcileAdminFlags: updateUserById failed"),
       expect.objectContaining({ userId: "u-1" }),
@@ -113,6 +117,30 @@ describe("reconcileAdminFlags", () => {
       { id: "u-anon", email: null },
     ]);
     const out = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
-    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 0, failed: 0, truncated: false, ok: true });
+    expect(out).toEqual({ checked: 1, promoted: 0, demoted: 0, failed: 0, truncated: false, skipped: false, ok: true });
+  });
+
+  it("short-circuits within cooldown window and returns skipped:true", async () => {
+    const client = buildClient([
+      { id: "u-1", email: "alice@x.com" },
+    ]);
+    // First call runs.
+    const first = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
+    expect(first.skipped).toBe(false);
+    expect(first.promoted).toBe(1);
+    // Second call within cooldown is skipped.
+    const second = await reconcileAdminFlags(client, new Set(["alice@x.com"]));
+    expect(second).toEqual({
+      checked: 0,
+      promoted: 0,
+      demoted: 0,
+      failed: 0,
+      truncated: false,
+      skipped: true,
+      ok: true,
+    });
+    // The mock should NOT have been hit again — verify by listUsers calls.
+    const listUsersMock = (client.auth.admin as unknown as { listUsers: { mock: { calls: unknown[] } } }).listUsers;
+    expect(listUsersMock.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
