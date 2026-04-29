@@ -726,18 +726,24 @@ describe("listAllUsers", () => {
   });
 
   it("stops at row cap and sets truncated=true with a warn", async () => {
-    const big = Array.from({ length: 200 }, (_, i) => ({
-      id: `id-${i}`,
-      email: `${i}@x`,
-      created_at: "2026-04-29T00:00:00Z",
-      is_anonymous: false,
-    }));
     const client = buildAuthClient(
-      Array.from({ length: 30 }, () => ({ users: big, total: 6000 })),
+      Array.from({ length: 30 }, (_, pageIdx) => ({
+        users: Array.from({ length: 200 }, (_, i) => ({
+          id: `id-${pageIdx * 200 + i}`,
+          email: `${pageIdx * 200 + i}@x`,
+          created_at: "2026-04-29T00:00:00Z",
+          is_anonymous: false,
+        })),
+        total: 6000,
+      })),
     );
     const out = await listAllUsers(client, { rowCap: 5000 });
     expect(out.users).toHaveLength(5000);
     expect(out.truncated).toBe(true);
+    // Pin distinct-ID contract — the 5,000th user is the 4999-th index
+    // across pages (id-4999), and id-0 must still be the first.
+    expect(out.users[0].id).toBe("id-0");
+    expect(out.users[4999].id).toBe("id-4999");
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining("listAllUsers cap hit"),
       expect.any(Object),
@@ -957,10 +963,14 @@ describe("listUsersWithStatsAndSort", () => {
   it("paginates after sort", async () => {
     const users = Array.from({ length: 30 }, (_, i) => ({
       id: `u-${String(i).padStart(2, "0")}`,
-      email: `${i}@x`,
+      email: `${String(i).padStart(2, "0")}@x`, // zero-padded so lexicographic = numeric
       created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
       is_anonymous: false,
     }));
+
+    // Use a single client for a full unsorted fetch first, to know the expected
+    // ordering. Two clients are needed for two listUsersWithStatsAndSort calls
+    // because the mock's history script is consumed once per call.
     const client1 = buildClientWithUsers(users, [
       { table: "user_video_history", response: { data: [], error: null } },
     ]);
@@ -972,8 +982,6 @@ describe("listUsersWithStatsAndSort", () => {
       page: 1,
       pageSize: 10,
     });
-    expect(page1.rows).toHaveLength(10);
-    expect(page1.pageCount).toBe(3);
 
     const client2 = buildClientWithUsers(users, [
       { table: "user_video_history", response: { data: [], error: null } },
@@ -986,8 +994,16 @@ describe("listUsersWithStatsAndSort", () => {
       page: 2,
       pageSize: 10,
     });
-    expect(page2.rows).toHaveLength(10);
-    expect(page2.rows[0].userId).not.toBe(page1.rows[0].userId);
+
+    // Combined coverage check: pages 1+2 should be the FIRST 20 users in
+    // sorted order, with no gap between them and no overlap.
+    const combined = [...page1.rows, ...page2.rows].map((r) => r.userId);
+    const expected = Array.from({ length: 20 }, (_, i) =>
+      `u-${String(i).padStart(2, "0")}`,
+    );
+    expect(combined).toEqual(expected);
+    expect(new Set(combined).size).toBe(20); // no duplicates
+    expect(page1.pageCount).toBe(3);
   });
 
   it("logs when banned_until is unparseable and falls back to non-banned status", async () => {
