@@ -917,10 +917,18 @@ export interface DashboardKPIs {
   topUsers: TopUserStat[];
 }
 
+export interface KpiOptions {
+  /** When non-empty, history aggregations exclude rows where user_id is
+   * in this list. Used to drop admin activity from KPIs. */
+  excludeAdminUserIds?: string[];
+}
+
 export async function getDashboardKPIs(
   client: SupabaseClient,
   window: TimeWindow = lastNDays(30),
+  opts: KpiOptions = {},
 ): Promise<DashboardKPIs> {
+  const exclude = opts.excludeAdminUserIds ?? [];
   const days =
     Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
   const prevWindow: TimeWindow = {
@@ -931,8 +939,8 @@ export async function getDashboardKPIs(
   const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
-    fetchHistoryIn(client, window),
-    fetchHistoryIn(client, prevWindow),
+    fetchHistoryIn(client, window, exclude),
+    fetchHistoryIn(client, prevWindow, exclude),
   ]);
 
   const summariesPerDay = bucketByDay(current, "created_at", window);
@@ -1009,6 +1017,12 @@ export interface PerformanceStats {
 export async function getPerformanceStats(
   client: SupabaseClient,
   window: TimeWindow = lastNDays(30),
+  // PerformanceStats today aggregates summaries directly — there is no
+  // user_id on summaries, so excludeAdminUserIds is a no-op here. We
+  // accept the option for API consistency; future enhancement could
+  // join through user_video_history to also filter latency.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  opts: KpiOptions = {},
 ): Promise<PerformanceStats> {
   const days =
     Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
@@ -1102,17 +1116,23 @@ interface HistoryRow {
 async function fetchHistoryIn(
   client: SupabaseClient,
   window: TimeWindow,
+  excludeUserIds: string[] = [],
 ): Promise<HistoryRow[]> {
   // user_video_history's timestamp is `accessed_at` in production (see
   // aggregateUserActivity comment). Alias on read so HistoryRow's
   // `created_at` is consistent with how the field is named on every
   // other admin table.
-  const { data: history, error } = await client
+  let query = client
     .from("user_video_history")
     .select("user_id, video_id, created_at:accessed_at")
     .gte("accessed_at", window.start.toISOString())
-    .lte("accessed_at", window.end.toISOString())
-    .limit(HISTORY_ROW_CAP);
+    .lte("accessed_at", window.end.toISOString());
+
+  if (excludeUserIds.length > 0) {
+    query = query.not("user_id", "in", `(${excludeUserIds.join(",")})`);
+  }
+
+  const { data: history, error } = await query.limit(HISTORY_ROW_CAP);
   if (error) throw new QueryError("fetchHistoryIn:history", error.message);
   if (history && history.length === HISTORY_ROW_CAP) {
     console.warn("[admin-queries] history cap hit — DAU/cache-hit may understate", {

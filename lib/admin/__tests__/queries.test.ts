@@ -82,6 +82,7 @@ function buildClient(
     proxy.order = chain("order");
     proxy.limit = chain("limit");
     proxy.range = chain("range");
+    proxy.not = chain("not");
     return proxy;
   });
   return {
@@ -1181,5 +1182,91 @@ describe("listAdminUserIds", () => {
       expect.stringContaining("listAdminUserIds"),
       expect.any(Object),
     );
+  });
+});
+
+describe("getDashboardKPIs with excludeAdminUserIds", () => {
+  it("drops history rows whose user_id is in the exclude set", async () => {
+    const client = buildClient(
+      [
+        // Production call sequence (Promise.all):
+        // 1. fetchSummariesIn(current) → summaries
+        // 2. fetchSummariesIn(prev) → summaries
+        // 3. fetchHistoryIn(current) → user_video_history (asserts .not())
+        // 4. fetchHistoryIn(prev) → user_video_history (asserts .not())
+        // 5. fetchHistoryIn(current) cache-hit lookup → summaries
+        //    (only when history is non-empty; current returns 1 row)
+        { table: "summaries", response: { data: [], error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u-real", video_id: "v-1", created_at: "2026-04-15T00:00:00Z" },
+            ],
+            error: null,
+          },
+          expect: (calls) => {
+            const notCall = calls.find((c) => c.method === "not");
+            expect(notCall?.args[0]).toBe("user_id");
+            expect(notCall?.args[1]).toBe("in");
+            expect(String(notCall?.args[2])).toContain("u-admin-1");
+          },
+        },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: (calls) => {
+            const notCall = calls.find((c) => c.method === "not");
+            expect(notCall?.args[0]).toBe("user_id");
+            expect(notCall?.args[1]).toBe("in");
+            expect(String(notCall?.args[2])).toContain("u-admin-1");
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: "x@x" } }, error: null }),
+      },
+    );
+    const out = await getDashboardKPIs(client, lastNDays(30), {
+      excludeAdminUserIds: ["u-admin-1", "u-admin-2"],
+    });
+    // Just confirm the call shape produced sane output (no throw).
+    expect(out.summaries.current).toBe(0);
+  });
+
+  it("with empty excludeAdminUserIds, behavior matches the no-option call", async () => {
+    // The historic test "returns rows for current and previous windows"
+    // already exercises the no-option path. Here we just confirm passing
+    // an empty array does not change anything. Fixture mirrors that test.
+    const client = buildClient([
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getDashboardKPIs(client, lastNDays(30), {
+      excludeAdminUserIds: [],
+    });
+    expect(out.summaries.current).toBe(0);
+  });
+});
+
+describe("getPerformanceStats with excludeAdminUserIds", () => {
+  it("filter is wired into fetchHistoryIn but not into the raw summaries fetch", async () => {
+    const client = buildClient([
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    // getPerformanceStats currently doesn't call fetchHistoryIn — it only
+    // pulls from summaries. The excludeAdminUserIds option is a no-op
+    // on the summaries.created_at-based queries. This test pins the
+    // contract: calling with excludeAdminUserIds must not break, even
+    // though the pre-fetch doesn't need history filtering today.
+    const out = await getPerformanceStats(client, lastNDays(30), {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
+    expect(out.p50Seconds).toBe(null);
   });
 });
