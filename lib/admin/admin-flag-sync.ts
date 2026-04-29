@@ -63,13 +63,20 @@ export async function reconcileAdminFlags(
     else demoted += 1;
   }
 
-  console.warn("[admin-flag-sync] reconcile complete", {
-    checked: users.length,
-    promoted,
-    demoted,
-    failed,
-    truncated,
-  });
+  // Only warn when there's something operationally meaningful to report.
+  // Steady-state runs (no promotions/demotions/failures, full coverage)
+  // would otherwise flood the warn channel on every admin layout render.
+  // Truncated runs always warn because they indicate an incomplete pass.
+  const noisy = promoted + demoted + failed > 0 || truncated;
+  if (noisy) {
+    console.warn("[admin-flag-sync] reconcile complete", {
+      checked: users.length,
+      promoted,
+      demoted,
+      failed,
+      truncated,
+    });
+  }
 
   return {
     checked: users.length,
