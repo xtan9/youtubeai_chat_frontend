@@ -449,9 +449,21 @@ export async function listUsersWithStatsAndSort(
     : filterUsers(noStatsRows, opts.tab, opts.search);
 
   const targetIds = preFiltered.map((r) => r.userId);
-  const stats = targetIds.length
-    ? await aggregateUserActivity(client, targetIds, window)
-    : new Map<string, UserActivity>();
+  let stats: Map<string, UserActivity>;
+  try {
+    stats = targetIds.length
+      ? await aggregateUserActivity(client, targetIds, window)
+      : new Map<string, UserActivity>();
+  } catch (err) {
+    console.error(
+      "[admin-queries] aggregateUserActivity failed; rendering users without stats",
+      {
+        message: err instanceof Error ? err.message : String(err),
+        userCount: targetIds.length,
+      },
+    );
+    stats = new Map<string, UserActivity>();
+  }
 
   const withStats: AdminUserRow[] = preFiltered.map((r) => {
     const stat = stats.get(r.userId);
@@ -502,8 +514,18 @@ function toAdminUserRow(
         .filter((p): p is string => Boolean(p)),
     ),
   );
-  const isBanned =
-    !!u.banned_until && new Date(u.banned_until).getTime() > Date.now();
+  let isBanned = false;
+  if (u.banned_until) {
+    const t = new Date(u.banned_until).getTime();
+    if (Number.isNaN(t)) {
+      console.error("[admin-queries] toAdminUserRow: invalid banned_until value", {
+        userId: u.id,
+        bannedUntil: u.banned_until,
+      });
+    } else if (t > Date.now()) {
+      isBanned = true;
+    }
+  }
   const isDeleted = !!u.deleted_at;
   const emailVerified = !!u.email_confirmed_at;
   const status: UserStatus = isDeleted

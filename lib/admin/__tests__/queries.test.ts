@@ -990,6 +990,35 @@ describe("listUsersWithStatsAndSort", () => {
     expect(page2.rows[0].userId).not.toBe(page1.rows[0].userId);
   });
 
+  it("logs when banned_until is unparseable and falls back to non-banned status", async () => {
+    const users = [
+      {
+        id: "u-bad-ban",
+        email: "x@x",
+        created_at: "2026-04-01T00:00:00Z",
+        email_confirmed_at: "2026-04-01T00:00:00Z",
+        banned_until: "not a date",
+        is_anonymous: false,
+      },
+    ];
+    const client = buildClientWithUsers(users, [
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await listUsersWithStatsAndSort(client, {
+      sort: "createdAt",
+      dir: "desc",
+      tab: "all",
+      search: null,
+      page: 1,
+      pageSize: 25,
+    });
+    expect(out.rows[0].status).toBe("active");
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("invalid banned_until"),
+      expect.objectContaining({ bannedUntil: "not a date" }),
+    );
+  });
+
   it("status reflects banned/deleted/anonymous/unverified", async () => {
     const users = [
       {
