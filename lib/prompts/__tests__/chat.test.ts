@@ -61,4 +61,66 @@ describe("buildChatMessages", () => {
     });
     expect(messages.every((m) => m.role !== "system")).toBe(true);
   });
+
+  it("emits the primer as a plain string (no cache_control) when cacheStablePrefix is omitted or false", () => {
+    const messages = buildChatMessages({
+      transcript: "T",
+      summary: "S",
+      history: [],
+      userMessage: "Hi",
+    });
+    expect(typeof messages[0]?.content).toBe("string");
+  });
+
+  it("emits the primer as a content-array tagged with cache_control: ephemeral when cacheStablePrefix is true", () => {
+    const messages = buildChatMessages({
+      transcript: "Welcome to the show.",
+      summary: "Intro.",
+      history: [],
+      userMessage: "Hi",
+      cacheStablePrefix: true,
+    });
+    const primer = messages[0];
+    expect(primer?.role).toBe("user");
+    expect(Array.isArray(primer?.content)).toBe(true);
+    const blocks = primer?.content as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string };
+    }>;
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type).toBe("text");
+    expect(blocks[0]?.text).toContain("Welcome to the show.");
+    expect(blocks[0]?.text).toContain("Intro.");
+    expect(blocks[0]?.cache_control).toEqual({ type: "ephemeral" });
+    // Only the primer carries cache_control — the assistant ack, history,
+    // and the new user question stay as plain strings so the cache
+    // breakpoint is exactly at the end of the long stable prefix.
+    expect(typeof messages[1]?.content).toBe("string");
+    expect(typeof messages[2]?.content).toBe("string");
+  });
+
+  it("with cacheStablePrefix=true and a non-empty history, ONLY the primer is the breakpoint (history + ack + new user stay strings)", () => {
+    // Realistic chat scenario: a 4-turn history. Anthropic limits
+    // cache_control to 4 breakpoints, so spraying it across history is a
+    // real failure mode. Pin the single-breakpoint invariant.
+    const messages = buildChatMessages({
+      transcript: "T",
+      summary: "S",
+      history: [
+        { id: "1", role: "user", content: "Q1", createdAt: "" },
+        { id: "2", role: "assistant", content: "A1", createdAt: "" },
+        { id: "3", role: "user", content: "Q2", createdAt: "" },
+        { id: "4", role: "assistant", content: "A2", createdAt: "" },
+      ],
+      userMessage: "Q3",
+      cacheStablePrefix: true,
+    });
+    expect(Array.isArray(messages[0]?.content)).toBe(true);
+    // Every other message must remain a plain string — exactly one
+    // cache breakpoint, at the primer.
+    expect(
+      messages.slice(1).every((m) => typeof m.content === "string"),
+    ).toBe(true);
+  });
 });

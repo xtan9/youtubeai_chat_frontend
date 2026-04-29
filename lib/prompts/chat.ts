@@ -14,11 +14,34 @@ export interface BuildChatPromptParams {
   readonly summary: string;
   readonly history: readonly ChatMessageRow[];
   readonly userMessage: string;
+  /**
+   * When true, the synthetic primer (transcript + summary + rules) is
+   * emitted as a content-array with `cache_control: ephemeral` on the
+   * single block so an Anthropic-aware gateway can hit the prompt
+   * cache for repeated chat turns on the same video. Default false —
+   * the OpenAI-compat gateway (CLIProxyAPI) hasn't been verified to
+   * pass cache_control through at the time of writing, and stripped
+   * cache_control gracefully degrades to "no cache" rather than a
+   * 4xx, so the flag-default-off rollout is safe to ship.
+   */
+  readonly cacheStablePrefix?: boolean;
+}
+
+/**
+ * Anthropic-style content block. The OpenAI-compat surface accepts
+ * `content` as either a string or an array of blocks; the array form
+ * lets us tag the long, stable prefix with `cache_control` so a
+ * forwarding gateway can pass it through to Anthropic's prompt cache.
+ */
+export interface ChatGatewayContentBlock {
+  readonly type: "text";
+  readonly text: string;
+  readonly cache_control?: { readonly type: "ephemeral" };
 }
 
 export interface ChatGatewayMessage {
   readonly role: "system" | "user" | "assistant";
-  readonly content: string;
+  readonly content: string | readonly ChatGatewayContentBlock[];
 }
 
 const CONTEXT_PRIMER_TEMPLATE = `I'm going to ask follow-up questions about this YouTube video. Use the transcript and summary below as your only source of truth.
@@ -60,12 +83,30 @@ export function buildChatMessages(
     "{{SUMMARY}}",
     params.summary
   ).replace("{{TRANSCRIPT}}", params.transcript);
+  // The primer is the cache target — it's the long, stable prefix
+  // (transcript + summary + rules) that repeats verbatim across every
+  // chat turn for a given (user, video). Emit it as a content-array
+  // with cache_control on the lone block when caching is enabled;
+  // otherwise emit as a plain string so the wire shape exactly matches
+  // the prior, verified behavior.
+  const primerMessage: ChatGatewayMessage = params.cacheStablePrefix
+    ? {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: primer,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      }
+    : { role: "user", content: primer };
   const history = params.history.map<ChatGatewayMessage>((m) => ({
     role: m.role,
     content: m.content,
   }));
   return [
-    { role: "user", content: primer },
+    primerMessage,
     { role: "assistant", content: PRIMER_ACK },
     ...history,
     { role: "user", content: params.userMessage },

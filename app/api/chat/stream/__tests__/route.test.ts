@@ -124,6 +124,10 @@ describe("POST /api/chat/stream", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    // Robust to test-order — without this, an earlier test that set
+    // LLM_PROMPT_CACHE_ENABLED would leak into the next one if a future
+    // edit forgot the trailing `vi.unstubAllEnvs()` call.
+    vi.unstubAllEnvs();
   });
 
   it("returns 400 for invalid JSON body", async () => {
@@ -211,6 +215,48 @@ describe("POST /api/chat/stream", () => {
     const primer = observed![0]?.content ?? "";
     expect(primer).toMatch(/\[0:00\]\s+Welcome\./);
     expect(primer).toMatch(/\[0:01\]\s+Today we discuss flow\./);
+  });
+
+  it("does NOT add cache_control to ANY message when LLM_PROMPT_CACHE_ENABLED is unset", async () => {
+    let observed: unknown = null;
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: unknown;
+    }) {
+      observed = opts.messages;
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    type Msg = { role: string; content: string | { cache_control?: unknown }[] };
+    const messages = observed as Msg[];
+    // Stronger than "primer.content is string" — pins that no message
+    // anywhere in the array carries an array content / cache_control.
+    // A future refactor that sprayed cache_control across the prompt
+    // (Anthropic limits 4 breakpoints; spraying is a real failure mode)
+    // would fail this regardless of where it landed.
+    expect(messages.every((m) => typeof m.content === "string")).toBe(true);
+  });
+
+  it("emits the primer as a content-array tagged with cache_control: ephemeral when LLM_PROMPT_CACHE_ENABLED=true", async () => {
+    vi.stubEnv("LLM_PROMPT_CACHE_ENABLED", "true");
+    let observed: unknown = null;
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: unknown;
+    }) {
+      observed = opts.messages;
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    type Block = { type: string; text: string; cache_control?: { type: string } };
+    type Msg = { role: string; content: string | Block[] };
+    const primer = (observed as Msg[])[0];
+    expect(Array.isArray(primer.content)).toBe(true);
+    const blocks = primer.content as Block[];
+    expect(blocks[0]?.cache_control).toEqual({ type: "ephemeral" });
+    // Operators flipping the env var should still see [mm:ss] markers
+    // — caching wraps the content, not replaces it.
+    expect(blocks[0]?.text).toMatch(/\[0:00\]\s+Welcome\./);
   });
 
   it("happy path streams delta events, ends with done, and persists turn", async () => {
