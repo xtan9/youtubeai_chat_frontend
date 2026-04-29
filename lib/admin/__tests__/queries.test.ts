@@ -1256,9 +1256,13 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
           },
           expect: (calls) => {
             const notCall = calls.find((c) => c.method === "not");
+            // Pin the exact PostgREST not.in.() filter format. A regression
+            // that mangled the encoding (e.g. quoting the IDs, adding spaces,
+            // or switching the parens) would still satisfy a `.contains()`
+            // check but would silently break the production filter.
             expect(notCall?.args[0]).toBe("user_id");
             expect(notCall?.args[1]).toBe("in");
-            expect(String(notCall?.args[2])).toContain("u-admin-1");
+            expect(notCall?.args[2]).toBe("(u-admin-1,u-admin-2)");
           },
         },
         {
@@ -1268,7 +1272,7 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
             const notCall = calls.find((c) => c.method === "not");
             expect(notCall?.args[0]).toBe("user_id");
             expect(notCall?.args[1]).toBe("in");
-            expect(String(notCall?.args[2])).toContain("u-admin-1");
+            expect(notCall?.args[2]).toBe("(u-admin-1,u-admin-2)");
           },
         },
         { table: "summaries", response: { data: [], error: null } },
