@@ -29,7 +29,7 @@ const HISTORY_ROW_CAP = 100_000;
 /** Cap on per-page row count returned by listAuditLog. Bounds a single
  * service-role table scan in the worst-case bad-cursor path. */
 const AUDIT_PAGE_SIZE_CAP = 200;
-/** Cap on per-page row count returned by listUsersWithStats. */
+/** Cap on per-page row count returned by listUsersWithStatsAndSort. */
 const USERS_PAGE_SIZE_CAP = 100;
 
 type DailyPoint = { day: string; value: number };
@@ -394,19 +394,54 @@ export async function listUsersWithStatsAndSort(
     rowCap: opts.rowCap,
   });
 
-  const stats = raw.length
-    ? await aggregateUserActivity(
-        client,
-        raw.map((u) => u.id),
-        window,
-      )
+  // Pre-filter on stats-independent fields (cheap path) so we only
+  // aggregate history for the rows we actually need stats on.
+  const noStatsRows: AdminUserRow[] = raw.map((u) =>
+    toAdminUserRow(u, undefined),
+  );
+
+  // For tabs whose predicate uses stat-derived fields (active / flagged),
+  // we need stats before filtering. For the other tabs (exclude_anon /
+  // anon_only / all), we can filter first and aggregate only that subset.
+  const requiresStatsFirst =
+    opts.tab === "active" || opts.tab === "flagged";
+
+  const preFiltered = requiresStatsFirst
+    ? noStatsRows
+    : filterUsers(noStatsRows, opts.tab, opts.search);
+
+  const targetIds = preFiltered.map((r) => r.userId);
+  const stats = targetIds.length
+    ? await aggregateUserActivity(client, targetIds, window)
     : new Map<string, UserActivity>();
 
-  const allRows: AdminUserRow[] = raw.map((u) => toAdminUserRow(u, stats.get(u.id)));
+  const withStats: AdminUserRow[] = preFiltered.map((r) => {
+    const stat = stats.get(r.userId);
+    if (!stat) return r;
+    const summaries = stat.summaries;
+    const whisper = stat.whisper;
+    const whisperPct =
+      summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
+    return {
+      ...r,
+      summaries,
+      whisper,
+      whisperPct,
+      lastActivity: stat.lastSeen ?? r.lastActivity,
+      flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
+    };
+  });
 
-  const filtered = filterUsers(allRows, opts.tab, opts.search);
-  const sorted = sortUsers(filtered, opts.sort, opts.dir);
-  const total = filtered.length;
+  // For active/flagged tabs the filter still needs to run AFTER stats,
+  // including any search term.
+  const fullyFiltered = requiresStatsFirst
+    ? filterUsers(withStats, opts.tab, opts.search)
+    : opts.search
+      ? filterUsers(withStats, "all", opts.search)
+      : withStats;
+
+  const sorted = sortUsers(fullyFiltered, opts.sort, opts.dir);
+  const total = sorted.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const start = (page - 1) * pageSize;
   const slice = sorted.slice(start, start + pageSize);
@@ -1165,30 +1200,6 @@ function decodeCursor(raw: string | null | undefined): KeysetCursor | null {
     });
   }
   return null;
-}
-
-function encodePageCursor(page: number): string {
-  return Buffer.from(`p:${page}`).toString("base64url");
-}
-
-function decodePageCursor(raw: string | null | undefined): number {
-  if (!raw) return 1;
-  try {
-    const decoded = Buffer.from(raw, "base64url").toString("utf8");
-    if (decoded.startsWith("p:")) {
-      const n = Number.parseInt(decoded.slice(2), 10);
-      if (Number.isFinite(n) && n >= 1) return n;
-    }
-    console.warn("[admin-queries] invalid page cursor — falling back to page 1", {
-      cursorPrefix: raw.slice(0, 16),
-    });
-  } catch (err) {
-    console.warn("[admin-queries] page cursor decode failed — falling back to page 1", {
-      cursorPrefix: raw.slice(0, 16),
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return 1;
 }
 
 export class QueryError extends Error {
