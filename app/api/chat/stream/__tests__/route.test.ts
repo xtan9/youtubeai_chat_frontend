@@ -213,6 +213,45 @@ describe("POST /api/chat/stream", () => {
     expect(primer).toMatch(/\[0:01\]\s+Today we discuss flow\./);
   });
 
+  it("does NOT add cache_control to the primer when LLM_PROMPT_CACHE_ENABLED is unset", async () => {
+    vi.unstubAllEnvs();
+    let observed: unknown = null;
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: unknown;
+    }) {
+      observed = opts.messages;
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    type Msg = { role: string; content: string | { cache_control?: unknown }[] };
+    const primer = (observed as Msg[])[0];
+    expect(typeof primer.content).toBe("string");
+  });
+
+  it("emits the primer as a content-array tagged with cache_control: ephemeral when LLM_PROMPT_CACHE_ENABLED=true", async () => {
+    vi.stubEnv("LLM_PROMPT_CACHE_ENABLED", "true");
+    let observed: unknown = null;
+    mocks.streamChatCompletion.mockImplementation(async function* (opts: {
+      messages: unknown;
+    }) {
+      observed = opts.messages;
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    type Block = { type: string; text: string; cache_control?: { type: string } };
+    type Msg = { role: string; content: string | Block[] };
+    const primer = (observed as Msg[])[0];
+    expect(Array.isArray(primer.content)).toBe(true);
+    const blocks = primer.content as Block[];
+    expect(blocks[0]?.cache_control).toEqual({ type: "ephemeral" });
+    // Operators flipping the env var should still see [mm:ss] markers
+    // — caching wraps the content, not replaces it.
+    expect(blocks[0]?.text).toMatch(/\[0:00\]\s+Welcome\./);
+    vi.unstubAllEnvs();
+  });
+
   it("happy path streams delta events, ends with done, and persists turn", async () => {
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "Hello" };

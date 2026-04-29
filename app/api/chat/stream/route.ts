@@ -147,11 +147,21 @@ export async function POST(request: Request) {
     return jsonError(503, "Could not load chat history.");
   }
 
+  // Anthropic prompt caching via OpenAI-compat. Off by default — the
+  // gateway (CLIProxyAPI) hasn't been verified to pass cache_control
+  // through at the time of writing. Operators can flip the flag in
+  // env after running a probe (re-send the same primer twice and
+  // inspect Anthropic billing for cache hits). When stripped by the
+  // gateway, cache_control gracefully degrades to "no cache" rather
+  // than a 4xx, so the rollout is safe.
+  const cacheStablePrefix =
+    process.env.LLM_PROMPT_CACHE_ENABLED?.toLowerCase() === "true";
   const messages = buildChatMessages({
     transcript: transcriptText,
     summary: cachedSummary.summary,
     history,
     userMessage: message,
+    cacheStablePrefix,
   });
 
   // Stream-side state. `closed` flips on natural end OR consumer cancel
