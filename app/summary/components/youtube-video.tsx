@@ -6,6 +6,7 @@ import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
 import type { TranscriptSegment } from "@/lib/types";
 import TranscriptParagraphs from "./transcript-paragraphs";
+import { usePlayerRef } from "@/lib/contexts/player-ref";
 
 // next/dynamic with ssr:false because react-youtube touches `window` and
 // PropTypes during render; importing it server-side trips the Next.js
@@ -27,6 +28,11 @@ const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
   // event. The transcript card uses it to seek + play on timestamp click
   // and to poll getCurrentTime() for the active-paragraph highlight.
   const playerRef = useRef<YouTubePlayer | null>(null);
+  // Register the player handle with the page-level context so the chat
+  // tab's timestamp chips can seek it (no prop-drilling from this leaf).
+  // Falls back to a no-op when the page isn't wrapped in PlayerRefProvider
+  // — keeps test renderers that mount this component standalone working.
+  const { registerPlayer } = usePlayerRef();
 
   // Match the iframe to the container width up to a max. 16:9 aspect ratio
   // for the height — that's the default YouTube embed contract.
@@ -44,6 +50,13 @@ const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
     window.addEventListener("resize", updateWidth);
     return () => window.removeEventListener("resize", updateWidth);
   }, [width]);
+
+  // Drop the registered player handle on unmount so a chat tab still
+  // mounted on the same page doesn't seek a dead player after the video
+  // tears down (e.g. on URL change).
+  useEffect(() => {
+    return () => registerPlayer(null);
+  }, [registerPlayer]);
 
   if (!url || !videoId) {
     return null;
@@ -65,6 +78,11 @@ const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
         }}
         onReady={(event) => {
           playerRef.current = event.target;
+          registerPlayer({
+            seekTo: (seconds, allowSeekAhead) =>
+              event.target.seekTo(seconds, allowSeekAhead ?? true),
+            playVideo: () => event.target.playVideo(),
+          });
         }}
       />
       {segments && segments.length > 0 && (
