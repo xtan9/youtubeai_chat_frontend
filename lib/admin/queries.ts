@@ -211,6 +211,34 @@ function toAuditRow(row: Record<string, unknown>): AuditRow {
   };
 }
 
+const PER_USER_AUDIT_DEFAULT_LIMIT = 10;
+const PER_USER_AUDIT_LIMIT_CAP = 50;
+
+export async function getUserAuditEvents(
+  client: SupabaseClient,
+  userId: string,
+  limit: number = PER_USER_AUDIT_DEFAULT_LIMIT,
+): Promise<AuditRow[]> {
+  const cap = Math.min(Math.max(limit, 1), PER_USER_AUDIT_LIMIT_CAP);
+  const { data, error } = await client
+    .from("admin_audit_log")
+    .select(
+      "id, created_at, admin_id, admin_email, action, resource_type, resource_id, metadata",
+    )
+    .eq("resource_id", userId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(cap);
+  if (error) {
+    console.error("[admin-queries] getUserAuditEvents failed", {
+      userId,
+      message: error.message,
+    });
+    return [];
+  }
+  return (data ?? []).map(toAuditRow);
+}
+
 // ─── Users + per-user stats ───────────────────────────────────────────────
 
 export type UserStatus =

@@ -10,6 +10,7 @@ import {
   sortUsers,
   getDashboardKPIs,
   getPerformanceStats,
+  getUserAuditEvents,
   getUserSummaries,
   lastNDays,
   WHISPER_FLAG_THRESHOLD,
@@ -526,6 +527,57 @@ describe("getUserSummaries", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].source).toBe("auto_captions"); // default fallback
     expect(rows[0].summaryId).toBe(""); // no real summary id
+  });
+});
+
+// ─── getUserAuditEvents ──────────────────────────────────────────────────
+
+describe("getUserAuditEvents", () => {
+  it("filters by resource_id and limits to N rows newest-first", async () => {
+    const client = buildClient([
+      {
+        table: "admin_audit_log",
+        response: {
+          data: [
+            {
+              id: "a-1",
+              created_at: "2026-04-29T00:00:00Z",
+              admin_id: "admin-1",
+              admin_email: "alice@x",
+              action: "view_transcript",
+              resource_type: "user",
+              resource_id: "user-X",
+              metadata: {},
+            },
+          ],
+          error: null,
+        },
+        expect: (calls) => {
+          const eq = calls.find((c) => c.method === "eq");
+          expect(eq?.args).toEqual(["resource_id", "user-X"]);
+          const limit = calls.find((c) => c.method === "limit");
+          expect(limit?.args).toEqual([10]);
+        },
+      },
+    ]);
+    const out = await getUserAuditEvents(client, "user-X", 10);
+    expect(out).toHaveLength(1);
+    expect(out[0].action).toBe("view_transcript");
+  });
+
+  it("returns empty array on db error and logs", async () => {
+    const client = buildClient([
+      {
+        table: "admin_audit_log",
+        response: { data: null, error: { message: "boom" } },
+      },
+    ]);
+    const out = await getUserAuditEvents(client, "user-X", 10);
+    expect(out).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("getUserAuditEvents"),
+      expect.any(Object),
+    );
   });
 });
 
