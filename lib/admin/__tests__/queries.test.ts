@@ -14,6 +14,7 @@ import {
   getUserSummaries,
   lastNDays,
   fetchUsersTotal,
+  listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
@@ -1129,6 +1130,55 @@ describe("fetchUsersTotal", () => {
     expect(out).toBeNull();
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("fetchUsersTotal"),
+      expect.any(Object),
+    );
+  });
+});
+
+describe("listAdminUserIds", () => {
+  it("returns IDs of users where app_metadata.is_admin === true", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: {
+              users: [
+                { id: "u-1", email: "alice@x", app_metadata: { is_admin: true } },
+                { id: "u-2", email: "bob@x", app_metadata: { is_admin: false } },
+                { id: "u-3", email: "carol@x", app_metadata: {} },
+                { id: "u-4", email: "dan@x" },
+                { id: "u-5", email: "eve@x", app_metadata: { is_admin: true, foo: "bar" } },
+              ],
+              total: 5,
+            },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual(["u-1", "u-5"]);
+  });
+
+  it("returns empty array on error and logs", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: null,
+            error: { message: "auth offline" },
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("listAdminUserIds"),
       expect.any(Object),
     );
   });

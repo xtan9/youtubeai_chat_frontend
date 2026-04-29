@@ -642,6 +642,38 @@ export async function fetchUsersTotal(
   return data?.total ?? null;
 }
 
+const ADMIN_USER_LISTING_PER_PAGE = 200;
+
+/**
+ * Returns the auth user IDs of all users with
+ * `app_metadata.is_admin === true`. Used to filter out admin activity
+ * from KPIs.
+ *
+ * Fail-soft: returns [] on error so callers default to "include
+ * admins" rather than failing the page.
+ */
+export async function listAdminUserIds(
+  client: SupabaseClient,
+): Promise<string[]> {
+  const { data, error } = await client.auth.admin.listUsers({
+    page: 1,
+    perPage: ADMIN_USER_LISTING_PER_PAGE,
+  });
+  if (error) {
+    console.error("[admin-queries] listAdminUserIds failed", {
+      message: error.message,
+    });
+    return [];
+  }
+  const users = (data?.users ?? []) as Array<{
+    id: string;
+    app_metadata?: Record<string, unknown>;
+  }>;
+  return users
+    .filter((u) => u.app_metadata?.is_admin === true)
+    .map((u) => u.id);
+}
+
 
 interface UserActivity {
   summaries: number;
