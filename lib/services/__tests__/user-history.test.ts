@@ -16,7 +16,7 @@ function makeSupabase(rows: unknown[], error: unknown = null): SupabaseLike {
 }
 
 const ROW = {
-  created_at: "2026-04-28T12:00:00Z",
+  accessed_at: "2026-04-28T12:00:00Z",
   videos: {
     id: "v-uuid-1",
     youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -92,7 +92,7 @@ describe("getRecentHistory", () => {
   it("filters out rows with no joined video", async () => {
     const supabase = makeSupabase([
       ROW,
-      { created_at: "2026-04-28T11:00:00Z", videos: null },
+      { accessed_at: "2026-04-28T11:00:00Z", videos: null },
     ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await getRecentHistory(supabase as any, "u-1");
