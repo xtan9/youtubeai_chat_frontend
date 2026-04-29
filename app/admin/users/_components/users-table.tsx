@@ -12,8 +12,11 @@ import {
   UserCheck,
 } from "lucide-react";
 import { Avatar, Btn, Pill, Sparkline } from "../../_components/atoms";
-import { TranscriptModal } from "../../_components/transcript-modal";
-import type { TranscriptSource, TranscriptSummary, TranscriptModel } from "@/lib/admin/types";
+import {
+  TranscriptModal,
+  type TranscriptModalTarget,
+} from "../../_components/transcript-modal";
+import type { TranscriptSource } from "@/lib/admin/types";
 import type { AdminUserRow, UserSummaryRow } from "@/lib/admin/queries";
 import { applyUsersFilter } from "./filter";
 
@@ -48,7 +51,7 @@ export function UsersTable({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
-  const [openTranscript, setOpenTranscript] = useState<TranscriptSummary | null>(null);
+  const [openTranscript, setOpenTranscript] = useState<TranscriptModalTarget | null>(null);
 
   const filter = searchParams.get("filter") ?? "all";
   const visibleRows = applyUsersFilter(rows, filter);
@@ -228,7 +231,7 @@ export function UsersTable({
 
       {openTranscript && (
         <TranscriptModal
-          summary={openTranscript}
+          target={openTranscript}
           onClose={() => setOpenTranscript(null)}
         />
       )}
@@ -270,7 +273,7 @@ function buildHref(
 interface UserExpandProps {
   user: AdminUserRow;
   summaries: UserSummaryRow[];
-  onOpenTranscript: (s: TranscriptSummary) => void;
+  onOpenTranscript: (target: TranscriptModalTarget) => void;
 }
 
 function UserExpand({ user, summaries, onOpenTranscript }: UserExpandProps) {
@@ -387,9 +390,20 @@ function UserExpand({ user, summaries, onOpenTranscript }: UserExpandProps) {
                 <Btn
                   size="sm"
                   kind="ghost"
+                  disabled={!s.summaryId}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onOpenTranscript(toTranscriptSummary(s));
+                    if (!s.summaryId) return;
+                    onOpenTranscript({
+                      summaryId: s.summaryId,
+                      viewedUserId: user.userId,
+                      videoTitle: s.videoTitle,
+                      channel: s.videoChannel,
+                      language: s.language,
+                      source: s.source,
+                      model: s.model,
+                      processingTimeSeconds: s.processingTimeSeconds,
+                    });
                   }}
                 >
                   View transcript <ExternalLink size={11} />
@@ -462,17 +476,6 @@ function sparklineFromSummaries(rows: UserSummaryRow[]): number[] {
     if (dayDiff >= 0 && dayDiff < days) buckets[days - 1 - dayDiff] += 1;
   }
   return buckets;
-}
-
-function toTranscriptSummary(s: UserSummaryRow): TranscriptSummary {
-  return {
-    title: s.videoTitle ?? "(untitled video)",
-    channel: s.videoChannel ?? "—",
-    lang: `${s.language ?? "?"}→en`,
-    source: s.source,
-    model: (s.model ?? "claude-haiku-4-5") as TranscriptModel,
-    time: s.processingTimeSeconds ?? 0,
-  };
 }
 
 function formatJoined(iso: string): string {
