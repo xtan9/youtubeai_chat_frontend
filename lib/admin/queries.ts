@@ -213,30 +213,256 @@ function toAuditRow(row: Record<string, unknown>): AuditRow {
 
 // ─── Users + per-user stats ───────────────────────────────────────────────
 
+export type UserStatus =
+  | "active"
+  | "anonymous"
+  | "banned"
+  | "deleted"
+  | "unverified";
+
+export type SortKey =
+  | "email"
+  | "providers"
+  | "status"
+  | "emailVerified"
+  | "createdAt"
+  | "lastSignIn"
+  | "lastActivity"
+  | "summaries"
+  | "whisperPct";
+
+export type SortDir = "asc" | "desc";
+
+export type UsersTab =
+  | "exclude_anon"
+  | "anon_only"
+  | "active"
+  | "flagged"
+  | "all";
+
 export interface AdminUserRow {
   userId: string;
-  email: string;
+  email: string | null;
+  emailVerified: boolean;
+  providers: string[];
+  status: UserStatus;
   createdAt: string;
-  lastSeen: string | null;
+  lastSignIn: string | null;
+  lastActivity: string | null;
   summaries: number;
   whisper: number;
   whisperPct: number;
-  p95Seconds: number | null;
   flagged: boolean;
+  isAnonymous: boolean;
+  isSsoUser: boolean;
+  bannedUntil: string | null;
+  deletedAt: string | null;
+  appMetadata: Record<string, unknown>;
+  userMetadata: Record<string, unknown>;
 }
 
-export interface UserListOptions {
-  pageSize?: number;
-  cursor?: string | null;
-  search?: string | null;
+export function filterUsers(
+  rows: AdminUserRow[],
+  tab: UsersTab,
+  search: string | null,
+): AdminUserRow[] {
+  let out = rows;
+  switch (tab) {
+    case "exclude_anon":
+      out = out.filter((r) => !r.isAnonymous);
+      break;
+    case "anon_only":
+      out = out.filter((r) => r.isAnonymous);
+      break;
+    case "active":
+      out = out.filter((r) => !r.isAnonymous && r.summaries > 0);
+      break;
+    case "flagged":
+      out = out.filter((r) => !r.isAnonymous && r.flagged);
+      break;
+    case "all":
+      break;
+  }
+  const q = search?.trim().toLowerCase();
+  if (q) {
+    out = out.filter(
+      (r) =>
+        (r.email?.toLowerCase().includes(q) ?? false) ||
+        r.userId.toLowerCase().includes(q),
+    );
+  }
+  return out;
+}
+
+function compareNullable<T>(
+  a: T | null,
+  b: T | null,
+  dir: SortDir,
+  cmp: (a: T, b: T) => number,
+): number {
+  // Null-last regardless of direction.
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return dir === "asc" ? cmp(a, b) : -cmp(a, b);
+}
+
+const stringCmp = (a: string, b: string) => a.localeCompare(b);
+const numCmp = (a: number, b: number) => a - b;
+
+export function sortUsers(
+  rows: AdminUserRow[],
+  sort: SortKey,
+  dir: SortDir,
+): AdminUserRow[] {
+  const sorted = rows.slice();
+  sorted.sort((a, b) => {
+    const primary = primaryCompare(a, b, sort, dir);
+    if (primary !== 0) return primary;
+    // Stable secondary tie-break: ascending userId, regardless of dir.
+    return a.userId.localeCompare(b.userId);
+  });
+  return sorted;
+}
+
+function primaryCompare(
+  a: AdminUserRow,
+  b: AdminUserRow,
+  sort: SortKey,
+  dir: SortDir,
+): number {
+  switch (sort) {
+    case "email":
+      return compareNullable(a.email, b.email, dir, stringCmp);
+    case "providers": {
+      const av = a.providers.join(",") || null;
+      const bv = b.providers.join(",") || null;
+      return compareNullable(av, bv, dir, stringCmp);
+    }
+    case "status":
+      return compareNullable(a.status, b.status, dir, stringCmp);
+    case "emailVerified":
+      return compareNullable(
+        a.emailVerified ? 1 : 0,
+        b.emailVerified ? 1 : 0,
+        dir,
+        numCmp,
+      );
+    case "createdAt":
+      return compareNullable(a.createdAt, b.createdAt, dir, stringCmp);
+    case "lastSignIn":
+      return compareNullable(a.lastSignIn, b.lastSignIn, dir, stringCmp);
+    case "lastActivity":
+      return compareNullable(a.lastActivity, b.lastActivity, dir, stringCmp);
+    case "summaries":
+      return compareNullable(a.summaries, b.summaries, dir, numCmp);
+    case "whisperPct":
+      return compareNullable(a.whisperPct, b.whisperPct, dir, numCmp);
+  }
+}
+
+export interface UserListSortFilterOptions {
+  sort: SortKey;
+  dir: SortDir;
+  tab: UsersTab;
+  search: string | null;
+  page: number;
+  pageSize: number;
   /** Aggregate window for the per-row stats. Defaults to last 30 days. */
   window?: TimeWindow;
+  /** Cap on raw users pulled from auth.admin.listUsers. */
+  rowCap?: number;
 }
 
 export interface UserListResult {
   rows: AdminUserRow[];
-  nextCursor: string | null;
-  totalApprox: number;
+  total: number;
+  truncated: boolean;
+  page: number;
+  pageCount: number;
+}
+
+export async function listUsersWithStatsAndSort(
+  client: SupabaseClient,
+  opts: UserListSortFilterOptions,
+): Promise<UserListResult> {
+  const pageSize = Math.min(Math.max(opts.pageSize, 1), USERS_PAGE_SIZE_CAP);
+  const page = Math.max(1, opts.page);
+  const window = opts.window ?? lastNDays(30);
+
+  const { users: raw, truncated } = await listAllUsers(client, {
+    rowCap: opts.rowCap,
+  });
+
+  const stats = raw.length
+    ? await aggregateUserActivity(
+        client,
+        raw.map((u) => u.id),
+        window,
+      )
+    : new Map<string, UserActivity>();
+
+  const allRows: AdminUserRow[] = raw.map((u) => toAdminUserRow(u, stats.get(u.id)));
+
+  const filtered = filterUsers(allRows, opts.tab, opts.search);
+  const sorted = sortUsers(filtered, opts.sort, opts.dir);
+  const total = filtered.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize;
+  const slice = sorted.slice(start, start + pageSize);
+
+  return { rows: slice, total, truncated, page, pageCount };
+}
+
+function toAdminUserRow(
+  u: AuthUserRecord,
+  stat: UserActivity | undefined,
+): AdminUserRow {
+  const summaries = stat?.summaries ?? 0;
+  const whisper = stat?.whisper ?? 0;
+  const whisperPct =
+    summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
+  const providers = Array.from(
+    new Set(
+      (u.identities ?? [])
+        .map((i) => i.provider)
+        .filter((p): p is string => Boolean(p)),
+    ),
+  );
+  const isBanned =
+    !!u.banned_until && new Date(u.banned_until).getTime() > Date.now();
+  const isDeleted = !!u.deleted_at;
+  const emailVerified = !!u.email_confirmed_at;
+  const status: UserStatus = isDeleted
+    ? "deleted"
+    : isBanned
+      ? "banned"
+      : u.is_anonymous
+        ? "anonymous"
+        : emailVerified
+          ? "active"
+          : "unverified";
+
+  return {
+    userId: u.id,
+    email: u.email ?? null,
+    emailVerified,
+    providers,
+    status,
+    createdAt: u.created_at,
+    lastSignIn: u.last_sign_in_at ?? null,
+    lastActivity: stat?.lastSeen ?? null,
+    summaries,
+    whisper,
+    whisperPct,
+    flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
+    isAnonymous: !!u.is_anonymous,
+    isSsoUser: !!u.is_sso_user,
+    bannedUntil: u.banned_until ?? null,
+    deletedAt: u.deleted_at ?? null,
+    appMetadata: u.app_metadata ?? {},
+    userMetadata: u.user_metadata ?? {},
+  };
 }
 
 interface AuthUserRecord {
@@ -306,80 +532,6 @@ export async function listAllUsers(
   return { users: collected, total, truncated };
 }
 
-export async function listUsersWithStats(
-  client: SupabaseClient,
-  opts: UserListOptions = {},
-): Promise<UserListResult> {
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 25, 1), USERS_PAGE_SIZE_CAP);
-  const window = opts.window ?? lastNDays(30);
-
-  // auth.admin.listUsers paginates by page index, not keyset. We honor that
-  // rather than reinvent it. To detect "is there a next page" without a
-  // separate count round-trip, we ask for one extra row and emit a cursor
-  // only if the API actually returned that extra — same pattern as
-  // listAuditLog. This avoids the off-by-one where an exactly-full last
-  // page would otherwise emit a Next button that dead-ends.
-  const page = decodePageCursor(opts.cursor);
-  const {
-    data: usersData,
-    error: usersErr,
-  } = await client.auth.admin.listUsers({ page, perPage: pageSize + 1 });
-  if (usersErr) throw new QueryError("listUsersWithStats:auth", usersErr.message);
-
-  const raw = (usersData?.users ?? []) as AuthUserRecord[];
-  const hasMore = raw.length > pageSize;
-  const trimmed = raw.slice(0, pageSize);
-  let users = trimmed.filter((u): u is AuthUserRecord & { email: string } =>
-    Boolean(u.email),
-  );
-  const droppedNoEmail = trimmed.length - users.length;
-  if (droppedNoEmail > 0) {
-    console.warn("[admin-queries] users without email omitted", {
-      droppedNoEmail,
-      page,
-    });
-  }
-
-  const search = opts.search?.trim().toLowerCase();
-  if (search) {
-    users = users.filter(
-      (u) =>
-        u.email.toLowerCase().includes(search) ||
-        u.id.toLowerCase().includes(search),
-    );
-  }
-
-  const userIds = users.map((u) => u.id);
-  const stats = userIds.length
-    ? await aggregateUserActivity(client, userIds, window)
-    : new Map<string, UserActivity>();
-
-  const rows: AdminUserRow[] = users.map((u) => {
-    const stat = stats.get(u.id);
-    const summaries = stat?.summaries ?? 0;
-    const whisper = stat?.whisper ?? 0;
-    const whisperPct = summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
-    return {
-      userId: u.id,
-      email: u.email,
-      createdAt: u.created_at,
-      lastSeen: stat?.lastSeen ?? u.last_sign_in_at ?? null,
-      summaries,
-      whisper,
-      whisperPct,
-      p95Seconds: stat?.p95Seconds ?? null,
-      flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
-    };
-  });
-
-  const nextCursor = hasMore ? encodePageCursor(page + 1) : null;
-
-  return {
-    rows,
-    nextCursor,
-    totalApprox: usersData?.total ?? rows.length,
-  };
-}
 
 interface UserActivity {
   summaries: number;
