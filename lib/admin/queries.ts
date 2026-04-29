@@ -1022,13 +1022,9 @@ export interface PerformanceStats {
 export async function getPerformanceStats(
   client: SupabaseClient,
   window: TimeWindow = lastNDays(30),
-  // PerformanceStats today aggregates summaries directly — there is no
-  // user_id on summaries, so excludeAdminUserIds is a no-op here. We
-  // accept the option for API consistency; future enhancement could
-  // join through user_video_history to also filter latency.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   opts: KpiOptions = {},
 ): Promise<PerformanceStats> {
+  const exclude = opts.excludeAdminUserIds ?? [];
   const days =
     Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
   const prevWindow: TimeWindow = {
@@ -1036,13 +1032,28 @@ export async function getPerformanceStats(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
-  const [current, previous] = await Promise.all([
+  const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
+    exclude.length > 0 ? fetchHistoryIn(client, window, exclude) : Promise.resolve([]),
+    exclude.length > 0 ? fetchHistoryIn(client, prevWindow, exclude) : Promise.resolve([]),
   ]);
 
+  // When excluding admin activity, restrict performance stats to summaries
+  // whose video appears in the filtered (non-admin) history. A video that
+  // only admins watched contributes no latency samples. Spec:
+  // docs/superpowers/specs/2026-04-29-admin-exclude-self-design.md
+  const includedCurrent = new Set(history.map((h) => h.video_id));
+  const includedPrev = new Set(prevHistory.map((h) => h.video_id));
+  const filteredCurrent = exclude.length > 0
+    ? current.filter((s) => includedCurrent.has(s.video_id))
+    : current;
+  const filteredPrev = exclude.length > 0
+    ? previous.filter((s) => includedPrev.has(s.video_id))
+    : previous;
+
   const byDay = new Map<string, number[]>();
-  for (const s of current) {
+  for (const s of filteredCurrent) {
     if (!s.created_at || s.processing_time_seconds == null) continue;
     const day = isoDay(new Date(s.created_at));
     const arr = byDay.get(day) ?? [];
@@ -1062,15 +1073,15 @@ export async function getPerformanceStats(
 
   return {
     window,
-    p50Seconds: p50(current.map((s) => s.processing_time_seconds)),
-    p95Seconds: p95(current.map((s) => s.processing_time_seconds)),
-    transcribeP95Seconds: p95(current.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(current.map((s) => s.summarize_time_seconds)),
+    p50Seconds: p50(filteredCurrent.map((s) => s.processing_time_seconds)),
+    p95Seconds: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
+    transcribeP95Seconds: p95(filteredCurrent.map((s) => s.transcribe_time_seconds)),
+    summarizeP95Seconds: p95(filteredCurrent.map((s) => s.summarize_time_seconds)),
     prev: {
-      p50Seconds: p50(previous.map((s) => s.processing_time_seconds)),
-      p95Seconds: p95(previous.map((s) => s.processing_time_seconds)),
-      transcribeP95Seconds: p95(previous.map((s) => s.transcribe_time_seconds)),
-      summarizeP95Seconds: p95(previous.map((s) => s.summarize_time_seconds)),
+      p50Seconds: p50(filteredPrev.map((s) => s.processing_time_seconds)),
+      p95Seconds: p95(filteredPrev.map((s) => s.processing_time_seconds)),
+      transcribeP95Seconds: p95(filteredPrev.map((s) => s.transcribe_time_seconds)),
+      summarizeP95Seconds: p95(filteredPrev.map((s) => s.summarize_time_seconds)),
     },
     latencyByBucket,
   };
