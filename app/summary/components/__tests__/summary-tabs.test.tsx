@@ -38,6 +38,7 @@ beforeEach(() => {
 
 function renderTabs(opts: {
   chatLocked?: boolean;
+  chatPermanentlyLocked?: boolean;
   tabParam?: string;
 } = {}) {
   if (opts.tabParam) {
@@ -46,6 +47,7 @@ function renderTabs(opts: {
   return render(
     <SummaryTabs
       chatLocked={opts.chatLocked ?? false}
+      chatPermanentlyLocked={opts.chatPermanentlyLocked}
       summaryContent={<div>SUMMARY-CONTENT</div>}
       chatContent={<div>CHAT-CONTENT</div>}
     />
@@ -73,82 +75,63 @@ describe("SummaryTabs", () => {
     expect(chatTrigger.getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("auto-bounces away from ?tab=chat after the bounce delay when chatLocked is still true", async () => {
-    vi.useFakeTimers();
-    renderTabs({ tabParam: "chat", chatLocked: true });
-    // Bounce is delayed — the user gets up to BOUNCE_DELAY_MS for the
-    // cache to resolve before we rewrite their URL.
+  it("does NOT bounce when chat is momentarily locked (loading) — no streamError yet", () => {
+    // The cached-reload bug: the prior time-based suppression flipped
+    // false before the cache resolved on prod. With the permanently-
+    // locked predicate, no bounce fires regardless of cache timing
+    // because the parent only flips chatPermanentlyLocked when a
+    // `streamError` actually lands.
+    renderTabs({
+      tabParam: "chat",
+      chatLocked: true,
+      chatPermanentlyLocked: false,
+    });
     expect(replaceMock).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(2000);
+  });
+
+  it("auto-bounces away from ?tab=chat when the lock becomes permanent (streamError set)", () => {
+    renderTabs({
+      tabParam: "chat",
+      chatLocked: true,
+      chatPermanentlyLocked: true,
+    });
     expect(replaceMock).toHaveBeenCalled();
     const calledWith = replaceMock.mock.calls[0]?.[0] as string;
     expect(calledWith).not.toMatch(/tab=chat/);
-    vi.useRealTimers();
   });
 
-  it("does NOT bounce when chatLocked flips to false within the delay (cached-reload path)", () => {
-    vi.useFakeTimers();
-    searchParamsState.value = new URLSearchParams({ tab: "chat" });
-    const { rerender } = render(
-      <SummaryTabs
-        chatLocked={true}
-        summaryContent={<div>SUMMARY-CONTENT</div>}
-        chatContent={<div>CHAT-CONTENT</div>}
-      />,
-    );
-    // Cache resolves before the timer fires.
-    vi.advanceTimersByTime(500);
-    rerender(
-      <SummaryTabs
-        chatLocked={false}
-        summaryContent={<div>SUMMARY-CONTENT</div>}
-        chatContent={<div>CHAT-CONTENT</div>}
-      />,
-    );
-    // The cleanup on the prior effect should clear the timer when the
-    // dep changes; advancing past the original delay must NOT fire
-    // the bounce, because the effect re-ran with chatLocked=false and
-    // its body short-circuited.
-    vi.advanceTimersByTime(2500);
-    expect(replaceMock).not.toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it("bounce is NOT reset by an unrelated searchParams change mid-window (no indefinite deferral)", () => {
-    // searchParams is read via a ref inside the timer body, NOT from
-    // the effect's dep array — so a parent component writing `?url=`
-    // (e.g. after paste) can't keep resetting the bounce window.
-    vi.useFakeTimers();
-    searchParamsState.value = new URLSearchParams({ tab: "chat" });
-    const { rerender } = render(
-      <SummaryTabs
-        chatLocked={true}
-        summaryContent={<div>SUMMARY-CONTENT</div>}
-        chatContent={<div>CHAT-CONTENT</div>}
-      />,
-    );
-    vi.advanceTimersByTime(1000);
-    // Mutate searchParams (URL gained an unrelated query param) and
-    // re-render with the SAME chatLocked / pathname / router. The
-    // effect should NOT re-run — its deps don't include searchParams
-    // any more.
-    searchParamsState.value = new URLSearchParams({
-      tab: "chat",
-      url: "x",
+  it("does NOT bounce when chat unlocks normally (cached-reload happy path)", () => {
+    // chatLocked=false, chatPermanentlyLocked=false → chat is open;
+    // there is nothing to bounce. Pin this so a future refactor
+    // can't accidentally flip the predicate around.
+    renderTabs({
+      tabParam: "chat",
+      chatLocked: false,
+      chatPermanentlyLocked: false,
     });
-    rerender(
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("bounces when chatPermanentlyLocked flips true mid-session (e.g. stream errors after retry)", () => {
+    searchParamsState.value = new URLSearchParams({ tab: "chat" });
+    const { rerender } = render(
       <SummaryTabs
         chatLocked={true}
+        chatPermanentlyLocked={false}
         summaryContent={<div>SUMMARY-CONTENT</div>}
         chatContent={<div>CHAT-CONTENT</div>}
       />,
     );
-    // Total time = 1000 + 1100 = 2100ms; original timer fires at
-    // 2000ms. If the searchParams change had reset the timer, the
-    // bounce would not have fired by now.
-    vi.advanceTimersByTime(1100);
+    expect(replaceMock).not.toHaveBeenCalled();
+    rerender(
+      <SummaryTabs
+        chatLocked={true}
+        chatPermanentlyLocked={true}
+        summaryContent={<div>SUMMARY-CONTENT</div>}
+        chatContent={<div>CHAT-CONTENT</div>}
+      />,
+    );
     expect(replaceMock).toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   // Radix Tabs's pointer/keyboard activation doesn't reach

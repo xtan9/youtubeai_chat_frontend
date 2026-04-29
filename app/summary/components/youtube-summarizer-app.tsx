@@ -249,6 +249,12 @@ export function YouTubeSummarizerApp({
   // hard error suppresses both, so this single condition covers both
   // paths without touching the streaming state machine.
   const chatLocked = !dataWithLiveTimers || !!streamError;
+  // Tell SummaryTabs which kind of lock this is. Only `streamError`
+  // is "permanent" (won't resolve without user action) — the
+  // `!dataWithLiveTimers` half flips to `false` once the cache hit
+  // or stream completion lands. SummaryTabs uses this to decide
+  // whether to rewrite `?tab=chat` away from the URL.
+  const chatPermanentlyLocked = !!streamError;
 
   const summaryContent = (
     <>
@@ -301,6 +307,7 @@ export function YouTubeSummarizerApp({
           <div className="lg:col-span-2">
             <SummaryTabs
               chatLocked={chatLocked}
+              chatPermanentlyLocked={chatPermanentlyLocked}
               summaryContent={summaryContent}
               chatContent={chatContent}
             />
