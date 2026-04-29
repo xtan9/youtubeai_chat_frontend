@@ -12,7 +12,10 @@ export interface ReconcileAdminFlagsResult {
   truncated: boolean;
   /** True when the run was short-circuited by the module-level cooldown. */
   skipped: boolean;
-  /** True when no per-row update errors occurred AND the run examined all users. */
+  /** True when no per-row update errors occurred AND the run examined all users.
+   * When `skipped` is true the run did not examine anything — `ok` is a no-op
+   * "no new errors" signal in that case, NOT a state-verified-consistent signal.
+   * Callers gating telemetry on `!ok` should also check `skipped` first. */
   ok: boolean;
 }
 
@@ -52,6 +55,10 @@ export async function reconcileAdminFlags(
 ): Promise<ReconcileAdminFlagsResult> {
   const now = Date.now();
   if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) {
+    console.log("[admin-flag-sync] reconcile skipped (cooldown active)", {
+      elapsedMs: now - lastReconcileAt,
+      cooldownMs: RECONCILE_COOLDOWN_MS,
+    });
     return {
       checked: 0,
       promoted: 0,
