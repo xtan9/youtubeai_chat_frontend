@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isNavItemActive, findNavLabel } from "../nav-config";
+import { buildAdminNav, isNavItemActive, findNavLabel } from "../nav-config";
 
 describe("isNavItemActive", () => {
   it("treats /admin as active only on exact /admin (not on /admin/users)", () => {
@@ -31,8 +31,6 @@ describe("findNavLabel", () => {
     expect(findNavLabel("/admin/never-defined")).toBe("Page");
   });
 });
-
-import { buildAdminNav } from "../nav-config";
 
 describe("buildAdminNav", () => {
   it("renders the Users badge with thousands-separated count when usersTotal is given", () => {
