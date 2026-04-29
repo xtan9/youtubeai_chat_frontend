@@ -51,6 +51,7 @@ describe("HistoryPage", () => {
   it("renders rows for the authenticated user", async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     mockGetHistoryPage.mockResolvedValue({
+      ok: true,
       rows: [ROW],
       total: 1,
       totalPages: 1,
@@ -63,7 +64,8 @@ describe("HistoryPage", () => {
   it("uses page=N from search params", async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     mockGetHistoryPage.mockResolvedValue({
-      rows: [],
+      ok: true,
+      rows: [ROW],
       total: 50,
       totalPages: 2,
     });
@@ -79,6 +81,7 @@ describe("HistoryPage", () => {
   it("clamps invalid page values to 1", async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     mockGetHistoryPage.mockResolvedValue({
+      ok: true,
       rows: [],
       total: 0,
       totalPages: 0,
@@ -94,9 +97,42 @@ describe("HistoryPage", () => {
     );
   });
 
+  it("redirects to last page when page is past totalPages", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetHistoryPage.mockResolvedValue({
+      ok: true,
+      rows: [],
+      total: 30,
+      totalPages: 2,
+    });
+    await expect(
+      HistoryPage({ searchParams: Promise.resolve({ page: "99" }) }),
+    ).rejects.toThrow("REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/history?page=2");
+  });
+
+  it("does NOT redirect when totalPages is 0 (truly empty)", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetHistoryPage.mockResolvedValue({
+      ok: true,
+      rows: [],
+      total: 0,
+      totalPages: 0,
+    });
+    const ui = await HistoryPage({
+      searchParams: Promise.resolve({ page: "5" }),
+    });
+    renderWithProviders(ui);
+    expect(
+      screen.getByText(/haven't summarized any videos yet/i),
+    ).toBeTruthy();
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
   it("shows pagination links when totalPages > 1", async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     mockGetHistoryPage.mockResolvedValue({
+      ok: true,
       rows: [ROW],
       total: 50,
       totalPages: 2,
@@ -113,6 +149,7 @@ describe("HistoryPage", () => {
   it("does not render pagination when totalPages is 1", async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     mockGetHistoryPage.mockResolvedValue({
+      ok: true,
       rows: [ROW],
       total: 5,
       totalPages: 1,
@@ -122,5 +159,18 @@ describe("HistoryPage", () => {
     });
     renderWithProviders(ui);
     expect(screen.queryByText(/Page 1 of/i)).toBeNull();
+  });
+
+  it("renders fetch-error UI when service fails (NOT the empty state)", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetHistoryPage.mockResolvedValue({ ok: false });
+    const ui = await HistoryPage({
+      searchParams: Promise.resolve({ page: "1" }),
+    });
+    renderWithProviders(ui);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(
+      screen.queryByText(/haven't summarized any videos yet/i),
+    ).toBeNull();
   });
 });

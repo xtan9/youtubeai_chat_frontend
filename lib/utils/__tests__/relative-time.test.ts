@@ -50,7 +50,23 @@ describe("formatRelativeTime", () => {
     );
   });
 
-  it("returns 'just now' for invalid timestamps", () => {
-    expect(formatRelativeTime("not-a-date", NOW)).toBe("just now");
+  it("returns 'unknown date' for invalid timestamps", () => {
+    expect(formatRelativeTime("not-a-date", NOW)).toBe("unknown date");
+  });
+
+  it("clamps future timestamps to 'just now'", () => {
+    expect(formatRelativeTime("2026-04-29T00:00:00Z", NOW)).toBe("just now");
+  });
+
+  it("returns '1 minute ago' at the exact 60-second boundary", () => {
+    expect(formatRelativeTime("2026-04-28T11:59:00Z", NOW)).toBe(
+      "1 minute ago",
+    );
+  });
+
+  it("returns '1 week ago' at exactly 7 days", () => {
+    expect(formatRelativeTime("2026-04-21T12:00:00Z", NOW)).toBe(
+      "1 week ago",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getRecentHistory } from "@/lib/services/user-history";
 import { InputForm } from "@/app/components/input-form";
 import { HistoryList } from "@/app/components/history/history-list";
+import { HistoryFetchError } from "@/app/components/history/history-fetch-error";
 
 export const metadata: Metadata = {
   title: "Dashboard - YouTubeAI.chat",
@@ -20,8 +21,8 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  const rows = await getRecentHistory(supabase, user.id, RECENT_LIMIT);
-  const showViewAll = rows.length >= RECENT_LIMIT;
+  const result = await getRecentHistory(supabase, user.id, RECENT_LIMIT);
+  const showViewAll = result.ok && result.rows.length >= RECENT_LIMIT;
 
   const fullName = user.user_metadata?.full_name as string | undefined;
   const emailLocal = user.email?.split("@")[0];
@@ -54,7 +55,11 @@ export default async function DashboardPage() {
             </Link>
           ) : null}
         </div>
-        <HistoryList rows={rows} />
+        {result.ok ? (
+          <HistoryList rows={result.rows} />
+        ) : (
+          <HistoryFetchError message="Couldn't load your history right now. Please refresh in a moment." />
+        )}
       </section>
     </main>
   );

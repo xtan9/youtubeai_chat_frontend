@@ -53,7 +53,7 @@ describe("DashboardPage", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },
     });
-    mockGetRecentHistory.mockResolvedValue([ROW]);
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
     const ui = await DashboardPage();
     renderWithProviders(ui);
     expect(screen.getByTestId("input-form")).toBeTruthy();
@@ -62,22 +62,30 @@ describe("DashboardPage", () => {
   });
 
   it("does not show 'View all' link when fewer than 10 rows", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1" } },
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    expect(screen.queryByText(/view all/i)).toBeNull();
+  });
+
+  it("does not show 'View all' link when there are exactly 9 rows", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({
+      ok: true,
+      rows: Array.from({ length: 9 }, (_, i) => ({ ...ROW, videoId: `v-${i}` })),
     });
-    mockGetRecentHistory.mockResolvedValue([ROW]);
     const ui = await DashboardPage();
     renderWithProviders(ui);
     expect(screen.queryByText(/view all/i)).toBeNull();
   });
 
   it("shows 'View all' link when there are 10 rows", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1" } },
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({
+      ok: true,
+      rows: Array.from({ length: 10 }, (_, i) => ({ ...ROW, videoId: `v-${i}` })),
     });
-    mockGetRecentHistory.mockResolvedValue(
-      Array.from({ length: 10 }, (_, i) => ({ ...ROW, videoId: `v-${i}` })),
-    );
     const ui = await DashboardPage();
     renderWithProviders(ui);
     const link = screen.getByRole("link", { name: /view all/i });
@@ -85,10 +93,8 @@ describe("DashboardPage", () => {
   });
 
   it("renders empty state when there is no history", async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1" } },
-    });
-    mockGetRecentHistory.mockResolvedValue([]);
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [] });
     const ui = await DashboardPage();
     renderWithProviders(ui);
     expect(
@@ -96,11 +102,33 @@ describe("DashboardPage", () => {
     ).toBeTruthy();
   });
 
+  it("renders fetch-error UI when service fails (NOT the empty state)", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: false });
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    // The form must still render so the user can submit a fresh URL.
+    expect(screen.getByTestId("input-form")).toBeTruthy();
+    // The error message must be the fetch-error, not the friendly empty state.
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(
+      screen.queryByText(/haven't summarized any videos yet/i),
+    ).toBeNull();
+  });
+
+  it("does not show 'View all' when fetch fails", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetRecentHistory.mockResolvedValue({ ok: false });
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    expect(screen.queryByText(/view all/i)).toBeNull();
+  });
+
   it("greets the user with email-local-part when no full_name", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "alex@example.com" } },
     });
-    mockGetRecentHistory.mockResolvedValue([]);
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [] });
     const ui = await DashboardPage();
     renderWithProviders(ui);
     expect(screen.getByText(/Welcome back, alex/i)).toBeTruthy();
