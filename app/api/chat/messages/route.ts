@@ -58,6 +58,12 @@ function parseQuery(request: Request) {
 export async function GET(request: Request) {
   const parsed = parseQuery(request);
   if (!parsed.success) {
+    // Log so a frontend regression that ships malformed query params
+    // surfaces in ops dashboards before users notice 400 banners.
+    console.warn("[chat/messages] invalid query (GET)", {
+      errorId: "CHAT_MESSAGES_QUERY_INVALID",
+      issues: parsed.error.issues,
+    });
     return jsonError(400, `Invalid query: ${parsed.error.message}`);
   }
 
@@ -105,6 +111,10 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
   const parsed = parseQuery(request);
   if (!parsed.success) {
+    console.warn("[chat/messages] invalid query (DELETE)", {
+      errorId: "CHAT_MESSAGES_QUERY_INVALID",
+      issues: parsed.error.issues,
+    });
     return jsonError(400, `Invalid query: ${parsed.error.message}`);
   }
 

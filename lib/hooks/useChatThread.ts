@@ -94,6 +94,14 @@ export function useClearChatThread(youtubeUrl: string | null) {
         } catch {
           // body wasn't JSON — keep default
         }
+        // Mirror the GET-path breadcrumb so a transient DELETE failure
+        // leaves a trace even if a subsequent retry succeeds.
+        console.warn("[useChatThread] clear failed", {
+          errorId: "CHAT_THREAD_CLEAR_FAILED",
+          youtubeUrl,
+          status: res.status,
+          message,
+        });
         throw new Error(message);
       }
     },

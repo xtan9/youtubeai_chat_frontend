@@ -74,7 +74,11 @@ export async function listChatMessages(
     const parsed = ChatMessageRowSchema.safeParse(raw);
     if (!parsed.success) {
       droppedCount += 1;
-      console.error("[chat-store] row schema mismatch — dropping row", {
+      // Per-row log at WARN — useful for forensics but a 50-row thread
+      // with a drifted column would otherwise emit 50 ERRORs and page
+      // ops once per row. The aggregate below is the single ERROR-level
+      // signal Sentry alerts on.
+      console.warn("[chat-store] row schema mismatch — dropping row", {
         errorId: "CHAT_ROW_SCHEMA_MISMATCH",
         userId,
         videoId,
@@ -90,10 +94,9 @@ export async function listChatMessages(
     });
   }
   if (droppedCount > 0) {
-    // Aggregate signal — the per-row logs above are useful for forensics,
-    // but routes / dashboards / Sentry alerts want a single greppable
-    // "N out of M dropped" line per request to correlate user complaints
-    // ("my chat is missing messages") with schema drift.
+    // Aggregate ERROR — the single greppable line per request that
+    // correlates user complaints ("my chat is missing messages") with
+    // schema drift. Pages ops once regardless of how many rows drifted.
     console.error("[chat-store] dropped rows due to schema mismatch", {
       errorId: "CHAT_ROW_SCHEMA_MISMATCH_AGGREGATE",
       userId,

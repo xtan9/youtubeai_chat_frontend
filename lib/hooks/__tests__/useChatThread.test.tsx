@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useChatThread } from "../useChatThread";
+import { useChatThread, useClearChatThread } from "../useChatThread";
 
 afterEach(() => cleanup());
 
@@ -166,5 +166,39 @@ describe("useChatThread", () => {
       expect.objectContaining({ errorId: "CHAT_THREAD_SCHEMA_DRIFT" }),
     );
     errorSpy.mockRestore();
+  });
+});
+
+describe("useClearChatThread", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("logs structured breadcrumb when DELETE fails (mirrors the GET-path treatment)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "boom" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => useClearChatThread(VALID_URL), {
+      wrapper: wrapper(client),
+    });
+    await expect(result.current.mutateAsync()).rejects.toThrow(/boom/);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[useChatThread] clear failed",
+      expect.objectContaining({
+        errorId: "CHAT_THREAD_CLEAR_FAILED",
+        status: 503,
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });
