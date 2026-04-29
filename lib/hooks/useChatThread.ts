@@ -1,17 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ChatMessagesResponseSchema,
+  type ChatMessage,
+  type ChatMessagesResponse,
+} from "@/lib/api-contracts/chat";
 
-export interface ChatMessage {
-  readonly id: string;
-  readonly role: "user" | "assistant";
-  readonly content: string;
-  readonly createdAt: string;
-}
-
-interface ChatMessagesResponse {
-  readonly messages: ChatMessage[];
-}
+export type { ChatMessage } from "@/lib/api-contracts/chat";
 
 export const chatThreadQueryKey = (youtubeUrl: string) =>
   ["chat-thread", youtubeUrl] as const;
@@ -43,7 +39,16 @@ export function useChatThread(
         }
         throw new Error(message);
       }
-      return (await res.json()) as ChatMessagesResponse;
+      // Validate the response shape against the shared contract so a
+      // server-side schema drift surfaces as a query error (which the
+      // chat tab renders as a banner) instead of silently rendering
+      // corrupted bubbles.
+      const raw = await res.json();
+      const parsed = ChatMessagesResponseSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error("Chat history response was malformed.");
+      }
+      return parsed.data;
     },
     enabled: !!youtubeUrl && enabled,
     staleTime: 30_000,

@@ -5,6 +5,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
 import { chatThreadQueryKey } from "./useChatThread";
+import {
+  ChatSseEventSchema,
+  type ChatSseEvent,
+} from "@/lib/api-contracts/chat";
 
 interface UseChatStreamArgs {
   readonly youtubeUrl: string | null;
@@ -18,38 +22,43 @@ export interface ChatStreamApi {
   readonly error: string | null;
 }
 
-interface SseDelta {
-  readonly type: "delta";
-  readonly text: string;
-}
-interface SseDone {
-  readonly type: "done";
-}
-interface SseError {
-  readonly type: "error";
-  readonly message: string;
-}
-type SseEvent = SseDelta | SseDone | SseError;
+const MAX_PARSE_WARNINGS_PER_STREAM = 3;
 
-function parseSseLine(line: string): SseEvent | null {
+function parseSseLine(
+  line: string,
+  warnState: { count: number }
+): ChatSseEvent | null {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return null;
   const payload = trimmed.slice(5).trim();
   if (payload.length === 0) return null;
+  let raw: unknown;
   try {
-    const evt = JSON.parse(payload) as SseEvent;
-    if (
-      evt &&
-      typeof evt === "object" &&
-      "type" in evt &&
-      (evt.type === "delta" || evt.type === "done" || evt.type === "error")
-    ) {
-      return evt;
+    raw = JSON.parse(payload);
+  } catch (err) {
+    if (warnState.count < MAX_PARSE_WARNINGS_PER_STREAM) {
+      warnState.count++;
+      console.warn("[useChatStream] malformed SSE chunk", {
+        errorId: "CHAT_SSE_PARSE_FAILED",
+        err,
+        payloadExcerpt: payload.slice(0, 80),
+      });
     }
     return null;
-  } catch {
+  }
+  const parsed = ChatSseEventSchema.safeParse(raw);
+  if (!parsed.success) {
+    if (warnState.count < MAX_PARSE_WARNINGS_PER_STREAM) {
+      warnState.count++;
+      console.warn("[useChatStream] unknown SSE event shape", {
+        errorId: "CHAT_SSE_UNKNOWN_EVENT",
+        issues: parsed.error.issues,
+        payloadExcerpt: payload.slice(0, 80),
+      });
+    }
     return null;
   }
+  return parsed.data;
 }
 
 /**
@@ -85,19 +94,37 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
       setDraft({ user: message, assistant: "" });
 
       // Resolve auth: prefer the live session; otherwise pick up the
-      // anonymous session that the existing summarizer hook would have
-      // established (we don't re-establish here — the summary tab is
-      // always rendered first, so the session always exists by the time
-      // chat is reachable).
+      // anonymous session established earlier on the same page (the
+      // summary tab's hook calls signInAnonymously on mount, so by the
+      // time chat is reachable we expect a session to exist). If the
+      // session lookup fails or returns nothing, surface a clear "wait"
+      // error rather than firing an unauthenticated fetch and showing
+      // a generic 401 toast.
       let accessToken = session?.access_token ?? null;
       if (!accessToken) {
         try {
           const supabase = createClient();
           const { data } = await supabase.auth.getSession();
           accessToken = data.session?.access_token ?? null;
-        } catch {
+        } catch (err) {
+          // Auth client itself failed — log so a Sentry breadcrumb ties
+          // the user-visible "wait" message back to the underlying
+          // cause without a separate report.
+          console.error("[useChatStream] getSession threw", {
+            errorId: "CHAT_GET_SESSION_THREW",
+            err,
+          });
           accessToken = null;
         }
+      }
+      if (!accessToken) {
+        setStreaming(false);
+        setDraft(null);
+        abortRef.current = null;
+        setError(
+          "Setting up your session… please try again in a moment."
+        );
+        return;
       }
 
       try {
@@ -105,7 +132,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ youtube_url: youtubeUrl, message }),
           signal: controller.signal,
@@ -127,6 +154,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        const warnState = { count: 0 };
         let buffer = "";
         let receivedAny = false;
         let assistantText = "";
@@ -138,7 +166,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
           for (const line of lines) {
-            const evt = parseSseLine(line);
+            const evt = parseSseLine(line, warnState);
             if (!evt) continue;
             if (evt.type === "delta") {
               receivedAny = true;

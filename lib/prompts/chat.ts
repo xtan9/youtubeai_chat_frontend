@@ -1,5 +1,14 @@
 import type { ChatMessageRow } from "@/lib/services/chat-store";
 
+/**
+ * Hard cap on how many prior turns the prompt builder includes. The route
+ * truncates the persisted history to the last N messages before passing
+ * it in here, so a long-running thread can't blow Claude's context window
+ * or balloon per-turn cost. 16 ≈ 8 user/assistant pairs — comfortably
+ * past the conversational horizon for follow-up Q&A on a single video.
+ */
+export const MAX_HISTORY_MESSAGES = 16;
+
 export interface BuildChatPromptParams {
   readonly transcript: string;
   readonly summary: string;
@@ -28,10 +37,9 @@ Full transcript:
 
 /**
  * Build the OpenAI-compatible message array for the chat gateway. The
- * transcript + summary are baked into the system message so they sit at
- * the front of the prompt — gateways that proxy to Anthropic with prompt
- * caching can mark this prefix as cacheable in a follow-up; for v1 we
- * pay the prefix tokens every turn, which is acceptable for typical
+ * transcript + summary are front-loaded in the system message so the
+ * prefix can be prompt-cached if the gateway gains that knob; for v1
+ * the cost of paying the prefix every turn is acceptable for typical
  * YouTube content lengths.
  */
 export function buildChatMessages(

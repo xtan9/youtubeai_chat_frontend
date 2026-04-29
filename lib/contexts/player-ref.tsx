@@ -52,6 +52,12 @@ export function PlayerRefProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Returns the page-level player handle. When called outside a
+ * `PlayerRefProvider` (e.g. unit tests that mount a chat component
+ * standalone), returns no-op functions instead of throwing — the chip
+ * click is silent rather than crashing the test renderer.
+ */
 export function usePlayerRef(): PlayerRefValue {
   const ctx = useContext(PlayerRefContext);
   if (!ctx) {

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
@@ -11,26 +10,22 @@ import {
   appendChatTurn,
   appendChatUserMessage,
   listChatMessages,
+  type ChatMessageRow,
 } from "@/lib/services/chat-store";
-import { buildChatMessages } from "@/lib/prompts/chat";
+import { buildChatMessages, MAX_HISTORY_MESSAGES } from "@/lib/prompts/chat";
 import { streamChatCompletion } from "@/lib/services/llm-chat-client";
 import { formatSseEvent } from "@/lib/services/llm-client";
+import {
+  ChatStreamRequestSchema,
+  type ChatSseEvent,
+} from "@/lib/api-contracts/chat";
 
-// Chat turns can take longer than a basic API route's default; cap at
-// 120s to match the gateway's typical streaming budget. Long completions
-// shouldn't run forever — if we hit the cap, the client sees the stream
-// close cleanly and any partial assistant text is discarded (no half-
-// turn persisted).
+// Chat turns are typically much shorter than the summarize pipeline
+// (no transcription, no segmenting), so 120s is enough headroom for
+// the longest reasonable answer. The summarize route uses 300s because
+// it owns the whole transcribe→LLM pipeline; chat owns only the LLM
+// step.
 export const maxDuration = 120;
-
-const YOUTUBE_URL_RE =
-  /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i;
-const RequestBodySchema = z.object({
-  youtube_url: z
-    .url()
-    .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
-  message: z.string().min(1).max(4000),
-});
 
 // Hard cap on transcript size to keep prompt sane. ~4 chars/token; 600k
 // chars ≈ 150k tokens leaves headroom under typical Claude context limits
@@ -59,7 +54,7 @@ export async function POST(request: Request) {
     return jsonError(400, "Invalid JSON body");
   }
 
-  const parsed = RequestBodySchema.safeParse(rawBody);
+  const parsed = ChatStreamRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
     return jsonError(400, `Invalid request body: ${parsed.error.message}`);
   }
@@ -102,12 +97,12 @@ export async function POST(request: Request) {
     return jsonError(429, "Rate limit exceeded. Please try again later.");
   }
 
-  // Chat is gated on the summary already existing for this video. Read
-  // the cached summary + transcript in parallel; both must be present.
-  // NOTE: getCachedSummary(url, null) targets the video-native row; if
-  // the user previously generated only translated rows we still find the
-  // transcript and a cached summary in either form. For v1 we accept the
-  // native-row summary as the chat context; translated chat is a follow-up.
+  // Chat is gated on the video-native summary row already existing for
+  // this video. `getCachedSummary(url, null)` filters strictly with
+  // `output_language IS NULL` (see summarize-cache.ts), so a user who
+  // only generated translated summaries hits 404 here — chat in
+  // translated languages is a follow-up. Both reads run in parallel
+  // because they're independent cache lookups.
   const [cachedSummary, cachedTranscript] = await Promise.all([
     getCachedSummary(youtube_url, null),
     getCachedTranscript(youtube_url),
@@ -124,9 +119,16 @@ export async function POST(request: Request) {
     return jsonError(413, USER_ERROR_TRANSCRIPT_TOO_LONG);
   }
 
-  let history: readonly Awaited<ReturnType<typeof listChatMessages>>[number][];
+  let history: readonly ChatMessageRow[];
   try {
-    history = await listChatMessages(userId, videoId);
+    const fullHistory = await listChatMessages(userId, videoId);
+    // Cap history at the route boundary so a long-running thread can't
+    // blow the LLM's context window and the per-turn token cost stays
+    // bounded regardless of how many turns the user has accumulated.
+    history =
+      fullHistory.length > MAX_HISTORY_MESSAGES
+        ? fullHistory.slice(-MAX_HISTORY_MESSAGES)
+        : fullHistory;
   } catch (err) {
     console.error("[chat/stream] history load failed", {
       errorId: "CHAT_HISTORY_LOAD_FAILED",
@@ -158,12 +160,48 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      const sendEvent = (data: Record<string, unknown>) => {
+      const sendEvent = (data: ChatSseEvent) => {
         if (request.signal.aborted || closed) return;
         try {
           controller.enqueue(encoder.encode(formatSseEvent(data)));
         } catch (err) {
-          console.error("[chat/stream] enqueue failed", { err });
+          // Stream-emit failures are usually a torn-down consumer reader,
+          // but real bugs (encoder failure, controller in invalid state
+          // we didn't see coming) need a stable errorId for log search.
+          console.error("[chat/stream] enqueue failed", {
+            errorId: "CHAT_ENQUEUE_FAILED",
+            err,
+          });
+        }
+      };
+
+      // Schedule the user-only persist exactly once. Used by both the
+      // start()-side abort branch and cancel(); the dedupe flag keeps a
+      // post-success cancel() (rare, but observed when a flush races a
+      // disconnect) from inserting the question a second time.
+      const persistUserOnly = (errorId: string) => {
+        if (userMessagePersisted) return;
+        userMessagePersisted = true;
+        try {
+          after(async () => {
+            try {
+              await appendChatUserMessage(userId, videoId, message);
+            } catch (persistErr) {
+              console.error("[chat/stream] user-only persist failed", {
+                errorId,
+                userId,
+                videoId,
+                err: persistErr,
+              });
+            }
+          });
+        } catch (afterErr) {
+          console.error("[chat/stream] user-only persist scheduling failed", {
+            errorId: `${errorId}_SCHEDULE`,
+            userId,
+            videoId,
+            err: afterErr,
+          });
         }
       };
 
@@ -177,30 +215,27 @@ export async function POST(request: Request) {
             if (evt.type === "delta") {
               assistantBuffer += evt.text;
               sendEvent({ type: "delta", text: evt.text });
-            } else {
-              sendEvent({ type: "done" });
             }
+            // We don't forward the generator's `done` here — the inline
+            // persist below sends the terminal `done` event so the
+            // client only sees `done` AFTER the turn is durable. Any
+            // generator `done` arriving early is intentionally ignored.
+          }
+          // Post-loop abort: if the iterator finished cleanly because
+          // signal.aborted was checked at the top of the body, treat
+          // this exactly like a thrown abort — preserve the user
+          // message and drop the assistant partial. Without this branch
+          // the success path below would persist a partial turn.
+          if (request.signal.aborted) {
+            persistUserOnly("CHAT_ABORT_PERSIST_FAILED");
+            return;
           }
         } catch (err) {
           if (request.signal.aborted) {
             // Caller disconnect mid-stream. Preserve the user's message
             // so it shows up on reload — the assistant's partial output
             // is dropped (no half-turn persisted).
-            if (!userMessagePersisted) {
-              userMessagePersisted = true;
-              after(async () => {
-                try {
-                  await appendChatUserMessage(userId, videoId, message);
-                } catch (persistErr) {
-                  console.error("[chat/stream] abort-persist failed", {
-                    errorId: "CHAT_ABORT_PERSIST_FAILED",
-                    userId,
-                    videoId,
-                    err: persistErr,
-                  });
-                }
-              });
-            }
+            persistUserOnly("CHAT_ABORT_PERSIST_FAILED");
             return;
           }
           console.error("[chat/stream] llm failed", {
@@ -225,37 +260,35 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Persist the turn after the response is delivered. Same pattern
-        // as the summary route's after() cache write — keeps the
-        // function alive until the DB insert resolves without blocking
-        // the user.
+        // Persist the turn INLINE before sending the terminal `done`.
+        // The summary route's cache write uses after() because the
+        // cache is best-effort, but the chat thread IS the artifact —
+        // a silent persist failure here would let the user see a
+        // complete answer that vanishes on reload. Adding ~50–200ms of
+        // DB-write latency to the perceived close is the right trade.
+        // Mark the user-message-persisted flag BEFORE the await so a
+        // racing cancel() doesn't double-insert if the flush happens
+        // mid-await.
+        userMessagePersisted = true;
         try {
-          after(async () => {
-            try {
-              await appendChatTurn({
-                userId,
-                videoId,
-                userMessage: message,
-                assistantMessage: assistantBuffer,
-              });
-            } catch (persistErr) {
-              console.error("[chat/stream] persist failed", {
-                errorId: "CHAT_PERSIST_FAILED",
-                userId,
-                videoId,
-                err: persistErr,
-              });
-            }
-          });
-        } catch (afterErr) {
-          // after() registration itself threw — log distinctly so a
-          // Next.js contract regression surfaces separately from a
-          // Supabase blip.
-          console.error("[chat/stream] persist scheduling failed", {
-            errorId: "CHAT_PERSIST_SCHEDULE_FAILED",
+          await appendChatTurn({
             userId,
             videoId,
-            err: afterErr,
+            userMessage: message,
+            assistantMessage: assistantBuffer,
+          });
+          sendEvent({ type: "done" });
+        } catch (persistErr) {
+          console.error("[chat/stream] persist failed", {
+            errorId: "CHAT_PERSIST_FAILED",
+            userId,
+            videoId,
+            err: persistErr,
+          });
+          sendEvent({
+            type: "error",
+            message:
+              "Your message was answered, but we couldn't save it. Try again.",
           });
         }
       } finally {
@@ -279,33 +312,34 @@ export async function POST(request: Request) {
     },
     cancel() {
       // Consumer tore down the reader before start() finished. Mark the
-      // stream closed so any race-y enqueue becomes a no-op, and persist
-      // the user message so the question survives reload — but only if
-      // start()'s abort branch hasn't already done so.
+      // stream closed so any race-y enqueue becomes a no-op, and
+      // persist the user message so the question survives reload —
+      // unless the success path already persisted (or scheduled) it via
+      // appendChatTurn, in which case `userMessagePersisted` is set and
+      // the dedupe guard inside persistUserOnly returns immediately.
       closed = true;
-      if (!userMessagePersisted) {
-        userMessagePersisted = true;
-        try {
-          after(async () => {
-            try {
-              await appendChatUserMessage(userId, videoId, message);
-            } catch (err) {
-              console.error("[chat/stream] cancel-persist failed", {
-                errorId: "CHAT_CANCEL_PERSIST_FAILED",
-                userId,
-                videoId,
-                err,
-              });
-            }
-          });
-        } catch (afterErr) {
-          console.error("[chat/stream] cancel persist scheduling failed", {
-            errorId: "CHAT_CANCEL_PERSIST_SCHEDULE_FAILED",
-            userId,
-            videoId,
-            err: afterErr,
-          });
-        }
+      if (userMessagePersisted) return;
+      userMessagePersisted = true;
+      try {
+        after(async () => {
+          try {
+            await appendChatUserMessage(userId, videoId, message);
+          } catch (err) {
+            console.error("[chat/stream] cancel-persist failed", {
+              errorId: "CHAT_CANCEL_PERSIST_FAILED",
+              userId,
+              videoId,
+              err,
+            });
+          }
+        });
+      } catch (afterErr) {
+        console.error("[chat/stream] cancel persist scheduling failed", {
+          errorId: "CHAT_CANCEL_PERSIST_SCHEDULE_FAILED",
+          userId,
+          videoId,
+          err: afterErr,
+        });
       }
     },
   });

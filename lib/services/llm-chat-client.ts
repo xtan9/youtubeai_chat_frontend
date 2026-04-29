@@ -16,9 +16,7 @@ const MAX_MALFORMED_WARNINGS = 1;
 
 /**
  * Stream a chat-completion from the OpenAI-compatible LLM gateway. Throws
- * on HTTP error, missing config, no response body. The gateway already
- * proxies to Claude (CLIProxyAPI), so we don't translate provider-specific
- * fields here — this function intentionally stays narrow.
+ * on HTTP error, missing config, no response body.
  *
  * Yields `{type:"delta", text}` for each non-empty content chunk and a
  * single `{type:"done"}` after [DONE] (or on natural reader exhaustion).

@@ -39,6 +39,13 @@ export function ChatClearButton({
     try {
       await mutation.mutateAsync();
     } catch (err) {
+      // Log so a Sentry/console breadcrumb ties the toast back to the
+      // underlying server error class without a separate user report.
+      console.error("[chat] clear failed", {
+        errorId: "CHAT_CLEAR_UI_FAILED",
+        youtubeUrl,
+        err,
+      });
       toast.error(err instanceof Error ? err.message : "Could not clear chat.");
     }
   };

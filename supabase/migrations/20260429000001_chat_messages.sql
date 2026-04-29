@@ -8,7 +8,8 @@
 --     a user (incl. anonymous-guest TTL cleanup) drops their threads.
 --   - role is a text check; the assistant variant is appended only after
 --     successful stream completion (or, on caller-abort, the user message
---     is preserved alone — see lib/services/chat-store.ts).
+--     is preserved alone — the dedupe between the start() abort branch
+--     and cancel() lives in app/api/chat/stream/route.ts).
 --   - RLS: select / insert / delete restricted to auth.uid() = user_id
 --     for the authenticated client; service_role bypasses RLS and is the
 --     only writer used by the route. Service-role policies are explicit
@@ -17,7 +18,7 @@
 --
 -- Re-applicable: every CREATE / POLICY is guarded so the
 -- migration-upgrade-test (which re-applies every migration twice) passes.
--- Pattern mirrors 20260429000000_admin_audit_log.sql.
+-- Same DO-NOTHING-on-second-apply pattern as 20260417000000_cache_schema.sql.
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

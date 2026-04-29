@@ -1,8 +1,9 @@
 import "server-only";
 import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import { ChatRoleSchema, type ChatRole } from "@/lib/api-contracts/chat";
 
-export type ChatRole = "user" | "assistant";
+export type { ChatRole };
 
 export interface ChatMessageRow {
   readonly id: string;
@@ -13,7 +14,7 @@ export interface ChatMessageRow {
 
 const ChatMessageRowSchema = z.object({
   id: z.string(),
-  role: z.enum(["user", "assistant"]),
+  role: ChatRoleSchema,
   content: z.string(),
   created_at: z.string(),
 });

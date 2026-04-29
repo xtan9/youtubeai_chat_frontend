@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getCachedTranscript } from "@/lib/services/summarize-cache";
@@ -6,15 +5,10 @@ import {
   clearChatMessages,
   listChatMessages,
 } from "@/lib/services/chat-store";
-
-const YOUTUBE_URL_RE =
-  /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i;
-
-const QuerySchema = z.object({
-  youtube_url: z
-    .url()
-    .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
-});
+import {
+  ChatMessagesQuerySchema,
+  type ChatMessagesResponse,
+} from "@/lib/api-contracts/chat";
 
 function jsonError(status: number, message: string) {
   return new Response(JSON.stringify({ message }), {
@@ -58,7 +52,7 @@ async function authenticate(): Promise<
 function parseQuery(request: Request) {
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
-  return QuerySchema.safeParse(params);
+  return ChatMessagesQuerySchema.safeParse(params);
 }
 
 export async function GET(request: Request) {
@@ -74,19 +68,21 @@ export async function GET(request: Request) {
   // than 404 so the chat tab can render its empty state without a banner.
   const transcript = await getCachedTranscript(parsed.data.youtube_url);
   if (!transcript) {
-    return Response.json({ messages: [] });
+    const empty: ChatMessagesResponse = { messages: [] };
+    return Response.json(empty);
   }
 
   try {
     const messages = await listChatMessages(auth.user.id, transcript.videoId);
-    return Response.json({
+    const body: ChatMessagesResponse = {
       messages: messages.map((m) => ({
         id: m.id,
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
       })),
-    });
+    };
+    return Response.json(body);
   } catch (err) {
     console.error("[chat/messages] list failed", {
       errorId: "CHAT_MESSAGES_LIST_FAILED",
