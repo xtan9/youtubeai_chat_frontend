@@ -1303,22 +1303,141 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
     });
     expect(out.summaries.current).toBe(0);
   });
-});
 
-describe("getPerformanceStats with excludeAdminUserIds", () => {
-  it("filter is wired into fetchHistoryIn but not into the raw summaries fetch", async () => {
+  it("fetchHistoryIn drops empty-string exclude IDs to keep PostgREST happy (via getDashboardKPIs)", async () => {
+    let captured: string[] = [];
     const client = buildClient([
       { table: "summaries", response: { data: [], error: null } },
       { table: "summaries", response: { data: [], error: null } },
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => {
+          const notCall = calls.find((c) => c.method === "not");
+          // With ALL exclude IDs empty, the .not() clause should NOT be applied.
+          if (notCall) captured = [String(notCall.args[2])];
+        },
+      },
+      { table: "user_video_history", response: { data: [], error: null } },
     ]);
-    // getPerformanceStats currently doesn't call fetchHistoryIn — it only
-    // pulls from summaries. The excludeAdminUserIds option is a no-op
-    // on the summaries.created_at-based queries. This test pins the
-    // contract: calling with excludeAdminUserIds must not break, even
-    // though the pre-fetch doesn't need history filtering today.
-    const out = await getPerformanceStats(client, lastNDays(30), {
+    await getDashboardKPIs(client, lastNDays(30), {
+      excludeAdminUserIds: ["", ""],
+    });
+    // The defensive filter dropped both empty strings, so .not() must not have been called.
+    expect(captured).toEqual([]);
+  });
+});
+
+describe("getPerformanceStats with excludeAdminUserIds", () => {
+  it("excludes summaries whose video was only watched by admin users", async () => {
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient([
+      // current summaries: 2 videos, v-real (real users) and v-admin (admins only)
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { id: "s1", video_id: "v-real", transcript_source: "auto_captions", processing_time_seconds: 5, transcribe_time_seconds: 3, summarize_time_seconds: 2, created_at: today },
+            { id: "s2", video_id: "v-admin", transcript_source: "whisper", processing_time_seconds: 100, transcribe_time_seconds: 90, summarize_time_seconds: 10, created_at: today },
+          ],
+          error: null,
+        },
+      },
+      // previous summaries: empty
+      { table: "summaries", response: { data: [], error: null } },
+      // current history (admin filtered out): only v-real left
+      {
+        table: "user_video_history",
+        response: { data: [{ user_id: "u-real", video_id: "v-real", created_at: today }], error: null },
+      },
+      // previous history: empty
+      { table: "user_video_history", response: { data: [], error: null } },
+      // history's cache-hit enrichment summaries lookup (curr history non-empty)
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    const stats = await getPerformanceStats(client, window, {
       excludeAdminUserIds: ["u-admin-1"],
     });
-    expect(out.p50Seconds).toBe(null);
+    // The 100s admin-only summary must be filtered out — only s1 (5s) remains.
+    expect(stats.p50Seconds).toBe(5);
+    expect(stats.p95Seconds).toBe(5);
+  });
+
+  it("falls back to all summaries when excludeAdminUserIds is empty (no history fetch)", async () => {
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient([
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
+          ],
+          error: null,
+        },
+      },
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    const stats = await getPerformanceStats(client, window, {
+      excludeAdminUserIds: [],
+    });
+    expect(stats.p95Seconds).toBe(10);
+  });
+
+  it("non-empty exclude with empty history fails soft to no filter", async () => {
+    // Empty history could mean admins watched nothing OR history fetch failed.
+    // Either way, fail-soft to all-summaries is the documented behavior.
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient([
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
+          ],
+          error: null,
+        },
+      },
+      { table: "summaries", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const stats = await getPerformanceStats(client, window, {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
+    // Fail-soft: filter is dropped when history is empty, so summary stays.
+    expect(stats.p95Seconds).toBe(10);
+  });
+
+  it("retains video watched by both admin and non-admin", async () => {
+    // The DB-side .not() filter drops admin history rows, but a video also
+    // watched by a non-admin still appears in the filtered history → its
+    // summary contributes to the latency stats.
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient([
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { id: "s-shared", video_id: "v-shared", transcript_source: "auto_captions", processing_time_seconds: 7, transcribe_time_seconds: 5, summarize_time_seconds: 2, created_at: today },
+          ],
+          error: null,
+        },
+      },
+      { table: "summaries", response: { data: [], error: null } },
+      {
+        table: "user_video_history",
+        response: { data: [{ user_id: "u-real", video_id: "v-shared", created_at: today }], error: null },
+      },
+      { table: "user_video_history", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } }, // cache-hit enrichment for curr history
+    ]);
+    const stats = await getPerformanceStats(client, window, {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
+    expect(stats.p95Seconds).toBe(7);
   });
 });

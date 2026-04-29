@@ -10,8 +10,29 @@ export interface ReconcileAdminFlagsResult {
   failed: number;
   /** True when listAllUsers hit its row cap; reconcile is incomplete past it. */
   truncated: boolean;
-  /** True when no per-row update errors occurred AND the run examined all users. */
+  /** True when the run was short-circuited by the module-level cooldown. */
+  skipped: boolean;
+  /** True when no per-row update errors occurred AND the run examined all users.
+   * When `skipped` is true the run did not examine anything — `ok` is a no-op
+   * "no new errors" signal in that case, NOT a state-verified-consistent signal.
+   * Callers gating telemetry on `!ok` should also check `skipped` first. */
   ok: boolean;
+}
+
+/** Module-level timestamp of last reconcile completion. Lives only on
+ * a single Node/Lambda instance — cold starts reset it (acceptable;
+ * the function is idempotent). */
+let lastReconcileAt = 0;
+
+/** Skip the reconcile if it ran within the last RECONCILE_COOLDOWN_MS.
+ * Each admin nav triggers reconcile; without this guard a busy admin
+ * session re-paginates auth.users on every page change. */
+const RECONCILE_COOLDOWN_MS = 60_000;
+
+/** Test-only: reset the cooldown so independent tests aren't affected
+ * by one another. Do not use in production code. */
+export function __resetReconcileCooldownForTests() {
+  lastReconcileAt = 0;
 }
 
 /**
@@ -32,6 +53,24 @@ export async function reconcileAdminFlags(
   client: SupabaseClient,
   allowlist: Set<string>,
 ): Promise<ReconcileAdminFlagsResult> {
+  const now = Date.now();
+  if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) {
+    console.log("[admin-flag-sync] reconcile skipped (cooldown active)", {
+      elapsedMs: now - lastReconcileAt,
+      cooldownMs: RECONCILE_COOLDOWN_MS,
+    });
+    return {
+      checked: 0,
+      promoted: 0,
+      demoted: 0,
+      failed: 0,
+      truncated: false,
+      skipped: true,
+      ok: true,
+    };
+  }
+  lastReconcileAt = now;
+
   const { users, truncated } = await listAllUsers(client);
 
   let promoted = 0;
@@ -84,6 +123,7 @@ export async function reconcileAdminFlags(
     demoted,
     failed,
     truncated,
+    skipped: false,
     ok: failed === 0 && !truncated,
   };
 }

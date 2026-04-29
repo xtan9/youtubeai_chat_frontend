@@ -1022,13 +1022,9 @@ export interface PerformanceStats {
 export async function getPerformanceStats(
   client: SupabaseClient,
   window: TimeWindow = lastNDays(30),
-  // PerformanceStats today aggregates summaries directly — there is no
-  // user_id on summaries, so excludeAdminUserIds is a no-op here. We
-  // accept the option for API consistency; future enhancement could
-  // join through user_video_history to also filter latency.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   opts: KpiOptions = {},
 ): Promise<PerformanceStats> {
+  const exclude = opts.excludeAdminUserIds ?? [];
   const days =
     Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
   const prevWindow: TimeWindow = {
@@ -1036,13 +1032,38 @@ export async function getPerformanceStats(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
-  const [current, previous] = await Promise.all([
+  const wantFilter = exclude.length > 0;
+  const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
+    wantFilter
+      ? fetchHistoryForExclusion(client, window, exclude)
+      : Promise.resolve([] as HistoryRow[]),
+    wantFilter
+      ? fetchHistoryForExclusion(client, prevWindow, exclude)
+      : Promise.resolve([] as HistoryRow[]),
   ]);
 
+  // When excluding admin activity, restrict performance stats to summaries
+  // whose video appears in the filtered (non-admin) history. A video that
+  // only admins watched contributes no latency samples.
+  //
+  // Fail-soft: if the caller wanted filtering but history is empty (either
+  // because admins watched nothing OR because the history fetch errored —
+  // see fetchHistoryForExclusion), we drop the filter and show all
+  // summaries. Better to surface all-activity numbers than to error the
+  // page; this matches the existing listAdminUserIds fail-soft default.
+  const includedCurrent = new Set(history.map((h) => h.video_id));
+  const includedPrev = new Set(prevHistory.map((h) => h.video_id));
+  const filteredCurrent = wantFilter && history.length > 0
+    ? current.filter((s) => includedCurrent.has(s.video_id))
+    : current;
+  const filteredPrev = wantFilter && prevHistory.length > 0
+    ? previous.filter((s) => includedPrev.has(s.video_id))
+    : previous;
+
   const byDay = new Map<string, number[]>();
-  for (const s of current) {
+  for (const s of filteredCurrent) {
     if (!s.created_at || s.processing_time_seconds == null) continue;
     const day = isoDay(new Date(s.created_at));
     const arr = byDay.get(day) ?? [];
@@ -1062,15 +1083,15 @@ export async function getPerformanceStats(
 
   return {
     window,
-    p50Seconds: p50(current.map((s) => s.processing_time_seconds)),
-    p95Seconds: p95(current.map((s) => s.processing_time_seconds)),
-    transcribeP95Seconds: p95(current.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(current.map((s) => s.summarize_time_seconds)),
+    p50Seconds: p50(filteredCurrent.map((s) => s.processing_time_seconds)),
+    p95Seconds: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
+    transcribeP95Seconds: p95(filteredCurrent.map((s) => s.transcribe_time_seconds)),
+    summarizeP95Seconds: p95(filteredCurrent.map((s) => s.summarize_time_seconds)),
     prev: {
-      p50Seconds: p50(previous.map((s) => s.processing_time_seconds)),
-      p95Seconds: p95(previous.map((s) => s.processing_time_seconds)),
-      transcribeP95Seconds: p95(previous.map((s) => s.transcribe_time_seconds)),
-      summarizeP95Seconds: p95(previous.map((s) => s.summarize_time_seconds)),
+      p50Seconds: p50(filteredPrev.map((s) => s.processing_time_seconds)),
+      p95Seconds: p95(filteredPrev.map((s) => s.processing_time_seconds)),
+      transcribeP95Seconds: p95(filteredPrev.map((s) => s.transcribe_time_seconds)),
+      summarizeP95Seconds: p95(filteredPrev.map((s) => s.summarize_time_seconds)),
     },
     latencyByBucket,
   };
@@ -1118,11 +1139,45 @@ interface HistoryRow {
   cacheHit?: boolean;
 }
 
+/** Fail-soft wrapper around fetchHistoryIn used by getPerformanceStats.
+ * If the history read errors, log + return [] so the perf page can still
+ * render. The caller distinguishes "no rows" vs "fetch errored" only via
+ * the documented fail-soft contract: empty history → drop the filter,
+ * not "filter everything out". */
+async function fetchHistoryForExclusion(
+  client: SupabaseClient,
+  window: TimeWindow,
+  exclude: string[],
+): Promise<HistoryRow[]> {
+  try {
+    return await fetchHistoryIn(client, window, exclude);
+  } catch (err) {
+    console.error(
+      "[admin-queries] getPerformanceStats: history fetch failed; falling back to no filter",
+      {
+        message: err instanceof Error ? err.message : String(err),
+        window: {
+          start: window.start.toISOString(),
+          end: window.end.toISOString(),
+        },
+      },
+    );
+    return [];
+  }
+}
+
 async function fetchHistoryIn(
   client: SupabaseClient,
   window: TimeWindow,
   excludeUserIds: string[] = [],
 ): Promise<HistoryRow[]> {
+  // Defensive filter: drop empty/falsy IDs so a future caller passing a
+  // partially-populated array can't break the PostgREST in.() literal
+  // (e.g. `()` or `(,uuid)` would 400 or silently mis-filter).
+  const cleanedExcludes = excludeUserIds.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+
   // user_video_history's timestamp is `accessed_at` in production (see
   // aggregateUserActivity comment). Alias on read so HistoryRow's
   // `created_at` is consistent with how the field is named on every
@@ -1133,8 +1188,8 @@ async function fetchHistoryIn(
     .gte("accessed_at", window.start.toISOString())
     .lte("accessed_at", window.end.toISOString());
 
-  if (excludeUserIds.length > 0) {
-    query = query.not("user_id", "in", `(${excludeUserIds.join(",")})`);
+  if (cleanedExcludes.length > 0) {
+    query = query.not("user_id", "in", `(${cleanedExcludes.join(",")})`);
   }
 
   const { data: history, error } = await query.limit(HISTORY_ROW_CAP);
