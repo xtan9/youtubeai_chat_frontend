@@ -45,6 +45,26 @@ visual decisions go through it.
 4. **Never use legacy shadcn token classes** like `bg-card`, `bg-popover`,
    `text-foreground`, `text-muted-foreground`, `border-input`. They were
    swept out in milestone C and the supporting CSS variables are gone.
+5. **Stay on the 4-px spacing grid; avoid arbitrary sizing values.** All
+   padding, margin, gap, width, and height utilities multiply the
+   `--spacing: 0.25rem` base — see
+   [`docs/design-system/tokens/spacing.mdx`](docs/design-system/tokens/spacing.mdx).
+   Use grid-aligned tokens (`px-2`, `py-8`, `gap-6`, `w-full`, etc.) and
+   half-steps (`p-3.5`) when the design needs them. Do **not** reach for
+   arbitrary values like `px-[13px]` or `max-w-[1800px]` to "make it fit"
+   — they bypass the design system. For page-level wrappers, pick from
+   the blessed layout patterns:
+   - `container mx-auto px-{N} py-{N}` — narrower content (blog, legal,
+     FAQ) where reading width matters; capped at `2xl: 1536px`.
+   - `mx-auto max-w-page px-{N} py-{N}` — wide content (summary, chat,
+     dashboards) that benefits from ultrawide room; capped at the
+     `--container-page` token in `app/globals.css` (1800px).
+   If a real product need genuinely requires escaping the grid or
+   adding a new layout cap, extend the `--container-*` token in
+   `app/globals.css` rather than inlining `max-w-[N]`, and document
+   the addition here. As a last resort, an arbitrary value with a
+   `// TODO(design-followup):` comment naming the missing token is
+   acceptable.
 
 ## Visual reference
 
