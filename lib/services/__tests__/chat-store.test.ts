@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => {
       {
         get(_t, prop: string) {
           if (prop === "then") {
-            return (resolve: (v: ChainResult) => unknown) =>
+            return (resolve: (v: ChainResult | undefined) => unknown) =>
               Promise.resolve(state.impl?.(path, args)).then(resolve);
           }
           return (...nextArgs: unknown[]) => buildBuilder([...path, prop], [...args, nextArgs]);
@@ -95,7 +95,8 @@ describe("chat-store", () => {
     });
 
     it("throws when service role client is unavailable", async () => {
-      mocks.getServiceRoleClient.mockReturnValueOnce(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mocks.getServiceRoleClient.mockReturnValueOnce(null as any);
       const { listChatMessages } = await loadFresh();
       await expect(listChatMessages("user-1", "video-1")).rejects.toThrow(
         /service-role client unavailable/i
