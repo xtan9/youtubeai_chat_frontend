@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
   stripe_subscription_id text         UNIQUE,
   tier                   text         NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
   plan                   text         CHECK (plan IS NULL OR plan IN ('monthly', 'yearly')),
+  -- Unconstrained by design: Stripe may add statuses at any time; a CHECK here would break webhook inserts.
   status                 text,
   current_period_end     timestamptz,
   cancel_at_period_end   boolean      NOT NULL DEFAULT false,
@@ -29,3 +30,5 @@ CREATE POLICY "user_subscriptions_select_own"
 -- authenticated. The REVOKE below makes the denial explicit so a future
 -- accidental policy can't widen access silently.
 REVOKE INSERT, UPDATE, DELETE ON user_subscriptions FROM anon, authenticated;
+
+NOTIFY pgrst, 'reload schema';
