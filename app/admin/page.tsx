@@ -20,6 +20,7 @@ import { parseWindowDays } from "./_components/window-days";
 import { requireAdminPage } from "./_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
+  listAdminUserIds,
   getDashboardKPIs,
   lastNDays,
   type DashboardKPIs,
@@ -29,7 +30,7 @@ import type { Delta, TranscriptSource } from "@/lib/admin/types";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ window?: string }>;
+  searchParams: Promise<{ window?: string; include_admins?: string }>;
 }
 
 export default async function AdminDashboardPage({ searchParams }: PageProps) {
@@ -42,7 +43,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const windowDays = parseWindowDays(params.window);
   const window = lastNDays(windowDays);
-  const kpis = await getDashboardKPIs(client, window);
+  const includeAdmins = params.include_admins === "1";
+  const adminUserIds = includeAdmins ? [] : await listAdminUserIds(client);
+  const kpis = await getDashboardKPIs(client, window, {
+    excludeAdminUserIds: adminUserIds,
+  });
 
   return (
     <div className="surface-anim">
@@ -50,10 +55,13 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="page-sub">
-            {formatRange(window)} · compared to previous {windowDays} days
+            {formatRange(window)} · compared to previous {windowDays} days ·{" "}
+            <span className="muted">
+              {includeAdmins ? "including admins" : "excluding admin activity"}
+            </span>
           </p>
         </div>
-        <DashboardControls windowDays={windowDays} />
+        <DashboardControls windowDays={windowDays} includeAdmins={includeAdmins} />
       </div>
 
       <div className="page-body">
