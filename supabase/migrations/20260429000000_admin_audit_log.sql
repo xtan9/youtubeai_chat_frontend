@@ -21,7 +21,7 @@
 CREATE TABLE admin_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admin_id UUID NOT NULL,
-    admin_email TEXT NOT NULL,
+    admin_email TEXT NOT NULL CHECK (length(admin_email) > 0),
     action TEXT NOT NULL CHECK (length(action) > 0),
     resource_type TEXT NOT NULL CHECK (length(resource_type) > 0),
     resource_id TEXT NOT NULL CHECK (length(resource_id) > 0),
@@ -34,3 +34,5 @@ CREATE INDEX idx_audit_admin_id   ON admin_audit_log (admin_id, created_at DESC)
 CREATE INDEX idx_audit_resource   ON admin_audit_log (resource_type, resource_id);
 
 ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
+
+NOTIFY pgrst, 'reload schema';

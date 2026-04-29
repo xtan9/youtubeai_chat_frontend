@@ -2,8 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+// Each createClient invocation produces a deterministically-tagged object so
+// later assertions can prove WHICH invocation produced the returned client,
+// not just that they're different objects.
+let createClientCallSeq = 0;
+// Mock receives the 3 args the real createClient takes (url, key, opts).
+// Tests assert on calls[i][0] / [1] (url/key); opts is captured for shape
+// fidelity but not asserted.
 const createClientMock = vi.fn(
-  (_url: string, _key: string, _opts: unknown) => ({ __id: Math.random() }),
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  (url: string, key: string, _opts: unknown) => ({
+    __id: ++createClientCallSeq,
+    __url: url,
+    __key: key,
+  }),
 );
 vi.mock("@supabase/supabase-js", () => ({
   createClient: (url: string, key: string, opts: unknown) =>
@@ -104,6 +116,7 @@ describe("requireAdmin", () => {
 describe("requireAdminClient", () => {
   beforeEach(() => {
     createClientMock.mockClear();
+    createClientCallSeq = 0;
   });
 
   afterEach(() => {
@@ -138,6 +151,14 @@ describe("requireAdminClient", () => {
     ).toThrow(AdminClientUnavailableError);
   });
 
+  it("returns the client createClient produced (not a stub)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "the-key");
+    const { requireAdminClient } = await importModule();
+    const c = requireAdminClient({ email: "alice@x.com" }, new Set(["alice@x.com"]));
+    expect(c).toBe(createClientMock.mock.results[0].value);
+  });
+
   it("returns a memoized client across calls with same env", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "the-key");
@@ -149,22 +170,60 @@ describe("requireAdminClient", () => {
     expect(createClientMock).toHaveBeenCalledTimes(1);
   });
 
-  it("creates a fresh client when env signature changes", async () => {
-    const { requireAdminClient, __resetForTests } = await importModule();
+  it("memoization is keyed by env signature: URL change forces a new client with the new URL", async () => {
+    const { requireAdminClient } = await importModule();
     const allowlist = new Set(["alice@x.com"]);
 
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://a.supabase.co");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "key-1");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "the-key");
     const c1 = requireAdminClient({ email: "alice@x.com" }, allowlist);
 
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://b.supabase.co");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "key-2");
     const c2 = requireAdminClient({ email: "alice@x.com" }, allowlist);
 
     expect(c1).not.toBe(c2);
     expect(createClientMock).toHaveBeenCalledTimes(2);
+    expect(createClientMock).toHaveBeenNthCalledWith(
+      1,
+      "https://a.supabase.co",
+      "the-key",
+      expect.anything(),
+    );
+    expect(createClientMock).toHaveBeenNthCalledWith(
+      2,
+      "https://b.supabase.co",
+      "the-key",
+      expect.anything(),
+    );
+  });
 
-    __resetForTests();
+  it("memoization is keyed by env signature: KEY change forces a new client with the new key", async () => {
+    const { requireAdminClient } = await importModule();
+    const allowlist = new Set(["alice@x.com"]);
+
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://a.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "key-1");
+    requireAdminClient({ email: "alice@x.com" }, allowlist);
+
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "key-2");
+    requireAdminClient({ email: "alice@x.com" }, allowlist);
+
+    expect(createClientMock).toHaveBeenCalledTimes(2);
+    expect(createClientMock.mock.calls[0][1]).toBe("key-1");
+    expect(createClientMock.mock.calls[1][1]).toBe("key-2");
+  });
+
+  it("memoization survives across calls with different allowlist Sets (the cache is env-keyed, not user-keyed)", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://a.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "key");
+    const { requireAdminClient } = await importModule();
+
+    const allowA = new Set(["alice@x.com"]);
+    const allowB = new Set(["alice@x.com", "bob@x.com"]);
+    const c1 = requireAdminClient({ email: "alice@x.com" }, allowA);
+    const c2 = requireAdminClient({ email: "alice@x.com" }, allowB);
+    expect(c1).toBe(c2);
+    expect(createClientMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -16,8 +16,7 @@ type ClientFactory = (
 ) => SupabaseClient;
 
 const baseInput: WriteAuditInput = {
-  adminId: "admin-uuid",
-  adminEmail: "alice@example.com",
+  admin: { userId: "admin-uuid", email: "alice@example.com" },
   action: "view_transcript",
   resourceType: "summary",
   resourceId: "summary-uuid",
@@ -34,9 +33,16 @@ const makeClient: ClientFactory = (insertResponse) => {
   return { from } as unknown as SupabaseClient;
 };
 
+let sinkCalls: { msg: string; err: unknown }[];
+
 beforeEach(() => {
   __resetAuditCountersForTests();
-  setAuditErrorSink(() => {});
+  sinkCalls = [];
+  setAuditErrorSink((msg, err) => sinkCalls.push({ msg, err }));
+});
+
+afterEach(() => {
+  __resetAuditCountersForTests();
 });
 
 describe("writeAudit", () => {
@@ -45,10 +51,12 @@ describe("writeAudit", () => {
     const result = await writeAudit(client, baseInput);
     expect(result).toEqual({ ok: true, id: "row-uuid" });
     expect(getAuditWriteFailureCount()).toBe(0);
+    expect(sinkCalls).toHaveLength(0);
   });
 
   it("inserts the expected payload (admin_id, admin_email, action, resource_type, resource_id, metadata)", async () => {
-    const insertSpy = vi.fn(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const insertSpy = vi.fn((_payload: Record<string, unknown>) => ({
       select: () => ({
         single: () => Promise.resolve({ data: { id: "row" }, error: null }),
       }),
@@ -73,6 +81,7 @@ describe("writeAudit", () => {
   });
 
   it("defaults metadata to {} when omitted", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const insertSpy = vi.fn((_payload: Record<string, unknown>) => ({
       select: () => ({
         single: () => Promise.resolve({ data: { id: "row" }, error: null }),
@@ -86,7 +95,7 @@ describe("writeAudit", () => {
     expect(insertSpy.mock.calls[0][0]).toMatchObject({ metadata: {} });
   });
 
-  it("returns ok:false on Supabase error response, never throws, increments counter", async () => {
+  it("returns ok:false on Supabase error response, never throws, increments counter, calls sink", async () => {
     const client = makeClient({
       data: null,
       error: { message: "permission denied" },
@@ -94,55 +103,79 @@ describe("writeAudit", () => {
     const result = await writeAudit(client, baseInput);
     expect(result).toEqual({ ok: false, reason: "permission denied" });
     expect(getAuditWriteFailureCount()).toBe(1);
+    expect(sinkCalls).toHaveLength(1);
+    expect(sinkCalls[0].msg).toContain("audit-log insert failed");
   });
 
-  it("returns ok:false when insert resolves with no row, increments counter", async () => {
+  it("returns ok:false when insert resolves with no row, increments counter, calls sink", async () => {
     const client = makeClient({ data: null, error: null });
     const result = await writeAudit(client, baseInput);
     expect(result).toEqual({ ok: false, reason: "no row returned" });
     expect(getAuditWriteFailureCount()).toBe(1);
+    expect(sinkCalls).toHaveLength(1);
+    expect(sinkCalls[0].msg).toContain("audit-log insert returned no row");
   });
 
-  it("returns ok:false when insert throws (network/runtime), never propagates", async () => {
+  it("returns ok:false when insert throws (network/runtime), never propagates, calls sink", async () => {
     const client = makeClient(new Error("ECONNRESET"));
     const result = await writeAudit(client, baseInput);
     expect(result).toEqual({ ok: false, reason: "ECONNRESET" });
     expect(getAuditWriteFailureCount()).toBe(1);
+    expect(sinkCalls).toHaveLength(1);
+    expect(sinkCalls[0].msg).toContain("audit-log insert threw");
   });
 
-  it("rejects empty adminId without touching the DB", async () => {
+  it("stringifies non-Error throws (string) instead of returning undefined reason", async () => {
+    // Build a client whose insert pipeline rejects with a plain string,
+    // exercising the `e instanceof Error ? e.message : String(e)` branch.
+    const single = vi.fn(() => Promise.reject("oops"));
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+    const client = {
+      from: vi.fn(() => ({ insert })),
+    } as unknown as SupabaseClient;
+
+    const result = await writeAudit(client, baseInput);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("oops");
+    }
+    expect(getAuditWriteFailureCount()).toBe(1);
+  });
+
+  it("rejects empty admin.userId without touching the DB and without incrementing counter or sink", async () => {
     const fromSpy = vi.fn();
     const client = { from: fromSpy } as unknown as SupabaseClient;
-    const result = await writeAudit(client, { ...baseInput, adminId: "" });
-    expect(result).toEqual({ ok: false, reason: "missing adminId" });
+    const result = await writeAudit(client, {
+      ...baseInput,
+      admin: { ...baseInput.admin, userId: "" },
+    });
+    expect(result).toEqual({ ok: false, reason: "missing admin.userId" });
     expect(fromSpy).not.toHaveBeenCalled();
+    expect(getAuditWriteFailureCount()).toBe(0);
+    expect(sinkCalls).toHaveLength(0);
   });
 
-  it("rejects empty adminEmail without touching the DB", async () => {
+  it("rejects empty admin.email without touching the DB and without incrementing counter or sink", async () => {
     const fromSpy = vi.fn();
     const client = { from: fromSpy } as unknown as SupabaseClient;
-    const result = await writeAudit(client, { ...baseInput, adminEmail: "" });
-    expect(result).toEqual({ ok: false, reason: "missing adminEmail" });
+    const result = await writeAudit(client, {
+      ...baseInput,
+      admin: { ...baseInput.admin, email: "" },
+    });
+    expect(result).toEqual({ ok: false, reason: "missing admin.email" });
     expect(fromSpy).not.toHaveBeenCalled();
+    expect(getAuditWriteFailureCount()).toBe(0);
+    expect(sinkCalls).toHaveLength(0);
   });
 
-  it("rejects empty resourceId without touching the DB", async () => {
+  it("rejects empty resourceId without touching the DB and without incrementing counter or sink", async () => {
     const fromSpy = vi.fn();
     const client = { from: fromSpy } as unknown as SupabaseClient;
     const result = await writeAudit(client, { ...baseInput, resourceId: "" });
     expect(result).toEqual({ ok: false, reason: "missing resourceId" });
     expect(fromSpy).not.toHaveBeenCalled();
-  });
-
-  it("routes errors through the configured sink, not console", async () => {
-    const sinkCalls: { msg: string; err: unknown }[] = [];
-    setAuditErrorSink((msg, err) => sinkCalls.push({ msg, err }));
-    const client = makeClient({
-      data: null,
-      error: { message: "boom" },
-    });
-    await writeAudit(client, baseInput);
-    expect(sinkCalls).toHaveLength(1);
-    expect(sinkCalls[0].msg).toContain("audit-log insert failed");
+    expect(getAuditWriteFailureCount()).toBe(0);
+    expect(sinkCalls).toHaveLength(0);
   });
 });

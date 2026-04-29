@@ -3,14 +3,20 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseAdminAllowlist } from "@/lib/supabase/admin-client";
+import type { AdminPrincipal } from "@/lib/admin/types";
 
 const AUTH_CLIENT_ERROR_STATUSES = new Set([400, 401, 403]);
 
 let warnedEmptyAllowlist = false;
 
-export interface AdminPageContext {
-  email: string;
-  userId: string;
+class AuthInfraError extends Error {
+  constructor(cause?: unknown) {
+    super("Auth service temporarily unavailable", { cause });
+    this.name = "AuthInfraError";
+  }
+}
+
+export interface AdminPageContext extends AdminPrincipal {
   allowlist: Set<string>;
 }
 
@@ -27,14 +33,14 @@ export async function requireAdminPage(): Promise<AdminPageContext> {
         status: error.status ?? null,
         message: error.message,
       });
-      throw new Error("Auth service temporarily unavailable");
+      throw new AuthInfraError(error);
     }
     userEmail = data.user?.email?.toLowerCase();
     userId = data.user?.id;
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("Auth service")) throw err;
+    if (err instanceof AuthInfraError) throw err;
     console.error("[admin-gate] auth threw", { stage: "auth", err });
-    throw new Error("Auth service temporarily unavailable");
+    throw new AuthInfraError(err);
   }
 
   if (!userEmail || !userId) redirect("/auth/login");
@@ -55,5 +61,5 @@ export async function requireAdminPage(): Promise<AdminPageContext> {
     redirect("/");
   }
 
-  return { email: userEmail, userId, allowlist };
+  return { userId, email: userEmail, allowlist };
 }
