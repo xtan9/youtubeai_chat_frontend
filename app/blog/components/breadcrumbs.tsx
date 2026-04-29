@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-// Visible breadcrumb trail. JSON-LD BreadcrumbList is emitted separately
-// on each page; this is the human-visible counterpart.
+// Human-visible counterpart to the BreadcrumbList JSON-LD emitted by each page.
 export function Breadcrumbs({
   crumbs,
 }: {

@@ -2,10 +2,11 @@ import type { BlogPost } from "@/lib/content/blog";
 
 const SITE_URL = "https://www.youtubeai.chat";
 
-// Posts with category "tutorials" emit HowTo if the body has numbered
-// steps. For everything else we emit BlogPosting (a subtype of Article)
-// — that's the right schema for opinion/explainer/comparison content
-// and what answer engines look for.
+// BlogPosting (a subtype of Article) — the right schema for the post
+// page across all categories. Tutorials/comparisons/news/workflows all
+// share this builder; per-category specialization (e.g. emitting HowTo
+// for tutorials with numbered steps) is a deliberate non-feature for
+// now to keep the schema graph predictable.
 export function buildBlogPostingSchema(post: BlogPost) {
   const url = `${SITE_URL}/blog/${post.slug}`;
   return {

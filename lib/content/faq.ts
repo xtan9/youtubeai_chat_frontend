@@ -3,10 +3,10 @@ import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
 
-// Loader for content/faq/*.mdx. Each file = one Q&A. The /faq page reads
-// all of them, groups by category, and renders them with a single
-// FAQPage JSON-LD spanning the whole page (the answer-engine surface
-// most likely to get cited by ChatGPT / Perplexity / Google AI Overviews).
+// Each FAQ entry's `body` is markdown for the human-facing page; its
+// `answerText` is plaintext that gets embedded in the FAQPage JSON-LD,
+// because crawlers + answer engines don't render markdown — they
+// extract the literal answer string.
 
 export const FAQ_CATEGORIES = [
   "pricing",
@@ -26,13 +26,18 @@ export const FAQ_CATEGORY_LABELS: Record<FaqCategory, string> = {
   troubleshooting: "Troubleshooting",
 };
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SLUG = /^[a-z0-9-]+$/;
+
 export const FaqEntryFrontmatterSchema = z.object({
   question: z.string().min(8).max(200),
-  slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+  slug: z.string().regex(SLUG).optional(),
   category: z.enum(FAQ_CATEGORIES),
   order: z.number().int().nonnegative().default(100),
-  updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  relatedBlogSlugs: z.array(z.string()).default([]),
+  updatedAt: z.string().regex(ISO_DATE),
+  // Constrain to slug shape so a typo'd reference fails Zod parsing
+  // instead of shipping a 404'ing internal link.
+  relatedBlogSlugs: z.array(z.string().regex(SLUG)).default([]),
   draft: z.boolean().default(false),
 });
 
@@ -41,7 +46,6 @@ export type FaqEntryFrontmatter = z.infer<typeof FaqEntryFrontmatterSchema>;
 export type FaqEntry = FaqEntryFrontmatter & {
   slug: string;
   body: string;
-  // Plain-text version of body for FAQPage JSON-LD answer text.
   answerText: string;
 };
 
@@ -51,7 +55,10 @@ function safeReaddir(dir: string): string[] {
   try {
     return fs.readdirSync(dir);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      console.warn(`[content] expected directory missing: ${dir}`);
+      return [];
+    }
     throw e;
   }
 }
@@ -60,19 +67,43 @@ function deriveSlugFromFilename(filename: string): string {
   return filename.replace(/\.mdx?$/, "");
 }
 
-// Strip markdown to plaintext for the JSON-LD answer field. Crawlers
-// don't render markdown — they need the literal answer string.
-function markdownToPlainText(md: string): string {
+// Strip markdown to plaintext for the JSON-LD answer field. Order
+// matters: fenced code first (multi-line greedy), then inline tokens.
+export function markdownToPlainText(md: string): string {
   return md
-    .replace(/```[\s\S]*?```/g, "") // fenced code
+    .replace(/```[\s\S]*?```/g, "") // fenced code (multi-line)
     .replace(/`([^`]+)`/g, "$1") // inline code
     .replace(/!\[[^\]]*]\([^)]*\)/g, "") // images
     .replace(/\[([^\]]+)]\([^)]*\)/g, "$1") // links → label
-    .replace(/[#>*_~]/g, "") // bold/italic/headings/blockquotes
+    .replace(/^\s{0,3}>\s?/gm, "") // blockquote markers
+    .replace(/^#{1,6}\s+/gm, "") // heading markers
+    .replace(/\*\*([^*]+)\*\*/g, "$1") // bold
+    .replace(/(?<![\w*])\*([^*\n]+)\*(?!\w)/g, "$1") // italic *x*
+    .replace(/_([^_\n]+)_/g, "$1") // italic _x_
+    .replace(/~~([^~]+)~~/g, "$1") // strikethrough
     .replace(/\n{2,}/g, " ")
     .replace(/\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseFile(filename: string, raw: string): FaqEntry {
+  const parsed = matter(raw);
+  const result = FaqEntryFrontmatterSchema.safeParse(parsed.data);
+  if (!result.success) {
+    throw new Error(
+      `[faq] ${filename}: ${z.prettifyError(result.error)}`,
+    );
+  }
+  const frontmatter = result.data;
+  const slug = frontmatter.slug ?? deriveSlugFromFilename(filename);
+  const body = parsed.content.trim();
+  return {
+    ...frontmatter,
+    slug,
+    body,
+    answerText: markdownToPlainText(body),
+  };
 }
 
 export function loadAllFaqEntries(opts: { includeDrafts?: boolean } = {}): FaqEntry[] {
@@ -82,20 +113,10 @@ export function loadAllFaqEntries(opts: { includeDrafts?: boolean } = {}): FaqEn
   const entries: FaqEntry[] = files.map((filename) => {
     const filePath = path.join(CONTENT_DIR, filename);
     const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = matter(raw);
-    const frontmatter = FaqEntryFrontmatterSchema.parse(parsed.data);
-    const slug = frontmatter.slug ?? deriveSlugFromFilename(filename);
-    const body = parsed.content.trim();
-    return {
-      ...frontmatter,
-      slug,
-      body,
-      answerText: markdownToPlainText(body),
-    };
+    return parseFile(filename, raw);
   });
 
   const visible = includeDrafts ? entries : entries.filter((e) => !e.draft);
-  // Group order is fixed by FAQ_CATEGORIES; within a category, sort by `order` then question.
   return visible.sort((a, b) => {
     const catCmp =
       FAQ_CATEGORIES.indexOf(a.category) - FAQ_CATEGORIES.indexOf(b.category);

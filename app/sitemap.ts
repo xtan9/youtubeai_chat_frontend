@@ -1,6 +1,6 @@
 import { MetadataRoute } from "next";
-import { loadAllBlogPosts } from "@/lib/content/blog";
-import { loadAllFaqEntries } from "@/lib/content/faq";
+import { loadAllBlogPosts, type BlogPost } from "@/lib/content/blog";
+import { loadAllFaqEntries, type FaqEntry } from "@/lib/content/faq";
 
 const baseUrl = "https://www.youtubeai.chat";
 
@@ -9,13 +9,20 @@ const baseUrl = "https://www.youtubeai.chat";
 // "everything changed every crawl," which trains it to ignore lastmod.
 const LAST_MOD = "2026-04-28";
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const blogPosts = loadAllBlogPosts();
-  const faqEntries = loadAllFaqEntries();
+// Date-string YYYY-MM-DD → Date at UTC midnight. Sitemap consumers
+// expect ISO datetime; bare YYYY-MM-DD is technically valid but Search
+// Console occasionally flags it.
+function isoDate(d: string): Date {
+  return new Date(`${d}T00:00:00Z`);
+}
 
-  // Use the most recently updated blog post / faq entry to drive the
-  // listing-page lastmod, so the listing's freshness reflects its
-  // contents without faking date changes on individual rows.
+export function buildSitemap(
+  blogPosts: BlogPost[],
+  faqEntries: FaqEntry[],
+): MetadataRoute.Sitemap {
+  // The listing-page lastmod tracks the freshest item it contains, so
+  // crawlers get an accurate freshness signal without us faking dates
+  // on individual rows.
   const newestBlog = blogPosts.reduce(
     (acc, p) => (p.updatedAt > acc ? p.updatedAt : acc),
     LAST_MOD,
@@ -28,37 +35,37 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticEntries: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
-      lastModified: LAST_MOD,
+      lastModified: isoDate(LAST_MOD),
       changeFrequency: "weekly",
       priority: 1,
     },
     {
       url: `${baseUrl}/summary`,
-      lastModified: LAST_MOD,
+      lastModified: isoDate(LAST_MOD),
       changeFrequency: "weekly",
       priority: 0.9,
     },
     {
       url: `${baseUrl}/blog`,
-      lastModified: newestBlog,
+      lastModified: isoDate(newestBlog),
       changeFrequency: "weekly",
       priority: 0.8,
     },
     {
       url: `${baseUrl}/faq`,
-      lastModified: newestFaq,
+      lastModified: isoDate(newestFaq),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
       url: `${baseUrl}/privacy`,
-      lastModified: LAST_MOD,
+      lastModified: isoDate(LAST_MOD),
       changeFrequency: "yearly",
       priority: 0.3,
     },
     {
       url: `${baseUrl}/terms`,
-      lastModified: LAST_MOD,
+      lastModified: isoDate(LAST_MOD),
       changeFrequency: "yearly",
       priority: 0.3,
     },
@@ -66,10 +73,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const blogEntries: MetadataRoute.Sitemap = blogPosts.map((post) => ({
     url: `${baseUrl}/blog/${post.slug}`,
-    lastModified: post.updatedAt,
+    lastModified: isoDate(post.updatedAt),
     changeFrequency: "monthly",
     priority: 0.7,
   }));
 
   return [...staticEntries, ...blogEntries];
+}
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  return buildSitemap(loadAllBlogPosts(), loadAllFaqEntries());
 }

@@ -2,9 +2,6 @@ import type { BlogPost } from "@/lib/content/blog";
 
 const SITE_URL = "https://www.youtubeai.chat";
 
-// CollectionPage + Blog for the /blog listing. Helps search engines
-// understand the page is a hub and surface individual posts as
-// sitelinks under brand queries.
 export function buildBlogListingSchema(posts: BlogPost[]) {
   return {
     "@context": "https://schema.org",

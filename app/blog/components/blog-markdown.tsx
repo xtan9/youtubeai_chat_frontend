@@ -2,17 +2,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Link from "next/link";
 
-// Server component. Renders the markdown body of a blog post with
-// design-system semantic tokens. Internal links (relative or
-// /-prefixed) become `next/link` for client-side nav; external links
-// open new tab with rel="noopener noreferrer".
-
 const HEADING_STYLES =
   "scroll-mt-24 font-bold text-text-primary tracking-tight";
 
+// `/`-prefixed paths get next/link for client-side nav. Bare `#anchor`
+// fragments fall through to a plain <a> — `<Link href="#x">` triggers a
+// React warning and doesn't actually navigate.
 function isInternalHref(href: string | undefined): boolean {
   if (!href) return false;
-  return href.startsWith("/") || href.startsWith("#");
+  return href.startsWith("/");
 }
 
 export function BlogMarkdown({ children }: { children: string }) {
@@ -77,11 +75,12 @@ export function BlogMarkdown({ children }: { children: string }) {
                 </Link>
               );
             }
+            const isHashAnchor = href?.startsWith("#");
             return (
               <a
                 href={href}
-                target="_blank"
-                rel="noopener noreferrer"
+                target={isHashAnchor ? undefined : "_blank"}
+                rel={isHashAnchor ? undefined : "noopener noreferrer"}
                 className="text-accent-brand underline underline-offset-2 hover:no-underline"
               >
                 {children}

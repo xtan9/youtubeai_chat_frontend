@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { Sparkles, ArrowRight } from "lucide-react";
 
-// "Try it on this video" card — turns each post into a conversion
-// surface. Linked to /summary?url=<heroVideo> so the user can run
-// our tool against the exact video the post is about.
+// Links to /summary?url=<heroVideo> so the CTA runs against the post's exact video.
 export function CtaCard({
   videoUrl,
   videoTitle,

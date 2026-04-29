@@ -2,15 +2,26 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
+import { isYouTubeUrl } from "@/lib/youtube-url";
 
-// Loader for content/blog/*.mdx. Server-only — uses fs. Reads the entire
-// directory at build time so generateStaticParams can pre-render every
-// slug. Frontmatter is validated with Zod; a malformed file fails the
-// build, which is the anti-slop guardrail (a hallucinated post that
-// drops a required field doesn't ship).
+// Anti-slop guardrail lives in the type system: workflow posts are a
+// schema branch that *requires* heroVideo, so a draft missing the real
+// video anchor fails Zod parsing — not a hand-thrown runtime error
+// downstream. heroVideo.url is further refined to a YouTube URL so
+// non-YouTube anchors (Vimeo, raw mp4) can't slip through and produce
+// a malformed VideoObject schema on the post page.
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SLUG = /^[a-z0-9-]+$/;
 
 const HeroVideoSchema = z.object({
-  url: z.string().url(),
+  url: z
+    .string()
+    .url()
+    .refine(isYouTubeUrl, {
+      message:
+        "heroVideo.url must be a YouTube URL (watch, youtu.be, shorts, or embed form)",
+    }),
   title: z.string().min(1),
   channel: z.string().min(1).optional(),
   durationSec: z.number().int().positive().optional(),
@@ -21,23 +32,46 @@ const FaqInlineSchema = z.object({
   a: z.string().min(1),
 });
 
-export const BlogPostFrontmatterSchema = z.object({
+const baseFields = {
   title: z.string().min(1),
   description: z.string().min(20).max(200),
-  slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
-  publishedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  slug: z.string().regex(SLUG).optional(),
+  publishedAt: z.string().regex(ISO_DATE),
+  updatedAt: z.string().regex(ISO_DATE).optional(),
   author: z.string().default("YouTubeAI Team"),
-  category: z.enum(["workflows", "comparisons", "tutorials", "news"]),
   tags: z.array(z.string()).default([]),
-  heroVideo: HeroVideoSchema.optional(),
   ogImage: z.string().optional(),
   faq: z.array(FaqInlineSchema).optional(),
   draft: z.boolean().default(false),
-});
+};
+
+export const BlogPostFrontmatterSchema = z.discriminatedUnion("category", [
+  z.object({
+    ...baseFields,
+    category: z.literal("workflows"),
+    heroVideo: HeroVideoSchema,
+  }),
+  z.object({
+    ...baseFields,
+    category: z.literal("tutorials"),
+    heroVideo: HeroVideoSchema.optional(),
+  }),
+  z.object({
+    ...baseFields,
+    category: z.literal("comparisons"),
+    heroVideo: HeroVideoSchema.optional(),
+  }),
+  z.object({
+    ...baseFields,
+    category: z.literal("news"),
+    heroVideo: HeroVideoSchema.optional(),
+  }),
+]);
 
 export type BlogPostFrontmatter = z.infer<typeof BlogPostFrontmatterSchema>;
 
+// `slug`, `updatedAt` and `body` are all guaranteed by the loader (default
+// values applied), so consumers never have to null-check them.
 export type BlogPost = BlogPostFrontmatter & {
   slug: string;
   body: string;
@@ -50,15 +84,42 @@ function safeReaddir(dir: string): string[] {
   try {
     return fs.readdirSync(dir);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      // Warn once: a missing content dir is usually a path typo or a
+      // forgotten scaffold, NOT a deliberate "we have no posts" state.
+      // Silent return would let an entire SEO surface go empty without
+      // a single log line.
+      console.warn(`[content] expected directory missing: ${dir}`);
+      return [];
+    }
     throw e;
   }
 }
 
 function deriveSlugFromFilename(filename: string): string {
-  // content/blog/2026-04-summarize-podcast.mdx → summarize-podcast
   const base = filename.replace(/\.mdx?$/, "");
   return base.replace(/^\d{4}-\d{2}-/, "");
+}
+
+function parseFile(filename: string, raw: string): BlogPost {
+  const parsed = matter(raw);
+  const result = BlogPostFrontmatterSchema.safeParse(parsed.data);
+  if (!result.success) {
+    // Zod's default message lists path arrays but not which file —
+    // unhelpful when a content batch has 20 posts. Re-throw with the
+    // filename so the build error tells you exactly where to look.
+    throw new Error(
+      `[blog] ${filename}: ${z.prettifyError(result.error)}`,
+    );
+  }
+  const frontmatter = result.data;
+  const slug = frontmatter.slug ?? deriveSlugFromFilename(filename);
+  return {
+    ...frontmatter,
+    slug,
+    body: parsed.content,
+    updatedAt: frontmatter.updatedAt ?? frontmatter.publishedAt,
+  };
 }
 
 export function loadAllBlogPosts(opts: { includeDrafts?: boolean } = {}): BlogPost[] {
@@ -68,28 +129,10 @@ export function loadAllBlogPosts(opts: { includeDrafts?: boolean } = {}): BlogPo
   const posts: BlogPost[] = files.map((filename) => {
     const filePath = path.join(CONTENT_DIR, filename);
     const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = matter(raw);
-    const frontmatter = BlogPostFrontmatterSchema.parse(parsed.data);
-    const slug = frontmatter.slug ?? deriveSlugFromFilename(filename);
-
-    if (frontmatter.category === "workflows" && !frontmatter.heroVideo) {
-      throw new Error(
-        `[blog] ${filename}: workflow posts require a heroVideo frontmatter ` +
-          `block (real video anchor). This is the anti-slop rule. Either ` +
-          `change category, or add heroVideo: { url, title }.`,
-      );
-    }
-
-    return {
-      ...frontmatter,
-      slug,
-      body: parsed.content,
-      updatedAt: frontmatter.updatedAt ?? frontmatter.publishedAt,
-    };
+    return parseFile(filename, raw);
   });
 
   const visible = includeDrafts ? posts : posts.filter((p) => !p.draft);
-  // Newest first.
   return visible.sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1));
 }
 
@@ -102,13 +145,21 @@ export function loadAllBlogSlugs(): string[] {
 }
 
 export function loadRelatedBlogPosts(post: BlogPost, limit = 3): BlogPost[] {
-  const others = loadAllBlogPosts().filter((p) => p.slug !== post.slug);
-  if (others.length === 0) return [];
-  // Score by tag overlap, then category match, then recency.
+  return scoreRelatedPosts(post, loadAllBlogPosts(), limit);
+}
+
+// Pure scoring function — exposed for unit testing without disk I/O.
+// Score = tag overlap × 2 + same-category bonus; ties broken by recency.
+export function scoreRelatedPosts(
+  source: BlogPost,
+  candidates: BlogPost[],
+  limit = 3,
+): BlogPost[] {
+  const others = candidates.filter((p) => p.slug !== source.slug);
   return others
     .map((p) => {
-      const tagOverlap = p.tags.filter((t) => post.tags.includes(t)).length;
-      const sameCategory = p.category === post.category ? 1 : 0;
+      const tagOverlap = p.tags.filter((t) => source.tags.includes(t)).length;
+      const sameCategory = p.category === source.category ? 1 : 0;
       return { post: p, score: tagOverlap * 2 + sameCategory };
     })
     .sort((a, b) =>

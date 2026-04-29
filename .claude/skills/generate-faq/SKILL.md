@@ -11,7 +11,7 @@ You are drafting one FAQ entry for the `/faq` page. The entry lands in `content/
 
 **FAQ answers must reference actual product behavior, not generic platitudes.** Before writing the answer, read the relevant codebase area for the category. Specifically:
 
-- `pricing` → check `app/`, `components/`, and route files for paywall / billing logic. (Spoiler: none today — confirm by inspection.)
+- `pricing` → check `app/`, `components/`, and route files for paywall / billing logic. Verify against current state — don't paraphrase yesterday's answer.
 - `accuracy` → read `youtube-ai-service/src/lib/captions.ts` and `whisper.ts` for the transcript pipeline; understand the captions-first / Whisper-fallback flow.
 - `privacy` → read `app/privacy/page.tsx`, the auth flow, and any storage code. Match the live policy.
 - `features` → read `app/page.tsx`, `app/summary/`, `app/components/` to know what features actually exist.

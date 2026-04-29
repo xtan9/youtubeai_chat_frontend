@@ -1,12 +1,12 @@
 import type { BlogPost } from "@/lib/content/blog";
+import { extractYouTubeId } from "@/lib/youtube-url";
 
 const SITE_URL = "https://www.youtubeai.chat";
 
-// Wraps the YouTube hero video referenced by a post in a VideoObject
-// schema attributed to OUR page (description, embedUrl, etc. tied to
-// the blog post). This is what lets the post outrank generic "summary
-// of <video>" queries — Google treats it as our commentary on the
-// video, not duplicate content.
+// Attributes the hero video to OUR page via mainEntityOfPage so Google
+// treats the schema as our commentary on the video, not duplicate
+// content — this is what lets a post outrank generic "summary of
+// <video>" queries.
 //
 // Returns null if the post has no heroVideo.
 export function buildVideoObjectSchema(post: BlogPost) {
@@ -43,24 +43,16 @@ export function buildVideoObjectSchema(post: BlogPost) {
   };
 }
 
-function extractYouTubeId(url: string): string | null {
-  // Handle youtube.com/watch?v=, youtu.be/, /shorts/, /embed/.
-  const m =
-    url.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||
-    url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/) ||
-    url.match(/\/shorts\/([A-Za-z0-9_-]{11})/) ||
-    url.match(/\/embed\/([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
-
 function secondsToIso8601Duration(totalSec: number): string {
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  // ISO 8601 PT requires at least one component — emit PT0S for exact zero.
+  const wantSeconds = s > 0 || (h === 0 && m === 0);
   return (
     "PT" +
     (h > 0 ? `${h}H` : "") +
     (m > 0 ? `${m}M` : "") +
-    (s > 0 || (h === 0 && m === 0) ? `${s}S` : "")
+    (wantSeconds ? `${s}S` : "")
   );
 }

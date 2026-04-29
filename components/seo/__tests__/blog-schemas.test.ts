@@ -51,6 +51,20 @@ describe("buildBlogPostingSchema", () => {
     expect(schema.image).toMatch(/youtube-summary-demo\.png$/);
   });
 
+  it("uses provided ogImage with leading slash", () => {
+    const post = { ...fixturePost, ogImage: "/og/custom.png" };
+    expect(buildBlogPostingSchema(post).image).toBe(
+      "https://www.youtubeai.chat/og/custom.png",
+    );
+  });
+
+  it("uses provided ogImage without leading slash (compensates)", () => {
+    const post = { ...fixturePost, ogImage: "og/custom.png" };
+    expect(buildBlogPostingSchema(post).image).toBe(
+      "https://www.youtubeai.chat/og/custom.png",
+    );
+  });
+
   it("serializes without throwing", () => {
     expect(() => JSON.stringify(schema)).not.toThrow();
   });
@@ -79,8 +93,12 @@ describe("buildBlogListingSchema", () => {
 });
 
 describe("buildVideoObjectSchema", () => {
-  it("returns null when post has no heroVideo", () => {
-    const noVideo: BlogPost = { ...fixturePost, heroVideo: undefined };
+  it("returns null for a tutorials post without heroVideo", () => {
+    const noVideo: BlogPost = {
+      ...fixturePost,
+      category: "tutorials",
+      heroVideo: undefined,
+    };
     expect(buildVideoObjectSchema(noVideo)).toBeNull();
   });
 
@@ -97,12 +115,8 @@ describe("buildVideoObjectSchema", () => {
     ]);
   });
 
-  it("emits ISO 8601 duration when durationSec is set", () => {
+  it("emits ISO 8601 PT2H for an exact-hour video", () => {
     const schema = buildVideoObjectSchema(fixturePost);
-    // 7200s == 2h exactly => "PT2H". Format: PT[NH][NM][NS] with at
-    // least one component.
-    expect(schema!.duration).toMatch(/^PT(?:\d+H)?(?:\d+M)?(?:\d+S)?$/);
-    expect(schema!.duration).not.toBe("PT");
     expect(schema!.duration).toBe("PT2H");
   });
 
@@ -114,7 +128,7 @@ describe("buildVideoObjectSchema", () => {
     expect(buildVideoObjectSchema(post)!.duration).toBe("PT30S");
   });
 
-  it("composes hours and minutes correctly for an interview-length video", () => {
+  it("composes hours and minutes for an interview-length video", () => {
     const post: BlogPost = {
       ...fixturePost,
       heroVideo: { ...fixturePost.heroVideo!, durationSec: 3 * 3600 + 27 * 60 },
@@ -140,6 +154,41 @@ describe("buildVideoObjectSchema", () => {
     const schema = buildVideoObjectSchema(post);
     expect(schema!.embedUrl).toBe("https://www.youtube.com/embed/aircAruvnKk");
   });
+
+  it("handles /shorts/ links", () => {
+    const post: BlogPost = {
+      ...fixturePost,
+      heroVideo: {
+        url: "https://www.youtube.com/shorts/aircAruvnKk",
+        title: "x",
+      },
+    };
+    const schema = buildVideoObjectSchema(post);
+    expect(schema!.embedUrl).toBe("https://www.youtube.com/embed/aircAruvnKk");
+  });
+
+  it("handles /embed/ links", () => {
+    const post: BlogPost = {
+      ...fixturePost,
+      heroVideo: {
+        url: "https://www.youtube.com/embed/aircAruvnKk",
+        title: "x",
+      },
+    };
+    const schema = buildVideoObjectSchema(post);
+    expect(schema!.embedUrl).toBe("https://www.youtube.com/embed/aircAruvnKk");
+  });
+
+  it("omits duration when durationSec is not provided", () => {
+    const post: BlogPost = {
+      ...fixturePost,
+      heroVideo: {
+        url: fixturePost.heroVideo!.url,
+        title: fixturePost.heroVideo!.title,
+      },
+    };
+    expect(buildVideoObjectSchema(post)!.duration).toBeUndefined();
+  });
 });
 
 describe("buildFaqPageSchema", () => {
@@ -155,9 +204,30 @@ describe("buildFaqPageSchema", () => {
     answerText: "Bold answer.",
   };
 
+  it("declares FAQPage at top level", () => {
+    const schema = buildFaqPageSchema([fixture]);
+    expect(schema["@type"]).toBe("FAQPage");
+    expect(schema["@context"]).toBe("https://schema.org");
+  });
+
+  it("emits one mainEntity per source entry", () => {
+    const schema = buildFaqPageSchema([fixture, { ...fixture, slug: "q2" }]);
+    expect(schema.mainEntity).toHaveLength(2);
+  });
+
+  it("handles empty input array", () => {
+    expect(buildFaqPageSchema([]).mainEntity).toEqual([]);
+  });
+
   it("uses answerText (plain) not the markdown body in the JSON-LD", () => {
     const schema = buildFaqPageSchema([fixture]);
     expect(schema.mainEntity[0].acceptedAnswer.text).toBe("Bold answer.");
     expect(schema.mainEntity[0].acceptedAnswer.text).not.toMatch(/\*/);
+  });
+
+  it("each mainEntity is a Question wrapping an Answer", () => {
+    const schema = buildFaqPageSchema([fixture]);
+    expect(schema.mainEntity[0]["@type"]).toBe("Question");
+    expect(schema.mainEntity[0].acceptedAnswer["@type"]).toBe("Answer");
   });
 });
