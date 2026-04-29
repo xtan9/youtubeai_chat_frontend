@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/auth/sign-up",
   },
+  // Auth pages don't belong in the index — Disallow in robots.txt only
+  // suppresses crawling, not indexing of externally-linked URLs.
+  robots: { index: false, follow: false },
 };
 
 export default function Page() {
