@@ -533,7 +533,7 @@ describe("getUserSummaries", () => {
 // ─── getUserAuditEvents ──────────────────────────────────────────────────
 
 describe("getUserAuditEvents", () => {
-  it("filters by resource_id and limits to N rows newest-first", async () => {
+  it("filters by both resource_id and metadata.viewed_user_id and limits to N rows newest-first", async () => {
     const client = buildClient([
       {
         table: "admin_audit_log",
@@ -553,8 +553,10 @@ describe("getUserAuditEvents", () => {
           error: null,
         },
         expect: (calls) => {
-          const eq = calls.find((c) => c.method === "eq");
-          expect(eq?.args).toEqual(["resource_id", "user-X"]);
+          const orCall = calls.find((c) => c.method === "or");
+          expect(orCall).toBeDefined();
+          expect(String(orCall?.args[0])).toContain("resource_id.eq.user-X");
+          expect(String(orCall?.args[0])).toContain("metadata->>viewed_user_id.eq.user-X");
           const limit = calls.find((c) => c.method === "limit");
           expect(limit?.args).toEqual([10]);
         },

@@ -220,12 +220,22 @@ export async function getUserAuditEvents(
   limit: number = PER_USER_AUDIT_DEFAULT_LIMIT,
 ): Promise<AuditRow[]> {
   const cap = Math.min(Math.max(limit, 1), PER_USER_AUDIT_LIMIT_CAP);
+  // admin_audit_log uses two row shapes for "events about a user":
+  //   1. view_transcript (and similar content-revealing actions): the row's
+  //      resource_type is "summary" and resource_id is the summary UUID; the
+  //      user being viewed is in metadata.viewed_user_id.
+  //   2. user-targeted actions (suspend_user / restore_user, etc.): the row's
+  //      resource_type is "user" and resource_id is the user UUID directly.
+  // Match both shapes so the per-user drilldown surfaces all events that
+  // reference the user, regardless of which schema the action used.
   const { data, error } = await client
     .from("admin_audit_log")
     .select(
       "id, created_at, admin_id, admin_email, action, resource_type, resource_id, metadata",
     )
-    .eq("resource_id", userId)
+    .or(
+      `and(resource_type.eq.user,resource_id.eq.${userId}),metadata->>viewed_user_id.eq.${userId}`,
+    )
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(cap);
