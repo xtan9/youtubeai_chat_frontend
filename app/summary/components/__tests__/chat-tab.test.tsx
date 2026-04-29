@@ -345,6 +345,43 @@ describe("ChatTab", () => {
     );
   });
 
+  it("locks the message input while the clear-button is in its 5s undo window", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () =>
+        jsonResponse({
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              content: "what's this about",
+              createdAt: "2026-04-28T00:00:00Z",
+            },
+          ],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    toastSuccessMock.mockClear();
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+    await waitFor(() =>
+      expect(screen.getByText("what's this about")).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /clear chat history/i }),
+    );
+    // After click: optimistic clear + toast pending. The input must be
+    // disabled now so a message sent during the window doesn't get
+    // wiped by the deferred DELETE.
+    const input = screen.getByLabelText(/chat message/i) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    // Send button is also disabled.
+    expect(
+      (screen.getByRole("button", { name: /send message/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   it("has no axe a11y violations on the empty-state orchestrator", async () => {
     const fetchMock = makeRouter({
       onMessages: () => jsonResponse({ messages: [] }),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useChatStream } from "@/lib/hooks/useChatStream";
 import { useChatThread } from "@/lib/hooks/useChatThread";
 import { ChatClearButton } from "./chat-clear-button";
@@ -20,15 +20,22 @@ interface ChatTabProps {
  */
 export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
+  // True while ChatClearButton is in its 5s undo window. We lock the
+  // message input during the window — otherwise a message sent after
+  // the optimistic clear would be erased by the deferred DELETE.
+  const [clearPending, setClearPending] = useState(false);
   const thread = useChatThread(youtubeUrl, active);
   const stream = useChatStream({ youtubeUrl });
 
   const handleSend = () => {
     const text = draftInput.trim();
-    if (!text) return;
+    if (!text || clearPending) return;
     setDraftInput("");
     void stream.send(text);
   };
+  const handleClearPendingChange = useCallback((pending: boolean) => {
+    setClearPending(pending);
+  }, []);
 
   const handlePickSuggestion = (suggestion: string) => {
     setDraftInput(suggestion);
@@ -55,6 +62,7 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
           youtubeUrl={youtubeUrl}
           disabled={persistedMessages.length === 0 && !stream.draft}
           onBeforeClear={handleBeforeClear}
+          onPendingChange={handleClearPendingChange}
         />
       </div>
 
@@ -92,7 +100,7 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
           onSend={handleSend}
           onStop={stream.abort}
           streaming={stream.streaming}
-          disabled={!youtubeUrl}
+          disabled={!youtubeUrl || clearPending}
         />
       </div>
     </div>

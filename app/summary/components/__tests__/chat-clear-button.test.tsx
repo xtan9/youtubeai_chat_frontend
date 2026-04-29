@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ChatClearButton } from "../chat-clear-button";
@@ -207,5 +207,82 @@ describe("ChatClearButton", () => {
       screen.getByRole("button", { name: /clear chat history/i }),
     );
     expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks a second click while the undo window is open (no second toast, no stacked DELETEs)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = freshClient();
+    const queryKey = chatThreadQueryKey(VALID_URL);
+    client.setQueryData(queryKey, SNAPSHOT);
+
+    render(<ChatClearButton youtubeUrl={VALID_URL} />, {
+      wrapper: wrapper(client),
+    });
+    const btn = screen.getByRole("button", { name: /clear chat history/i });
+    fireEvent.click(btn);
+    // Re-entry guard should fire on the second click — same toast,
+    // no second snapshot capture, no second deferred DELETE.
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    // Drive the (single) auto-close — only one DELETE should fire.
+    const opts = getLastToastOptions();
+    opts.onAutoClose!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the parent via onPendingChange so the input can be locked during the undo window", async () => {
+    const onPendingChange = vi.fn();
+    const client = freshClient();
+    client.setQueryData(chatThreadQueryKey(VALID_URL), SNAPSHOT);
+    render(
+      <ChatClearButton
+        youtubeUrl={VALID_URL}
+        onPendingChange={onPendingChange}
+      />,
+      { wrapper: wrapper(client) },
+    );
+    await waitFor(() =>
+      expect(onPendingChange).toHaveBeenLastCalledWith(false),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /clear chat history/i }),
+    );
+    await waitFor(() =>
+      expect(onPendingChange).toHaveBeenLastCalledWith(true),
+    );
+    const opts = getLastToastOptions();
+    act(() => {
+      opts.action!.onClick();
+    });
+    await waitFor(() =>
+      expect(onPendingChange).toHaveBeenLastCalledWith(false),
+    );
+  });
+
+  it("flushes the deferred DELETE when the component unmounts mid-undo-window", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = freshClient();
+    client.setQueryData(chatThreadQueryKey(VALID_URL), SNAPSHOT);
+
+    const view = render(<ChatClearButton youtubeUrl={VALID_URL} />, {
+      wrapper: wrapper(client),
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /clear chat history/i }),
+    );
+    // Simulate an SPA navigation away from /summary mid-window.
+    view.unmount();
+    await new Promise((r) => setTimeout(r, 0));
+    // Without the unmount flush, this DELETE would never fire and the
+    // success toast would contradict the server state (still has every
+    // message) on the user's next visit.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).method).toBe("DELETE");
   });
 });
