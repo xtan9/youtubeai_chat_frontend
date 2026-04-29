@@ -12,6 +12,9 @@ import { ResultsDisplay } from "./results-display";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import { StreamErrorBanner } from "./stream-error-banner";
 import { LanguagePicker } from "./language-picker";
+import { SummaryTabs } from "./summary-tabs";
+import { ChatTab } from "./chat-tab";
+import { PlayerRefProvider } from "@/lib/contexts/player-ref";
 import type { SummaryResult } from "@/lib/types";
 import {
   SUPPORTED_LANGUAGE_CODES,
@@ -241,70 +244,77 @@ export function YouTubeSummarizerApp({
     setOutputLanguage(code);
   };
 
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <AuthErrorBanner authError={queryError?.message} />
-          {streamError && <StreamErrorBanner message={streamError} />}
-          {/* Suppress the progress indicator once the stream has errored —
-              the error banner is the terminal UI, not a stalled 70% bar. */}
-          {!streamError && (streamingProgress || isProcessing) && (
-            <>
-              {/* Standalone picker above the progress indicator — lets a
-                  user switch language mid-transcription without waiting
-                  for the summary card (which only mounts once data
-                  arrives). Hidden once the summary is on screen; the
-                  summary card renders its own picker in the button row. */}
-              {!dataWithLiveTimers && (
-                <div className="flex justify-end mb-3">
-                  <LanguagePicker
-                    currentLanguage={outputLanguage ?? null}
-                    browserLanguage={browserLanguage}
-                    onSelect={handleLanguageSelect}
-                    isDark={isDark}
-                  />
-                </div>
-              )}
-              <StreamingProgressIndicator
-                progress={
-                  streamingProgress || {
-                    stage: "preparing",
-                    message: "Starting summary process...",
-                    progress: 5,
-                  }
-                }
+  // Chat unlocks once the summary is on the page (live stream finished
+  // OR cached row resolved). Both produce `dataWithLiveTimers`, and a
+  // hard error suppresses both, so this single condition covers both
+  // paths without touching the streaming state machine.
+  const chatLocked = !dataWithLiveTimers || !!streamError;
+
+  const summaryContent = (
+    <>
+      <AuthErrorBanner authError={queryError?.message} />
+      {streamError && <StreamErrorBanner message={streamError} />}
+      {!streamError && (streamingProgress || isProcessing) && (
+        <>
+          {!dataWithLiveTimers && (
+            <div className="flex justify-end mb-3">
+              <LanguagePicker
+                currentLanguage={outputLanguage ?? null}
+                browserLanguage={browserLanguage}
+                onSelect={handleLanguageSelect}
+                isDark={isDark}
               />
-            </>
+            </div>
           )}
-          {dataWithLiveTimers && !streamError && (
-            <ResultsDisplay
-              data={dataWithLiveTimers}
-              copied={copied}
-              onCopySummary={handleCopySummary}
-              onNewSummary={handleNewSummary}
-              outputLanguage={outputLanguage}
-              browserLanguage={browserLanguage}
-              onSelectLanguage={handleLanguageSelect}
-              // Picker stays enabled during transcription + summarization.
-              // A mid-flight switch cancels the in-flight request (see
-              // handleLanguageSelect) and kicks off the new one with the
-              // chosen output language. No reason to lock it — letting the
-              // user change their mind is cheaper than waiting for the
-              // full pipeline they don't want.
-              languageDisabled={false}
-            />
-          )}
-        </div>
-        <div className="sticky top-[138px] w-full">
-          <YoutubeVideo
-            url={url}
-            width={600}
-            segments={data?.segments}
-            streamingComplete={streamingComplete}
+          <StreamingProgressIndicator
+            progress={
+              streamingProgress || {
+                stage: "preparing",
+                message: "Starting summary process...",
+                progress: 5,
+              }
+            }
           />
+        </>
+      )}
+      {dataWithLiveTimers && !streamError && (
+        <ResultsDisplay
+          data={dataWithLiveTimers}
+          copied={copied}
+          onCopySummary={handleCopySummary}
+          onNewSummary={handleNewSummary}
+          outputLanguage={outputLanguage}
+          browserLanguage={browserLanguage}
+          onSelectLanguage={handleLanguageSelect}
+          languageDisabled={false}
+        />
+      )}
+    </>
+  );
+
+  const chatContent = <ChatTab youtubeUrl={url || null} active={!chatLocked} />;
+
+  return (
+    <PlayerRefProvider>
+      <div className="container mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <SummaryTabs
+              chatLocked={chatLocked}
+              summaryContent={summaryContent}
+              chatContent={chatContent}
+            />
+          </div>
+          <div className="sticky top-[138px] w-full">
+            <YoutubeVideo
+              url={url}
+              width={600}
+              segments={data?.segments}
+              streamingComplete={streamingComplete}
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </PlayerRefProvider>
   );
 }

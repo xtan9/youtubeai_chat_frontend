@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook } from "@testing-library/react";
+
+afterEach(() => cleanup());
 import { PlayerRefProvider, usePlayerRef } from "../player-ref";
 import type { ReactNode } from "react";
 
