@@ -7,7 +7,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { MailIcon } from "lucide-react";
+import { MailIcon, ArrowRight } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { faqItems } from "./faq-items";
@@ -77,7 +78,17 @@ export function FAQ() {
         </Accordion>
       </div>
 
-      <div className="text-center mt-12">
+      <div className="text-center mt-10">
+        <Link
+          href="/faq"
+          className="inline-flex items-center gap-1 text-base font-medium text-accent-brand hover:underline underline-offset-2"
+        >
+          See all FAQs
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+
+      <div className="text-center mt-8">
         <p className={supportText + " mb-6"}>Need more information?</p>
         <Button
           asChild

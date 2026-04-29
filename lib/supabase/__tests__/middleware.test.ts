@@ -45,6 +45,9 @@ describe("updateSession", () => {
     ["/login", "legacy login"],
     ["/privacy", "privacy"],
     ["/terms", "terms"],
+    ["/blog", "blog index"],
+    ["/blog/some-post", "blog post"],
+    ["/faq", "faq"],
     ["/api/health", "health probe"],
   ])("allows unauthenticated access to %s (%s)", async (pathname) => {
     mockGetUser.mockResolvedValue({ data: { user: null } });

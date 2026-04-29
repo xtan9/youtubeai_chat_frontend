@@ -53,6 +53,14 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/privacy") ||
     request.nextUrl.pathname.startsWith("/terms") ||
+    // Marketing surfaces — must be crawlable. Auth-gating these would
+    // hand search engines a /auth/login page instead of the actual
+    // content, killing SEO/AEO and bouncing users who arrive from a
+    // Google or ChatGPT cite.
+    request.nextUrl.pathname === "/blog" ||
+    request.nextUrl.pathname.startsWith("/blog/") ||
+    request.nextUrl.pathname === "/faq" ||
+    request.nextUrl.pathname.startsWith("/faq/") ||
     // Design-system showcase is purely a visual reference for components and
     // tokens — no user data — so it's reachable without auth. Lets reviewers
     // and contributors browse the catalogue without logging in.
