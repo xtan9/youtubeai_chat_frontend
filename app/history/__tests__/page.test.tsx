@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/services/user-history", () => ({
   getHistoryPage: (...args: unknown[]) => mockGetHistoryPage(...args),
 }));
-const mockGetChatMessageCounts = vi.fn(async () => new Map());
+const mockGetChatMessageCounts = vi.fn();
 vi.mock("@/lib/services/chat-counts", () => ({
   getChatMessageCounts: (...args: unknown[]) => mockGetChatMessageCounts(...args),
 }));

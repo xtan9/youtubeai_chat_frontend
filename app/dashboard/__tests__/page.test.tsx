@@ -22,7 +22,7 @@ vi.mock("@/lib/services/user-history", () => ({
 // Chat-count badge fetch is hoisted from `lib/services/chat-counts.ts`.
 // Default to "no chat counts" so existing assertions keep working;
 // the badge-rendering case has its own dedicated test below.
-const mockGetChatMessageCounts = vi.fn(async () => new Map());
+const mockGetChatMessageCounts = vi.fn();
 vi.mock("@/lib/services/chat-counts", () => ({
   getChatMessageCounts: (...args: unknown[]) => mockGetChatMessageCounts(...args),
 }));
