@@ -116,6 +116,46 @@ describe("updateSession", () => {
     );
   });
 
+  it("redirects authenticated user from / to /dashboard", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1", email: "u@example.com" } },
+    });
+    const response = await updateSession(req("/"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/dashboard"
+    );
+  });
+
+  it("does NOT redirect anonymous user on /", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const response = await updateSession(req("/"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("does NOT redirect authenticated user away from /summary", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1", email: "u@example.com" } },
+    });
+    const response = await updateSession(req("/summary"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("redirects authenticated user from / to /dashboard regardless of query string", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1" } },
+    });
+    const response = await updateSession(
+      new NextRequest("https://example.com/?utm_source=email")
+    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/dashboard"
+    );
+  });
+
   it.each([
     ["/loginx", "extends /login prefix"],
     ["/summary-fake", "extends /summary prefix"],

@@ -45,6 +45,16 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Logged-in users get the personal dashboard instead of the marketing
+  // homepage. The redirect lives here (not in `app/page.tsx`) so anonymous
+  // visitors and crawlers still see the marketing/SEO content at `/`.
+  if (user && request.nextUrl.pathname === "/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   // Allow public access to summary pages and home page
   const isPublicPath =
     request.nextUrl.pathname === "/" ||
