@@ -642,12 +642,14 @@ export async function fetchUsersTotal(
   return data?.total ?? null;
 }
 
-const ADMIN_USER_LISTING_PER_PAGE = 200;
-
 /**
  * Returns the auth user IDs of all users with
  * `app_metadata.is_admin === true`. Used to filter out admin activity
  * from KPIs.
+ *
+ * Pages through the full user list via `listAllUsers` (capped at 5000
+ * by default with a warn on truncation). A previous single-page
+ * implementation silently dropped admins past the first 200 rows.
  *
  * Fail-soft: returns [] on error so callers default to "include
  * admins" rather than failing the page.
@@ -655,23 +657,26 @@ const ADMIN_USER_LISTING_PER_PAGE = 200;
 export async function listAdminUserIds(
   client: SupabaseClient,
 ): Promise<string[]> {
-  const { data, error } = await client.auth.admin.listUsers({
-    page: 1,
-    perPage: ADMIN_USER_LISTING_PER_PAGE,
-  });
-  if (error) {
+  try {
+    const { users, truncated } = await listAllUsers(client);
+    if (truncated) {
+      console.warn(
+        "[admin-queries] listAdminUserIds: user list truncated — admin set may be incomplete",
+      );
+    }
+    return users
+      .filter(
+        (u) =>
+          (u.app_metadata as Record<string, unknown> | undefined)
+            ?.is_admin === true,
+      )
+      .map((u) => u.id);
+  } catch (err) {
     console.error("[admin-queries] listAdminUserIds failed", {
-      message: error.message,
+      message: err instanceof Error ? err.message : String(err),
     });
     return [];
   }
-  const users = (data?.users ?? []) as Array<{
-    id: string;
-    app_metadata?: Record<string, unknown>;
-  }>;
-  return users
-    .filter((u) => u.app_metadata?.is_admin === true)
-    .map((u) => u.id);
 }
 
 

@@ -1163,11 +1163,59 @@ describe("listAdminUserIds", () => {
     expect(out).toEqual(["u-1", "u-5"]);
   });
 
+  it("paginates through every page so admins past page 1 are still found", async () => {
+    // 250 users across 2 pages: page 1 has 200 non-admins, page 2 has
+    // 50 users with the admin (u-admin-late) embedded among them.
+    // Regression guard: a single-page implementation would miss this
+    // admin entirely and silently leak their activity into KPIs.
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `u-${i}`,
+      email: `${i}@x`,
+      app_metadata: { is_admin: false },
+    }));
+    const page2 = [
+      ...Array.from({ length: 25 }, (_, i) => ({
+        id: `u-${200 + i}`,
+        email: `${200 + i}@x`,
+        app_metadata: { is_admin: false },
+      })),
+      {
+        id: "u-admin-late",
+        email: "late@x",
+        app_metadata: { is_admin: true },
+      },
+      ...Array.from({ length: 24 }, (_, i) => ({
+        id: `u-${226 + i}`,
+        email: `${226 + i}@x`,
+        app_metadata: { is_admin: false },
+      })),
+    ];
+    const pages = [page1, page2];
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(
+            async ({ page }: { page: number; perPage: number }) => {
+              const users = pages[page - 1] ?? [];
+              return { data: { users, total: 250 }, error: null };
+            },
+          ),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await listAdminUserIds(client);
+    expect(out).toEqual(["u-admin-late"]);
+  });
+
   it("returns empty array on error and logs", async () => {
     const client = {
       from: vi.fn(),
       auth: {
         admin: {
+          // listAllUsers throws QueryError on page-1 listUsers errors;
+          // listAdminUserIds's try/catch catches it and falls back to [].
           listUsers: vi.fn(async () => ({
             data: null,
             error: { message: "auth offline" },
