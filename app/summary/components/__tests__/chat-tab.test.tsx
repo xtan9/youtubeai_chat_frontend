@@ -313,6 +313,33 @@ describe("ChatTab", () => {
     });
   });
 
+  it("removes the thinking indicator when the stream errors before any delta arrives", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onStream: () =>
+        sseResponse([{ type: "error", message: "upstream is down" }]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/ask anything about this video/i),
+      ).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText(/chat message/i), {
+      target: { value: "go" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      const alerts = screen.getAllByRole("alert");
+      expect(alerts.some((el) => /upstream is down/i.test(el.textContent ?? ""))).toBe(true);
+    });
+    expect(screen.queryByTestId("chat-thinking-indicator")).toBeNull();
+  });
+
   it("clearing during a stream aborts the stream, optimistically empties the list, and shows the undo toast", async () => {
     const controlled = controlledSseResponse();
     const fetchMock = makeRouter({
@@ -355,6 +382,10 @@ describe("ChatTab", () => {
         screen.queryByRole("button", { name: /stop generating/i }),
       ).toBeNull(),
     );
+    // Aborting during the "thinking" phase (before any delta arrived)
+    // must take the indicator down with it — otherwise users see a
+    // stuck spinner after pressing Clear/Stop.
+    expect(screen.queryByTestId("chat-thinking-indicator")).toBeNull();
     expect(toastSuccessMock).toHaveBeenCalledWith(
       "Chat cleared",
       expect.objectContaining({
