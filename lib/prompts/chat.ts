@@ -21,12 +21,12 @@ export interface ChatGatewayMessage {
   readonly content: string;
 }
 
-const SYSTEM_PROMPT_TEMPLATE = `You are a helpful assistant answering questions about a specific YouTube video. The video's transcript and summary are provided below.
+const CONTEXT_PRIMER_TEMPLATE = `I'm going to ask follow-up questions about this YouTube video. Use the transcript and summary below as your only source of truth.
 
 Rules:
 - Ground every claim in the transcript. If the transcript does not contain the answer, say so plainly.
 - When citing a specific moment, include the timestamp in [mm:ss] format (or [hh:mm:ss] for videos longer than an hour). Use timestamps that appear or can be inferred from the transcript only — never invent them.
-- Be concise. Match the language of the user's question.
+- Be concise. Match the language of my question.
 - Do not pretend to play the video, click links, or take any action you cannot actually take.
 
 Video summary:
@@ -35,17 +35,28 @@ Video summary:
 Full transcript:
 {{TRANSCRIPT}}`;
 
+const PRIMER_ACK =
+  "Got it. I'll answer your questions about this video grounded in the transcript, and cite timestamps as [mm:ss] when relevant.";
+
 /**
- * Build the OpenAI-compatible message array for the chat gateway. The
- * transcript + summary are front-loaded in the system message so the
- * prefix can be prompt-cached if the gateway gains that knob; for v1
- * the cost of paying the prefix every turn is acceptable for typical
- * YouTube content lengths.
+ * Build the OpenAI-compatible message array for the chat gateway.
+ *
+ * The OpenAI-compat gateway in front of Claude (CLIProxyAPI) is unreliable
+ * about forwarding `role: "system"` messages — the model frequently
+ * answered "I don't see any content to summarize" when the transcript
+ * lived in a system message, mirroring an upstream-strip failure mode.
+ * The summary pipeline avoids this by using a single user-role message
+ * (lib/services/llm-client.ts), and we follow the same discipline here:
+ * the transcript+summary+rules go in a synthetic FIRST user message,
+ * followed by a synthetic assistant ack. The real chat history then
+ * follows, ending with the user's new question. The model treats the
+ * primer as "the conversation already started with this context" and
+ * answers from it correctly.
  */
 export function buildChatMessages(
   params: BuildChatPromptParams
 ): readonly ChatGatewayMessage[] {
-  const system = SYSTEM_PROMPT_TEMPLATE.replace(
+  const primer = CONTEXT_PRIMER_TEMPLATE.replace(
     "{{SUMMARY}}",
     params.summary
   ).replace("{{TRANSCRIPT}}", params.transcript);
@@ -54,7 +65,8 @@ export function buildChatMessages(
     content: m.content,
   }));
   return [
-    { role: "system", content: system },
+    { role: "user", content: primer },
+    { role: "assistant", content: PRIMER_ACK },
     ...history,
     { role: "user", content: params.userMessage },
   ];

@@ -304,14 +304,11 @@ describe("POST /api/chat/stream", () => {
       createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
     }));
     mocks.listChatMessages.mockResolvedValue(longHistory);
+    let observedMessages: ReadonlyArray<{ role: string; content: string }> | null = null;
     mocks.streamChatCompletion.mockImplementation(async function* (opts: {
       messages: ReadonlyArray<{ role: string; content: string }>;
     }) {
-      // The system message is at index 0, then history (capped), then
-      // the new user message at the end. With a 25-row history the
-      // builder should receive only the last 16 items as history.
-      const historyCount = opts.messages.length - 2;
-      expect(historyCount).toBe(16);
+      observedMessages = opts.messages;
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
     });
@@ -320,6 +317,13 @@ describe("POST /api/chat/stream", () => {
       makeRequest({ youtube_url: VALID_URL, message: "Hi" })
     );
     await readSse(res.body!);
+    // Shape: primer-user + primer-ack + history (capped) + new user.
+    // With a 25-row history the prompt builder must keep only the last
+    // 16 — the assertion runs OUTSIDE the generator so a regression
+    // surfaces as a test failure, not a swallowed error inside the
+    // route's catch.
+    expect(observedMessages).not.toBeNull();
+    expect(observedMessages!.length).toBe(2 + 16 + 1);
   });
 
   it("persists turn BEFORE sending done; persist failure surfaces error and falls back to user-only", async () => {
@@ -393,11 +397,11 @@ describe("POST /api/chat/stream", () => {
       createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
     }));
     mocks.listChatMessages.mockResolvedValue(exactly16);
+    let observed: ReadonlyArray<{ role: string; content: string }> | null = null;
     mocks.streamChatCompletion.mockImplementation(async function* (opts: {
       messages: ReadonlyArray<{ role: string; content: string }>;
     }) {
-      // 1 system + 16 history + 1 new user = 18
-      expect(opts.messages.length).toBe(18);
+      observed = opts.messages;
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
     });
@@ -406,6 +410,9 @@ describe("POST /api/chat/stream", () => {
       makeRequest({ youtube_url: VALID_URL, message: "Hi" })
     );
     await readSse(res.body!);
+    // 2 primer + 16 history + 1 new user = 19; nothing dropped.
+    expect(observed).not.toBeNull();
+    expect(observed!.length).toBe(19);
   });
 
   it("history cap boundary: 17-row history truncates to 16", async () => {
@@ -416,15 +423,11 @@ describe("POST /api/chat/stream", () => {
       createdAt: new Date(2026, 3, 28, 0, 0, i).toISOString(),
     }));
     mocks.listChatMessages.mockResolvedValue(seventeen);
+    let observed: ReadonlyArray<{ role: string; content: string }> | null = null;
     mocks.streamChatCompletion.mockImplementation(async function* (opts: {
       messages: ReadonlyArray<{ role: string; content: string }>;
     }) {
-      // 1 system + 16 history (oldest dropped) + 1 new user = 18
-      expect(opts.messages.length).toBe(18);
-      // The oldest message ("msg-0") should be dropped — verify the
-      // first history item (after the system message) is "msg-1".
-      const firstHistory = opts.messages[1];
-      expect(firstHistory?.content).toBe("msg-1");
+      observed = opts.messages;
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
     });
@@ -433,5 +436,11 @@ describe("POST /api/chat/stream", () => {
       makeRequest({ youtube_url: VALID_URL, message: "Hi" })
     );
     await readSse(res.body!);
+    // 2 primer + 16 history (oldest dropped) + 1 new user = 19.
+    // index 0 = primer user, index 1 = primer ack, index 2 = first
+    // history item, which should be "msg-1" not "msg-0".
+    expect(observed).not.toBeNull();
+    expect(observed!.length).toBe(19);
+    expect(observed![2]?.content).toBe("msg-1");
   });
 });
