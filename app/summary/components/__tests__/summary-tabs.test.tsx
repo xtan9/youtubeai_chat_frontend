@@ -2,11 +2,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
-const replaceMock = vi.fn();
-const searchParamsState = { value: new URLSearchParams() };
+// vi.hoisted runs before vi.mock factories AND before the module imports
+// vitest hoists; lets us share refs between this file and the mock factory
+// without "Cannot access 'replaceMock' before initialization".
+const { replaceMock, searchParamsState, routerInstance } = vi.hoisted(() => {
+  const replaceMock = vi.fn();
+  return {
+    replaceMock,
+    searchParamsState: { value: new URLSearchParams() },
+    // Stable router instance — Next.js's real `useRouter()` returns a
+    // memoized object; recreating it per call would make any effect
+    // with `router` in its dep array re-run on every parent re-render,
+    // canceling our setTimeout-based bounce timer.
+    routerInstance: { replace: replaceMock },
+  };
+});
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: replaceMock }),
+  useRouter: () => routerInstance,
   usePathname: () => "/summary",
   useSearchParams: () => searchParamsState.value,
 }));
@@ -66,7 +79,7 @@ describe("SummaryTabs", () => {
     // Bounce is delayed — the user gets up to BOUNCE_DELAY_MS for the
     // cache to resolve before we rewrite their URL.
     expect(replaceMock).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1500);
+    vi.advanceTimersByTime(2000);
     expect(replaceMock).toHaveBeenCalled();
     const calledWith = replaceMock.mock.calls[0]?.[0] as string;
     expect(calledWith).not.toMatch(/tab=chat/);
@@ -96,8 +109,45 @@ describe("SummaryTabs", () => {
     // dep changes; advancing past the original delay must NOT fire
     // the bounce, because the effect re-ran with chatLocked=false and
     // its body short-circuited.
-    vi.advanceTimersByTime(2000);
+    vi.advanceTimersByTime(2500);
     expect(replaceMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("bounce is NOT reset by an unrelated searchParams change mid-window (no indefinite deferral)", () => {
+    // searchParams is read via a ref inside the timer body, NOT from
+    // the effect's dep array — so a parent component writing `?url=`
+    // (e.g. after paste) can't keep resetting the bounce window.
+    vi.useFakeTimers();
+    searchParamsState.value = new URLSearchParams({ tab: "chat" });
+    const { rerender } = render(
+      <SummaryTabs
+        chatLocked={true}
+        summaryContent={<div>SUMMARY-CONTENT</div>}
+        chatContent={<div>CHAT-CONTENT</div>}
+      />,
+    );
+    vi.advanceTimersByTime(1000);
+    // Mutate searchParams (URL gained an unrelated query param) and
+    // re-render with the SAME chatLocked / pathname / router. The
+    // effect should NOT re-run — its deps don't include searchParams
+    // any more.
+    searchParamsState.value = new URLSearchParams({
+      tab: "chat",
+      url: "x",
+    });
+    rerender(
+      <SummaryTabs
+        chatLocked={true}
+        summaryContent={<div>SUMMARY-CONTENT</div>}
+        chatContent={<div>CHAT-CONTENT</div>}
+      />,
+    );
+    // Total time = 1000 + 1100 = 2100ms; original timer fires at
+    // 2000ms. If the searchParams change had reset the timer, the
+    // bounce would not have fired by now.
+    vi.advanceTimersByTime(1100);
+    expect(replaceMock).toHaveBeenCalled();
     vi.useRealTimers();
   });
 

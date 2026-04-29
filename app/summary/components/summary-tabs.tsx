@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -22,12 +28,19 @@ interface SummaryTabsProps {
 
 // Window during which `?tab=chat` won't be auto-bounced even if the
 // chat tab is currently locked. Cache hits for previously-summarized
-// videos resolve in well under this; permanent locks (no summary
-// exists) outlast it and bounce normally. Tuned by observation in
-// prod — the predicate-based suppression in the prior round of this
-// fix flipped false before `dataWithLiveTimers` populated, causing
-// the bounce to fire anyway on cached reloads.
-const BOUNCE_DELAY_MS = 1500;
+// videos resolve in well under this (~500ms typical, observed up to
+// ~1s on cold Supabase reads); permanent locks (no summary exists)
+// outlast it and bounce normally. Tuned by observation in prod —
+// the predicate-based suppression in the prior round of this fix
+// flipped false before `dataWithLiveTimers` populated, causing the
+// bounce to fire anyway on cached reloads. 2s gives meaningful
+// headroom over the worst observed cache-read tail.
+//
+// Trade-off: a user who bookmarks `?tab=chat` for a freshly-pasted
+// (never-summarized) URL bounces after 2s, briefly stuck on a locked
+// tab. Acceptable — that flow is vanishingly rare and the bounce
+// just sends them where they'd land anyway.
+const BOUNCE_DELAY_MS = 2000;
 
 function isValidTab(value: string | null): value is SummaryTabValue {
   return value === "summary" || value === "chat";
@@ -61,21 +74,28 @@ export function SummaryTabs({
   // We delay the bounce by `BOUNCE_DELAY_MS` rather than gating on a
   // parent-supplied "still loading" predicate: the prior predicate-
   // based fix flipped false before `dataWithLiveTimers` populated on
-  // cached reloads, so the bounce fired anyway. The timer survives
-  // re-renders because the cleanup only runs when chatLocked changes
-  // — if chat unlocks within the window, the timer is cleared and no
-  // bounce fires; if it doesn't, the bounce lands and the user gets
-  // sent to Summary.
+  // cached reloads, so the bounce fired anyway. The cleanup clears
+  // the timer when chatLocked flips false, so cache hits cancel
+  // before the timer fires.
+  //
+  // searchParams is read via a ref instead of the dep array so any
+  // unrelated URL mutation (parent writing `?url=…` after paste,
+  // language switch on the summary panel) doesn't reset the timer
+  // and indefinitely defer the bounce.
+  const searchParamsRef = useRef(searchParams);
+  useEffect(() => {
+    searchParamsRef.current = searchParams;
+  }, [searchParams]);
   useEffect(() => {
     if (active !== "chat" || !chatLocked) return;
     const id = setTimeout(() => {
-      const next = new URLSearchParams(searchParams.toString());
+      const next = new URLSearchParams(searchParamsRef.current.toString());
       next.delete("tab");
       const query = next.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     }, BOUNCE_DELAY_MS);
     return () => clearTimeout(id);
-  }, [active, chatLocked, pathname, router, searchParams]);
+  }, [active, chatLocked, pathname, router]);
 
   const setTab = useCallback(
     (value: string) => {
