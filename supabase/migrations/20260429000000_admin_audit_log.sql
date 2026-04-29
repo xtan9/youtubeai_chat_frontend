@@ -18,7 +18,7 @@
 --     does not enforce immutability — that lives in the lib/admin/audit.ts
 --     wrapper.
 
-CREATE TABLE admin_audit_log (
+CREATE TABLE IF NOT EXISTS admin_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     admin_id UUID NOT NULL,
     admin_email TEXT NOT NULL CHECK (length(admin_email) > 0),
@@ -29,9 +29,9 @@ CREATE TABLE admin_audit_log (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_created_at ON admin_audit_log (created_at DESC);
-CREATE INDEX idx_audit_admin_id   ON admin_audit_log (admin_id, created_at DESC);
-CREATE INDEX idx_audit_resource   ON admin_audit_log (resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON admin_audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_admin_id   ON admin_audit_log (admin_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_resource   ON admin_audit_log (resource_type, resource_id);
 
 ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
 
