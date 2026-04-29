@@ -4,10 +4,9 @@ import { buildOrganizationSchema } from "./organization-schema";
 const webAppSchema = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
-  name: "YouTubeAI Summary",
-  applicationCategory: "UtilityApplication",
-  description:
-    "Transform any YouTube video into a concise summary instantly using AI technology.",
+  name: "youtubeai.chat",
+  applicationCategory: "ProductivityApplication",
+  description: "AI-powered YouTube video summarizer and chat tool",
   operatingSystem: "All",
   browserRequirements: "Requires JavaScript. Requires HTML5.",
   url: "https://www.youtubeai.chat",
@@ -18,6 +17,7 @@ const webAppSchema = {
   },
   featureList: [
     "Instant video summarization",
+    "Chat with YouTube video transcript",
     "AI-powered analysis",
     "Key points extraction",
     "Free to use",

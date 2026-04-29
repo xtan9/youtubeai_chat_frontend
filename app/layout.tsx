@@ -21,17 +21,25 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.youtubeai.chat"),
-  title: "100% Free AI YouTube Video Summarizer - YouTubeAI.chat",
+  title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
   description:
-    "Get instant AI summaries of any YouTube video. Extract key points and main ideas in seconds - 100% free tool for faster video comprehension.",
+    "Summarize any YouTube video in seconds and chat with its content using AI. Free to try — no signup required.",
+  keywords: [
+    "YouTube video summarizer",
+    "summarize YouTube video",
+    "chat with YouTube video",
+    "YouTube transcript AI",
+    "AI video summary",
+    "free YouTube summarizer",
+  ],
   authors: [{ name: "YouTubeAI" }],
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "AI YouTube Video Summarizer - Get Quick Video Summaries for Free",
+    title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
     description:
-      "Get instant AI summaries of any YouTube video. Extract key points and main ideas in seconds - 100% free tool for faster video comprehension.",
+      "Summarize any YouTube video in seconds and chat with its content using AI. Free to try — no signup required.",
     url: "https://www.youtubeai.chat",
     siteName: "YouTubeAI Summary",
     type: "website",
@@ -47,9 +55,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI YouTube Video Summarizer",
+    title: "YouTube Video Summarizer & AI Chat",
     description:
-      "Get instant AI summaries of any YouTube video. Extract key points and main ideas in seconds.",
+      "Summarize any YouTube video in seconds and chat with its content using AI. Free to try — no signup required.",
     creator: "@YouTubeAI",
     images: ["/youtube-summary-demo.png"],
   },

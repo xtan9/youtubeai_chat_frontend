@@ -85,6 +85,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Sibling git worktrees keep their own `.next/` build artifacts under
+    // `.worktrees/<branch>/.next/`. Default `.next/**` doesn't match those
+    // nested copies, so the CLI walks them and surfaces hundreds of
+    // generated-code lint errors. Ignore the whole worktree tree.
+    ".worktrees/**",
     // The examples/ directory is documentation: deliberately-bad and
     // deliberately-good patterns side by side. Linting it produces noise
     // about unused vars (the bad example *must* exist as code) without
