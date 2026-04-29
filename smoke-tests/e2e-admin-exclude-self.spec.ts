@@ -19,6 +19,16 @@ test("admin dashboard shows real-count badge and toggles admin exclusion", async
     adminEmail && adminPassword
       ? { email: adminEmail, password: adminPassword }
       : await loadSmokeCreds();
+  // The earlier test.skip on adminEmail/adminPassword only fires when the
+  // explicit env-vars path is missing. We also want the test to register as
+  // skipped (not silently passed) when both paths fail — i.e. the env vars
+  // are unset AND the creds file is unreadable. Without this guard a bare
+  // `return` would mark the test PASSED in CI, hiding the fact that it
+  // never actually ran.
+  test.skip(
+    !creds,
+    "Admin creds required (TEST_ADMIN_EMAIL/PASSWORD env vars or ~/.config/claude-test-creds/youtubeai.env)",
+  );
   if (!creds) return;
 
   await page.goto(`${PROD_URL}/auth/login`);
