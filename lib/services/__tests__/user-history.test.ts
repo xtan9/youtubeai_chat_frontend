@@ -227,6 +227,56 @@ describe("getHistoryPage", () => {
     consoleSpy.mockRestore();
   });
 
+  it("returns ok:false when the rows query promise rejects (network throw)", async () => {
+    const rowsBuilder = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockRejectedValue(new Error("network down")),
+    };
+    const countBuilder = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
+    };
+    let n = 0;
+    const supabase = { from: vi.fn(() => (++n === 1 ? rowsBuilder : countBuilder)) };
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result).toEqual({ ok: false });
+    // The "rejected" branch has a distinct log message — assert we used it
+    // so a regression to Promise.all (which would lose the rejection) fails.
+    const rejectedCall = consoleSpy.mock.calls.find((args) =>
+      String(args[0]).includes("rows rejected"),
+    );
+    expect(rejectedCall).toBeDefined();
+    consoleSpy.mockRestore();
+  });
+
+  it("returns ok:false when the count query promise rejects", async () => {
+    const rowsBuilder = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({ data: [ROW], error: null }),
+    };
+    const countBuilder = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockRejectedValue(new Error("network down")),
+    };
+    let n = 0;
+    const supabase = { from: vi.fn(() => (++n === 1 ? rowsBuilder : countBuilder)) };
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await getHistoryPage(supabase as any, "u-1", 1, 25);
+    expect(result).toEqual({ ok: false });
+    const rejectedCall = consoleSpy.mock.calls.find((args) =>
+      String(args[0]).includes("count rejected"),
+    );
+    expect(rejectedCall).toBeDefined();
+    consoleSpy.mockRestore();
+  });
+
   it("logs both errors when rows AND count fail", async () => {
     const supabase = makeSupabaseForPage({
       rowsData: null,
