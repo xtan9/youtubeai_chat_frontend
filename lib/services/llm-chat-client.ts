@@ -103,8 +103,18 @@ export async function* streamChatCompletion(
   } finally {
     try {
       reader.releaseLock();
-    } catch {
-      // Reader may already be released by an upstream cancel(); ignore.
+    } catch (err) {
+      // Spec'd failure modes are TypeError ("reader released" /
+      // "pending read") fired when upstream cancel() raced ahead.
+      // Swallow those; let anything else surface (a real defect).
+      // The `name === "TypeError"` fallback covers cross-realm cases
+      // where `instanceof TypeError` returns false even though the
+      // error is structurally a TypeError (older polyfills, bundling
+      // boundaries).
+      const isTypeError =
+        err instanceof TypeError ||
+        (err instanceof Error && err.name === "TypeError");
+      if (!isTypeError) throw err;
     }
   }
   yield { type: "done" };

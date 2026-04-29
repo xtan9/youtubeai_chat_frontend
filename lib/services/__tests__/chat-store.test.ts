@@ -78,7 +78,7 @@ describe("chat-store", () => {
       ]);
     });
 
-    it("drops rows that fail schema validation but keeps valid ones", async () => {
+    it("drops rows that fail schema validation, logging per-row at WARN and aggregate at ERROR", async () => {
       mocks.setImpl(() => ({
         data: [
           { id: "m1", role: "user", content: "valid", created_at: "2026-04-28T00:00:00Z" },
@@ -86,12 +86,47 @@ describe("chat-store", () => {
         ],
         error: null,
       }));
+      // Spy on both channels separately — the per-row log MUST be WARN
+      // (so a 50-row drift doesn't page ops 50 times) while the
+      // aggregate MUST be ERROR (the single greppable Sentry-alert line
+      // per request).
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const { listChatMessages } = await loadFresh();
       const result = await listChatMessages("user-1", "video-1");
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe("m1");
-      expect(errSpy).toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[chat-store] row schema mismatch — dropping row",
+        expect.objectContaining({ errorId: "CHAT_ROW_SCHEMA_MISMATCH" }),
+      );
+      expect(errSpy).toHaveBeenCalledWith(
+        "[chat-store] dropped rows due to schema mismatch",
+        expect.objectContaining({
+          errorId: "CHAT_ROW_SCHEMA_MISMATCH_AGGREGATE",
+          droppedCount: 1,
+          totalCount: 2,
+        }),
+      );
+      // Pin the channel separation explicitly: per-row never went to
+      // ERROR, aggregate never went to WARN.
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not log when all rows pass validation", async () => {
+      mocks.setImpl(() => ({
+        data: [
+          { id: "m1", role: "user", content: "valid", created_at: "2026-04-28T00:00:00Z" },
+        ],
+        error: null,
+      }));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { listChatMessages } = await loadFresh();
+      await listChatMessages("user-1", "video-1");
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
     });
 
     it("throws when service role client is unavailable", async () => {
