@@ -1032,23 +1032,34 @@ export async function getPerformanceStats(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
+  const wantFilter = exclude.length > 0;
   const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
-    exclude.length > 0 ? fetchHistoryIn(client, window, exclude) : Promise.resolve([]),
-    exclude.length > 0 ? fetchHistoryIn(client, prevWindow, exclude) : Promise.resolve([]),
+    wantFilter
+      ? fetchHistoryForExclusion(client, window, exclude)
+      : Promise.resolve([] as HistoryRow[]),
+    wantFilter
+      ? fetchHistoryForExclusion(client, prevWindow, exclude)
+      : Promise.resolve([] as HistoryRow[]),
   ]);
 
   // When excluding admin activity, restrict performance stats to summaries
   // whose video appears in the filtered (non-admin) history. A video that
-  // only admins watched contributes no latency samples. Spec:
-  // docs/superpowers/specs/2026-04-29-admin-exclude-self-design.md
+  // only admins watched contributes no latency samples.
+  //
+  // Fail-soft: if the caller wanted filtering but history is empty (either
+  // because admins watched nothing OR because the history fetch errored —
+  // see fetchHistoryForExclusion), we drop the filter and show all
+  // summaries. Better to surface all-activity numbers than to error the
+  // page; this matches the existing listAdminUserIds fail-soft default.
+  // Spec: docs/superpowers/specs/2026-04-29-admin-exclude-self-design.md
   const includedCurrent = new Set(history.map((h) => h.video_id));
   const includedPrev = new Set(prevHistory.map((h) => h.video_id));
-  const filteredCurrent = exclude.length > 0
+  const filteredCurrent = wantFilter && history.length > 0
     ? current.filter((s) => includedCurrent.has(s.video_id))
     : current;
-  const filteredPrev = exclude.length > 0
+  const filteredPrev = wantFilter && prevHistory.length > 0
     ? previous.filter((s) => includedPrev.has(s.video_id))
     : previous;
 
@@ -1127,6 +1138,33 @@ interface HistoryRow {
   created_at: string;
   /** Populated by fetchHistoryIn enrichment; consumed by computeCacheHitRate. */
   cacheHit?: boolean;
+}
+
+/** Fail-soft wrapper around fetchHistoryIn used by getPerformanceStats.
+ * If the history read errors, log + return [] so the perf page can still
+ * render. The caller distinguishes "no rows" vs "fetch errored" only via
+ * the documented fail-soft contract: empty history → drop the filter,
+ * not "filter everything out". */
+async function fetchHistoryForExclusion(
+  client: SupabaseClient,
+  window: TimeWindow,
+  exclude: string[],
+): Promise<HistoryRow[]> {
+  try {
+    return await fetchHistoryIn(client, window, exclude);
+  } catch (err) {
+    console.error(
+      "[admin-queries] getPerformanceStats: history fetch failed; falling back to no filter",
+      {
+        message: err instanceof Error ? err.message : String(err),
+        window: {
+          start: window.start.toISOString(),
+          end: window.end.toISOString(),
+        },
+      },
+    );
+    return [];
+  }
 }
 
 async function fetchHistoryIn(
