@@ -25,51 +25,70 @@ export interface NavSection {
   items: NavItemConfig[];
 }
 
-export const ADMIN_NAV: NavSection[] = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/admin", label: "Dashboard", icon: <LayoutDashboard className="icon" /> },
-    ],
-  },
-  {
-    label: "People",
-    items: [
-      { href: "/admin/users", label: "Users", icon: <Users className="icon" />, badge: "1,284" },
-      { href: "/admin/audit", label: "Audit log", icon: <Activity className="icon" /> },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      {
-        href: "/admin/performance",
-        label: "Performance",
-        icon: <Gauge className="icon" />,
-        alert: true,
-      },
-      { href: "/admin/cost", label: "Cost", icon: <DollarSign className="icon" /> },
-      { href: "/admin/reliability", label: "Reliability", icon: <Shield className="icon" /> },
-    ],
-  },
-  {
-    label: "Content",
-    items: [
-      { href: "/admin/channels", label: "Channels", icon: <Video className="icon" /> },
-      { href: "/admin/languages", label: "Languages", icon: <Languages className="icon" /> },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/admin/audit-archive", label: "Audit archive", icon: <ScrollText className="icon" /> },
-      { href: "/admin/settings", label: "Settings", icon: <Settings className="icon" /> },
-    ],
-  },
-];
+export interface BuildAdminNavOptions {
+  usersTotal: number | null;
+}
+
+export function buildAdminNav({ usersTotal }: BuildAdminNavOptions): NavSection[] {
+  return [
+    {
+      label: "Overview",
+      items: [
+        { href: "/admin", label: "Dashboard", icon: <LayoutDashboard className="icon" /> },
+      ],
+    },
+    {
+      label: "People",
+      items: [
+        {
+          href: "/admin/users",
+          label: "Users",
+          icon: <Users className="icon" />,
+          badge:
+            usersTotal !== null
+              ? usersTotal.toLocaleString("en-US")
+              : undefined,
+        },
+        { href: "/admin/audit", label: "Audit log", icon: <Activity className="icon" /> },
+      ],
+    },
+    {
+      label: "Operations",
+      items: [
+        {
+          href: "/admin/performance",
+          label: "Performance",
+          icon: <Gauge className="icon" />,
+          alert: true,
+        },
+        { href: "/admin/cost", label: "Cost", icon: <DollarSign className="icon" /> },
+        { href: "/admin/reliability", label: "Reliability", icon: <Shield className="icon" /> },
+      ],
+    },
+    {
+      label: "Content",
+      items: [
+        { href: "/admin/channels", label: "Channels", icon: <Video className="icon" /> },
+        { href: "/admin/languages", label: "Languages", icon: <Languages className="icon" /> },
+      ],
+    },
+    {
+      label: "System",
+      items: [
+        { href: "/admin/audit-archive", label: "Audit archive", icon: <ScrollText className="icon" /> },
+        { href: "/admin/settings", label: "Settings", icon: <Settings className="icon" /> },
+      ],
+    },
+  ];
+}
+
+// Internal canonical reference used by findNavLabel/isNavItemActive — these
+// helpers don't depend on the badge state, so they read from a stable nav
+// snapshot built with usersTotal=null.
+const NAV_REFERENCE: NavSection[] = buildAdminNav({ usersTotal: null });
 
 export function findNavLabel(pathname: string): string {
-  for (const section of ADMIN_NAV) {
+  for (const section of NAV_REFERENCE) {
     for (const item of section.items) {
       if (item.href === pathname) return item.label;
     }

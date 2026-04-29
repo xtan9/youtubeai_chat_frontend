@@ -31,3 +31,29 @@ describe("findNavLabel", () => {
     expect(findNavLabel("/admin/never-defined")).toBe("Page");
   });
 });
+
+import { buildAdminNav } from "../nav-config";
+
+describe("buildAdminNav", () => {
+  it("renders the Users badge with thousands-separated count when usersTotal is given", () => {
+    const nav = buildAdminNav({ usersTotal: 1234 });
+    const users = nav
+      .flatMap((s) => s.items)
+      .find((i) => i.href === "/admin/users");
+    expect(users?.badge).toBe("1,234");
+  });
+
+  it("omits the Users badge when usersTotal is null", () => {
+    const nav = buildAdminNav({ usersTotal: null });
+    const users = nav
+      .flatMap((s) => s.items)
+      .find((i) => i.href === "/admin/users");
+    expect(users?.badge).toBeUndefined();
+  });
+
+  it("preserves all other sections and items unchanged", () => {
+    const nav = buildAdminNav({ usersTotal: 0 });
+    const sectionLabels = nav.map((s) => s.label);
+    expect(sectionLabels).toEqual(["Overview", "People", "Operations", "Content", "System"]);
+  });
+});
