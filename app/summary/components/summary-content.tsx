@@ -35,8 +35,8 @@ export function SummaryContent({
   onSelectLanguage,
   languageDisabled,
 }: SummaryContentProps) {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const posthog = usePostHog();
 
   // Wrap the onNewSummary callback to include PostHog tracking
