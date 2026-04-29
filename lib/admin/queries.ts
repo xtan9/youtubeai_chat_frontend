@@ -247,8 +247,8 @@ interface AuthUserRecord {
   email_confirmed_at: string | null;
   banned_until: string | null;
   deleted_at: string | null;
-  is_anonymous: boolean;
-  is_sso_user: boolean;
+  is_anonymous?: boolean;
+  is_sso_user?: boolean;
   identities?: Array<{ provider?: string }>;
   app_metadata?: Record<string, unknown>;
   user_metadata?: Record<string, unknown>;
@@ -259,6 +259,7 @@ const ALL_USERS_PER_PAGE = 200;
 
 export interface ListAllUsersResult {
   users: AuthUserRecord[];
+  /** Count reported by the auth service on the first page; may exceed `users.length` when `truncated` is true. */
   total: number;
   truncated: boolean;
 }

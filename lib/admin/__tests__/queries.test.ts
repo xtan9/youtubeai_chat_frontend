@@ -4,6 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import {
   listAuditLog,
+  listAllUsers,
   listUsersWithStats,
   getDashboardKPIs,
   getPerformanceStats,
@@ -12,7 +13,6 @@ import {
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
-import { listAllUsers } from "../queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
