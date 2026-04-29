@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useChatStream } from "@/lib/hooks/useChatStream";
+import { useChatSuggestions } from "@/lib/hooks/useChatSuggestions";
 import { useChatThread } from "@/lib/hooks/useChatThread";
 import { ChatClearButton } from "./chat-clear-button";
 import { ChatEmptyState } from "./chat-empty-state";
@@ -26,6 +27,7 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
   const [clearPending, setClearPending] = useState(false);
   const thread = useChatThread(youtubeUrl, active);
   const stream = useChatStream({ youtubeUrl });
+  const suggestions = useChatSuggestions(youtubeUrl, active);
 
   const handleSend = () => {
     const text = draftInput.trim();
@@ -84,7 +86,10 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
       )}
 
       {showEmptyState ? (
-        <ChatEmptyState onPickSuggestion={handlePickSuggestion} />
+        <ChatEmptyState
+          onPickSuggestion={handlePickSuggestion}
+          dynamicSuggestions={suggestions.data?.suggestions}
+        />
       ) : (
         <ChatMessageList
           messages={persistedMessages}
