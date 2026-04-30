@@ -137,4 +137,102 @@ describe("GET /api/me/entitlements", () => {
     expect(body.caps.summariesUsed).toBe(0);
     expect(body.caps.historyUsed).toBe(0);
   });
+
+  it("returns 503 when auth getUser() returns error with status 500", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { status: 500, message: "supabase down" },
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.message).toContain("unavailable");
+    expect(errSpy).toHaveBeenCalledWith(
+      "[me/entitlements] auth failed",
+      expect.objectContaining({ errorId: "ENTITLEMENTS_AUTH_INFRA_FAILED" }),
+    );
+  });
+
+  it("returns 503 when auth getUser() throws", async () => {
+    mocks.getUser.mockRejectedValue(new Error("ECONNREFUSED"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(503);
+    expect(errSpy).toHaveBeenCalledWith(
+      "[me/entitlements] auth threw",
+      expect.objectContaining({ errorId: "ENTITLEMENTS_AUTH_THREW" }),
+    );
+  });
+
+  it("tier=pro + getServiceRoleClient returns null → response is tier:pro with summariesLimit:-1, subscription:null", async () => {
+    // Pro users must not be demoted to Free when service-role is briefly
+    // missing — rendering the upgrade banner to a paying user is worse
+    // than returning a null renewal date.
+    mocks.getServiceRoleClient.mockReturnValue(null);
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    });
+    mocks.getUserTier.mockResolvedValue("pro");
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tier).toBe("pro");
+    expect(body.caps.summariesLimit).toBe(-1);
+    expect(body.subscription).toBeNull();
+  });
+
+  it("tier=free + monthly_summary_usage query returns error → console.error with ENTITLEMENTS_USAGE_READ_FAILED, response still 200 with summariesUsed:0", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    });
+    mocks.getUserTier.mockResolvedValue("free");
+    mocks.fromUsage.mockResolvedValue({ data: null, error: { code: "42P01", message: "table missing" } });
+    mocks.fromHistory.mockResolvedValue({ count: 0, error: null });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.caps.summariesUsed).toBe(0);
+    expect(errSpy).toHaveBeenCalledWith(
+      "[me/entitlements] monthly_summary_usage read failed",
+      expect.objectContaining({ errorId: "ENTITLEMENTS_USAGE_READ_FAILED" }),
+    );
+  });
+
+  it("is_anonymous:true Supabase user with valid cookie → reads from anon_summary_quota and returns tier:anon with summariesLimit:1", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-supabase-1", is_anonymous: true } }, error: null,
+    });
+    mocks.cookieGet.mockReturnValue({ value: "signed.sig" });
+    mocks.verifyAnonId.mockReturnValue("aaaa-bbbb");
+    mocks.fromAnon.mockResolvedValue({ data: { count: 1 }, error: null });
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tier).toBe("anon");
+    expect(body.caps.summariesLimit).toBe(1);
+    expect(body.caps.summariesUsed).toBe(1);
+  });
+
+  it("tampered cookie (verifyAnonId returns null) → fromAnon not called, summariesUsed:0", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-supabase-1", is_anonymous: true } }, error: null,
+    });
+    mocks.cookieGet.mockReturnValue({ value: "tampered-cookie" });
+    mocks.verifyAnonId.mockReturnValue(null);
+    const { GET } = await import("../route");
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tier).toBe("anon");
+    expect(body.caps.summariesUsed).toBe(0);
+    // fromAnon should not have been called since verifyAnonId returned null
+    expect(mocks.fromAnon).not.toHaveBeenCalled();
+  });
 });
