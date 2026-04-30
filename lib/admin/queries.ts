@@ -100,6 +100,7 @@ const AUDIT_ACTIONS: readonly AuditAction[] = [
   "view_transcript",
   "view_summary_text",
   "view_user_email_list",
+  "view_video_users",
   "reset_rate_limit",
   "suspend_user",
   "restore_user",
