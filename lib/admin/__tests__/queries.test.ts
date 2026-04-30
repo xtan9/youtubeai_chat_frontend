@@ -1750,6 +1750,121 @@ describe("listVideosWithStats", () => {
       baseOpts({ excludeAdminUserIds: [] }),
     );
     expect(out.rows.map((r) => r.videoId)).toEqual(["vA"]);
+    expect(out.adminFilterIncomplete).toBe(false);
+  });
+
+  it("skips the admin-touched lookup when all excludeAdminUserIds are blank strings", async () => {
+    // Defensive cleanup mirrors fetchHistoryIn — the helper must not
+    // produce `in("user_id", ["", ""])` which would either return zero
+    // rows or 400 at PostgREST.
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ excludeAdminUserIds: ["", ""] }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vA"]);
+  });
+
+  it("drops admin-touched videos in trending mode even when admin's view falls outside the window", async () => {
+    // vA: admin a1 viewed it 90 days ago (outside the 30d window),
+    //     non-admin u1 viewed it today. listAdminTouchedVideoIds is
+    //     all-time so vA still drops; this guards the JSDoc claim that
+    //     adding a window filter to the lookup would let stale tests
+    //     re-enter trending.
+    const today = new Date().toISOString();
+    const client = buildClient([
+      {
+        // listAdminTouchedVideoIds — finds vA via admin a1's stale history.
+        table: "user_video_history",
+        response: { data: [{ video_id: "vA" }], error: null },
+      },
+      ...makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: today },
+        { user_id: "u2", video_id: "vB", created_at: today },
+      ]),
+    ]);
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({
+        mode: "trending",
+        window: lastNDays(30),
+        excludeAdminUserIds: ["a1"],
+      }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("propagates QueryError when listAdminTouchedVideoIds fails", async () => {
+    // Throw rather than fail-soft: a silent fail here would make filtering
+    // weaker than the pre-PR baseline (see helper's doc-comment).
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: null, error: { message: "boom" } },
+      },
+    ]);
+    await expect(
+      listVideosWithStats(client, baseOpts({ excludeAdminUserIds: ["a1"] })),
+    ).rejects.toBeInstanceOf(QueryError);
+  });
+
+  it("surfaces adminFilterIncomplete=true and warns when the admin-touched lookup hits the cap", async () => {
+    // The cap is HISTORY_ROW_CAP (100k) — too large for a real fixture.
+    // We simulate by stubbing the helper response with a sentinel array
+    // sized to match the constant. listAdminTouchedVideoIds checks
+    // `data.length === HISTORY_ROW_CAP`, so the test relies on the
+    // fixture meeting that exact length.
+    const HISTORY_ROW_CAP = 100_000;
+    const cappedFixture = Array.from({ length: HISTORY_ROW_CAP }, (_, i) => ({
+      video_id: `v${i % 3}`, // dedup at Set level — only need a few distinct vids
+    }));
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: cappedFixture, error: null },
+      },
+      // Main history fetch returns one row for a non-admin video.
+      {
+        table: "user_video_history",
+        response: {
+          data: [
+            { user_id: "u1", video_id: "vC", created_at: "2026-04-01T00:00:00Z" },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vC", title: "Gamma", channel_name: "Ch1", language: "en", duration_seconds: 900 },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { video_id: "vC", transcript_source: "manual_captions", model: "claude-opus-4-7", processing_time_seconds: 8, created_at: "2026-04-01T00:00:00Z" },
+          ],
+          error: null,
+        },
+      },
+    ]);
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ excludeAdminUserIds: ["a1"] }),
+    );
+    expect(out.adminFilterIncomplete).toBe(true);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("cap hit"),
+      expect.objectContaining({ adminUserIds: ["a1"] }),
+    );
   });
 
   it("filters by search term across title and channel", async () => {
@@ -2156,6 +2271,56 @@ describe("getVideoInsights", () => {
     );
     const allTime = await getVideoInsights(client2, { mode: "all_time" });
     expect(allTime.trendingPerDay).toBeUndefined();
+  });
+
+  it("drops admin-touched videos from totals + topChannels + languageMix", async () => {
+    // vA: admin a1 viewed AND non-admin u1 viewed → drop entirely.
+    // vB, vC: only non-admin → keep.
+    // Mirrors the listVideosWithStats regression so the page header
+    // "N videos summarized" stays in lockstep with the table.
+    const client = buildClient([
+      {
+        // listAdminTouchedVideoIds — admin a1 has touched vA.
+        table: "user_video_history",
+        response: { data: [{ video_id: "vA" }], error: null },
+      },
+      ...fixture([
+        { user_id: "a1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-04T00:00:00Z" },
+      ]),
+    ]);
+    const out = await getVideoInsights(client, {
+      mode: "all_time",
+      excludeAdminUserIds: ["a1"],
+    });
+    // 4 history rows total → 2 dropped (both vA viewers) → 2 kept.
+    expect(out.totalSummaries).toBe(2);
+    expect(out.totalUniqueVideos).toBe(2);
+    // Ch1 in fixture maps to vA + vC; with vA dropped, Ch1 has 1 video.
+    expect(
+      out.topChannels.find((c) => c.channelName === "Ch1")?.videoCount,
+    ).toBe(1);
+    // Languages: vB=fr (1), vC=en (1). vA's en contribution is gone.
+    expect(out.languageMix.find((l) => l.language === "en")?.videoCount).toBe(1);
+    expect(out.languageMix.find((l) => l.language === "fr")?.videoCount).toBe(1);
+    expect(out.adminFilterIncomplete).toBe(false);
+  });
+
+  it("propagates QueryError when listAdminTouchedVideoIds fails", async () => {
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: null, error: { message: "boom" } },
+      },
+    ]);
+    await expect(
+      getVideoInsights(client, {
+        mode: "all_time",
+        excludeAdminUserIds: ["a1"],
+      }),
+    ).rejects.toBeInstanceOf(QueryError);
   });
 });
 
