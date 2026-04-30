@@ -195,15 +195,29 @@ export function VideosTable({
                 const isExpanded = expandedVideoId === row.videoId;
                 return (
                   <Fragment key={row.videoId}>
-                    <tr
-                      className={isExpanded ? "expanded" : undefined}
-                      onClick={() => toggleExpanded(row.videoId)}
-                      style={{ cursor: "pointer" }}
-                    >
+                    <tr className={isExpanded ? "expanded" : undefined}>
                       <td style={{ paddingLeft: 12 }}>
-                        {isExpanded
-                          ? <ChevronDown size={12} />
-                          : <ChevronRight size={12} />}
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(row.videoId)}
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded ? "Collapse row" : "Expand row"
+                          }
+                          style={{
+                            background: "transparent",
+                            border: 0,
+                            padding: 4,
+                            cursor: "pointer",
+                            color: "inherit",
+                            display: "inline-flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          {isExpanded
+                            ? <ChevronDown size={12} />
+                            : <ChevronRight size={12} />}
+                        </button>
                       </td>
                       <td>{row.title ?? "(untitled)"}</td>
                       <td className="muted">{row.channelName ?? "—"}</td>

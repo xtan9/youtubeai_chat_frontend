@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Btn, Pill } from "../../_components/atoms";
-import type { AdminVideoRow } from "@/lib/admin/queries";
+import {
+  type AdminVideoRow,
+  VIDEO_USERS_DRILLDOWN_CAP,
+} from "@/lib/admin/queries";
 import {
   viewVideoUsersAction,
   type ViewVideoUsersResult,
@@ -17,13 +20,30 @@ type ModalMode = "summary" | "transcript" | null;
 
 export function VideoRowExpansion({ row }: VideoRowExpansionProps) {
   const [users, setUsers] = useState<ViewVideoUsersResult | null>(null);
+  // Network/RSC errors that throw out of the action (rather than
+  // returning ok:false) used to be silently swallowed — the spinner
+  // would clear and the user would see nothing. Capture into local
+  // state so the caller can render a warn pill.
+  const [error, setError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [pending, startTransition] = useTransition();
   const [modal, setModal] = useState<ModalMode>(null);
 
   function loadUsers() {
     startTransition(async () => {
-      const result = await viewVideoUsersAction(row.videoId);
-      setUsers(result);
+      setError(null);
+      setTruncated(false);
+      try {
+        const result = await viewVideoUsersAction(row.videoId);
+        setUsers(result);
+        if (result.ok && "truncated" in result) {
+          setTruncated(Boolean(result.truncated));
+        }
+      } catch (err) {
+        console.error("[video-row-expansion] viewVideoUsersAction threw", err);
+        setError(err instanceof Error ? err.message : String(err));
+        setUsers(null);
+      }
     });
   }
 
@@ -84,48 +104,63 @@ export function VideoRowExpansion({ row }: VideoRowExpansionProps) {
         </Btn>
       </div>
 
+      {error && (
+        <div style={{ marginTop: 12 }}>
+          <Pill tone="warn">Error loading users: {error}</Pill>
+        </div>
+      )}
       {users && users.ok && (
-        <table
-          className="tbl"
-          style={{ marginTop: 14, width: "100%", borderCollapse: "collapse" }}
-        >
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left" }}>User</th>
-              <th style={{ textAlign: "left" }}>Accessed</th>
-              <th style={{ textAlign: "left" }}>Cache</th>
-              <th style={{ textAlign: "left" }}>Audit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.users.length === 0 ? (
+        <>
+          {truncated && (
+            <div style={{ marginTop: 12 }}>
+              <Pill tone="warn">
+                +{users.users.length} shown — drilldown capped at{" "}
+                {VIDEO_USERS_DRILLDOWN_CAP}. Older accesses not displayed.
+              </Pill>
+            </div>
+          )}
+          <table
+            className="tbl"
+            style={{ marginTop: 14, width: "100%", borderCollapse: "collapse" }}
+          >
+            <thead>
               <tr>
-                <td colSpan={4} className="muted">
-                  No users.
-                </td>
+                <th style={{ textAlign: "left" }}>User</th>
+                <th style={{ textAlign: "left" }}>Accessed</th>
+                <th style={{ textAlign: "left" }}>Cache</th>
+                <th style={{ textAlign: "left" }}>Audit</th>
               </tr>
-            ) : (
-              users.users.map((u) => (
-                <tr key={u.userId + ":" + u.accessedAt}>
-                  <td>
-                    {u.email
-                      ? u.email
-                      : u.emailLookupOk
-                        ? "(no email)"
-                        : "(lookup failed)"}
-                  </td>
-                  <td className="muted">
-                    {u.accessedAt.slice(0, 16).replace("T", " ")}
-                  </td>
-                  <td>{u.cacheHit ? "hit" : "miss"}</td>
-                  <td className="muted mono">
-                    {u.auditId ? u.auditId.slice(0, 8) + "…" : "—"}
+            </thead>
+            <tbody>
+              {users.users.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    No users.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                users.users.map((u) => (
+                  <tr key={u.userId + ":" + u.accessedAt}>
+                    <td>
+                      {u.email
+                        ? u.email
+                        : u.emailLookupOk
+                          ? "(no email)"
+                          : "(email lookup failed — check Supabase)"}
+                    </td>
+                    <td className="muted">
+                      {u.accessedAt.slice(0, 16).replace("T", " ")}
+                    </td>
+                    <td>{u.cacheHit ? "hit" : "miss"}</td>
+                    <td className="muted mono">
+                      {u.auditId ? u.auditId.slice(0, 8) + "…" : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </>
       )}
       {users && !users.ok && (
         <div style={{ marginTop: 12 }}>

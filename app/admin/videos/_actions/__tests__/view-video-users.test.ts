@@ -77,6 +77,7 @@ describe("viewVideoUsersAction", () => {
           cacheHit: true,
         },
       ],
+      truncated: false,
     });
     writeAuditMock.mockResolvedValue({ ok: true, id: "audit-row" });
 
@@ -104,6 +105,7 @@ describe("viewVideoUsersAction", () => {
         { userId: "u1", email: "u1@x", emailLookupOk: true, accessedAt: "2026-04-04T00:00:00Z", cacheHit: true },
         { userId: "u2", email: "u2@x", emailLookupOk: true, accessedAt: "2026-04-03T00:00:00Z", cacheHit: false },
       ],
+      truncated: false,
     });
     let i = 0;
     writeAuditMock.mockImplementation(async () => {

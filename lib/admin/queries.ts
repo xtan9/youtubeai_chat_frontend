@@ -38,8 +38,11 @@ const USERS_PAGE_SIZE_CAP = 100;
  * SUMMARIES_ROW_CAP / HISTORY_ROW_CAP — when this fires the UI shows a
  * truncation banner. */
 const VIDEOS_ROW_CAP = 25_000;
-/** Cap on revealed users for a single video's audit-logged drill-down. */
-const VIDEO_USERS_DRILLDOWN_CAP = 200;
+/** Cap on revealed users for a single video's audit-logged drill-down.
+ * Exported so the row-expansion component can render a "+N more" hint
+ * with the same number when {@link VideoUsersDrilldown.truncated} is
+ * set — drift would surface a misleading message. */
+export const VIDEO_USERS_DRILLDOWN_CAP = 200;
 /** Hard cap on the videos table's pageSize query param. Exported so the
  * search-param parser and the query share a single source — drift would
  * silently round wider page sizes down server-side after the parser had

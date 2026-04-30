@@ -27,6 +27,8 @@ interface LoadedContent {
   body: string;
   auditId: string | null;
   auditFailureReason: string | null;
+  /** True for transcript mode when videos-table fetch errored. */
+  videoFetchFailed: boolean;
 }
 
 export function VideoContentModal({
@@ -75,16 +77,22 @@ export function VideoContentModal({
             ? (result as Extract<ViewVideoSummaryResult, { ok: true }>).summary
             : ((result as Extract<ViewVideoTranscriptResult, { ok: true }>)
                 .transcript ?? "(no transcript)");
+        const videoFetchFailed =
+          mode === "transcript"
+            ? (result as Extract<ViewVideoTranscriptResult, { ok: true }>)
+                .videoFetchFailed === true
+            : false;
         setContent({
           mode,
           body,
           auditId: result.auditId,
           auditFailureReason: result.auditFailureReason,
+          videoFetchFailed,
         });
       } catch (err) {
         if (cancelled) return;
         console.error("[video-content-modal] action threw", err);
-        setError("Unexpected error");
+        setError(err instanceof Error ? err.message : String(err));
       }
     });
     return () => {
@@ -157,7 +165,15 @@ export function VideoContentModal({
           </div>
         </div>
 
-        <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)" }}>
+        <div
+          style={{
+            padding: "10px 18px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
           {pending && <span className="muted text-sm">Loading…</span>}
           {!pending && error && (
             <Pill tone="warn">Error: {error}</Pill>
@@ -168,6 +184,9 @@ export function VideoContentModal({
               : <Pill tone="warn">
                   Audit failed: {content.auditFailureReason ?? "unknown"}
                 </Pill>
+          )}
+          {!pending && !error && content?.videoFetchFailed && (
+            <Pill tone="warn">Video metadata unavailable</Pill>
           )}
         </div>
 
@@ -213,7 +232,10 @@ function humaniseReason(reason: string): string {
     case "video_not_found":
       return "Video not found";
     case "internal_error":
-      return "Database query failed";
+      // The action returns `internal_error` for both DB failures and
+      // data-integrity failures (unknown transcript_source). Either
+      // case is operator-actionable, not user-resolvable.
+      return "Could not load — check admin logs.";
     default:
       return reason;
   }

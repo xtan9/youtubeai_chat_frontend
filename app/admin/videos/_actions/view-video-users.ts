@@ -17,6 +17,10 @@ export interface ViewVideoUsersOk {
     /** Audit row id, null when the per-user audit insert failed (fail-open). */
     auditId: string | null;
   }[];
+  /** True when the drilldown query hit VIDEO_USERS_DRILLDOWN_CAP. The
+   * UI should surface a "+N more — drilldown capped" indicator so the
+   * cap is visible rather than silently dropping the tail. */
+  truncated: boolean;
 }
 
 export interface ViewVideoUsersError {
@@ -88,5 +92,5 @@ export async function viewVideoUsersAction(
     }),
   );
 
-  return { ok: true, videoId, users };
+  return { ok: true, videoId, users, truncated: drilldown.truncated };
 }
