@@ -71,7 +71,7 @@ describe("buildOgCard", () => {
       title: "TITLE-MARKER",
       subtitle: "SUBTITLE-MARKER",
       eyebrow: "EYEBROW-MARKER",
-    }) as { __jsx: unknown };
+    }) as unknown as { __jsx: unknown };
     const text = jsxText(result.__jsx);
     expect(text).toContain("TITLE-MARKER");
     expect(text).toContain("SUBTITLE-MARKER");
@@ -82,7 +82,9 @@ describe("buildOgCard", () => {
 
   it("omits subtitle and eyebrow when not provided", async () => {
     const { buildOgCard } = await import("@/components/seo/og-card");
-    const result = buildOgCard({ title: "ONLY-TITLE" }) as { __jsx: unknown };
+    const result = buildOgCard({ title: "ONLY-TITLE" }) as unknown as {
+      __jsx: unknown;
+    };
     const text = jsxText(result.__jsx);
     expect(text).toContain("ONLY-TITLE");
     expect(text).toContain("youtubeai.chat");
@@ -103,7 +105,7 @@ describe("blog [slug] opengraph-image route", () => {
 
     const result = (await route.default({
       params: Promise.resolve({ slug }),
-    })) as { __jsx: unknown };
+    })) as unknown as { __jsx: unknown };
     const text = jsxText(result.__jsx);
 
     expect(text).toContain(post.title);
@@ -115,7 +117,7 @@ describe("blog [slug] opengraph-image route", () => {
     const route = await import("@/app/blog/[slug]/opengraph-image");
     const result = (await route.default({
       params: Promise.resolve({ slug: "__does_not_exist__" }),
-    })) as { __jsx: unknown };
+    })) as unknown as { __jsx: unknown };
     const text = jsxText(result.__jsx);
 
     // Fallback card uses the blog-index copy — pinning that string here
