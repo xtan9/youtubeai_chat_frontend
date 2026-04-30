@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TranscriptSource } from "@/lib/admin/types";
+import { AUDIT_ACTIONS } from "@/lib/admin/audit";
 import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
 export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
@@ -116,15 +117,9 @@ export function lastNDays(n: number): TimeWindow {
 
 // ─── Audit log ────────────────────────────────────────────────────────────
 
-const AUDIT_ACTIONS: readonly AuditAction[] = [
-  "view_transcript",
-  "view_summary_text",
-  "view_user_email_list",
-  "view_video_users",
-  "reset_rate_limit",
-  "suspend_user",
-  "restore_user",
-] as const;
+// `AUDIT_ACTIONS` is imported from `./audit` — the single source of
+// truth for the audited-action vocabulary. A previous duplicate here
+// invited drift between the runtime validator and the writer's type.
 
 const AUDIT_RESOURCE_TYPES: readonly AuditResourceType[] = [
   "summary",

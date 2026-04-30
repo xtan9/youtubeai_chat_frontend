@@ -1,14 +1,18 @@
-import type {
-  VideoSortKey,
-  VideoMode,
-  SortDir,
+import {
+  VIDEOS_PAGE_SIZE_CAP,
+  type VideoSortKey,
+  type VideoMode,
+  type SortDir,
 } from "@/lib/admin/queries";
 
 export const DEFAULT_MODE: VideoMode = "all_time";
 export const DEFAULT_SORT: VideoSortKey = "distinctUsers";
 export const DEFAULT_DIR: SortDir = "desc";
 export const DEFAULT_PAGE_SIZE = 25;
-export const MAX_PAGE_SIZE = 50;
+/** Re-export under the parser-local name so the rest of the page (and
+ * the test suite) keeps a stable import path while the canonical value
+ * is owned by `lib/admin/queries.ts` (server-side cap). */
+export const MAX_PAGE_SIZE: number = VIDEOS_PAGE_SIZE_CAP;
 const MAX_WINDOW_DAYS = 365;
 const DEFAULT_WINDOW_DAYS = 30;
 
