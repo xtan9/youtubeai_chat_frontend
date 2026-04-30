@@ -286,9 +286,12 @@ export async function POST(request: Request) {
     const errorCode = entitlement.tier === "anon"
       ? "anon_quota_exceeded"
       : "free_quota_exceeded";
-    const cookieHeader = setAnonCookie
-      ? { "Set-Cookie": `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}` }
-      : {};
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (setAnonCookie) {
+      headers["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;
+    }
     return new Response(
       JSON.stringify({
         message:
@@ -299,13 +302,7 @@ export async function POST(request: Request) {
         tier: entitlement.tier,
         upgradeUrl: "/pricing",
       }),
-      {
-        status: 402,
-        headers: {
-          "Content-Type": "application/json",
-          ...cookieHeader,
-        },
-      }
+      { status: 402, headers }
     );
   }
 
@@ -975,15 +972,14 @@ export async function POST(request: Request) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-RateLimit-Remaining": String(remaining),
-      ...(setAnonCookie && {
-        "Set-Cookie": `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`,
-      }),
-    },
-  });
+  const streamHeaders: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-RateLimit-Remaining": String(remaining),
+  };
+  if (setAnonCookie) {
+    streamHeaders["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;
+  }
+  return new Response(stream, { headers: streamHeaders });
 }
