@@ -199,3 +199,86 @@ describe("checkSummaryEntitlement (anon)", () => {
     expect(r.remaining).toBe(ANON_LIMITS.summariesLifetime);
   });
 });
+
+describe("checkChatEntitlement", () => {
+  beforeEach(() => {
+    mocks.rpc.mockReset();
+    mocks.from.mockReset();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+  });
+
+  function stubChain(opts: {
+    tier: "free" | "pro";
+    chatCount?: number;
+    chatError?: { code?: string } | null;
+  }) {
+    mocks.from.mockImplementation((table: string) => {
+      if (table === "user_subscriptions") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { tier: opts.tier }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "chat_messages") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                eq: async () => ({
+                  count: opts.chatCount ?? 0,
+                  error: opts.chatError ?? null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      throw new Error(`unexpected from(${table})`);
+    });
+  }
+
+  it("Pro: unlimited", async () => {
+    stubChain({ tier: "pro", chatCount: 50 });
+    const { checkChatEntitlement } = await loadFreshModule();
+    const r = await checkChatEntitlement("u1", "summary-1");
+    expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+  });
+
+  it("Free under cap: allowed", async () => {
+    stubChain({ tier: "free", chatCount: 2 });
+    const { checkChatEntitlement, FREE_LIMITS } = await loadFreshModule();
+    const r = await checkChatEntitlement("u1", "summary-1");
+    expect(r).toEqual({
+      tier: "free",
+      allowed: true,
+      remaining: FREE_LIMITS.chatMessagesPerVideo - 2,
+      reason: "within_limit",
+    });
+  });
+
+  it("Free at boundary (count===5): denied (this would be the 6th)", async () => {
+    stubChain({ tier: "free", chatCount: 5 });
+    const { checkChatEntitlement } = await loadFreshModule();
+    const r = await checkChatEntitlement("u1", "summary-1");
+    expect(r).toEqual({
+      tier: "free",
+      allowed: false,
+      remaining: 0,
+      reason: "exceeded",
+    });
+  });
+
+  it("Free count error: fail-open", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubChain({ tier: "free", chatError: { code: "42501" } });
+    const { checkChatEntitlement } = await loadFreshModule();
+    const r = await checkChatEntitlement("u1", "summary-1");
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBe("fail_open");
+  });
+});

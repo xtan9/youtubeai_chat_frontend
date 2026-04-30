@@ -182,3 +182,68 @@ async function checkAnonSummaryEntitlement(
     return { tier: "anon", allowed: true, remaining: limit, reason: "fail_open" };
   }
 }
+
+/**
+ * Per-video chat cap. We query existing chat_messages rather than a
+ * dedicated counter: row volume is bounded (≤ FREE_LIMITS.chatMessagesPerVideo
+ * for free, unbounded for pro but pro skips this branch). The (summary_id,
+ * user_id) index makes this O(log n).
+ *
+ * NOTE: this counts EXISTING messages — call this BEFORE writing the new
+ * user message. count === 5 means "5 already exist, this would be the 6th",
+ * which is the cap-hit case for free (limit is 5 messages total).
+ */
+export async function checkChatEntitlement(
+  userId: string,
+  summaryId: string
+): Promise<EntitlementResult> {
+  const tier = await getUserTier(userId);
+  if (tier === "pro") {
+    return { tier: "pro", allowed: true, remaining: Number.POSITIVE_INFINITY, reason: "unlimited" };
+  }
+
+  const limit = FREE_LIMITS.chatMessagesPerVideo;
+  const supabase = getServiceRoleClient();
+  if (!supabase) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[entitlements] service-role missing for chat check", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_NO_CREDS",
+      });
+    }
+    return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+  }
+
+  try {
+    const { count, error } = await supabase
+      .from("chat_messages")
+      .select("*", { count: "exact", head: true })
+      .eq("summary_id", summaryId)
+      .eq("user_id", userId)
+      .eq("role", "user");
+    if (error) {
+      const code = (error as { code?: string }).code;
+      const tag = code && DEPLOY_DEFECT_CODES.has(code)
+        ? "ENTITLEMENT_FAIL_OPEN_DEPLOY_DEFECT"
+        : "ENTITLEMENT_FAIL_OPEN_CHAT_COUNT";
+      console.error("[entitlements] chat count error (fail-open)", {
+        errorId: tag, userId, summaryId, code,
+      });
+      return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+    }
+    const used = count ?? 0;
+    if (used >= limit) {
+      return { tier: "free", allowed: false, remaining: 0, reason: "exceeded" };
+    }
+    return {
+      tier: "free",
+      allowed: true,
+      remaining: limit - used,
+      reason: "within_limit",
+    };
+  } catch (err) {
+    console.error("[entitlements] chat check threw (fail-open)", {
+      errorId: "ENTITLEMENT_FAIL_OPEN_UNEXPECTED", userId, summaryId, err,
+    });
+    return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+  }
+}
