@@ -440,6 +440,46 @@ describe("useYouTubeSummarizer", () => {
     });
   });
 
+  it("non-JSON 402 body still throws UpgradeRequiredError with default tier=free", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response("<html>upstream error page</html>", {
+            status: 402,
+            headers: { "content-type": "text/html" },
+          })
+        )
+      )
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.name).toBe("UpgradeRequiredError");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).errorCode).toBe("free_quota_exceeded");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).tier).toBe("free");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).upgradeUrl).toBe("/pricing");
+    });
+    expect(
+      (console.error as ReturnType<typeof vi.fn>).mock.calls.some(
+        (args) =>
+          typeof args[1] === "object" &&
+          args[1]?.errorId === "SUMMARIZE_ERROR_BODY_PARSE_FAIL"
+      )
+    ).toBe(true);
+  });
+
   it("logs error when signInAnonymously returns an error and stays unauthenticated", async () => {
     mockGetSession.mockResolvedValue({ data: { session: null } });
     mockSignInAnonymously.mockResolvedValue({

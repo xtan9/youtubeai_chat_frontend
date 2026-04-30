@@ -133,18 +133,27 @@ export function useYouTubeSummarizer(
     debugLog("Response status:", response.status);
 
     if (!response.ok) {
-      const errorData = await response.json();
+      let errorData: { message?: string; errorCode?: string; tier?: string; upgradeUrl?: string } = {};
+      try {
+        errorData = await response.json();
+      } catch (parseErr) {
+        console.error("[summarize-stream] non-JSON error body", {
+          errorId: "SUMMARIZE_ERROR_BODY_PARSE_FAIL",
+          status: response.status,
+          parseErr,
+        });
+      }
       console.error("Error response:", errorData);
       if (response.status === 402) {
         throw new UpgradeRequiredError({
-          errorCode: errorData.errorCode,
-          tier: errorData.tier,
+          errorCode: (errorData.errorCode as UpgradeRequiredError["errorCode"]) ?? "free_quota_exceeded",
+          tier: (errorData.tier as UpgradeRequiredError["tier"]) ?? "free",
           upgradeUrl: errorData.upgradeUrl ?? "/pricing",
           message: errorData.message ?? "Upgrade required",
         });
       }
       if (response.status === 401 || response.status === 403) {
-        handleAuthError(response.status, errorData.message);
+        handleAuthError(response.status, errorData.message ?? "");
       }
       throw new Error(
         errorData.message || "Failed to start streaming summarization"
