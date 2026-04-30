@@ -146,6 +146,16 @@ describe("checkSummaryEntitlement (signed-in users)", () => {
     expect(r.reason).toBe("fail_open");
     expect(err).toHaveBeenCalled();
   });
+
+  it("Free RPC returns non-numeric data: fail-open", async () => {
+    stubTier("free");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: "not-a-number", error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBe("fail_open");
+  });
 });
 
 describe("checkSummaryEntitlement (anon)", () => {
@@ -197,6 +207,15 @@ describe("checkSummaryEntitlement (anon)", () => {
     expect(r.allowed).toBe(true);
     expect(r.reason).toBe("fail_open");
     expect(r.remaining).toBe(ANON_LIMITS.summariesLifetime);
+  });
+
+  it("RPC returns non-numeric data: fail-open", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: "not-a-number", error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ anonId: "11111111-1111-1111-1111-111111111111", isAnon: true });
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBe("fail_open");
   });
 });
 
