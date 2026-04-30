@@ -7,6 +7,7 @@ import {
   listAllUsers,
   listUsersWithStatsAndSort,
   listVideosWithStats,
+  getVideoInsights,
   filterUsers,
   sortUsers,
   getDashboardKPIs,
@@ -1855,5 +1856,126 @@ describe("listVideosWithStats", () => {
     );
     const out = await listVideosWithStats(client, baseOpts());
     expect(out.rows[0].status).toBe("stale");
+  });
+});
+
+// ─── getVideoInsights ────────────────────────────────────────────────────
+
+describe("getVideoInsights", () => {
+  function fixture(historyRows: Array<Record<string, unknown>>) {
+    return [
+      { table: "user_video_history", response: { data: historyRows, error: null } },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vA", title: "Alpha", channel_name: "Ch1", language: "en" },
+            { id: "vB", title: "Beta", channel_name: "Ch2", language: "fr" },
+            { id: "vC", title: "Gamma", channel_name: "Ch1", language: "en" },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { video_id: "vA", transcript_source: "auto_captions", enable_thinking: false },
+            { video_id: "vB", transcript_source: "whisper", enable_thinking: false },
+            { video_id: "vC", transcript_source: "manual_captions", enable_thinking: false },
+          ],
+          error: null,
+        },
+      },
+    ];
+  }
+
+  it("computes totals, top channels, language mix, and source mix", async () => {
+    const client = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-04T00:00:00Z" },
+      ]),
+    );
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.totalUniqueVideos).toBe(3);
+    expect(out.totalSummaries).toBe(4);
+    // Ch1 has 2 videos (vA, vC); Ch2 has 1.
+    expect(out.topChannels[0]).toEqual({ channelName: "Ch1", videoCount: 2 });
+    expect(out.languageMix.find((l) => l.language === "en")?.videoCount).toBe(2);
+    expect(out.languageMix.find((l) => l.language === "fr")?.videoCount).toBe(1);
+    // sourceMix is by view: vA(2)+vC(1)+vB(1)
+    const auto = out.sourceMix.find((m) => m.source === "auto_captions");
+    expect(auto?.count).toBe(2);
+    const manual = out.sourceMix.find((m) => m.source === "manual_captions");
+    expect(manual?.count).toBe(1);
+    const whisper = out.sourceMix.find((m) => m.source === "whisper");
+    expect(whisper?.count).toBe(1);
+    // 1 of 3 videos needed Whisper
+    expect(out.whisperVideoSharePct).toBe(33);
+  });
+
+  it("returns empty/zero shapes on no data", async () => {
+    const client = buildClient([
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.totalUniqueVideos).toBe(0);
+    expect(out.totalSummaries).toBe(0);
+    expect(out.whisperVideoSharePct).toBe(0);
+    expect(out.topChannels).toEqual([]);
+    expect(out.languageMix).toEqual([]);
+    expect(out.sourceMix).toHaveLength(3);
+    expect(out.sourceMix.every((m) => m.count === 0)).toBe(true);
+    expect(out.trendingPerDay).toBeUndefined();
+  });
+
+  it("limits topChannels to 5", async () => {
+    const channels = Array.from({ length: 7 }, (_, i) => ({
+      id: `v${i}`,
+      title: `T${i}`,
+      channel_name: `Ch${i}`,
+      language: "en",
+    }));
+    const summaries = channels.map((v) => ({
+      video_id: v.id,
+      transcript_source: "auto_captions",
+      enable_thinking: false,
+    }));
+    const history = channels.map((v, i) => ({
+      user_id: `u${i}`,
+      video_id: v.id,
+      created_at: "2026-04-01T00:00:00Z",
+    }));
+    const client = buildClient([
+      { table: "user_video_history", response: { data: history, error: null } },
+      { table: "videos", response: { data: channels, error: null } },
+      { table: "summaries", response: { data: summaries, error: null } },
+    ]);
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.topChannels).toHaveLength(5);
+  });
+
+  it("populates trendingPerDay only in trending mode", async () => {
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: today },
+      ]),
+    );
+    const trending = await getVideoInsights(client, { mode: "trending", window });
+    expect(trending.trendingPerDay).toBeDefined();
+    expect(trending.trendingPerDay?.length).toBe(7);
+
+    const client2 = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: today },
+      ]),
+    );
+    const allTime = await getVideoInsights(client2, { mode: "all_time" });
+    expect(allTime.trendingPerDay).toBeUndefined();
   });
 });

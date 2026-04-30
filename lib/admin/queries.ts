@@ -1802,6 +1802,166 @@ function primaryVideoCompare(
   }
 }
 
+export async function getVideoInsights(
+  client: SupabaseClient,
+  opts: VideoInsightsOptions,
+): Promise<VideoInsights> {
+  const window =
+    opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
+  const exclude = opts.excludeAdminUserIds ?? [];
+
+  let historyQuery = client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at");
+  if (window) {
+    historyQuery = historyQuery
+      .gte("accessed_at", window.start.toISOString())
+      .lte("accessed_at", window.end.toISOString());
+  }
+  const cleanedExcludes = exclude.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleanedExcludes.length > 0) {
+    historyQuery = historyQuery.not(
+      "user_id",
+      "in",
+      `(${cleanedExcludes.join(",")})`,
+    );
+  }
+  const { data: history, error: hErr } = await historyQuery.limit(
+    HISTORY_ROW_CAP,
+  );
+  if (hErr) throw new QueryError("getVideoInsights:history", hErr.message);
+
+  if (!history || history.length === 0) {
+    return {
+      totalUniqueVideos: 0,
+      totalSummaries: 0,
+      whisperVideoSharePct: 0,
+      topChannels: [],
+      languageMix: [],
+      sourceMix: ALL_SOURCES.map((s) => ({ source: s, count: 0 })),
+      trendingPerDay: window
+        ? fillDailySeries(window.start, window.end, new Map())
+        : undefined,
+    };
+  }
+
+  const typedHistory = history as Array<{
+    user_id: string;
+    video_id: string;
+    created_at: string;
+  }>;
+  const videoIds = Array.from(new Set(typedHistory.map((h) => h.video_id)));
+  const [videosRes, summariesRes] = await Promise.all([
+    client
+      .from("videos")
+      .select("id, title, channel_name, language")
+      .in("id", videoIds),
+    client
+      .from("summaries")
+      .select("video_id, transcript_source, enable_thinking")
+      .in("video_id", videoIds),
+  ]);
+  if (videosRes.error) {
+    throw new QueryError("getVideoInsights:videos", videosRes.error.message);
+  }
+  if (summariesRes.error) {
+    throw new QueryError(
+      "getVideoInsights:summaries",
+      summariesRes.error.message,
+    );
+  }
+
+  const videoById = new Map<string, Record<string, unknown>>();
+  for (const v of (videosRes.data ?? []) as Array<Record<string, unknown>>) {
+    videoById.set(String(v.id), v);
+  }
+
+  const summariesByVideo = new Map<string, Array<Record<string, unknown>>>();
+  for (const s of (summariesRes.data ?? []) as Array<
+    Record<string, unknown>
+  >) {
+    const vid = String(s.video_id);
+    const arr = summariesByVideo.get(vid) ?? [];
+    arr.push(s);
+    summariesByVideo.set(vid, arr);
+  }
+
+  const channelCounts = new Map<string, Set<string>>(); // channel -> distinct video ids
+  const langCounts = new Map<string, Set<string>>();
+  const sourceCounts = new Map<TranscriptSource, number>();
+  let whisperVideos = 0;
+  for (const vid of videoIds) {
+    const video = videoById.get(vid);
+    const channel = (video?.channel_name as string | null) ?? "(unknown)";
+    const language = (video?.language as string | null) ?? "(unknown)";
+    const cset = channelCounts.get(channel) ?? new Set<string>();
+    cset.add(vid);
+    channelCounts.set(channel, cset);
+    const lset = langCounts.get(language) ?? new Set<string>();
+    lset.add(vid);
+    langCounts.set(language, lset);
+    const canonical = pickCanonicalSummary(summariesByVideo.get(vid) ?? []);
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    if (source === "whisper") whisperVideos++;
+  }
+  // sourceCounts is by VIEW, not by video — count history rows.
+  for (const h of typedHistory) {
+    const canonical = pickCanonicalSummary(
+      summariesByVideo.get(h.video_id) ?? [],
+    );
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1);
+  }
+
+  const topChannels = Array.from(channelCounts.entries())
+    .map(([channelName, ids]) => ({ channelName, videoCount: ids.size }))
+    .sort((a, b) => {
+      if (b.videoCount !== a.videoCount) return b.videoCount - a.videoCount;
+      return a.channelName.localeCompare(b.channelName);
+    })
+    .slice(0, 5);
+
+  const languageMix = Array.from(langCounts.entries())
+    .map(([language, ids]) => ({ language, videoCount: ids.size }))
+    .sort((a, b) => {
+      if (b.videoCount !== a.videoCount) return b.videoCount - a.videoCount;
+      return a.language.localeCompare(b.language);
+    });
+
+  const sourceMix = ALL_SOURCES.map((source) => ({
+    source,
+    count: sourceCounts.get(source) ?? 0,
+  }));
+
+  let trendingPerDay: DailyPoint[] | undefined;
+  if (window) {
+    const byDay = new Map<string, number>();
+    for (const h of typedHistory) {
+      if (!h.created_at) continue;
+      const day = isoDay(new Date(h.created_at));
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    }
+    trendingPerDay = fillDailySeries(window.start, window.end, byDay);
+  }
+
+  return {
+    totalUniqueVideos: videoIds.length,
+    totalSummaries: typedHistory.length,
+    whisperVideoSharePct:
+      videoIds.length > 0
+        ? Math.round((whisperVideos / videoIds.length) * 100)
+        : 0,
+    topChannels,
+    languageMix,
+    sourceMix,
+    trendingPerDay,
+  };
+}
+
 // ─── Cursors ──────────────────────────────────────────────────────────────
 
 interface KeysetCursor {
