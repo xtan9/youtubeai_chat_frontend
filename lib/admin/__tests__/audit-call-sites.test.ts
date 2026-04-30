@@ -38,6 +38,13 @@ function walk(dir: string, base: string = dir): string[] {
 const ALLOWED_CALLERS: readonly string[] = [
   // The action that surfaces transcript text on /admin/users → modal.
   "app/admin/users/_actions/view-transcript.ts",
+  // /admin/videos drill-down server actions — each writes audit at the
+  // content-revealing boundary (summary text, transcript text, or revealed
+  // user list). Per spike-003, only these are audited; the page itself,
+  // KPI strip, and row-expansion stats never write audit rows.
+  "app/admin/videos/_actions/view-video-summary.ts",
+  "app/admin/videos/_actions/view-video-transcript.ts",
+  "app/admin/videos/_actions/view-video-users.ts",
   // Tests of writeAudit and of callers (test code can mock or import freely).
 ];
 
