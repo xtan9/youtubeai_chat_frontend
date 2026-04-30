@@ -10,6 +10,8 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Sign Up Success - YouTubeAI.chat",
   description: "Confirm your email to finish creating your YouTubeAI account.",
+  // Auth pages don't belong in the index — Disallow in robots.txt only
+  // suppresses crawling, not indexing of externally-linked URLs.
   robots: { index: false, follow: false },
 };
 

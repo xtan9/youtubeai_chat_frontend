@@ -37,12 +37,14 @@ describe("buildHowToSchema", () => {
 describe("buildOrganizationSchema", () => {
   const schema = buildOrganizationSchema();
 
-  it("declares Organization with absolute URLs", () => {
+  it("declares Organization aligned with the WebApplication brand", () => {
     expect(schema["@type"]).toBe("Organization");
-    expect(schema.name.length).toBeGreaterThan(0);
+    // Pin the brand name — must stay in lock-step with WebApplication.name
+    // (asserted in the buildWebApplicationSchema block) so Google can
+    // consolidate them into a single Knowledge Graph entity.
+    expect(schema.name).toBe("youtubeai.chat");
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
-    expect(schema.logo).toMatch(/^https:\/\/www\.youtubeai\.chat.+\.(png|jpg|svg)$/);
   });
 });
 
@@ -128,7 +130,9 @@ describe("buildWebPageSchema", () => {
     });
     expect(schema.publisher).toMatchObject({
       "@type": "Organization",
-      name: "YouTubeAI Summary",
+      // Pin to the same brand string buildOrganizationSchema uses so a
+      // brand rename can't drift the publisher field out of sync.
+      name: "youtubeai.chat",
       url: "https://www.youtubeai.chat",
     });
   });

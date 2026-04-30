@@ -62,7 +62,7 @@ export function HowItWorks() {
               >
                 <Image
                   src="/youtube-summary-demo.png"
-                  alt="YouTube Summary Demo"
+                  alt="AI summary of a YouTube video — example output"
                   fill
                   className="object-cover"
                 />
