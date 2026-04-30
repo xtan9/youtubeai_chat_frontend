@@ -6,6 +6,7 @@ import {
   getCachedSummary,
   getCachedTranscript,
 } from "@/lib/services/summarize-cache";
+import { checkChatEntitlement } from "@/lib/services/entitlements";
 import {
   appendChatTurn,
   appendChatUserMessage,
@@ -110,6 +111,26 @@ export async function POST(request: Request) {
   ]);
   if (!cachedSummary || !cachedTranscript) {
     return jsonError(404, USER_ERROR_NO_SUMMARY);
+  }
+
+  const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
+  if (entitlement.reason === "fail_open") {
+    console.error("[chat/stream] entitlement bypassed (fail-open)", {
+      errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
+      userId,
+      summaryId: cachedSummary.videoId,
+    });
+  }
+  if (!entitlement.allowed) {
+    return new Response(
+      JSON.stringify({
+        message: "You've used your 5 free chat messages on this video. Upgrade for unlimited.",
+        errorCode: "free_chat_exceeded",
+        tier: entitlement.tier,
+        upgradeUrl: "/pricing",
+      }),
+      { status: 402, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   const videoId = cachedTranscript.videoId;

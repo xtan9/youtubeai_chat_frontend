@@ -8,6 +8,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
     mocks: {
       getUser: vi.fn(),
       checkRateLimit: vi.fn(),
+      checkChatEntitlement: vi.fn(),
       getCachedSummary: vi.fn(),
       getCachedTranscript: vi.fn(),
       listChatMessages: vi.fn(),
@@ -33,6 +34,12 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
+}));
+
+vi.mock("@/lib/services/entitlements", () => ({
+  checkChatEntitlement: mocks.checkChatEntitlement,
+  FREE_LIMITS: { chatMessagesPerVideo: 5, summariesPerMonth: 10, historyItems: 10 },
+  ANON_LIMITS: { summariesLifetime: 1 },
 }));
 
 vi.mock("@/lib/services/summarize-cache", () => ({
@@ -115,6 +122,9 @@ describe("POST /api/chat/stream", () => {
       allowed: true,
       remaining: 99,
       reason: "within_limit",
+    });
+    mocks.checkChatEntitlement.mockResolvedValue({
+      tier: "free", allowed: true, remaining: 5, reason: "within_limit",
     });
     mocks.getCachedSummary.mockResolvedValue(SUMMARY_FIXTURE);
     mocks.getCachedTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
@@ -511,5 +521,37 @@ describe("POST /api/chat/stream", () => {
     expect(observed).not.toBeNull();
     expect(observed!.length).toBe(19);
     expect(observed![2]?.content).toBe("msg-1");
+  });
+
+  it("402 when free user has used 5 messages on this video", async () => {
+    mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+    mocks.checkChatEntitlement.mockResolvedValue({
+      tier: "free", allowed: false, remaining: 0, reason: "exceeded",
+    });
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.errorCode).toBe("free_chat_exceeded");
+  });
+
+  it("logs entitlement fail_open without affecting the response", async () => {
+    mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+    mocks.checkChatEntitlement.mockResolvedValue({
+      tier: "free", allowed: true, remaining: 5, reason: "fail_open",
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+    await readSse(res.body!);
+    expect(res.status).toBe(200);
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining("entitlement bypassed"),
+      expect.objectContaining({ errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST" }),
+    );
   });
 });
