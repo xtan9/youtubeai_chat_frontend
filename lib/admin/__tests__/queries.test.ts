@@ -1310,6 +1310,10 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
     // Source mix: only auto_captions has a count.
     expect(out.sourceMix.find((m) => m.source === "auto_captions")?.count).toBe(1);
     expect(out.sourceMix.find((m) => m.source === "whisper")?.count).toBe(0);
+    // Pin summariesPerDay too — same filter applies.
+    const todayKey = today.slice(0, 10);
+    const todayBucket = out.summariesPerDay.find((d) => d.day === todayKey);
+    expect(todayBucket?.value).toBe(1); // not 2 — admin-only video summary excluded from per-day chart
   });
 
   it("retains a video watched by both admin and non-admin in summary-derived KPIs", async () => {
@@ -1354,10 +1358,10 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
     expect(out.p95Seconds.current).toBe(7);
   });
 
-  it("non-empty exclude with empty history fails soft to no filter for summary KPIs", async () => {
-    // Empty filtered history could mean admins watched nothing OR a
-    // transient quirk. Either way, fail-soft to all-summaries matches
-    // the documented contract — better than zeroing the dashboard.
+  it("non-empty exclude with empty history → filtered to zero (honest empty)", async () => {
+    // No real-user history in window means KPIs report zero for the
+    // filtered metrics, even if summaries exist. The "excluding admin
+    // activity" label promises filtering, not fail-soft.
     const window = lastNDays(7);
     const today = window.end.toISOString();
     const client = buildClient(
@@ -1366,7 +1370,7 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
           table: "summaries",
           response: {
             data: [
-              { id: "s-1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
+              { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
             ],
             error: null,
           },
@@ -1382,9 +1386,11 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
     const out = await getDashboardKPIs(client, window, {
       excludeAdminUserIds: ["u-admin-1"],
     });
-    // Filter dropped → the lone summary still counts.
-    expect(out.summaries.current).toBe(1);
-    expect(out.p95Seconds.current).toBe(10);
+    expect(out.summaries.current).toBe(0);
+    expect(out.whisper.current).toBe(0);
+    expect(out.p95Seconds.current).toBeNull();
+    expect(out.transcribeP95Seconds).toBeNull();
+    expect(out.summarizeP95Seconds).toBeNull();
   });
 
   it("with empty excludeAdminUserIds, behavior matches the no-option call", async () => {
@@ -1484,9 +1490,7 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
     expect(stats.p95Seconds).toBe(10);
   });
 
-  it("non-empty exclude with empty history fails soft to no filter", async () => {
-    // Empty history could mean admins watched nothing OR history fetch failed.
-    // Either way, fail-soft to all-summaries is the documented behavior.
+  it("non-empty exclude with empty history → null percentiles (honest empty)", async () => {
     const window = lastNDays(7);
     const today = window.end.toISOString();
     const client = buildClient([
@@ -1506,8 +1510,8 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
     const stats = await getPerformanceStats(client, window, {
       excludeAdminUserIds: ["u-admin-1"],
     });
-    // Fail-soft: filter is dropped when history is empty, so summary stays.
-    expect(stats.p95Seconds).toBe(10);
+    expect(stats.p50Seconds).toBeNull();
+    expect(stats.p95Seconds).toBeNull();
   });
 
   it("retains video watched by both admin and non-admin", async () => {

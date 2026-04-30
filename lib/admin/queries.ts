@@ -949,30 +949,22 @@ export async function getDashboardKPIs(
     fetchHistoryIn(client, prevWindow, exclude),
   ]);
 
-  // When excluding admin activity, restrict summary-derived KPIs (counts,
-  // p95s, source mix, summaries-per-day) to summaries whose video appears
-  // in the (admin-filtered) history. A video that only admins watched
-  // should contribute zero to these metrics.
-  //
-  // Fail-soft: if the caller wanted filtering but history is empty (e.g.
-  // admins truly watched nothing in the window, or fetchHistoryIn ran
-  // ahead of any user activity), skip the filter and surface unfiltered
-  // numbers rather than zeroing the page out. Mirrors the contract
-  // getPerformanceStats introduced in PR #92.
+  // When excluding admins, intersect summary KPIs with the admin-filtered
+  // history so videos only admins watched contribute zero. If real-user
+  // history is empty in window, KPIs honestly show zero — the toggle
+  // promises filtering, not graceful fallback.
   const includedCurrent = wantFilter
     ? new Set(history.map((h) => h.video_id))
     : null;
   const includedPrev = wantFilter
     ? new Set(prevHistory.map((h) => h.video_id))
     : null;
-  const filteredCurrent =
-    wantFilter && history.length > 0
-      ? current.filter((s) => includedCurrent!.has(s.video_id))
-      : current;
-  const filteredPrev =
-    wantFilter && prevHistory.length > 0
-      ? previous.filter((s) => includedPrev!.has(s.video_id))
-      : previous;
+  const filteredCurrent = wantFilter
+    ? current.filter((s) => includedCurrent!.has(s.video_id))
+    : current;
+  const filteredPrev = wantFilter
+    ? previous.filter((s) => includedPrev!.has(s.video_id))
+    : previous;
 
   const summariesPerDay = bucketByDay(filteredCurrent, "created_at", window);
   const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
@@ -1084,22 +1076,20 @@ export async function getPerformanceStats(
       : Promise.resolve([] as HistoryRow[]),
   ]);
 
-  // When excluding admin activity, restrict performance stats to summaries
-  // whose video appears in the filtered (non-admin) history. A video that
-  // only admins watched contributes no latency samples.
-  //
-  // Fail-soft: if the caller wanted filtering but history is empty (either
-  // because admins watched nothing OR because the history fetch errored —
-  // see fetchHistoryForExclusion), we drop the filter and show all
-  // summaries. Better to surface all-activity numbers than to error the
-  // page; this matches the existing listAdminUserIds fail-soft default.
-  const includedCurrent = new Set(history.map((h) => h.video_id));
-  const includedPrev = new Set(prevHistory.map((h) => h.video_id));
-  const filteredCurrent = wantFilter && history.length > 0
-    ? current.filter((s) => includedCurrent.has(s.video_id))
+  // When excluding admins, intersect latency samples with admin-filtered
+  // history. Empty real-user history means null percentiles — the toggle
+  // promises filtering, not fallback to all-activity numbers.
+  const includedCurrent = wantFilter
+    ? new Set(history.map((h) => h.video_id))
+    : null;
+  const includedPrev = wantFilter
+    ? new Set(prevHistory.map((h) => h.video_id))
+    : null;
+  const filteredCurrent = wantFilter
+    ? current.filter((s) => includedCurrent!.has(s.video_id))
     : current;
-  const filteredPrev = wantFilter && prevHistory.length > 0
-    ? previous.filter((s) => includedPrev.has(s.video_id))
+  const filteredPrev = wantFilter
+    ? previous.filter((s) => includedPrev!.has(s.video_id))
     : previous;
 
   const byDay = new Map<string, number[]>();
