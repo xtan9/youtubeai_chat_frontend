@@ -74,19 +74,19 @@ beforeEach(() => {
 });
 
 describe("viewVideoSummaryAction", () => {
-  it("returns canonical summary text and writes audit row", async () => {
+  it("returns the single summary row and writes audit", async () => {
+    // Production schema (post-migration 20260423000000_drop_thinking_columns)
+    // has at most one summary per video. The action returns that row's
+    // text and writes an audit log entry — no canonical/fallback dance.
     const client = buildSupabaseClient([
       {
-        // canonical lookup (enable_thinking=false)
         table: "summaries",
         response: {
           data: {
             id: VALID_SUMMARY_UUID,
             video_id: VALID_VIDEO_UUID,
             summary: "the summary",
-            thinking: null,
             model: "claude-opus-4-7",
-            enable_thinking: false,
             created_at: "2026-04-01T00:00:00Z",
           },
           error: null,
@@ -111,45 +111,11 @@ describe("viewVideoSummaryAction", () => {
     expect(auditCall.metadata).toEqual({
       video_id: VALID_VIDEO_UUID,
       model: "claude-opus-4-7",
-      enable_thinking: false,
-      used_fallback_variant: false,
     });
   });
 
-  it("falls back to most recent summary when no canonical exists", async () => {
+  it("returns video_not_found when no summary exists", async () => {
     const client = buildSupabaseClient([
-      // canonical lookup → no row
-      { table: "summaries", response: { data: null, error: null } },
-      // fallback lookup → returns the thinking-enabled variant
-      {
-        table: "summaries",
-        response: {
-          data: {
-            id: VALID_SUMMARY_UUID,
-            video_id: VALID_VIDEO_UUID,
-            summary: "fallback summary",
-            thinking: "raw thoughts",
-            model: "claude-opus-4-7",
-            enable_thinking: true,
-            created_at: "2026-04-02T00:00:00Z",
-          },
-          error: null,
-        },
-      },
-    ]);
-    requireAdminClientMock.mockReturnValue(client);
-    writeAuditMock.mockResolvedValue({ ok: true, id: "audit-2" });
-
-    const result = await viewVideoSummaryAction(VALID_VIDEO_UUID);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.summary).toBe("fallback summary");
-    expect(result.thinking).toBe("raw thoughts");
-  });
-
-  it("returns video_not_found when no summary exists at all", async () => {
-    const client = buildSupabaseClient([
-      { table: "summaries", response: { data: null, error: null } },
       { table: "summaries", response: { data: null, error: null } },
     ]);
     requireAdminClientMock.mockReturnValue(client);
@@ -196,7 +162,7 @@ describe("viewVideoSummaryAction", () => {
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("returns internal_error and skips audit when canonical summaries fetch errors", async () => {
+  it("returns internal_error and skips audit when summary fetch errors", async () => {
     const client = buildSupabaseClient([
       {
         table: "summaries",
@@ -212,55 +178,6 @@ describe("viewVideoSummaryAction", () => {
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("returns internal_error and skips audit when fallback fetch errors", async () => {
-    const client = buildSupabaseClient([
-      // canonical -> no row
-      { table: "summaries", response: { data: null, error: null } },
-      // fallback -> error
-      {
-        table: "summaries",
-        response: { data: null, error: { message: "fallback boom" } },
-      },
-    ]);
-    requireAdminClientMock.mockReturnValue(client);
-
-    const result = await viewVideoSummaryAction(VALID_VIDEO_UUID);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("internal_error");
-    expect(writeAuditMock).not.toHaveBeenCalled();
-  });
-
-  it("sets usedFallbackVariant=true when canonical missing and fallback returned", async () => {
-    const client = buildSupabaseClient([
-      { table: "summaries", response: { data: null, error: null } },
-      {
-        table: "summaries",
-        response: {
-          data: {
-            id: VALID_SUMMARY_UUID,
-            video_id: VALID_VIDEO_UUID,
-            summary: "fallback summary",
-            thinking: null,
-            model: "claude-opus-4-7",
-            enable_thinking: true,
-            created_at: "2026-04-02T00:00:00Z",
-          },
-          error: null,
-        },
-      },
-    ]);
-    requireAdminClientMock.mockReturnValue(client);
-    writeAuditMock.mockResolvedValue({ ok: true, id: "audit-fb" });
-
-    const result = await viewVideoSummaryAction(VALID_VIDEO_UUID);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.usedFallbackVariant).toBe(true);
-    const auditCall = writeAuditMock.mock.calls[0][1];
-    expect((auditCall.metadata as Record<string, unknown>).used_fallback_variant).toBe(true);
-  });
-
   it("fails open: returns content when audit write rejects", async () => {
     const client = buildSupabaseClient([
       {
@@ -270,9 +187,7 @@ describe("viewVideoSummaryAction", () => {
             id: VALID_SUMMARY_UUID,
             video_id: VALID_VIDEO_UUID,
             summary: "the summary",
-            thinking: null,
             model: "claude-opus-4-7",
-            enable_thinking: false,
             created_at: "2026-04-01T00:00:00Z",
           },
           error: null,

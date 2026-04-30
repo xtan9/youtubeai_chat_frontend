@@ -962,7 +962,7 @@ export async function getUserSummaries(
     client
       .from("summaries")
       .select(
-        "id, video_id, transcript_source, model, processing_time_seconds, enable_thinking",
+        "id, video_id, transcript_source, model, processing_time_seconds",
       )
       .in("video_id", videoIds),
   ]);
@@ -978,23 +978,14 @@ export async function getUserSummaries(
     videoById.set(String(v.id), v);
   }
 
-  // Pick canonical summary per video: prefer enable_thinking=false (the
-  // default user-visible variant); fall back to whichever exists. If a
-  // future write path produces both per video, the false-variant is the
-  // one mirrored on /summary.
+  // Production schema (per migration 20260423000000_drop_thinking_columns)
+  // has at most one summary row per video — the enable_thinking column was
+  // dropped along with its UNIQUE constraint, and dedup collapsed duplicate
+  // rows. First-seen wins.
   const summaryByVideo = new Map<string, Record<string, unknown>>();
   for (const s of (summariesRes.data ?? []) as Record<string, unknown>[]) {
     const vid = String(s.video_id);
-    const existing = summaryByVideo.get(vid);
-    if (!existing) {
-      summaryByVideo.set(vid, s);
-      continue;
-    }
-    const newIsCanonical = s.enable_thinking === false;
-    const existingIsCanonical = existing.enable_thinking === false;
-    if (newIsCanonical && !existingIsCanonical) {
-      summaryByVideo.set(vid, s);
-    }
+    if (!summaryByVideo.has(vid)) summaryByVideo.set(vid, s);
   }
 
   const rows: UserSummaryRow[] = [];
@@ -1422,10 +1413,10 @@ async function computeTopUsers(
   summaries: SummaryRow[],
   limit: number,
 ): Promise<TopUserStat[]> {
-  // First summary per video wins. There can be both an enable_thinking=true
-  // and enable_thinking=false summary for the same video; for whisper-share
-  // and latency aggregation we treat them as one usage event — the first
-  // one returned is good enough since both share the same transcript_source.
+  // First summary per video wins. Production has at most one summary
+  // per video (per migration 20260423000000_drop_thinking_columns); the
+  // dedup also collapsed historical duplicates. Iterating defensively
+  // costs us nothing.
   const summariesByVideo = new Map<string, SummaryRow>();
   for (const s of summaries) {
     if (!summariesByVideo.has(s.video_id)) summariesByVideo.set(s.video_id, s);
@@ -1572,12 +1563,12 @@ export async function listVideosWithStats(
   const [videosRes, summariesRes] = await Promise.all([
     client
       .from("videos")
-      .select("id, title, channel_name, language, duration_seconds")
+      .select("id, title, channel_name, language, duration_seconds:duration")
       .in("id", cappedIds),
     client
       .from("summaries")
       .select(
-        "video_id, transcript_source, model, processing_time_seconds, created_at, enable_thinking",
+        "video_id, transcript_source, model, processing_time_seconds, created_at",
       )
       .in("video_id", cappedIds),
   ]);
@@ -1613,12 +1604,19 @@ export async function listVideosWithStats(
   return { rows: slice, total, truncated, page, pageCount };
 }
 
+/**
+ * Returns the single summary row for a video (or null when none).
+ * Production has at most one summary per video — the `enable_thinking`
+ * column and its UNIQUE constraint were dropped by migration
+ * 20260423000000_drop_thinking_columns and dedup collapsed historical
+ * duplicates. The function is kept (rather than inlined) so callers
+ * read self-documentingly and so future work can re-introduce a
+ * preference rule in one place if the schema ever grows variants again.
+ */
 function pickCanonicalSummary(
   summaries: Array<Record<string, unknown>>,
 ): Record<string, unknown> | null {
-  if (summaries.length === 0) return null;
-  const canonical = summaries.find((s) => s.enable_thinking === false);
-  return canonical ?? summaries[0];
+  return summaries[0] ?? null;
 }
 
 function aggregateVideoRows(
@@ -1886,7 +1884,7 @@ export async function getVideoInsights(
       .in("id", videoIds),
     client
       .from("summaries")
-      .select("video_id, transcript_source, enable_thinking")
+      .select("video_id, transcript_source")
       .in("video_id", videoIds),
   ]);
   if (videosRes.error) {
