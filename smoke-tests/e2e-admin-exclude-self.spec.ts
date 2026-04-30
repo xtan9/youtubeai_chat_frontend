@@ -57,8 +57,8 @@ test("admin dashboard shows real-count badge and toggles admin exclusion", async
   // Subtitle reflects exclusion mode.
   await expect(page.getByText(/excluding admin activity/i)).toBeVisible();
 
-  // Toggle: click the "real users" pill.
-  await page.getByRole("button", { name: /real users/i }).click();
+  // Toggle: flip the "Include admins" switch.
+  await page.getByRole("switch", { name: /include admins/i }).click();
   await expect(page).toHaveURL(/include_admins=1/);
   await expect(page.getByText(/including admins/i)).toBeVisible();
 

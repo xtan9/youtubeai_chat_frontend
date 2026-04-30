@@ -1234,7 +1234,12 @@ describe("listAdminUserIds", () => {
 });
 
 describe("getDashboardKPIs with excludeAdminUserIds", () => {
-  it("drops history rows whose user_id is in the exclude set", async () => {
+  it("drops history rows whose user_id is in the exclude set and filters summary-derived KPIs", async () => {
+    // Two summaries: v-real (watched by a non-admin) and v-admin
+    // (watched only by an admin, filtered out of history). The KPI
+    // outputs must reflect ONLY the v-real summary.
+    const window = lastNDays(30);
+    const today = window.end.toISOString();
     const client = buildClient(
       [
         // Production call sequence (Promise.all):
@@ -1244,13 +1249,22 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
         // 4. fetchHistoryIn(prev) → user_video_history (asserts .not())
         // 5. fetchHistoryIn(current) cache-hit lookup → summaries
         //    (only when history is non-empty; current returns 1 row)
-        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "summaries",
+          response: {
+            data: [
+              { id: "s-real", video_id: "v-real", transcript_source: "auto_captions", processing_time_seconds: 5, transcribe_time_seconds: 3, summarize_time_seconds: 2, created_at: today },
+              { id: "s-admin", video_id: "v-admin", transcript_source: "whisper", processing_time_seconds: 100, transcribe_time_seconds: 90, summarize_time_seconds: 10, created_at: today },
+            ],
+            error: null,
+          },
+        },
         { table: "summaries", response: { data: [], error: null } },
         {
           table: "user_video_history",
           response: {
             data: [
-              { user_id: "u-real", video_id: "v-1", created_at: "2026-04-15T00:00:00Z" },
+              { user_id: "u-real", video_id: "v-real", created_at: today },
             ],
             error: null,
           },
@@ -1281,11 +1295,102 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
         getUserById: () => ({ data: { user: { email: "x@x" } }, error: null }),
       },
     );
-    const out = await getDashboardKPIs(client, lastNDays(30), {
+    const out = await getDashboardKPIs(client, window, {
       excludeAdminUserIds: ["u-admin-1", "u-admin-2"],
     });
-    // Just confirm the call shape produced sane output (no throw).
+    // Only the v-real summary should be counted — the v-admin one (whisper,
+    // 100s) is dropped because no non-admin watched it.
+    expect(out.summaries.current).toBe(1);
+    expect(out.whisper.current).toBe(0);
+    // p95 of [5] → 5 (single sample). The 100s admin summary must not
+    // contribute.
+    expect(out.p95Seconds.current).toBe(5);
+    expect(out.transcribeP95Seconds).toBe(3);
+    expect(out.summarizeP95Seconds).toBe(2);
+    // Source mix: only auto_captions has a count.
+    expect(out.sourceMix.find((m) => m.source === "auto_captions")?.count).toBe(1);
+    expect(out.sourceMix.find((m) => m.source === "whisper")?.count).toBe(0);
+    // Pin summariesPerDay too — same filter applies.
+    const todayKey = today.slice(0, 10);
+    const todayBucket = out.summariesPerDay.find((d) => d.day === todayKey);
+    expect(todayBucket?.value).toBe(1); // not 2 — admin-only video summary excluded from per-day chart
+  });
+
+  it("retains a video watched by both admin and non-admin in summary-derived KPIs", async () => {
+    // The DB-side .not() filter drops admin history rows; the shared video
+    // still appears in the filtered history, so its summary contributes
+    // to KPI numbers.
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient(
+      [
+        {
+          table: "summaries",
+          response: {
+            data: [
+              { id: "s-shared", video_id: "v-shared", transcript_source: "whisper", processing_time_seconds: 7, transcribe_time_seconds: 5, summarize_time_seconds: 2, created_at: today },
+            ],
+            error: null,
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u-real", video_id: "v-shared", created_at: today },
+            ],
+            error: null,
+          },
+        },
+        { table: "user_video_history", response: { data: [], error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: "x@x" } }, error: null }),
+      },
+    );
+    const out = await getDashboardKPIs(client, window, {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
+    expect(out.summaries.current).toBe(1);
+    expect(out.whisper.current).toBe(1);
+    expect(out.p95Seconds.current).toBe(7);
+  });
+
+  it("non-empty exclude with empty history → filtered to zero (honest empty)", async () => {
+    // No real-user history in window means KPIs report zero for the
+    // filtered metrics, even if summaries exist. The "excluding admin
+    // activity" label promises filtering, not fail-soft.
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient(
+      [
+        {
+          table: "summaries",
+          response: {
+            data: [
+              { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
+            ],
+            error: null,
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+        { table: "user_video_history", response: { data: [], error: null } },
+        { table: "user_video_history", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: "x@x" } }, error: null }),
+      },
+    );
+    const out = await getDashboardKPIs(client, window, {
+      excludeAdminUserIds: ["u-admin-1"],
+    });
     expect(out.summaries.current).toBe(0);
+    expect(out.whisper.current).toBe(0);
+    expect(out.p95Seconds.current).toBeNull();
+    expect(out.transcribeP95Seconds).toBeNull();
+    expect(out.summarizeP95Seconds).toBeNull();
   });
 
   it("with empty excludeAdminUserIds, behavior matches the no-option call", async () => {
@@ -1385,9 +1490,7 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
     expect(stats.p95Seconds).toBe(10);
   });
 
-  it("non-empty exclude with empty history fails soft to no filter", async () => {
-    // Empty history could mean admins watched nothing OR history fetch failed.
-    // Either way, fail-soft to all-summaries is the documented behavior.
+  it("non-empty exclude with empty history → null percentiles (honest empty)", async () => {
     const window = lastNDays(7);
     const today = window.end.toISOString();
     const client = buildClient([
@@ -1407,8 +1510,8 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
     const stats = await getPerformanceStats(client, window, {
       excludeAdminUserIds: ["u-admin-1"],
     });
-    // Fail-soft: filter is dropped when history is empty, so summary stays.
-    expect(stats.p95Seconds).toBe(10);
+    expect(stats.p50Seconds).toBeNull();
+    expect(stats.p95Seconds).toBeNull();
   });
 
   it("retains video watched by both admin and non-admin", async () => {

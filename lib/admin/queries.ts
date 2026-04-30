@@ -941,6 +941,7 @@ export async function getDashboardKPIs(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
+  const wantFilter = exclude.length > 0;
   const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
@@ -948,7 +949,14 @@ export async function getDashboardKPIs(
     fetchHistoryIn(client, prevWindow, exclude),
   ]);
 
-  const summariesPerDay = bucketByDay(current, "created_at", window);
+  // When excluding admins, intersect summary KPIs with the admin-filtered
+  // history so videos only admins watched contribute zero. If real-user
+  // history is empty in window, KPIs honestly show zero — the toggle
+  // promises filtering, not graceful fallback.
+  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
+  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
+
+  const summariesPerDay = bucketByDay(filteredCurrent, "created_at", window);
   const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
     const distinct = new Set<string>();
     for (const r of rows) distinct.add(r.user_id);
@@ -961,7 +969,7 @@ export async function getDashboardKPIs(
   });
 
   const sourceCounts = new Map<TranscriptSource, number>();
-  for (const s of current) {
+  for (const s of filteredCurrent) {
     sourceCounts.set(
       s.transcript_source as TranscriptSource,
       (sourceCounts.get(s.transcript_source as TranscriptSource) ?? 0) + 1,
@@ -975,23 +983,32 @@ export async function getDashboardKPIs(
   const cacheHitCurrent = computeCacheHitRate(history);
   const cacheHitPrevious = computeCacheHitRate(prevHistory);
 
-  const topUsers = await computeTopUsers(client, history, current, 5);
+  const topUsers = await computeTopUsers(client, history, filteredCurrent, 5);
 
-  const whisperCount = current.filter((s) => s.transcript_source === "whisper")
-    .length;
-  const whisperPrev = previous.filter((s) => s.transcript_source === "whisper")
-    .length;
+  const whisperCount = filteredCurrent.filter(
+    (s) => s.transcript_source === "whisper",
+  ).length;
+  const whisperPrev = filteredPrev.filter(
+    (s) => s.transcript_source === "whisper",
+  ).length;
 
   return {
     window,
-    summaries: { current: current.length, previous: previous.length },
+    summaries: {
+      current: filteredCurrent.length,
+      previous: filteredPrev.length,
+    },
     whisper: { current: whisperCount, previous: whisperPrev },
     p95Seconds: {
-      current: p95(current.map((s) => s.processing_time_seconds)),
-      previous: p95(previous.map((s) => s.processing_time_seconds)),
+      current: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
+      previous: p95(filteredPrev.map((s) => s.processing_time_seconds)),
     },
-    transcribeP95Seconds: p95(current.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(current.map((s) => s.summarize_time_seconds)),
+    transcribeP95Seconds: p95(
+      filteredCurrent.map((s) => s.transcribe_time_seconds),
+    ),
+    summarizeP95Seconds: p95(
+      filteredCurrent.map((s) => s.summarize_time_seconds),
+    ),
     cacheHitRatePct: { current: cacheHitCurrent, previous: cacheHitPrevious },
     summariesPerDay,
     dauPerDay,
@@ -1044,23 +1061,11 @@ export async function getPerformanceStats(
       : Promise.resolve([] as HistoryRow[]),
   ]);
 
-  // When excluding admin activity, restrict performance stats to summaries
-  // whose video appears in the filtered (non-admin) history. A video that
-  // only admins watched contributes no latency samples.
-  //
-  // Fail-soft: if the caller wanted filtering but history is empty (either
-  // because admins watched nothing OR because the history fetch errored —
-  // see fetchHistoryForExclusion), we drop the filter and show all
-  // summaries. Better to surface all-activity numbers than to error the
-  // page; this matches the existing listAdminUserIds fail-soft default.
-  const includedCurrent = new Set(history.map((h) => h.video_id));
-  const includedPrev = new Set(prevHistory.map((h) => h.video_id));
-  const filteredCurrent = wantFilter && history.length > 0
-    ? current.filter((s) => includedCurrent.has(s.video_id))
-    : current;
-  const filteredPrev = wantFilter && prevHistory.length > 0
-    ? previous.filter((s) => includedPrev.has(s.video_id))
-    : previous;
+  // When excluding admins, intersect latency samples with admin-filtered
+  // history. Empty real-user history means null percentiles — the toggle
+  // promises filtering, not fallback to all-activity numbers.
+  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
+  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
 
   const byDay = new Map<string, number[]>();
   for (const s of filteredCurrent) {
@@ -1139,11 +1144,10 @@ interface HistoryRow {
   cacheHit?: boolean;
 }
 
-/** Fail-soft wrapper around fetchHistoryIn used by getPerformanceStats.
- * If the history read errors, log + return [] so the perf page can still
- * render. The caller distinguishes "no rows" vs "fetch errored" only via
- * the documented fail-soft contract: empty history → drop the filter,
- * not "filter everything out". */
+/** Used by getPerformanceStats: a history-fetch error logs and returns []
+ * so the perf page renders instead of 500-ing. With honest filtering, []
+ * now zeroes the filtered metrics — that's preferable to crashing the
+ * page on a transient read failure. */
 async function fetchHistoryForExclusion(
   client: SupabaseClient,
   window: TimeWindow,
@@ -1153,7 +1157,7 @@ async function fetchHistoryForExclusion(
     return await fetchHistoryIn(client, window, exclude);
   } catch (err) {
     console.error(
-      "[admin-queries] getPerformanceStats: history fetch failed; falling back to no filter",
+      "[admin-queries] getPerformanceStats: history fetch failed; filtered metrics will be empty",
       {
         message: err instanceof Error ? err.message : String(err),
         window: {
@@ -1164,6 +1168,16 @@ async function fetchHistoryForExclusion(
     );
     return [];
   }
+}
+
+function restrictSummariesToHistory<T extends { video_id: string }>(
+  summaries: T[],
+  history: HistoryRow[],
+  wantFilter: boolean,
+): T[] {
+  if (!wantFilter) return summaries;
+  const allowed = new Set(history.map((h) => h.video_id));
+  return summaries.filter((s) => allowed.has(s.video_id));
 }
 
 async function fetchHistoryIn(

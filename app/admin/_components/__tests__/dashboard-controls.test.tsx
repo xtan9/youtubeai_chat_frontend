@@ -22,30 +22,33 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("DashboardControls toggle", () => {
-  it("shows 'real users' label when includeAdmins is false", () => {
+  it("renders the include-admins switch unchecked by default", () => {
     render(<DashboardControls windowDays={30} includeAdmins={false} />);
-    expect(screen.getByRole("button", { name: /real users/i })).toBeTruthy();
+    const sw = screen.getByRole("switch", { name: /include admins/i });
+    expect(sw).toBeTruthy();
+    expect(sw.getAttribute("data-state")).toBe("unchecked");
   });
 
-  it("shows 'incl. admins' label when includeAdmins is true", () => {
+  it("renders the include-admins switch checked when includeAdmins=true", () => {
     render(<DashboardControls windowDays={30} includeAdmins={true} />);
-    expect(screen.getByRole("button", { name: /incl\. admins/i })).toBeTruthy();
+    const sw = screen.getByRole("switch", { name: /include admins/i });
+    expect(sw.getAttribute("data-state")).toBe("checked");
   });
 
-  it("clicking the toggle adds ?include_admins=1 when off", async () => {
+  it("clicking the switch when off adds ?include_admins=1", async () => {
     const user = userEvent.setup();
     render(<DashboardControls windowDays={30} includeAdmins={false} />);
-    await user.click(screen.getByRole("button", { name: /real users/i }));
+    await user.click(screen.getByRole("switch", { name: /include admins/i }));
     expect(replace).toHaveBeenCalledWith(
       expect.stringContaining("include_admins=1"),
     );
   });
 
-  it("clicking the toggle removes include_admins when already on", async () => {
+  it("clicking the switch when on removes include_admins", async () => {
     currentSearch = "include_admins=1";
     const user = userEvent.setup();
     render(<DashboardControls windowDays={30} includeAdmins={true} />);
-    await user.click(screen.getByRole("button", { name: /incl\. admins/i }));
+    await user.click(screen.getByRole("switch", { name: /include admins/i }));
     const lastCall = replace.mock.calls.at(-1)?.[0] ?? "";
     expect(lastCall).not.toContain("include_admins");
   });

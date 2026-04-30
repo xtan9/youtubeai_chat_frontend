@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 import { AreaChart, Btn, Pill, Sparkline } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
+import { IncludeAdminsToggle } from "../_components/include-admins-toggle";
 import { parseWindowDays } from "../_components/window-days";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
@@ -55,19 +56,7 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
           </p>
         </div>
         <div className="row gap-8">
-          <a
-            href={(() => {
-              const sp = new URLSearchParams();
-              if (windowDays !== 30) sp.set("window", String(windowDays));
-              if (!includeAdmins) sp.set("include_admins", "1");
-              const qs = sp.toString();
-              return qs ? `?${qs}` : "?";
-            })()}
-            className={`tab ${includeAdmins ? "active" : ""}`}
-            title="Toggle whether admin-account activity is included in metrics"
-          >
-            {includeAdmins ? "incl. admins" : "real users"}
-          </a>
+          <IncludeAdminsToggle checked={includeAdmins} />
           <div className="tabs">
             {TIME_TABS.map((t) => (
               <a
