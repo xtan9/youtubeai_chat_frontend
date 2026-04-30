@@ -12,8 +12,15 @@ export interface ViewVideoSummaryOk {
   thinking: string | null;
   model: string | null;
   createdAt: string;
-  /** UUID of the audit row written for this view, or null when the audit
-   * write failed (fail-open per spike-003). */
+  /** True when the canonical (`enable_thinking=false`) summary did not
+   * exist and we returned the most-recent fallback row instead. The UI
+   * surfaces an info pill so the operator knows the displayed text
+   * isn't the user-visible canonical variant. */
+  usedFallbackVariant: boolean;
+  /** UUID of the audit row written for this view, or null when the
+   * audit write failed. Audit is fail-open: a write failure must never
+   * block content disclosure to a privileged admin reviewing data they
+   * already have access to. */
   auditId: string | null;
   /** When `auditId` is null, this carries the underlying writeAudit
    * reason — propagated to the UI so the operator sees a specific cause. */
@@ -37,9 +44,16 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Returns the canonical summary (`enable_thinking=false` preferred) for a
- * video and writes a `view_summary_text` audit row at the disclosure
- * boundary. Audit is fail-open per spike-003.
+ * Returns the canonical summary (`enable_thinking=false` preferred) for
+ * a video and writes a `view_summary_text` audit row at the disclosure
+ * boundary. Audit is fail-open: a write failure must never block content
+ * disclosure to a privileged admin reviewing data they already have
+ * access to.
+ *
+ * When no canonical row exists, the most-recent variant is returned and
+ * `usedFallbackVariant: true` is set on the result so the UI can flag
+ * "showing thinking-enabled variant — canonical not found" rather than
+ * silently presenting non-canonical content.
  */
 export async function viewVideoSummaryAction(
   videoId: string,
@@ -72,6 +86,7 @@ export async function viewVideoSummaryAction(
   }
 
   let summaryRow = canonical as Record<string, unknown> | null;
+  let usedFallbackVariant = false;
   if (!summaryRow) {
     const { data: fallback, error: fallbackErr } = await client
       .from("summaries")
@@ -90,6 +105,7 @@ export async function viewVideoSummaryAction(
       return { ok: false, reason: "internal_error" };
     }
     summaryRow = fallback as Record<string, unknown> | null;
+    if (summaryRow) usedFallbackVariant = true;
   }
 
   if (!summaryRow) return { ok: false, reason: "video_not_found" };
@@ -104,6 +120,7 @@ export async function viewVideoSummaryAction(
       video_id: videoId,
       model: (summaryRow.model as string | null) ?? null,
       enable_thinking: (summaryRow.enable_thinking as boolean | null) ?? null,
+      used_fallback_variant: usedFallbackVariant,
     },
   });
 
@@ -115,6 +132,7 @@ export async function viewVideoSummaryAction(
     thinking: (summaryRow.thinking as string | null) ?? null,
     model: (summaryRow.model as string | null) ?? null,
     createdAt: String(summaryRow.created_at),
+    usedFallbackVariant,
     auditId: auditResult.ok ? auditResult.id : null,
     auditFailureReason: auditResult.ok ? null : auditResult.reason,
   };

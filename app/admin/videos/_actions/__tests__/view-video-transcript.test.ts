@@ -120,7 +120,10 @@ describe("viewVideoTranscriptAction", () => {
     expect(auditCall.action).toBe("view_transcript");
     expect(auditCall.resourceType).toBe("summary");
     expect(auditCall.resourceId).toBe(VALID_SUMMARY_UUID);
-    expect(auditCall.metadata).toEqual({ video_id: VALID_VIDEO_UUID });
+    expect(auditCall.metadata).toEqual({
+      video_id: VALID_VIDEO_UUID,
+      used_fallback_variant: false,
+    });
   });
 
   it("returns video_not_found when no summary exists", async () => {

@@ -18,6 +18,9 @@ export interface ViewVideoTranscriptOk {
   /** True when the videos metadata fetch errored. UI should surface a
    * "metadata unavailable" indicator. */
   videoFetchFailed: boolean;
+  /** True when the canonical (`enable_thinking=false`) summary did not
+   * exist and we returned the most-recent fallback row instead. */
+  usedFallbackVariant: boolean;
   createdAt: string;
   auditId: string | null;
   auditFailureReason: string | null;
@@ -41,7 +44,15 @@ const UUID_RE =
 
 /**
  * Returns the transcript of the canonical summary for a video and writes
- * a `view_transcript` audit row. Audit is fail-open per spike-003.
+ * a `view_transcript` audit row. Audit is fail-open: a write failure
+ * must never block content disclosure to a privileged admin reviewing
+ * data they already have access to.
+ *
+ * Returns `internal_error` if the row's `transcript_source` falls
+ * outside `ALL_SOURCES` — keep `ALL_SOURCES` in sync with the
+ * `TranscriptSource` type. Sets `usedFallbackVariant: true` when the
+ * canonical (`enable_thinking=false`) row is missing and the most
+ * recent variant was returned instead.
  */
 export async function viewVideoTranscriptAction(
   videoId: string,
@@ -72,6 +83,7 @@ export async function viewVideoTranscriptAction(
   }
 
   let summaryRow = canonical as Record<string, unknown> | null;
+  let usedFallbackVariant = false;
   if (!summaryRow) {
     const { data: fallback, error: fallbackErr } = await client
       .from("summaries")
@@ -90,6 +102,7 @@ export async function viewVideoTranscriptAction(
       return { ok: false, reason: "internal_error" };
     }
     summaryRow = fallback as Record<string, unknown> | null;
+    if (summaryRow) usedFallbackVariant = true;
   }
 
   if (!summaryRow) return { ok: false, reason: "video_not_found" };
@@ -133,7 +146,10 @@ export async function viewVideoTranscriptAction(
     action: "view_transcript",
     resourceType: "summary",
     resourceId: summaryId,
-    metadata: { video_id: videoId },
+    metadata: {
+      video_id: videoId,
+      used_fallback_variant: usedFallbackVariant,
+    },
   });
 
   return {
@@ -146,6 +162,7 @@ export async function viewVideoTranscriptAction(
     channelName,
     language,
     videoFetchFailed,
+    usedFallbackVariant,
     createdAt: String(summaryRow.created_at),
     auditId: auditResult.ok ? auditResult.id : null,
     auditFailureReason: auditResult.ok ? null : auditResult.reason,

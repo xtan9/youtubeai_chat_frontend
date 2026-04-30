@@ -29,6 +29,10 @@ interface LoadedContent {
   auditFailureReason: string | null;
   /** True for transcript mode when videos-table fetch errored. */
   videoFetchFailed: boolean;
+  /** True when the displayed text came from the fallback (non-canonical)
+   * summary variant — operator should know they're not seeing what
+   * end-users see. */
+  usedFallbackVariant: boolean;
 }
 
 export function VideoContentModal({
@@ -82,12 +86,19 @@ export function VideoContentModal({
             ? (result as Extract<ViewVideoTranscriptResult, { ok: true }>)
                 .videoFetchFailed === true
             : false;
+        const usedFallbackVariant =
+          mode === "summary"
+            ? (result as Extract<ViewVideoSummaryResult, { ok: true }>)
+                .usedFallbackVariant === true
+            : (result as Extract<ViewVideoTranscriptResult, { ok: true }>)
+                .usedFallbackVariant === true;
         setContent({
           mode,
           body,
           auditId: result.auditId,
           auditFailureReason: result.auditFailureReason,
           videoFetchFailed,
+          usedFallbackVariant,
         });
       } catch (err) {
         if (cancelled) return;
@@ -187,6 +198,12 @@ export function VideoContentModal({
           )}
           {!pending && !error && content?.videoFetchFailed && (
             <Pill tone="warn">Video metadata unavailable</Pill>
+          )}
+          {!pending && !error && content?.usedFallbackVariant && (
+            <Pill tone="warn">
+              Fallback variant — canonical (enable_thinking=false) not
+              found
+            </Pill>
           )}
         </div>
 

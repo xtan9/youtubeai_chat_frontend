@@ -112,6 +112,7 @@ describe("viewVideoSummaryAction", () => {
       video_id: VALID_VIDEO_UUID,
       model: "claude-opus-4-7",
       enable_thinking: false,
+      used_fallback_variant: false,
     });
   });
 
