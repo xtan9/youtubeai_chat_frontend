@@ -71,6 +71,9 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/blog/") ||
     request.nextUrl.pathname === "/faq" ||
     request.nextUrl.pathname.startsWith("/faq/") ||
+    // Public marketing/conversion page — anon users need to see plans before
+    // signing up; gating it would break the top-of-funnel upgrade flow.
+    request.nextUrl.pathname === "/pricing" ||
     // Design-system showcase is purely a visual reference for components and
     // tokens — no user data — so it's reachable without auth. Lets reviewers
     // and contributors browse the catalogue without logging in.
