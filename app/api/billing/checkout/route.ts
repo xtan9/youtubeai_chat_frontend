@@ -42,11 +42,19 @@ export async function POST(request: Request) {
 
   try {
     // Look up or create Stripe customer
-    const { data: existing } = await sr
+    const { data: existing, error: lookupErr } = await sr
       .from("user_subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", user.id)
       .maybeSingle();
+    if (lookupErr) {
+      console.error("[billing/checkout] lookup failed", {
+        errorId: "BILLING_CHECKOUT_LOOKUP_FAIL",
+        userId: user.id,
+        code: (lookupErr as { code?: string }).code,
+      });
+      return Response.json({ message: "Service unavailable" }, { status: 503 });
+    }
 
     let customerId = existing?.stripe_customer_id ?? null;
     if (!customerId) {

@@ -41,6 +41,18 @@ it("401 for anonymous Supabase user", async () => {
   expect(res.status).toBe(401);
 });
 
+it("503 when customer lookup returns DB error", async () => {
+  mocks.getUser.mockResolvedValue({
+    data: { user: { id: "u1", is_anonymous: false } }, error: null,
+  });
+  mocks.maybeSingle.mockResolvedValue({ data: null, error: { code: "PGRST301" } });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const { POST } = await import("../route");
+  const res = await POST();
+  expect(res.status).toBe(503);
+  expect(mocks.portalCreate).not.toHaveBeenCalled();
+});
+
 it("400 when no user_subscriptions row exists", async () => {
   mocks.getUser.mockResolvedValue({
     data: { user: { id: "u1", is_anonymous: false } }, error: null,

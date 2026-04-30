@@ -16,11 +16,19 @@ export async function POST() {
     return Response.json({ message: "Service unavailable" }, { status: 503 });
   }
 
-  const { data } = await sr
+  const { data, error: lookupErr } = await sr
     .from("user_subscriptions")
     .select("stripe_customer_id")
     .eq("user_id", user.id)
     .maybeSingle();
+  if (lookupErr) {
+    console.error("[billing/portal] lookup failed", {
+      errorId: "BILLING_PORTAL_LOOKUP_FAIL",
+      userId: user.id,
+      code: (lookupErr as { code?: string }).code,
+    });
+    return Response.json({ message: "Service unavailable" }, { status: 503 });
+  }
   if (!data?.stripe_customer_id) {
     return Response.json({ message: "No subscription on file" }, { status: 400 });
   }
