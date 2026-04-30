@@ -268,7 +268,7 @@ export function YouTubeSummarizerApp({
         <AuthErrorBanner authError={queryError?.message} />
       )}
       {streamError && <StreamErrorBanner message={streamError} />}
-      {!streamError && (streamingProgress || isProcessing) && (
+      {!streamError && !(queryError instanceof UpgradeRequiredError) && (streamingProgress || isProcessing) && (
         <>
           {!dataWithLiveTimers && (
             <div className="flex justify-end mb-3">
