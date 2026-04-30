@@ -1,11 +1,11 @@
-import { Search } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
   ALL_SOURCES,
   listVideosWithStats,
   getVideoInsights,
-  listAdminUserIds,
+  listAdminUserIdsWithStatus,
   lastNDays,
   type VideoListOptions,
   type TimeWindow,
@@ -37,7 +37,13 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
 
   const raw = await searchParams;
   const parsed = parseVideoSearchParams(raw);
-  const adminIds = await listAdminUserIds(client);
+  const adminLookup = await listAdminUserIdsWithStatus(client);
+  // Degraded when the auth.users paginate failed or was truncated AND the
+  // env-allowlist says admins should exist. A genuinely empty allowlist
+  // (e.g. dev/staging with no admins) is not degraded — it just means
+  // there's nothing to filter.
+  const adminFilterDegraded =
+    !adminLookup.ok && principal.allowlist.size > 0;
 
   const window: TimeWindow | undefined =
     parsed.mode === "trending" ? lastNDays(parsed.windowDays) : undefined;
@@ -60,7 +66,7 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
     firstSummarizedTo: parsed.firstSummarizedTo,
     page: parsed.page,
     pageSize: parsed.pageSize || DEFAULT_PAGE_SIZE,
-    excludeAdminUserIds: adminIds,
+    excludeAdminUserIds: adminLookup.ids,
   };
 
   const [list, insights] = await Promise.all([
@@ -68,9 +74,21 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
     getVideoInsights(client, {
       mode: parsed.mode,
       window,
-      excludeAdminUserIds: adminIds,
+      excludeAdminUserIds: adminLookup.ids,
     }),
   ]);
+
+  // Single banner covers both degraded admin lookup AND incomplete
+  // admin-touched-video pre-fetch — both result in admin/QA traffic
+  // potentially appearing in the table, so the operator gets one signal
+  // either way (with text spelling out which case applied).
+  const adminFilterIncomplete =
+    list.adminFilterIncomplete || insights.adminFilterIncomplete;
+  const filterWarning = adminFilterDegraded
+    ? "Admin user list unavailable — table may include admin/QA traffic that wasn't filtered."
+    : adminFilterIncomplete
+      ? "Admin filter incomplete — admin history exceeded the row cap and some admin-touched videos may appear below."
+      : null;
 
   const expandedVideoId =
     parsed.expandedVideoId &&
@@ -119,6 +137,25 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
       </div>
 
       <div className="page-body">
+        {filterWarning && (
+          <div
+            role="alert"
+            className="row gap-8"
+            style={{
+              alignItems: "center",
+              padding: "8px 12px",
+              marginBottom: 12,
+              background: "var(--state-warning-soft, #fffbeb)",
+              border: "1px solid var(--state-warning, #d97706)",
+              borderRadius: 6,
+              color: "var(--state-warning, #d97706)",
+              fontSize: 12,
+            }}
+          >
+            <AlertTriangle size={14} aria-hidden />
+            <span>{filterWarning}</span>
+          </div>
+        )}
         <VideosInsights insights={insights} />
         <VideosTable
           rows={list.rows}

@@ -457,6 +457,11 @@ export interface VideoListResult {
   truncated: boolean;
   page: number;
   pageCount: number;
+  /** True when the admin-touched-video pre-fetch hit HISTORY_ROW_CAP and
+   * the returned admin-video set is therefore incomplete. The page surfaces
+   * this as a banner so an operator knows results may include admin/QA
+   * traffic that wasn't filtered out. */
+  adminFilterIncomplete: boolean;
 }
 
 export type VideoMode = "all_time" | "trending";
@@ -490,6 +495,13 @@ export interface VideoListOptions {
   firstSummarizedTo: string | null;
   page: number;
   pageSize: number;
+  /** Drop every video that any of these user IDs has ever touched (all-time,
+   * window-independent — a video the admin tested last year shouldn't
+   * re-enter trending this month). Stricter than the user-id history filter
+   * used by getDashboardKPIs/getPerformanceStats: there, only admin views
+   * are excluded but mixed videos still appear. The videos page uses the
+   * stricter video-level filter to keep admin/QA traffic from inflating
+   * what otherwise looks like organic catalog growth. */
   excludeAdminUserIds?: string[];
 }
 
@@ -506,11 +518,17 @@ export interface VideoInsights {
   sourceMix: { source: TranscriptSource; count: number }[];
   /** Populated only when mode === "trending". */
   trendingPerDay?: DailyPoint[];
+  /** See {@link VideoListResult.adminFilterIncomplete}. Same flag, same
+   * cause — surfaced separately so callers fetching insights without the
+   * full list still get the signal. */
+  adminFilterIncomplete: boolean;
 }
 
 export interface VideoInsightsOptions {
   mode: VideoMode;
   window?: TimeWindow;
+  /** See {@link VideoListOptions.excludeAdminUserIds} — same video-level
+   * (not user-level) filter so the insights bar matches the table. */
   excludeAdminUserIds?: string[];
 }
 
@@ -787,41 +805,64 @@ export async function fetchRegisteredUsersTotal(
   }
 }
 
+export interface AdminUserIdLookup {
+  ids: string[];
+  /** False when the lookup itself failed or the underlying user-list paginate
+   * was truncated. Callers that promise the user "admin activity is filtered"
+   * (e.g. /admin/videos) need this to surface a degraded-mode banner: a
+   * silent `[]` would otherwise weaken filtering below the pre-PR baseline
+   * with no operator signal. KPI pages may safely ignore it. */
+  ok: boolean;
+}
+
 /**
  * Returns the auth user IDs of all users with
- * `app_metadata.is_admin === true`. Used to filter out admin activity
- * from KPIs.
+ * `app_metadata.is_admin === true`, plus an `ok` flag distinguishing
+ * "no admins configured" from "lookup failed/truncated". Use this when
+ * the page's contract depends on the filter actually being applied.
  *
  * Pages through the full user list via `listAllUsers` (capped at 5000
  * by default with a warn on truncation). A previous single-page
  * implementation silently dropped admins past the first 200 rows.
  *
- * Fail-soft: returns [] on error so callers default to "include
- * admins" rather than failing the page.
+ * Fail-soft: returns ids=[] on error so callers default to "include
+ * admins" rather than failing the page; `ok` is the caller's signal.
  */
-export async function listAdminUserIds(
+export async function listAdminUserIdsWithStatus(
   client: SupabaseClient,
-): Promise<string[]> {
+): Promise<AdminUserIdLookup> {
   try {
     const { users, truncated } = await listAllUsers(client);
     if (truncated) {
       console.warn(
-        "[admin-queries] listAdminUserIds: user list truncated — admin set may be incomplete",
+        "[admin-queries] listAdminUserIdsWithStatus: user list truncated — admin set may be incomplete",
       );
     }
-    return users
+    const ids = users
       .filter(
         (u) =>
           (u.app_metadata as Record<string, unknown> | undefined)
             ?.is_admin === true,
       )
       .map((u) => u.id);
+    return { ids, ok: !truncated };
   } catch (err) {
-    console.error("[admin-queries] listAdminUserIds failed", {
+    console.error("[admin-queries] listAdminUserIdsWithStatus failed", {
       message: err instanceof Error ? err.message : String(err),
     });
-    return [];
+    return { ids: [], ok: false };
   }
+}
+
+/**
+ * Back-compat shim around {@link listAdminUserIdsWithStatus} for callers
+ * that don't surface degraded mode (KPIs, performance stats — those pages
+ * pre-date the strict-filter contract).
+ */
+export async function listAdminUserIds(
+  client: SupabaseClient,
+): Promise<string[]> {
+  return (await listAdminUserIdsWithStatus(client)).ids;
 }
 
 
@@ -1508,6 +1549,66 @@ async function computeTopUsers(
 
 const STALE_VIDEO_DAYS = 30;
 
+interface AdminTouchedVideoLookup {
+  videoIds: Set<string>;
+  /** True when the lookup hit HISTORY_ROW_CAP — the set is incomplete and
+   * some admin-touched videos may slip through the filter downstream.
+   * Surfaced to the caller via VideoListResult/VideoInsights so the page
+   * can render a banner; logging alone is operator-invisible. */
+  truncated: boolean;
+}
+
+/** Set of video_ids that any of the given user IDs has *ever* touched in
+ * `user_video_history`. Always all-time — windowing this would let an
+ * admin's stale test from outside the trending window re-enter the list.
+ *
+ * Throws on query error rather than fail-soft (unlike `listAdminUserIds`
+ * and `fetchHistoryForExclusion` elsewhere in this file): a silent fail
+ * here would degrade the videos page to *less* filtering than pre-PR,
+ * which is exactly the failure mode the strict-filter contract is meant
+ * to prevent. The caller should let the page-level error boundary render.
+ *
+ * Returns an empty Set when no admin IDs are provided (or all are blank),
+ * so callers can skip the round-trip. */
+async function listAdminTouchedVideoIds(
+  client: SupabaseClient,
+  adminUserIds: string[],
+): Promise<AdminTouchedVideoLookup> {
+  const cleaned = adminUserIds.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleaned.length === 0) {
+    return { videoIds: new Set(), truncated: false };
+  }
+
+  const { data, error } = await client
+    .from("user_video_history")
+    .select("video_id")
+    .in("user_id", cleaned)
+    .limit(HISTORY_ROW_CAP);
+  if (error) {
+    throw new QueryError("listAdminTouchedVideoIds", error.message);
+  }
+  const truncated = !!data && data.length === HISTORY_ROW_CAP;
+  if (truncated) {
+    console.warn(
+      "[admin-queries] listAdminTouchedVideoIds: cap hit — admin-touched video set is incomplete; some admin/QA traffic may render to the page",
+      {
+        cap: HISTORY_ROW_CAP,
+        adminUserIds: cleaned,
+        returnedRows: data?.length ?? 0,
+      },
+    );
+  }
+  const videoIds = new Set<string>();
+  if (data && data.length > 0) {
+    for (const row of data as Array<{ video_id: string }>) {
+      videoIds.add(row.video_id);
+    }
+  }
+  return { videoIds, truncated };
+}
+
 export async function listVideosWithStats(
   client: SupabaseClient,
   opts: VideoListOptions,
@@ -1516,7 +1617,16 @@ export async function listVideosWithStats(
   const page = Math.max(1, opts.page);
   const exclude = opts.excludeAdminUserIds ?? [];
 
-  // 1. Fetch history rows (windowed in trending mode, all-time otherwise).
+  // 1. Resolve admin-touched video set first — see
+  //    VideoListOptions.excludeAdminUserIds for why video-level not user-level.
+  const adminLookup = await listAdminTouchedVideoIds(client, exclude);
+
+  // 2. Fetch history rows (windowed in trending mode, all-time otherwise).
+  //    Order by accessed_at desc so cap-hit truncation deterministically
+  //    drops the oldest tail (rather than a non-deterministic planner
+  //    pick). No DB-side user_id filter — admin-touched video_id sets
+  //    can run to thousands of UUIDs and would blow past PostgREST's URL
+  //    length limit if expressed as `not.in()`; we drop them in JS instead.
   const window =
     opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
   let historyQuery = client
@@ -1527,23 +1637,30 @@ export async function listVideosWithStats(
       .gte("accessed_at", window.start.toISOString())
       .lte("accessed_at", window.end.toISOString());
   }
-  const cleanedExcludes = exclude.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-  if (cleanedExcludes.length > 0) {
-    historyQuery = historyQuery.not(
-      "user_id",
-      "in",
-      `(${cleanedExcludes.join(",")})`,
-    );
-  }
-  const { data: history, error: hErr } = await historyQuery.limit(
-    HISTORY_ROW_CAP,
-  );
+  const { data: rawHistory, error: hErr } = await historyQuery
+    .order("accessed_at", { ascending: false })
+    .limit(HISTORY_ROW_CAP);
   if (hErr) throw new QueryError("listVideosWithStats:history", hErr.message);
 
-  if (!history || history.length === 0) {
-    return { rows: [], total: 0, truncated: false, page, pageCount: 1 };
+  const history =
+    adminLookup.videoIds.size > 0
+      ? (rawHistory ?? []).filter(
+          (h) =>
+            !adminLookup.videoIds.has(
+              (h as { video_id: string }).video_id,
+            ),
+        )
+      : (rawHistory ?? []);
+
+  if (history.length === 0) {
+    return {
+      rows: [],
+      total: 0,
+      truncated: false,
+      page,
+      pageCount: 1,
+      adminFilterIncomplete: adminLookup.truncated,
+    };
   }
 
   // 2. Cap distinct video set + fetch metadata.
@@ -1601,7 +1718,14 @@ export async function listVideosWithStats(
   const start = (page - 1) * pageSize;
   const slice = sorted.slice(start, start + pageSize);
 
-  return { rows: slice, total, truncated, page, pageCount };
+  return {
+    rows: slice,
+    total,
+    truncated,
+    page,
+    pageCount,
+    adminFilterIncomplete: adminLookup.truncated,
+  };
 }
 
 /**
@@ -1834,6 +1958,11 @@ export async function getVideoInsights(
     opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
   const exclude = opts.excludeAdminUserIds ?? [];
 
+  // Resolve the admin-touched video set first so the insights bar drops
+  // the same videos that listVideosWithStats drops — keeps the page header
+  // ("N videos summarized") consistent with the table below it.
+  const adminLookup = await listAdminTouchedVideoIds(client, exclude);
+
   let historyQuery = client
     .from("user_video_history")
     .select("user_id, video_id, created_at:accessed_at");
@@ -1842,22 +1971,24 @@ export async function getVideoInsights(
       .gte("accessed_at", window.start.toISOString())
       .lte("accessed_at", window.end.toISOString());
   }
-  const cleanedExcludes = exclude.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-  if (cleanedExcludes.length > 0) {
-    historyQuery = historyQuery.not(
-      "user_id",
-      "in",
-      `(${cleanedExcludes.join(",")})`,
-    );
-  }
-  const { data: history, error: hErr } = await historyQuery.limit(
-    HISTORY_ROW_CAP,
-  );
+  // Order desc so cap-hit truncation is reproducible (same rationale as
+  // listVideosWithStats — avoids non-deterministic planner picks).
+  const { data: rawHistory, error: hErr } = await historyQuery
+    .order("accessed_at", { ascending: false })
+    .limit(HISTORY_ROW_CAP);
   if (hErr) throw new QueryError("getVideoInsights:history", hErr.message);
 
-  if (!history || history.length === 0) {
+  const history =
+    adminLookup.videoIds.size > 0
+      ? (rawHistory ?? []).filter(
+          (h) =>
+            !adminLookup.videoIds.has(
+              (h as { video_id: string }).video_id,
+            ),
+        )
+      : (rawHistory ?? []);
+
+  if (history.length === 0) {
     return {
       totalUniqueVideos: 0,
       totalSummaries: 0,
@@ -1868,6 +1999,7 @@ export async function getVideoInsights(
       trendingPerDay: window
         ? fillDailySeries(window.start, window.end, new Map())
         : undefined,
+      adminFilterIncomplete: adminLookup.truncated,
     };
   }
 
@@ -1983,6 +2115,7 @@ export async function getVideoInsights(
     languageMix,
     sourceMix,
     trendingPerDay,
+    adminFilterIncomplete: adminLookup.truncated,
   };
 }
 
