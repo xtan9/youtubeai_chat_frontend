@@ -94,7 +94,8 @@ it("creates customer + session for new user, returns url", async () => {
   const body = await res.json();
   expect(body.url).toBe("https://checkout.stripe.com/x");
   expect(mocks.customersCreate).toHaveBeenCalledWith(
-    expect.objectContaining({ metadata: { user_id: "u1" } })
+    expect.objectContaining({ metadata: { user_id: "u1" } }),
+    expect.objectContaining({ idempotencyKey: "customer-create-u1" }),
   );
   expect(mocks.upsert).toHaveBeenCalledWith(
     expect.objectContaining({ user_id: "u1", stripe_customer_id: "cus_1", tier: "free" })

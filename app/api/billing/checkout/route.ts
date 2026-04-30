@@ -58,10 +58,10 @@ export async function POST(request: Request) {
 
     let customerId = existing?.stripe_customer_id ?? null;
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email ?? undefined,
-        metadata: { user_id: user.id },
-      });
+      const customer = await stripe.customers.create(
+        { email: user.email ?? undefined, metadata: { user_id: user.id } },
+        { idempotencyKey: `customer-create-${user.id}` },
+      );
       customerId = customer.id;
       const { error } = await sr.from("user_subscriptions").upsert({
         user_id: user.id,
