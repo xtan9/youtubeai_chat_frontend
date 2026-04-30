@@ -87,6 +87,18 @@ export async function POST(request: Request) {
   const userId = user.id;
   const isAnonymous = user.is_anonymous ?? false;
 
+  if (isAnonymous) {
+    return new Response(
+      JSON.stringify({
+        message: "Sign up to chat about your videos.",
+        errorCode: "anon_chat_blocked",
+        tier: "anon",
+        upgradeUrl: "/auth/sign-up",
+      }),
+      { status: 402, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const rateLimit = await checkRateLimit(userId, isAnonymous);
   if (rateLimit.reason === "fail_open") {
     console.error("[chat/stream] rate-limit bypassed (fail-open)", {

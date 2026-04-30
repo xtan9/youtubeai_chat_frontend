@@ -174,6 +174,21 @@ describe("POST /api/chat/stream", () => {
     expect(res.status).toBe(503);
   });
 
+  it("returns 402 with anon_chat_blocked for anonymous Supabase users (no checkRateLimit or checkChatEntitlement called)", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-1", is_anonymous: true } },
+      error: null,
+    });
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.errorCode).toBe("anon_chat_blocked");
+    expect(body.tier).toBe("anon");
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+  });
+
   it("returns 429 when rate-limited", async () => {
     mocks.checkRateLimit.mockResolvedValue({
       allowed: false,
