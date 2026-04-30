@@ -2000,12 +2000,29 @@ export async function getVideoInsights(
   };
 }
 
+/**
+ * Resolve the per-video drilldown of distinct users who accessed the video.
+ *
+ * Conservative truncation: when the over-fetch limit (CAP+1) is hit, we
+ * set `truncated=true` because we cannot prove from a single peek row
+ * that no distinct hidden users exist past the cap. The cap is on raw
+ * access rows, not distinct users — a single peek at row #(CAP+1)
+ * reveals nothing about rows #(CAP+2)..N. Banner/audit copy must
+ * reflect that uncertainty rather than promise completeness.
+ *
+ * Trade-off: on videos where the tail is dominated by repeat viewers
+ * (every hidden row is a duplicate of a kept user) we will over-warn.
+ * That failure mode is recoverable — operators see the banner and
+ * investigate. The alternative (under-warning by trusting a single
+ * peek) silently degrades forensic awareness on exactly the
+ * high-traffic videos where the drilldown matters most.
+ */
 export async function getVideoSummariesUsers(
   client: SupabaseClient,
   videoId: string,
 ): Promise<VideoUsersDrilldown> {
-  // Fetch one extra row past the cap so we can flip `truncated` instead
-  // of silently dropping the tail. The +1 is sliced off before the
+  // Fetch one extra row past the cap so we can detect cap-hit cheaply
+  // without a separate count query. The +1 is sliced off before the
   // dedup pass below.
   const { data: history, error: hErr } = await client
     .from("user_video_history")
@@ -2020,21 +2037,12 @@ export async function getVideoSummariesUsers(
     return { videoId, users: [], truncated: false };
   }
 
-  // The cap was hit on the raw access-row fetch. Whether that
-  // *actually* hides distinct users from the drilldown depends on
-  // post-dedup: if the +1 peek row's user_id is already represented
-  // in the kept slice, no distinct user was dropped — the banner
-  // would lie. Compute `truncated` from the dedup result, not the
-  // raw row count.
-  const capHit = history.length > VIDEO_USERS_DRILLDOWN_CAP;
-  const peekRow = capHit
-    ? (history[VIDEO_USERS_DRILLDOWN_CAP] as {
-        user_id: string;
-        video_id: string;
-        created_at: string;
-      })
-    : null;
-  const slicedHistory = capHit
+  // Conservative rule: any cap-hit means we cannot prove completeness,
+  // so report truncated=true. We deliberately do NOT inspect the peek
+  // row's user_id — a single peek can't answer "are distinct users
+  // hidden past the cap?" because we never see rows #(CAP+2)..N.
+  const truncated = history.length > VIDEO_USERS_DRILLDOWN_CAP;
+  const slicedHistory = truncated
     ? history.slice(0, VIDEO_USERS_DRILLDOWN_CAP)
     : history;
 
@@ -2079,12 +2087,6 @@ export async function getVideoSummariesUsers(
     }
   }
   const distinctUsers = Array.from(seen.values());
-
-  // Only signal truncation when the cap was hit AND the dropped
-  // peek row is for a user not already represented in the kept
-  // set. If all CAP+1 rows belong to users we already kept, no
-  // distinct user was hidden — saying so would be a false alarm.
-  const truncated = peekRow != null && !seen.has(peekRow.user_id);
 
   // Resolve emails in parallel (mirrors computeTopUsers pattern).
   const userIds = distinctUsers.map((u) => u.userId);

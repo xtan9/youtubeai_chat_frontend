@@ -2285,35 +2285,12 @@ describe("getVideoSummariesUsers", () => {
     expect(u1.accessedAt).toBe("2026-04-05T00:00:00Z");
   });
 
-  it("flips truncated=true when the +1 peek row reveals a distinct user dropped past the cap", async () => {
-    // 201 rows, all distinct user_ids — VIDEO_USERS_DRILLDOWN_CAP is
-    // 200. The peek row (#200) belongs to a user NOT in the kept slice,
-    // so a distinct user was hidden. Banner should fire.
-    const rows = Array.from({ length: 201 }, (_, i) => ({
-      user_id: `u${i}`,
-      video_id: "vA",
-      created_at: "2026-04-01T00:00:00Z",
-    }));
-    const client = buildClient(
-      [
-        { table: "user_video_history", response: { data: rows, error: null } },
-        { table: "summaries", response: { data: [], error: null } },
-      ],
-      {
-        getUserById: () => ({ data: { user: { email: null } }, error: null }),
-      },
-    );
-    const out = await getVideoSummariesUsers(client, "vA");
-    expect(out.truncated).toBe(true);
-    expect(out.users).toHaveLength(200);
-  });
-
-  it("truncated=false when the +1 peek row is for a user already in the kept set", async () => {
-    // 200 rows for distinct users (fully populates the kept slice) +
-    // 1 extra row that duplicates an existing kept user. The cap was
-    // hit on the raw row count, but no distinct user was dropped —
-    // the banner would falsely claim hidden users if `truncated`
-    // were derived from raw row count alone.
+  it("truncated=true whenever the over-fetch cap is hit, regardless of peek-row identity", async () => {
+    // 200 distinct users + 1 duplicate row. The cap was hit on the raw
+    // row count. Even though the +1 peek row is a duplicate of an
+    // already-kept user, we cannot prove from a single peek that no
+    // distinct hidden users exist past the cap (we never see rows
+    // #(CAP+2)..N). Conservative rule: any cap-hit ⇒ truncated=true.
     const rows = [
       ...Array.from({ length: 200 }, (_, i) => ({
         user_id: `u${i}`,
@@ -2339,8 +2316,30 @@ describe("getVideoSummariesUsers", () => {
       },
     );
     const out = await getVideoSummariesUsers(client, "vA");
-    expect(out.truncated).toBe(false);
+    expect(out.truncated).toBe(true);
     expect(out.users).toHaveLength(200);
+  });
+
+  it("truncated=false when fetch returns fewer than CAP+1 rows", async () => {
+    // 199 rows — under the over-fetch limit (CAP+1=201). No cap-hit,
+    // so we have full visibility and can honestly say truncated=false.
+    const rows = Array.from({ length: 199 }, (_, i) => ({
+      user_id: `u${i}`,
+      video_id: "vA",
+      created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T05:00:00Z`,
+    }));
+    const client = buildClient(
+      [
+        { table: "user_video_history", response: { data: rows, error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.truncated).toBe(false);
+    expect(out.users).toHaveLength(199);
   });
 
   it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP + 1 (truncation peek)", async () => {
