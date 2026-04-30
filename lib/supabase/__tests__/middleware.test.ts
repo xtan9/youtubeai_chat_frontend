@@ -49,12 +49,34 @@ describe("updateSession", () => {
     ["/blog/some-post", "blog post"],
     ["/faq", "faq"],
     ["/api/health", "health probe"],
+    // Paywall routes — must be reachable unauthenticated for their own
+    // auth strategies to run (signature verification, JSON 401, anon-tier
+    // branch). Without these rows, a future predicate refactor could
+    // silently re-introduce the redirect that breaks every webhook
+    // delivery and clobbers JSON billing responses into HTML 307s.
+    ["/api/webhooks/stripe", "stripe webhook"],
+    ["/api/billing/checkout", "billing checkout"],
+    ["/api/billing/portal", "billing portal"],
+    ["/api/me/entitlements", "entitlements"],
   ])("allows unauthenticated access to %s (%s)", async (pathname) => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const response = await updateSession(req(pathname));
     expect(response.status).toBe(200);
     // No redirect header set
     expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("redirects /api/me/entitlementsX (entitlements is exact-match, /api/me/* is NOT public)", async () => {
+    // Pins the deliberate use of `===` rather than `startsWith` for
+    // /api/me/entitlements. If a future refactor broadens the predicate
+    // to startsWith("/api/me/"), this test will fail and force a
+    // conscious decision about the new attack surface.
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const response = await updateSession(req("/api/me/entitlementsX"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/auth/login"
+    );
   });
 
   it("redirects unauthenticated request for a protected path to /auth/login (full URL pinned)", async () => {
