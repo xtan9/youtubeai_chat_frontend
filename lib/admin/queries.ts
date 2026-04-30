@@ -1,12 +1,19 @@
 import "server-only";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TranscriptSource } from "@/lib/admin/types";
+import { AUDIT_ACTIONS } from "@/lib/admin/audit";
 import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
 export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
-const ALL_SOURCES: readonly TranscriptSource[] = [
+/** Canonical list of `transcript_source` values the rest of the admin
+ * surface understands. Exported so `app/admin/videos/page.tsx` and the
+ * server actions don't redefine the same literal array (drift would let
+ * a new source silently sort/filter as `auto_captions`). Keep in sync
+ * with `TranscriptSource` in `lib/admin/types.ts`. */
+export const ALL_SOURCES: readonly TranscriptSource[] = [
   "manual_captions",
   "auto_captions",
   "whisper",
@@ -15,19 +22,21 @@ const ALL_SOURCES: readonly TranscriptSource[] = [
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 export { WHISPER_FLAG_THRESHOLD } from "./constants";
 
-/** Hard caps on rows pulled into Node memory for in-process aggregation.
- * In the current scale (low-thousands of summaries / month), these are
- * far above the realistic window size; if a 90-day window starts hitting
- * either cap the percentile/cache-hit math will silently understate, so
- * raise both before that happens. Listed here so future growth flips one
- * knob, not a scattered set. */
-const SUMMARIES_ROW_CAP = 50_000;
-const HISTORY_ROW_CAP = 100_000;
-/** Cap on per-page row count returned by listAuditLog. Bounds a single
- * service-role table scan in the worst-case bad-cursor path. */
-const AUDIT_PAGE_SIZE_CAP = 200;
-/** Cap on per-page row count returned by listUsersWithStatsAndSort. */
-const USERS_PAGE_SIZE_CAP = 100;
+// Caps live in `admin-constants.ts` so client components can import the
+// runtime values without pulling the `import "server-only"` side-effect
+// at the top of this file. Re-export the pair that callers historically
+// imported from this module so existing import paths stay stable.
+import {
+  SUMMARIES_ROW_CAP,
+  HISTORY_ROW_CAP,
+  AUDIT_PAGE_SIZE_CAP,
+  USERS_PAGE_SIZE_CAP,
+  VIDEOS_ROW_CAP,
+  VIDEO_USERS_DRILLDOWN_CAP,
+  VIDEOS_PAGE_SIZE_CAP,
+} from "./admin-constants";
+
+export { VIDEO_USERS_DRILLDOWN_CAP, VIDEOS_PAGE_SIZE_CAP };
 
 type DailyPoint = { day: string; value: number };
 
@@ -96,14 +105,9 @@ export function lastNDays(n: number): TimeWindow {
 
 // ─── Audit log ────────────────────────────────────────────────────────────
 
-const AUDIT_ACTIONS: readonly AuditAction[] = [
-  "view_transcript",
-  "view_summary_text",
-  "view_user_email_list",
-  "reset_rate_limit",
-  "suspend_user",
-  "restore_user",
-] as const;
+// `AUDIT_ACTIONS` is imported from `./audit` — the single source of
+// truth for the audited-action vocabulary. A previous duplicate here
+// invited drift between the runtime validator and the writer's type.
 
 const AUDIT_RESOURCE_TYPES: readonly AuditResourceType[] = [
   "summary",
@@ -417,6 +421,118 @@ export interface UserListResult {
   pageCount: number;
 }
 
+// ─── Videos page types ────────────────────────────────────────────────────
+
+export interface AdminVideoRow {
+  videoId: string;
+  title: string | null;
+  channelName: string | null;
+  language: string | null;
+  durationSeconds: number | null;
+  /** Earliest summaries.created_at observed for this video. */
+  firstSummarizedAt: string;
+  /** Most recent user_video_history.accessed_at observed. */
+  lastSummarizedAt: string;
+  /** Distinct user_id in history (admin user_ids excluded by caller). */
+  distinctUsers: number;
+  /** Count of history rows ("views") for this video. */
+  totalSummaries: number;
+  sourceMix: { source: TranscriptSource; count: number }[];
+  /** Always 0 or 100 today: the canonical summary is picked once per
+   * video, so every view shares one source. Modeled as `number` to keep
+   * the column sort and a future per-view refetch type-stable. */
+  whisperPct: number;
+  /** Distinct summaries.model values seen for this video. */
+  modelsUsed: string[];
+  p95ProcessingSeconds: number | null;
+  /** Whether `whisperPct > WHISPER_FLAG_THRESHOLD`. */
+  flagged: boolean;
+  /** "stale" when no view in the last 30d, else "active". */
+  status: "active" | "stale";
+}
+
+export interface VideoListResult {
+  rows: AdminVideoRow[];
+  total: number;
+  truncated: boolean;
+  page: number;
+  pageCount: number;
+}
+
+export type VideoMode = "all_time" | "trending";
+
+export type VideoSortKey =
+  | "distinctUsers"
+  | "totalSummaries"
+  | "title"
+  | "channelName"
+  | "language"
+  | "firstSummarizedAt"
+  | "lastSummarizedAt"
+  | "whisperPct"
+  | "p95ProcessingSeconds"
+  | "durationSeconds";
+
+export interface VideoListOptions {
+  mode: VideoMode;
+  /** Required when mode === "trending"; ignored when mode === "all_time". */
+  window?: TimeWindow;
+  sort: VideoSortKey;
+  dir: SortDir;
+  search: string | null;
+  language: string | null;
+  source: TranscriptSource | null;
+  channel: string | null;
+  model: string | null;
+  flaggedOnly: boolean;
+  /** ISO date or null. Compared lexicographically against firstSummarizedAt. */
+  firstSummarizedFrom: string | null;
+  firstSummarizedTo: string | null;
+  page: number;
+  pageSize: number;
+  excludeAdminUserIds?: string[];
+}
+
+export interface VideoInsights {
+  totalUniqueVideos: number;
+  /** Total views across every video in scope. */
+  totalSummaries: number;
+  /** Percentage of videos in the current scope whose canonical summary's
+   * `transcript_source` is `whisper`. */
+  whisperVideoSharePct: number;
+  topChannels: { channelName: string; videoCount: number }[];
+  languageMix: { language: string; videoCount: number }[];
+  /** Source mix counted by view, not by video. */
+  sourceMix: { source: TranscriptSource; count: number }[];
+  /** Populated only when mode === "trending". */
+  trendingPerDay?: DailyPoint[];
+}
+
+export interface VideoInsightsOptions {
+  mode: VideoMode;
+  window?: TimeWindow;
+  excludeAdminUserIds?: string[];
+}
+
+export interface VideoUsersDrilldown {
+  videoId: string;
+  users: {
+    userId: string;
+    /** null when emailLookupOk=false or the user genuinely has no email. */
+    email: string | null;
+    emailLookupOk: boolean;
+    /** Most recent access for this user. Each user appears once even if
+     * they accessed the video N times — the audit row count must equal
+     * the distinct revealed-user count, not the access count. */
+    accessedAt: string;
+    cacheHit: boolean;
+  }[];
+  /** True when the underlying `user_video_history` fetch hit
+   * VIDEO_USERS_DRILLDOWN_CAP. Lets the UI surface a "+N more" banner
+   * instead of silently dropping the tail. */
+  truncated: boolean;
+}
+
 export async function listUsersWithStatsAndSort(
   client: SupabaseClient,
   opts: UserListSortFilterOptions,
@@ -586,7 +702,12 @@ export interface ListAllUsersOptions {
   rowCap?: number;
 }
 
-export async function listAllUsers(
+/** Internal worker — paginated `auth.admin.listUsers` aggregator.
+ * Wrapped by the exported {@link listAllUsers} via React's `cache()` so
+ * `/admin/videos` (which calls it from both the layout's
+ * {@link fetchRegisteredUsersTotal} and the page's
+ * {@link listAdminUserIds}) only does the pagination once per request. */
+async function listAllUsersUncached(
   client: SupabaseClient,
   opts: ListAllUsersOptions = {},
 ): Promise<ListAllUsersResult> {
@@ -624,22 +745,46 @@ export async function listAllUsers(
   return { users: collected, total, truncated };
 }
 
-/** Cheap one-shot total user count for sidebar badge. Returns null on
- * error so the badge can render gracefully. */
-export async function fetchUsersTotal(
+/** Request-scoped memoized variant of {@link listAllUsersUncached}.
+ * `cache()` keys on the argument identity tuple — `(client, opts)` — so
+ * the layout and the page must reuse the same `client` instance and
+ * default `opts` shape to share the cached pagination. */
+export const listAllUsers = cache(
+  (
+    client: SupabaseClient,
+    opts: ListAllUsersOptions = {},
+  ): Promise<ListAllUsersResult> => listAllUsersUncached(client, opts),
+);
+
+/**
+ * Sidebar badge count: signed-up users excluding the admin allowlist
+ * and anonymous Supabase sessions. Pages through {@link listAllUsers}
+ * because Supabase's `auth.admin.listUsers` exposes no server-side
+ * filter for `is_anonymous = false`.
+ *
+ * Returns `null` on error so the badge degrades gracefully.
+ */
+export async function fetchRegisteredUsersTotal(
   client: SupabaseClient,
+  allowlist: readonly string[],
 ): Promise<number | null> {
-  const { data, error } = await client.auth.admin.listUsers({
-    page: 1,
-    perPage: 1,
-  });
-  if (error) {
-    console.error("[admin-queries] fetchUsersTotal failed", {
-      message: error.message,
+  try {
+    const { users } = await listAllUsers(client);
+    const adminSet = new Set(allowlist.map((e) => e.toLowerCase()));
+    let count = 0;
+    for (const u of users) {
+      if (u.is_anonymous) continue;
+      if (!u.email) continue;
+      if (adminSet.has(u.email.toLowerCase())) continue;
+      count++;
+    }
+    return count;
+  } catch (err) {
+    console.error("[admin-queries] fetchRegisteredUsersTotal failed", {
+      message: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
-  return data?.total ?? null;
 }
 
 /**
@@ -1366,6 +1511,610 @@ async function computeTopUsers(
       flagged: t.summaries > 0 && t.whisperPct > WHISPER_FLAG_THRESHOLD,
     };
   });
+}
+
+// ─── Videos page queries ─────────────────────────────────────────────────
+
+const STALE_VIDEO_DAYS = 30;
+
+export async function listVideosWithStats(
+  client: SupabaseClient,
+  opts: VideoListOptions,
+): Promise<VideoListResult> {
+  const pageSize = Math.min(Math.max(opts.pageSize, 1), VIDEOS_PAGE_SIZE_CAP);
+  const page = Math.max(1, opts.page);
+  const exclude = opts.excludeAdminUserIds ?? [];
+
+  // 1. Fetch history rows (windowed in trending mode, all-time otherwise).
+  const window =
+    opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
+  let historyQuery = client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at");
+  if (window) {
+    historyQuery = historyQuery
+      .gte("accessed_at", window.start.toISOString())
+      .lte("accessed_at", window.end.toISOString());
+  }
+  const cleanedExcludes = exclude.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleanedExcludes.length > 0) {
+    historyQuery = historyQuery.not(
+      "user_id",
+      "in",
+      `(${cleanedExcludes.join(",")})`,
+    );
+  }
+  const { data: history, error: hErr } = await historyQuery.limit(
+    HISTORY_ROW_CAP,
+  );
+  if (hErr) throw new QueryError("listVideosWithStats:history", hErr.message);
+
+  if (!history || history.length === 0) {
+    return { rows: [], total: 0, truncated: false, page, pageCount: 1 };
+  }
+
+  // 2. Cap distinct video set + fetch metadata.
+  const videoIds = Array.from(
+    new Set(
+      (history as Array<{ video_id: string }>).map((h) => h.video_id),
+    ),
+  );
+  const truncated = videoIds.length >= VIDEOS_ROW_CAP;
+  const cappedIds = truncated ? videoIds.slice(0, VIDEOS_ROW_CAP) : videoIds;
+  if (truncated) {
+    console.warn("[admin-queries] listVideosWithStats: video cap hit", {
+      cap: VIDEOS_ROW_CAP,
+    });
+  }
+
+  const [videosRes, summariesRes] = await Promise.all([
+    client
+      .from("videos")
+      .select("id, title, channel_name, language, duration_seconds")
+      .in("id", cappedIds),
+    client
+      .from("summaries")
+      .select(
+        "video_id, transcript_source, model, processing_time_seconds, created_at, enable_thinking",
+      )
+      .in("video_id", cappedIds),
+  ]);
+  if (videosRes.error) {
+    throw new QueryError("listVideosWithStats:videos", videosRes.error.message);
+  }
+  if (summariesRes.error) {
+    throw new QueryError(
+      "listVideosWithStats:summaries",
+      summariesRes.error.message,
+    );
+  }
+
+  // 3. Aggregate per video.
+  const cappedIdSet = new Set(cappedIds);
+  const cappedHistory = (
+    history as Array<{ user_id: string; video_id: string; created_at: string }>
+  ).filter((h) => cappedIdSet.has(h.video_id));
+  const rows = aggregateVideoRows(
+    cappedHistory,
+    (videosRes.data ?? []) as Array<Record<string, unknown>>,
+    (summariesRes.data ?? []) as Array<Record<string, unknown>>,
+  );
+
+  // 4. Filter, sort, paginate.
+  const filtered = filterVideoRows(rows, opts);
+  const sorted = sortVideoRows(filtered, opts.sort, opts.dir);
+  const total = sorted.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize;
+  const slice = sorted.slice(start, start + pageSize);
+
+  return { rows: slice, total, truncated, page, pageCount };
+}
+
+function pickCanonicalSummary(
+  summaries: Array<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  if (summaries.length === 0) return null;
+  const canonical = summaries.find((s) => s.enable_thinking === false);
+  return canonical ?? summaries[0];
+}
+
+function aggregateVideoRows(
+  history: Array<{ user_id: string; video_id: string; created_at: string }>,
+  videos: Array<Record<string, unknown>>,
+  summaries: Array<Record<string, unknown>>,
+): AdminVideoRow[] {
+  const videoById = new Map<string, Record<string, unknown>>();
+  for (const v of videos) videoById.set(String(v.id), v);
+
+  const summariesByVideo = new Map<string, Array<Record<string, unknown>>>();
+  for (const s of summaries) {
+    const vid = String(s.video_id);
+    const arr = summariesByVideo.get(vid) ?? [];
+    arr.push(s);
+    summariesByVideo.set(vid, arr);
+  }
+
+  type Bucket = {
+    users: Set<string>;
+    views: number;
+    lastSeen: string;
+    sourceCounts: Map<TranscriptSource, number>;
+    whisperViews: number;
+  };
+  const buckets = new Map<string, Bucket>();
+  for (const h of history) {
+    const summariesForVideo = summariesByVideo.get(h.video_id) ?? [];
+    const canonical = pickCanonicalSummary(summariesForVideo);
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    const bucket = buckets.get(h.video_id) ?? {
+      users: new Set<string>(),
+      views: 0,
+      lastSeen: h.created_at,
+      sourceCounts: new Map<TranscriptSource, number>(),
+      whisperViews: 0,
+    };
+    bucket.users.add(h.user_id);
+    bucket.views += 1;
+    bucket.sourceCounts.set(
+      source,
+      (bucket.sourceCounts.get(source) ?? 0) + 1,
+    );
+    if (source === "whisper") bucket.whisperViews += 1;
+    if (h.created_at > bucket.lastSeen) bucket.lastSeen = h.created_at;
+    buckets.set(h.video_id, bucket);
+  }
+
+  const now = Date.now();
+  const staleCutoff = now - STALE_VIDEO_DAYS * 86_400_000;
+
+  const out: AdminVideoRow[] = [];
+  for (const [videoId, bucket] of buckets) {
+    const video = videoById.get(videoId);
+    const allSummaries = summariesByVideo.get(videoId) ?? [];
+    const firstSummarizedAt =
+      allSummaries
+        .map((s) => String(s.created_at))
+        .filter((s) => s.length > 0)
+        .sort()[0] ?? bucket.lastSeen;
+    const modelsUsed = Array.from(
+      new Set(
+        allSummaries
+          .map((s) => (typeof s.model === "string" ? s.model : null))
+          .filter((m): m is string => m !== null),
+      ),
+    );
+    const sourceMix: { source: TranscriptSource; count: number }[] = [];
+    for (const [source, count] of bucket.sourceCounts) {
+      sourceMix.push({ source, count });
+    }
+    const whisperPct =
+      bucket.views > 0
+        ? Math.round((bucket.whisperViews / bucket.views) * 100)
+        : 0;
+    const latencies = allSummaries
+      .map((s) =>
+        typeof s.processing_time_seconds === "number"
+          ? (s.processing_time_seconds as number)
+          : null,
+      )
+      .filter((n): n is number => n !== null);
+    const lastSeenMs = new Date(bucket.lastSeen).getTime();
+    out.push({
+      videoId,
+      title: (video?.title as string | null) ?? null,
+      channelName: (video?.channel_name as string | null) ?? null,
+      language: (video?.language as string | null) ?? null,
+      durationSeconds:
+        typeof video?.duration_seconds === "number"
+          ? (video.duration_seconds as number)
+          : null,
+      firstSummarizedAt,
+      lastSummarizedAt: bucket.lastSeen,
+      distinctUsers: bucket.users.size,
+      totalSummaries: bucket.views,
+      sourceMix,
+      whisperPct,
+      modelsUsed,
+      p95ProcessingSeconds: p95(latencies),
+      flagged: bucket.views > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
+      status: lastSeenMs >= staleCutoff ? "active" : "stale",
+    });
+  }
+  return out;
+}
+
+function filterVideoRows(
+  rows: AdminVideoRow[],
+  opts: VideoListOptions,
+): AdminVideoRow[] {
+  return rows.filter((r) => {
+    if (opts.search) {
+      const q = opts.search.toLowerCase();
+      const inTitle = r.title?.toLowerCase().includes(q) ?? false;
+      const inChannel = r.channelName?.toLowerCase().includes(q) ?? false;
+      if (!inTitle && !inChannel) return false;
+    }
+    if (opts.language && r.language !== opts.language) return false;
+    if (opts.source && !r.sourceMix.some((m) => m.source === opts.source)) {
+      return false;
+    }
+    if (opts.channel && r.channelName !== opts.channel) return false;
+    if (opts.model && !r.modelsUsed.includes(opts.model)) return false;
+    if (opts.flaggedOnly && !r.flagged) return false;
+    // `firstSummarizedAt` is a full ISO timestamp; `firstSummarizedFrom`
+    // / `firstSummarizedTo` are date-only strings ("YYYY-MM-DD") from the
+    // URL. Lex-comparing them directly silently filters out the entire
+    // end day (e.g. "2026-04-30T08:..." > "2026-04-30"). Compare on the
+    // day prefix to keep the inclusive-end-day contract.
+    const firstSummarizedDay = r.firstSummarizedAt.slice(0, 10);
+    if (
+      opts.firstSummarizedFrom &&
+      firstSummarizedDay < opts.firstSummarizedFrom
+    ) {
+      return false;
+    }
+    if (opts.firstSummarizedTo && firstSummarizedDay > opts.firstSummarizedTo) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function sortVideoRows(
+  rows: AdminVideoRow[],
+  sort: VideoSortKey,
+  dir: SortDir,
+): AdminVideoRow[] {
+  const sorted = rows.slice();
+  sorted.sort((a, b) => {
+    const primary = primaryVideoCompare(a, b, sort, dir);
+    if (primary !== 0) return primary;
+    return a.videoId.localeCompare(b.videoId);
+  });
+  return sorted;
+}
+
+function primaryVideoCompare(
+  a: AdminVideoRow,
+  b: AdminVideoRow,
+  sort: VideoSortKey,
+  dir: SortDir,
+): number {
+  switch (sort) {
+    case "distinctUsers":
+      return compareNullable(a.distinctUsers, b.distinctUsers, dir, numCmp);
+    case "totalSummaries":
+      return compareNullable(a.totalSummaries, b.totalSummaries, dir, numCmp);
+    case "title":
+      return compareNullable(a.title, b.title, dir, stringCmp);
+    case "channelName":
+      return compareNullable(a.channelName, b.channelName, dir, stringCmp);
+    case "language":
+      return compareNullable(a.language, b.language, dir, stringCmp);
+    case "firstSummarizedAt":
+      return compareNullable(
+        a.firstSummarizedAt,
+        b.firstSummarizedAt,
+        dir,
+        stringCmp,
+      );
+    case "lastSummarizedAt":
+      return compareNullable(
+        a.lastSummarizedAt,
+        b.lastSummarizedAt,
+        dir,
+        stringCmp,
+      );
+    case "whisperPct":
+      return compareNullable(a.whisperPct, b.whisperPct, dir, numCmp);
+    case "p95ProcessingSeconds":
+      return compareNullable(
+        a.p95ProcessingSeconds,
+        b.p95ProcessingSeconds,
+        dir,
+        numCmp,
+      );
+    case "durationSeconds":
+      return compareNullable(
+        a.durationSeconds,
+        b.durationSeconds,
+        dir,
+        numCmp,
+      );
+  }
+}
+
+export async function getVideoInsights(
+  client: SupabaseClient,
+  opts: VideoInsightsOptions,
+): Promise<VideoInsights> {
+  const window =
+    opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
+  const exclude = opts.excludeAdminUserIds ?? [];
+
+  let historyQuery = client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at");
+  if (window) {
+    historyQuery = historyQuery
+      .gte("accessed_at", window.start.toISOString())
+      .lte("accessed_at", window.end.toISOString());
+  }
+  const cleanedExcludes = exclude.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleanedExcludes.length > 0) {
+    historyQuery = historyQuery.not(
+      "user_id",
+      "in",
+      `(${cleanedExcludes.join(",")})`,
+    );
+  }
+  const { data: history, error: hErr } = await historyQuery.limit(
+    HISTORY_ROW_CAP,
+  );
+  if (hErr) throw new QueryError("getVideoInsights:history", hErr.message);
+
+  if (!history || history.length === 0) {
+    return {
+      totalUniqueVideos: 0,
+      totalSummaries: 0,
+      whisperVideoSharePct: 0,
+      topChannels: [],
+      languageMix: [],
+      sourceMix: ALL_SOURCES.map((s) => ({ source: s, count: 0 })),
+      trendingPerDay: window
+        ? fillDailySeries(window.start, window.end, new Map())
+        : undefined,
+    };
+  }
+
+  const typedHistory = history as Array<{
+    user_id: string;
+    video_id: string;
+    created_at: string;
+  }>;
+  const videoIds = Array.from(new Set(typedHistory.map((h) => h.video_id)));
+  const [videosRes, summariesRes] = await Promise.all([
+    client
+      .from("videos")
+      .select("id, title, channel_name, language")
+      .in("id", videoIds),
+    client
+      .from("summaries")
+      .select("video_id, transcript_source, enable_thinking")
+      .in("video_id", videoIds),
+  ]);
+  if (videosRes.error) {
+    throw new QueryError("getVideoInsights:videos", videosRes.error.message);
+  }
+  if (summariesRes.error) {
+    throw new QueryError(
+      "getVideoInsights:summaries",
+      summariesRes.error.message,
+    );
+  }
+
+  const videoById = new Map<string, Record<string, unknown>>();
+  for (const v of (videosRes.data ?? []) as Array<Record<string, unknown>>) {
+    videoById.set(String(v.id), v);
+  }
+
+  const summariesByVideo = new Map<string, Array<Record<string, unknown>>>();
+  for (const s of (summariesRes.data ?? []) as Array<
+    Record<string, unknown>
+  >) {
+    const vid = String(s.video_id);
+    const arr = summariesByVideo.get(vid) ?? [];
+    arr.push(s);
+    summariesByVideo.set(vid, arr);
+  }
+
+  const channelCounts = new Map<string, Set<string>>(); // channel -> distinct video ids
+  const langCounts = new Map<string, Set<string>>();
+  const sourceCounts = new Map<TranscriptSource, number>();
+  let whisperVideos = 0;
+  for (const vid of videoIds) {
+    const video = videoById.get(vid);
+    const channel = (video?.channel_name as string | null) ?? "(unknown)";
+    const language = (video?.language as string | null) ?? "(unknown)";
+    const cset = channelCounts.get(channel) ?? new Set<string>();
+    cset.add(vid);
+    channelCounts.set(channel, cset);
+    const lset = langCounts.get(language) ?? new Set<string>();
+    lset.add(vid);
+    langCounts.set(language, lset);
+    const canonical = pickCanonicalSummary(summariesByVideo.get(vid) ?? []);
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    if (source === "whisper") whisperVideos++;
+  }
+  // sourceCounts is by VIEW, not by video — count history rows.
+  for (const h of typedHistory) {
+    const canonical = pickCanonicalSummary(
+      summariesByVideo.get(h.video_id) ?? [],
+    );
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1);
+  }
+
+  const topChannels = Array.from(channelCounts.entries())
+    .map(([channelName, ids]) => ({ channelName, videoCount: ids.size }))
+    .sort((a, b) => {
+      if (b.videoCount !== a.videoCount) return b.videoCount - a.videoCount;
+      return a.channelName.localeCompare(b.channelName);
+    })
+    .slice(0, 5);
+
+  const languageMix = Array.from(langCounts.entries())
+    .map(([language, ids]) => ({ language, videoCount: ids.size }))
+    .sort((a, b) => {
+      if (b.videoCount !== a.videoCount) return b.videoCount - a.videoCount;
+      return a.language.localeCompare(b.language);
+    });
+
+  const sourceMix = ALL_SOURCES.map((source) => ({
+    source,
+    count: sourceCounts.get(source) ?? 0,
+  }));
+
+  let trendingPerDay: DailyPoint[] | undefined;
+  if (window) {
+    const byDay = new Map<string, number>();
+    for (const h of typedHistory) {
+      if (!h.created_at) continue;
+      const day = isoDay(new Date(h.created_at));
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    }
+    trendingPerDay = fillDailySeries(window.start, window.end, byDay);
+  }
+
+  return {
+    totalUniqueVideos: videoIds.length,
+    totalSummaries: typedHistory.length,
+    whisperVideoSharePct:
+      videoIds.length > 0
+        ? Math.round((whisperVideos / videoIds.length) * 100)
+        : 0,
+    topChannels,
+    languageMix,
+    sourceMix,
+    trendingPerDay,
+  };
+}
+
+/**
+ * Resolve the per-video drilldown of distinct users who accessed the video.
+ *
+ * Conservative truncation: when the over-fetch limit (CAP+1) is hit, we
+ * set `truncated=true` because we cannot prove from a single peek row
+ * that no distinct hidden users exist past the cap. The cap is on raw
+ * access rows, not distinct users — a single peek at row #(CAP+1)
+ * reveals nothing about rows #(CAP+2)..N. Banner/audit copy must
+ * reflect that uncertainty rather than promise completeness.
+ *
+ * Trade-off: on videos where the tail is dominated by repeat viewers
+ * (every hidden row is a duplicate of a kept user) we will over-warn.
+ * That failure mode is recoverable — operators see the banner and
+ * investigate. The alternative (under-warning by trusting a single
+ * peek) silently degrades forensic awareness on exactly the
+ * high-traffic videos where the drilldown matters most.
+ */
+export async function getVideoSummariesUsers(
+  client: SupabaseClient,
+  videoId: string,
+): Promise<VideoUsersDrilldown> {
+  // Fetch one extra row past the cap so we can detect cap-hit cheaply
+  // without a separate count query. The +1 is sliced off before the
+  // dedup pass below.
+  const { data: history, error: hErr } = await client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at")
+    .eq("video_id", videoId)
+    .order("accessed_at", { ascending: false })
+    .limit(VIDEO_USERS_DRILLDOWN_CAP + 1);
+  if (hErr) {
+    throw new QueryError("getVideoSummariesUsers:history", hErr.message);
+  }
+  if (!history || history.length === 0) {
+    return { videoId, users: [], truncated: false };
+  }
+
+  // Conservative rule: any cap-hit means we cannot prove completeness,
+  // so report truncated=true. We deliberately do NOT inspect the peek
+  // row's user_id — a single peek can't answer "are distinct users
+  // hidden past the cap?" because we never see rows #(CAP+2)..N.
+  const truncated = history.length > VIDEO_USERS_DRILLDOWN_CAP;
+  const slicedHistory = truncated
+    ? history.slice(0, VIDEO_USERS_DRILLDOWN_CAP)
+    : history;
+
+  // Earliest summary for the video — used to compute cacheHit. A history
+  // row counts as a cache-hit when the canonical summary already existed
+  // before the access.
+  const { data: summaries, error: sErr } = await client
+    .from("summaries")
+    .select("video_id, created_at")
+    .eq("video_id", videoId);
+  if (sErr) {
+    throw new QueryError("getVideoSummariesUsers:summaries", sErr.message);
+  }
+
+  let earliest: string | null = null;
+  for (const s of (summaries ?? []) as Array<Record<string, unknown>>) {
+    const ts = String(s.created_at);
+    if (!earliest || ts < earliest) earliest = ts;
+  }
+
+  const typedHistory = slicedHistory as Array<{
+    user_id: string;
+    video_id: string;
+    created_at: string;
+  }>;
+  // Aggregate per user — keep the most recent access. The drilldown
+  // contract is "one row per revealed user", which is what feeds
+  // `viewVideoUsersAction` writing one audit row per result. A previous
+  // map-per-history version could write N audit rows for one user who
+  // accessed the video N times, distorting forensics.
+  const seen = new Map<
+    string,
+    { userId: string; accessedAt: string }
+  >();
+  for (const h of typedHistory) {
+    const prev = seen.get(h.user_id);
+    if (!prev || h.created_at > prev.accessedAt) {
+      seen.set(h.user_id, {
+        userId: h.user_id,
+        accessedAt: h.created_at,
+      });
+    }
+  }
+  const distinctUsers = Array.from(seen.values());
+
+  // Resolve emails in parallel (mirrors computeTopUsers pattern).
+  const userIds = distinctUsers.map((u) => u.userId);
+  const lookups = await Promise.all(
+    userIds.map(async (id) => {
+      try {
+        const { data, error } = await client.auth.admin.getUserById(id);
+        if (error) {
+          console.error(
+            "[admin-queries] getVideoSummariesUsers email lookup failed",
+            { userId: id, message: error.message },
+          );
+          return { userId: id, email: null, ok: false };
+        }
+        return { userId: id, email: data.user?.email ?? null, ok: true };
+      } catch (err) {
+        console.error(
+          "[admin-queries] getVideoSummariesUsers email lookup threw",
+          { userId: id, err },
+        );
+        return { userId: id, email: null, ok: false };
+      }
+    }),
+  );
+  const lookupById = new Map(lookups.map((l) => [l.userId, l] as const));
+
+  return {
+    videoId,
+    users: distinctUsers.map((u) => {
+      const lookup = lookupById.get(u.userId);
+      return {
+        userId: u.userId,
+        email: lookup?.email ?? null,
+        emailLookupOk: lookup?.ok ?? false,
+        accessedAt: u.accessedAt,
+        cacheHit: earliest ? earliest < u.accessedAt : false,
+      };
+    }),
+    truncated,
+  };
 }
 
 // ─── Cursors ──────────────────────────────────────────────────────────────

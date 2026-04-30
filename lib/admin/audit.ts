@@ -4,15 +4,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AdminPrincipal } from "@/lib/admin/types";
 
 // Every audited action is named explicitly. The DB column is TEXT with a
-// length>0 CHECK (no Postgres ENUMs); this union is the wire-level
-// contract callers must satisfy.
-export type AuditAction =
-  | "view_transcript"
-  | "view_summary_text"
-  | "view_user_email_list"
-  | "reset_rate_limit"
-  | "suspend_user"
-  | "restore_user";
+// length>0 CHECK (no Postgres ENUMs); this list is the wire-level
+// contract callers must satisfy. Derived as a `const` literal array so
+// the runtime constant and the type live in one place — drift between
+// `AUDIT_ACTIONS` (used for runtime `isAuditAction` validation in
+// queries.ts) and `AuditAction` (the writer type) is now non-typeable.
+export const AUDIT_ACTIONS = [
+  "view_transcript",
+  "view_summary_text",
+  "view_user_email_list",
+  "view_video_users",
+  "reset_rate_limit",
+  "suspend_user",
+  "restore_user",
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export type AuditResourceType = "summary" | "user" | "video" | "rate_limit";
 

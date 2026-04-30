@@ -6,6 +6,9 @@ import {
   listAuditLog,
   listAllUsers,
   listUsersWithStatsAndSort,
+  listVideosWithStats,
+  getVideoInsights,
+  getVideoSummariesUsers,
   filterUsers,
   sortUsers,
   getDashboardKPIs,
@@ -13,12 +16,12 @@ import {
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
-  fetchUsersTotal,
+  fetchRegisteredUsersTotal,
   listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
-import type { AdminUserRow } from "../queries";
+import type { AdminUserRow, VideoListOptions } from "../queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
@@ -1096,25 +1099,60 @@ describe("listUsersWithStatsAndSort", () => {
   });
 });
 
-describe("fetchUsersTotal", () => {
-  it("returns total from auth.admin.listUsers", async () => {
+describe("fetchRegisteredUsersTotal", () => {
+  it("counts only signed-up, non-admin, non-anonymous users", async () => {
     const client = {
       from: vi.fn(),
       auth: {
         admin: {
           listUsers: vi.fn(async () => ({
-            data: { users: [], total: 643 },
+            data: {
+              users: [
+                { id: "u1", email: "alice@example.com", is_anonymous: false },
+                { id: "u2", email: "bob@example.com", is_anonymous: false },
+                { id: "u3", email: null, is_anonymous: true },
+                { id: "u4", email: "anon-x@y", is_anonymous: true },
+                { id: "u5", email: "ADMIN@example.com", is_anonymous: false },
+              ],
+              total: 5,
+            },
             error: null,
           })),
           getUserById: vi.fn(),
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchUsersTotal(client);
-    expect(out).toBe(643);
+    const out = await fetchRegisteredUsersTotal(client, ["admin@example.com"]);
+    expect(out).toBe(2);
   });
 
-  it("returns null and logs on error", async () => {
+  it("treats allowlist comparison as case-insensitive", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: {
+              users: [
+                {
+                  id: "u1",
+                  email: "Owner@Example.com",
+                  is_anonymous: false,
+                },
+              ],
+              total: 1,
+            },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchRegisteredUsersTotal(client, ["owner@example.com"]);
+    expect(out).toBe(0);
+  });
+
+  it("returns null on listUsers error", async () => {
     const client = {
       from: vi.fn(),
       auth: {
@@ -1127,12 +1165,44 @@ describe("fetchUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchUsersTotal(client);
+    const out = await fetchRegisteredUsersTotal(client, []);
     expect(out).toBeNull();
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("fetchUsersTotal"),
+      expect.stringContaining("fetchRegisteredUsersTotal"),
       expect.any(Object),
     );
+  });
+
+  it("paginates through multiple pages", async () => {
+    const pageOne = Array.from({ length: 200 }, (_, i) => ({
+      id: `p1-${i}`,
+      email: `p1-${i}@example.com`,
+      is_anonymous: false,
+    }));
+    const pageTwo = Array.from({ length: 50 }, (_, i) => ({
+      id: `p2-${i}`,
+      email: `p2-${i}@example.com`,
+      is_anonymous: false,
+    }));
+    const pages = [
+      { users: pageOne, total: 250 },
+      { users: pageTwo, total: 250 },
+    ];
+    let i = 0;
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => {
+            const next = pages[i++] ?? { users: [], total: 250 };
+            return { data: next, error: null };
+          }),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchRegisteredUsersTotal(client, []);
+    expect(out).toBe(250);
   });
 });
 
@@ -1542,5 +1612,750 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
       excludeAdminUserIds: ["u-admin-1"],
     });
     expect(stats.p95Seconds).toBe(7);
+  });
+});
+
+// ─── listVideosWithStats ─────────────────────────────────────────────────
+
+describe("listVideosWithStats", () => {
+  function baseOpts(o: Partial<VideoListOptions> = {}): VideoListOptions {
+    return {
+      mode: "all_time",
+      sort: "distinctUsers",
+      dir: "desc",
+      search: null,
+      language: null,
+      source: null,
+      channel: null,
+      model: null,
+      flaggedOnly: false,
+      firstSummarizedFrom: null,
+      firstSummarizedTo: null,
+      page: 1,
+      pageSize: 25,
+      ...o,
+    };
+  }
+
+  function makeFixture(historyRows: Array<Record<string, unknown>>) {
+    return [
+      { table: "user_video_history", response: { data: historyRows, error: null } },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vA", title: "Alpha", channel_name: "Ch1", language: "en", duration_seconds: 600 },
+            { id: "vB", title: "Beta", channel_name: "Ch2", language: "fr", duration_seconds: 300 },
+            { id: "vC", title: "Gamma", channel_name: "Ch1", language: "en", duration_seconds: 900 },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { video_id: "vA", transcript_source: "auto_captions", model: "claude-opus-4-7", processing_time_seconds: 12, created_at: "2026-04-01T00:00:00Z", enable_thinking: false },
+            { video_id: "vB", transcript_source: "whisper", model: "claude-haiku-4-5", processing_time_seconds: 80, created_at: "2026-04-03T00:00:00Z", enable_thinking: false },
+            { video_id: "vC", transcript_source: "manual_captions", model: "claude-opus-4-7", processing_time_seconds: 8, created_at: "2026-04-05T00:00:00Z", enable_thinking: false },
+          ],
+          error: null,
+        },
+      },
+    ];
+  }
+
+  it("returns rows sorted by distinctUsers desc with stable tie-break by videoId", async () => {
+    const client = buildClient(
+      makeFixture([
+        // vA: 2 distinct users (u1, u2)
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        // vB: 2 distinct users (u1, u3)
+        { user_id: "u1", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-04T00:00:00Z" },
+        // vC: 1 distinct user
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vA", "vB", "vC"]);
+    expect(out.rows[0].distinctUsers).toBe(2);
+    expect(out.rows[1].distinctUsers).toBe(2);
+    expect(out.rows[2].distinctUsers).toBe(1);
+  });
+
+  it("excludes admin user_ids from history (passed as not.in filter)", async () => {
+    const seen: ChainCall[] = [];
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await listVideosWithStats(client, baseOpts({ excludeAdminUserIds: ["a1", "a2"] }));
+    const notCall = seen.find((c) => c.method === "not");
+    expect(notCall).toBeDefined();
+    expect(notCall?.args[0]).toBe("user_id");
+    expect(notCall?.args[1]).toBe("in");
+    expect(String(notCall?.args[2])).toContain("a1");
+    expect(String(notCall?.args[2])).toContain("a2");
+  });
+
+  it("filters by search term across title and channel", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    // "ch1" matches both vA & vC by channel
+    const out = await listVideosWithStats(client, baseOpts({ search: "ch1" }));
+    expect(out.rows.map((r) => r.videoId).sort()).toEqual(["vA", "vC"]);
+  });
+
+  it("filters by language", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ language: "fr" }));
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("filters by source (whisper) and by channel and by model", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const bySource = await listVideosWithStats(client, baseOpts({ source: "whisper" }));
+    expect(bySource.rows.map((r) => r.videoId)).toEqual(["vB"]);
+
+    const client2 = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const byChannel = await listVideosWithStats(client2, baseOpts({ channel: "Ch2" }));
+    expect(byChannel.rows.map((r) => r.videoId)).toEqual(["vB"]);
+
+    const client3 = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+      ]),
+    );
+    const byModel = await listVideosWithStats(client3, baseOpts({ model: "claude-haiku-4-5" }));
+    expect(byModel.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("flaggedOnly excludes non-flagged rows", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" }, // auto
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" }, // whisper -> flagged
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ flaggedOnly: true }));
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+    expect(out.rows[0].flagged).toBe(true);
+  });
+
+  it("filters by firstSummarizedFrom/To", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ firstSummarizedFrom: "2026-04-02T00:00:00Z" }),
+    );
+    expect(out.rows.map((r) => r.videoId).sort()).toEqual(["vB", "vC"]);
+  });
+
+  it("includes a row whose firstSummarizedAt is the same day as a date-only firstSummarizedTo (regression guard for 9e77f5a)", async () => {
+    // Regression for the bug fixed in commit 9e77f5a: comparing a
+    // full ISO timestamp lex-against a date-only string is broken
+    // because "2026-04-30T08:30:00Z" > "2026-04-30" and rows in
+    // the morning of the end-day got dropped. The fix slices the
+    // ISO timestamp to its date prefix before comparing — if a
+    // future change drops `.slice(0, 10)`, the row below will be
+    // excluded and this test fails.
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: {
+          data: [
+            { user_id: "u1", video_id: "vDay", created_at: "2026-04-30T08:30:00Z" },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vDay", title: "Day-edge", channel_name: "Ch", language: "en", duration_seconds: 100 },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            {
+              video_id: "vDay",
+              transcript_source: "auto_captions",
+              model: "claude-opus-4-7",
+              processing_time_seconds: 5,
+              created_at: "2026-04-30T08:30:00Z",
+              enable_thinking: false,
+            },
+          ],
+          error: null,
+        },
+      },
+    ]);
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ firstSummarizedTo: "2026-04-30" }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vDay"]);
+  });
+
+  it("sorts each column asc and desc deterministically", async () => {
+    const fixtureCalls = () =>
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+      ]);
+
+    // title asc -> Alpha (vA) , Beta (vB), Gamma (vC)
+    const titleAsc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "title", dir: "asc" }),
+    );
+    expect(titleAsc.rows.map((r) => r.videoId)).toEqual(["vA", "vB", "vC"]);
+
+    // title desc -> Gamma, Beta, Alpha
+    const titleDesc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "title", dir: "desc" }),
+    );
+    expect(titleDesc.rows.map((r) => r.videoId)).toEqual(["vC", "vB", "vA"]);
+
+    // distinctUsers asc -> vB, vC, then vA (vA has 2)
+    const usersAsc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "distinctUsers", dir: "asc" }),
+    );
+    expect(usersAsc.rows[0].distinctUsers).toBe(1);
+    expect(usersAsc.rows[usersAsc.rows.length - 1].distinctUsers).toBe(2);
+  });
+
+  it("respects pageSize cap of 50", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ pageSize: 999 }));
+    // Single row fixture; verify the function clamped pageSize internally.
+    expect(out.rows.length).toBeLessThanOrEqual(50);
+  });
+
+  it("trending mode applies window filter to history (gte/lte on accessed_at)", async () => {
+    const seen: ChainCall[] = [];
+    const window = lastNDays(7);
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await listVideosWithStats(client, baseOpts({ mode: "trending", window }));
+    const gteCol = String(seen.find((c) => c.method === "gte")?.args[0] ?? "");
+    const lteCol = String(seen.find((c) => c.method === "lte")?.args[0] ?? "");
+    expect(gteCol).toBe("accessed_at");
+    expect(lteCol).toBe("accessed_at");
+  });
+
+  it("status='stale' when last view > 30d ago", async () => {
+    // fix time: lastSeen = 31d ago
+    const now = Date.now();
+    const olderThan30 = new Date(now - 31 * 86_400_000).toISOString();
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: olderThan30 },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.rows[0].status).toBe("stale");
+  });
+
+  it("flips truncated=true when distinct videoIds hits VIDEOS_ROW_CAP (25k)", async () => {
+    // Build 25_001 distinct video_ids so the inner cap fires. Production
+    // currently has no DI hook for the cap — when the column count grows
+    // past 25k for a real window the in-process aggregator will silently
+    // understate, and this test guards the truncation flag plumbing.
+    const ROWS = 25_001;
+    const history = Array.from({ length: ROWS }, (_, i) => ({
+      user_id: `u${i}`,
+      video_id: `v${i}`,
+      created_at: "2026-04-01T00:00:00Z",
+    }));
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: history, error: null },
+      },
+      // The capped video set still goes through metadata + summaries
+      // fetches; both can be empty since the test only checks the flag.
+      { table: "videos", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.truncated).toBe(true);
+  });
+
+  it.each([
+    // Each entry: (sort key, expectsDistinctOrder). When the fixture
+    // produces rows that genuinely tie on the column (e.g. all rows
+    // have totalSummaries=1), asc and desc collapse to the same
+    // tie-break ordering, so we can only assert set-equality. For
+    // every other column at least two rows have distinct values, so
+    // asc must NOT equal desc — that catches a no-op direction bug
+    // the previous set-only assertion would silently pass.
+    ["distinctUsers", true],
+    ["totalSummaries", false],
+    ["title", true],
+    ["channelName", true],
+    ["language", true],
+    ["firstSummarizedAt", true],
+    ["lastSummarizedAt", true],
+    ["whisperPct", true],
+    ["p95ProcessingSeconds", true],
+    ["durationSeconds", true],
+  ] as const)(
+    "sort by %s (asc and desc) returns deterministic order",
+    async (key, expectsDistinctOrder) => {
+      const fixtureRows = () =>
+        makeFixture([
+          { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+          { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+          { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+          { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+        ]);
+
+      const asc = await listVideosWithStats(
+        buildClient(fixtureRows()),
+        baseOpts({ sort: key, dir: "asc" }),
+      );
+      const desc = await listVideosWithStats(
+        buildClient(fixtureRows()),
+        baseOpts({ sort: key, dir: "desc" }),
+      );
+      // Both directions return the same row count and populate the
+      // same set of videoIds.
+      expect(asc.rows).toHaveLength(3);
+      expect(desc.rows).toHaveLength(3);
+      expect(new Set(asc.rows.map((r) => r.videoId))).toEqual(
+        new Set(desc.rows.map((r) => r.videoId)),
+      );
+      if (expectsDistinctOrder) {
+        // Asc and desc must produce different orderings — guards
+        // against a no-op direction bug where sorting silently
+        // ignores `dir` and returns the same row sequence both ways.
+        expect(asc.rows.map((r) => r.videoId)).not.toEqual(
+          desc.rows.map((r) => r.videoId),
+        );
+      }
+    },
+  );
+});
+
+// ─── getVideoInsights ────────────────────────────────────────────────────
+
+describe("getVideoInsights", () => {
+  function fixture(historyRows: Array<Record<string, unknown>>) {
+    return [
+      { table: "user_video_history", response: { data: historyRows, error: null } },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vA", title: "Alpha", channel_name: "Ch1", language: "en" },
+            { id: "vB", title: "Beta", channel_name: "Ch2", language: "fr" },
+            { id: "vC", title: "Gamma", channel_name: "Ch1", language: "en" },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { video_id: "vA", transcript_source: "auto_captions", enable_thinking: false },
+            { video_id: "vB", transcript_source: "whisper", enable_thinking: false },
+            { video_id: "vC", transcript_source: "manual_captions", enable_thinking: false },
+          ],
+          error: null,
+        },
+      },
+    ];
+  }
+
+  it("computes totals, top channels, language mix, and source mix", async () => {
+    const client = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-04T00:00:00Z" },
+      ]),
+    );
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.totalUniqueVideos).toBe(3);
+    expect(out.totalSummaries).toBe(4);
+    // Ch1 has 2 videos (vA, vC); Ch2 has 1.
+    expect(out.topChannels[0]).toEqual({ channelName: "Ch1", videoCount: 2 });
+    expect(out.languageMix.find((l) => l.language === "en")?.videoCount).toBe(2);
+    expect(out.languageMix.find((l) => l.language === "fr")?.videoCount).toBe(1);
+    // sourceMix is by view: vA(2)+vC(1)+vB(1)
+    const auto = out.sourceMix.find((m) => m.source === "auto_captions");
+    expect(auto?.count).toBe(2);
+    const manual = out.sourceMix.find((m) => m.source === "manual_captions");
+    expect(manual?.count).toBe(1);
+    const whisper = out.sourceMix.find((m) => m.source === "whisper");
+    expect(whisper?.count).toBe(1);
+    // 1 of 3 videos needed Whisper
+    expect(out.whisperVideoSharePct).toBe(33);
+  });
+
+  it("returns empty/zero shapes on no data", async () => {
+    const client = buildClient([
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.totalUniqueVideos).toBe(0);
+    expect(out.totalSummaries).toBe(0);
+    expect(out.whisperVideoSharePct).toBe(0);
+    expect(out.topChannels).toEqual([]);
+    expect(out.languageMix).toEqual([]);
+    expect(out.sourceMix).toHaveLength(3);
+    expect(out.sourceMix.every((m) => m.count === 0)).toBe(true);
+    expect(out.trendingPerDay).toBeUndefined();
+  });
+
+  it("limits topChannels to 5", async () => {
+    const channels = Array.from({ length: 7 }, (_, i) => ({
+      id: `v${i}`,
+      title: `T${i}`,
+      channel_name: `Ch${i}`,
+      language: "en",
+    }));
+    const summaries = channels.map((v) => ({
+      video_id: v.id,
+      transcript_source: "auto_captions",
+      enable_thinking: false,
+    }));
+    const history = channels.map((v, i) => ({
+      user_id: `u${i}`,
+      video_id: v.id,
+      created_at: "2026-04-01T00:00:00Z",
+    }));
+    const client = buildClient([
+      { table: "user_video_history", response: { data: history, error: null } },
+      { table: "videos", response: { data: channels, error: null } },
+      { table: "summaries", response: { data: summaries, error: null } },
+    ]);
+    const out = await getVideoInsights(client, { mode: "all_time" });
+    expect(out.topChannels).toHaveLength(5);
+  });
+
+  it("populates trendingPerDay only in trending mode", async () => {
+    const window = lastNDays(7);
+    const today = window.end.toISOString();
+    const client = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: today },
+      ]),
+    );
+    const trending = await getVideoInsights(client, { mode: "trending", window });
+    expect(trending.trendingPerDay).toBeDefined();
+    expect(trending.trendingPerDay?.length).toBe(7);
+
+    const client2 = buildClient(
+      fixture([
+        { user_id: "u1", video_id: "vA", created_at: today },
+      ]),
+    );
+    const allTime = await getVideoInsights(client2, { mode: "all_time" });
+    expect(allTime.trendingPerDay).toBeUndefined();
+  });
+});
+
+// ─── getVideoSummariesUsers ──────────────────────────────────────────────
+
+describe("getVideoSummariesUsers", () => {
+  it("returns the distinct user list with email lookups and cacheHit", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+              { user_id: "u2", video_id: "vA", created_at: "2026-04-04T00:00:00Z" },
+              { user_id: "u3", video_id: "vA", created_at: "2026-04-03T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: {
+            data: [
+              { video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+      ],
+      {
+        getUserById: (id: string) => {
+          const m: Record<string, string> = {
+            u1: "u1@example.com",
+            u2: "u2@example.com",
+            u3: "u3@example.com",
+          };
+          return { data: { user: { email: m[id] } }, error: null };
+        },
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users).toHaveLength(3);
+    expect(out.users.map((u) => u.userId)).toEqual(["u1", "u2", "u3"]);
+    expect(out.users[0].email).toBe("u1@example.com");
+    expect(out.users[0].emailLookupOk).toBe(true);
+    expect(out.users[0].cacheHit).toBe(true); // earliest summary < accessedAt
+  });
+
+  it("emailLookupOk=false when auth lookup errors", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: { data: [], error: null },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: null },
+          error: { message: "auth down" },
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].email).toBeNull();
+    expect(out.users[0].emailLookupOk).toBe(false);
+  });
+
+  it("returns empty users array when no history", async () => {
+    const client = buildClient([
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getVideoSummariesUsers(client, "vNoSuch");
+    expect(out.users).toEqual([]);
+  });
+
+  it("cacheHit=false when earliest summary is created after access (cold path)", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: {
+            // earliest > accessedAt → access happened before summary existed
+            data: [{ video_id: "vA", created_at: "2026-04-05T00:00:00Z" }],
+            error: null,
+          },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: { email: "u1@example.com" } },
+          error: null,
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].cacheHit).toBe(false);
+  });
+
+  it("cacheHit=false when no summary row exists (orphaned history)", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: { data: [], error: null },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: { email: "u1@example.com" } },
+          error: null,
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].cacheHit).toBe(false);
+  });
+
+  it("dedupes to one row per user (most recent access wins) and audit-row count = distinct users", async () => {
+    // u1 accessed twice, u2 once. The drilldown contract — and what
+    // viewVideoUsersAction relies on — is one row per user, so the
+    // audit row count equals the distinct-user count, not the
+    // access-count.
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-04T00:00:00Z" },
+              { user_id: "u2", video_id: "vA", created_at: "2026-04-03T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users.map((u) => u.userId).sort()).toEqual(["u1", "u2"]);
+    const u1 = out.users.find((u) => u.userId === "u1")!;
+    expect(u1.accessedAt).toBe("2026-04-05T00:00:00Z");
+  });
+
+  it("truncated=true whenever the over-fetch cap is hit, regardless of peek-row identity", async () => {
+    // 200 distinct users + 1 duplicate row. The cap was hit on the raw
+    // row count. Even though the +1 peek row is a duplicate of an
+    // already-kept user, we cannot prove from a single peek that no
+    // distinct hidden users exist past the cap (we never see rows
+    // #(CAP+2)..N). Conservative rule: any cap-hit ⇒ truncated=true.
+    const rows = [
+      ...Array.from({ length: 200 }, (_, i) => ({
+        user_id: `u${i}`,
+        video_id: "vA",
+        // Distinct timestamps so dedup keeps the most recent. The
+        // duplicate row below is older, so `u0`'s accessedAt won't
+        // change.
+        created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T05:00:00Z`,
+      })),
+      {
+        user_id: "u0",
+        video_id: "vA",
+        created_at: "2026-04-01T00:00:00Z",
+      },
+    ];
+    const client = buildClient(
+      [
+        { table: "user_video_history", response: { data: rows, error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.truncated).toBe(true);
+    expect(out.users).toHaveLength(200);
+  });
+
+  it("truncated=false when fetch returns fewer than CAP+1 rows", async () => {
+    // 199 rows — under the over-fetch limit (CAP+1=201). No cap-hit,
+    // so we have full visibility and can honestly say truncated=false.
+    const rows = Array.from({ length: 199 }, (_, i) => ({
+      user_id: `u${i}`,
+      video_id: "vA",
+      created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T05:00:00Z`,
+    }));
+    const client = buildClient(
+      [
+        { table: "user_video_history", response: { data: rows, error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.truncated).toBe(false);
+    expect(out.users).toHaveLength(199);
+  });
+
+  it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP + 1 (truncation peek)", async () => {
+    // Fetches one extra row past the cap so we can flip `truncated`
+    // instead of silently dropping the tail. The +1 is sliced off
+    // before the dedup pass.
+    const seen: ChainCall[] = [];
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await getVideoSummariesUsers(client, "vA");
+    const limit = seen.find((c) => c.method === "limit");
+    expect(limit?.args[0]).toBe(201);
   });
 });
