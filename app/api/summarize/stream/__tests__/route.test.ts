@@ -31,10 +31,15 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       streamLlmSummary: vi.fn(),
       checkRateLimit: vi.fn(),
       classifyContent: vi.fn(),
+      checkSummaryEntitlement: vi.fn(),
       // Spy proxy for next/server's after(). Exposed as a mock so tests
       // can pin "the route uses after() to defer the cache write" —
       // the property the prod fix depends on.
       after: vi.fn(afterPassthrough),
+      // Anon-cookie helpers — exposed so tests can override signAnonId
+      // to return null (simulating ANON_COOKIE_SECRET missing).
+      signAnonId: vi.fn((id: string): string | null => `${id}.sig`),
+      verifyAnonId: vi.fn((s: string): string | null => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null)),
     },
   };
 });
@@ -105,6 +110,20 @@ vi.mock("@/lib/services/llm-client", () => ({
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
+}));
+vi.mock("@/lib/services/entitlements", () => ({
+  checkSummaryEntitlement: mocks.checkSummaryEntitlement,
+  FREE_LIMITS: { summariesPerMonth: 10, chatMessagesPerVideo: 5, historyItems: 10 },
+  ANON_LIMITS: { summariesLifetime: 1 },
+}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined }),
+}));
+vi.mock("@/lib/services/anon-cookie", () => ({
+  ANON_COOKIE_NAME: "yt_anon_id",
+  ANON_COOKIE_MAX_AGE_SECONDS: 31536000,
+  signAnonId: (id: string) => mocks.signAnonId(id),
+  verifyAnonId: (s: string) => mocks.verifyAnonId(s),
 }));
 vi.mock("@/lib/services/model-routing", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/model-routing")>(
@@ -184,7 +203,13 @@ describe("POST /api/summarize/stream", () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "user-1", is_anonymous: false } },
     });
+    // Default anon-cookie helpers — tests override per-case when needed.
+    mocks.signAnonId.mockImplementation((id: string): string | null => `${id}.sig`);
+    mocks.verifyAnonId.mockImplementation((s: string): string | null => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null));
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
+    mocks.checkSummaryEntitlement.mockResolvedValue({
+      tier: "free", allowed: true, remaining: 10, reason: "within_limit",
+    });
     mocks.getCachedSummary.mockResolvedValue(null);
     mocks.getCachedTranscript.mockResolvedValue(null);
     // Default: metadata returns a graceful "no signal" — every existing
@@ -412,6 +437,124 @@ describe("POST /api/summarize/stream", () => {
           youtubeUrl: VALID_URL,
         })
       );
+    });
+  });
+
+  describe("entitlement gating", () => {
+    it("returns 402 with free_quota_exceeded when free user exceeded monthly cap", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "u1", is_anonymous: false } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "free", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body.errorCode).toBe("free_quota_exceeded");
+      expect(body.tier).toBe("free");
+      expect(body.upgradeUrl).toBe("/pricing");
+    });
+
+    it("returns 402 with anon_quota_exceeded when anon exceeded lifetime cap", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body.errorCode).toBe("anon_quota_exceeded");
+      expect(body.tier).toBe("anon");
+    });
+
+    it("logs entitlement fail_open without surfacing it in the response", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "u1", is_anonymous: false } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "free", allowed: true, remaining: 10, reason: "fail_open",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      expect(err).toHaveBeenCalledWith(
+        expect.stringContaining("entitlement bypassed"),
+        expect.objectContaining({ errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST" }),
+      );
+    });
+
+    it("anon Supabase user, no cookie, signAnonId returns null → 200 (fail-open as anon) with ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET logged", async () => {
+      // Simulates ANON_COOKIE_SECRET missing or too short: signAnonId returns null.
+      // The route must NOT fall through to checkSummaryEntitlement({ userId, isAnon: false })
+      // which would silently debit the signed-in monthly counter.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      // signAnonId returns null → secret missing path
+      mocks.signAnonId.mockReturnValue(null);
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      // checkSummaryEntitlement must NOT have been called (fail-open path skips it)
+      expect(mocks.checkSummaryEntitlement).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("anon entitlement bypassed"),
+        expect.objectContaining({ errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET" }),
+      );
+    });
+  });
+
+  describe("Set-Cookie header (anon id minting)", () => {
+    it("sets yt_anon_id Set-Cookie on 402 when minting fresh anon id", async () => {
+      // Anon Supabase user, no existing cookie (default mock returns undefined),
+      // signAnonId returns "ok.sig" → cookie should be set even on the 402.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } },
+        error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const cookie = res.headers.get("Set-Cookie") ?? "";
+      expect(cookie).toMatch(/^yt_anon_id=/);
+      expect(cookie).toMatch(/HttpOnly/);
+      expect(cookie).toMatch(/Secure/);
+      expect(cookie).toMatch(/SameSite=Lax/);
+      expect(cookie).toMatch(/Max-Age=31536000/);
+    });
+
+    it("sets yt_anon_id Set-Cookie on 200 streaming response when minting fresh anon id", async () => {
+      // Anon Supabase user, no existing cookie, checkSummaryEntitlement allows.
+      // The Set-Cookie must also be present on the success streaming response.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } },
+        error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: true, remaining: 1, reason: "within_limit",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      const cookie = res.headers.get("Set-Cookie") ?? "";
+      expect(cookie).toMatch(/^yt_anon_id=/);
+      expect(cookie).toMatch(/HttpOnly/);
+      expect(cookie).toMatch(/Secure/);
+      expect(cookie).toMatch(/SameSite=Lax/);
+      expect(cookie).toMatch(/Max-Age=31536000/);
     });
   });
 

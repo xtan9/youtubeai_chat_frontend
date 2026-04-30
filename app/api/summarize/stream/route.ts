@@ -42,6 +42,15 @@ import {
   getTranscriptMetadata,
 } from "@/lib/services/model-routing";
 import { checkRateLimit } from "@/lib/services/rate-limit";
+import { cookies } from "next/headers";
+import {
+  ANON_COOKIE_NAME,
+  ANON_COOKIE_MAX_AGE_SECONDS,
+  signAnonId,
+  verifyAnonId,
+} from "@/lib/services/anon-cookie";
+import { checkSummaryEntitlement } from "@/lib/services/entitlements";
+import { randomUUID } from "node:crypto";
 import {
   forwardLlmEvent,
   streamCached,
@@ -239,6 +248,85 @@ export async function POST(request: Request) {
     });
   }
   const remaining = rateLimit.remaining;
+
+  // Resolve anon-id cookie for anonymous users. Set-Cookie is applied later
+  // via the response headers if we minted a new id.
+  let anonId: string | null = null;
+  let setAnonCookie: string | null = null;
+  if (isAnonymous) {
+    const jar = await cookies();
+    const existing = jar.get(ANON_COOKIE_NAME)?.value ?? null;
+    const verified = existing ? verifyAnonId(existing) : null;
+    if (verified) {
+      anonId = verified;
+    } else {
+      const fresh = randomUUID();
+      const signed = signAnonId(fresh);
+      if (signed) {
+        anonId = fresh;
+        setAnonCookie = signed;
+      }
+    }
+  }
+
+  let entitlement: Awaited<ReturnType<typeof checkSummaryEntitlement>>;
+  if (isAnonymous) {
+    if (anonId) {
+      entitlement = await checkSummaryEntitlement({ anonId, isAnon: true });
+    } else {
+      // ANON_COOKIE_SECRET missing/too short — anon-cookie service already
+      // logged ANON_COOKIE_SECRET_MISSING. Fail-open as anon (allow this
+      // request, log the bypass) instead of debiting the signed-in monthly
+      // counter, which would silently grant 10/month to anon users.
+      console.error("[summarize/stream] anon entitlement bypassed — secret missing", {
+        stage: "unknown" satisfies LogStage,
+        errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET",
+        userId: authedUser.id,
+        youtubeUrl: youtube_url,
+      });
+      entitlement = {
+        tier: "anon",
+        allowed: true,
+        remaining: 1,
+        reason: "fail_open",
+      };
+    }
+  } else {
+    entitlement = await checkSummaryEntitlement({ userId: authedUser.id, isAnon: false });
+  }
+
+  if (entitlement.reason === "fail_open") {
+    console.error("[summarize/stream] entitlement bypassed (fail-open)", {
+      stage: "unknown" satisfies LogStage,
+      errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
+      userId: authedUser.id,
+      isAnonymous,
+      youtubeUrl: youtube_url,
+    });
+  }
+  if (!entitlement.allowed) {
+    const errorCode = entitlement.tier === "anon"
+      ? "anon_quota_exceeded"
+      : "free_quota_exceeded";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (setAnonCookie) {
+      headers["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;
+    }
+    return new Response(
+      JSON.stringify({
+        message:
+          entitlement.tier === "anon"
+            ? "Sign up to keep using the app — get 10 free summaries each month."
+            : "You've used your 10 free summaries this month. Upgrade for unlimited.",
+        errorCode,
+        tier: entitlement.tier,
+        upgradeUrl: "/pricing",
+      }),
+      { status: 402, headers }
+    );
+  }
 
   // Flag lives in the stream closure so the `cancel()` hook can flip it
   // when the consumer tears down the reader mid-flight. `start()` sets it
@@ -906,12 +994,14 @@ export async function POST(request: Request) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-RateLimit-Remaining": String(remaining),
-    },
-  });
+  const streamHeaders: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-RateLimit-Remaining": String(remaining),
+  };
+  if (setAnonCookie) {
+    streamHeaders["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;
+  }
+  return new Response(stream, { headers: streamHeaders });
 }

@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
 import { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractVideoId } from "./youtube-url";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import { getUserTier, FREE_LIMITS } from "./entitlements";
 import {
   SUPPORTED_LANGUAGE_CODES,
   type SupportedLanguageCode,
@@ -386,6 +388,50 @@ export async function writeCachedSummary(
         cause: historyError,
       });
     }
+    const tier = await getUserTier(params.userId);
+    if (tier === "free") {
+      await enforceFreeHistoryCap(supabase, params.userId, FREE_LIMITS.historyItems);
+    }
+  }
+}
+
+/**
+ * For free-tier users, keeps user_video_history at most `capacity` rows.
+ * Called after the history upsert; if the row count exceeds capacity,
+ * delete the oldest (lowest accessed_at) rows. Best-effort: errors are
+ * logged but not thrown — a transient eviction failure is far better
+ * than failing the whole summary write.
+ */
+export async function enforceFreeHistoryCap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  userId: string,
+  capacity: number,
+): Promise<void> {
+  // Find IDs to evict: anything past the capacity-th most-recent row.
+  // Range is 0-indexed; range(capacity, capacity+99) returns rows past
+  // the keep-window (up to 100 stale rows in one call).
+  const { data, error } = await supabase
+    .from("user_video_history")
+    .select("id, accessed_at")
+    .eq("user_id", userId)
+    .order("accessed_at", { ascending: false })
+    .range(capacity, capacity + 99);
+
+  if (error) {
+    console.error("[summarize-cache] history-cap query failed", {
+      errorId: "HISTORY_CAP_QUERY_FAIL", userId, code: error.code,
+    });
+    return;
+  }
+  if (!data || data.length === 0) return;
+
+  const ids = data.map((r: { id: string }) => r.id);
+  const del = await supabase.from("user_video_history").delete().in("id", ids);
+  if (del.error) {
+    console.error("[summarize-cache] history-cap delete failed", {
+      errorId: "HISTORY_CAP_DELETE_FAIL", userId, ids, code: del.error.code,
+    });
   }
 }
 

@@ -6,6 +6,7 @@ import {
   getCachedSummary,
   getCachedTranscript,
 } from "@/lib/services/summarize-cache";
+import { checkChatEntitlement } from "@/lib/services/entitlements";
 import {
   appendChatTurn,
   appendChatUserMessage,
@@ -86,6 +87,18 @@ export async function POST(request: Request) {
   const userId = user.id;
   const isAnonymous = user.is_anonymous ?? false;
 
+  if (isAnonymous) {
+    return new Response(
+      JSON.stringify({
+        message: "Sign up to chat about your videos.",
+        errorCode: "anon_chat_blocked",
+        tier: "anon",
+        upgradeUrl: "/auth/sign-up",
+      }),
+      { status: 402, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const rateLimit = await checkRateLimit(userId, isAnonymous);
   if (rateLimit.reason === "fail_open") {
     console.error("[chat/stream] rate-limit bypassed (fail-open)", {
@@ -110,6 +123,26 @@ export async function POST(request: Request) {
   ]);
   if (!cachedSummary || !cachedTranscript) {
     return jsonError(404, USER_ERROR_NO_SUMMARY);
+  }
+
+  const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
+  if (entitlement.reason === "fail_open") {
+    console.error("[chat/stream] entitlement bypassed (fail-open)", {
+      errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
+      userId,
+      videoId: cachedSummary.videoId,
+    });
+  }
+  if (!entitlement.allowed) {
+    return new Response(
+      JSON.stringify({
+        message: "You've used your 5 free chat messages on this video. Upgrade for unlimited.",
+        errorCode: "free_chat_exceeded",
+        tier: entitlement.tier,
+        upgradeUrl: "/pricing",
+      }),
+      { status: 402, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   const videoId = cachedTranscript.videoId;
