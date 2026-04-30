@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { SummaryResult } from "@/lib/types";
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
+import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import {
   QueryFunctionContext,
   useQuery,
@@ -134,6 +135,14 @@ export function useYouTubeSummarizer(
     if (!response.ok) {
       const errorData = await response.json();
       console.error("Error response:", errorData);
+      if (response.status === 402) {
+        throw new UpgradeRequiredError({
+          errorCode: errorData.errorCode,
+          tier: errorData.tier,
+          upgradeUrl: errorData.upgradeUrl ?? "/pricing",
+          message: errorData.message ?? "Upgrade required",
+        });
+      }
       if (response.status === 401 || response.status === 403) {
         handleAuthError(response.status, errorData.message);
       }

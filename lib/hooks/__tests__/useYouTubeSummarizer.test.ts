@@ -364,6 +364,82 @@ describe("useYouTubeSummarizer", () => {
     });
   });
 
+  it("throws UpgradeRequiredError on 402 free_quota_exceeded", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: "Monthly summary limit reached",
+              errorCode: "free_quota_exceeded",
+              tier: "free",
+              upgradeUrl: "/pricing",
+            }),
+            { status: 402 }
+          )
+        )
+      )
+    );
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.name).toBe("UpgradeRequiredError");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).errorCode).toBe("free_quota_exceeded");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).tier).toBe("free");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).upgradeUrl).toBe("/pricing");
+    });
+    // Must NOT redirect to login on 402 (only 401 triggers that path)
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("throws UpgradeRequiredError on 402 anon_quota_exceeded", async () => {
+    mockUserCtx = { user: null, session: null };
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: "anon-token" } },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: "Anonymous quota exceeded",
+              errorCode: "anon_quota_exceeded",
+              tier: "anon",
+              upgradeUrl: "/pricing",
+            }),
+            { status: 402 }
+          )
+        )
+      )
+    );
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await waitFor(() => expect(result.current.isAnonymous).toBe(true));
+
+    await act(async () => {
+      const r = await result.current.summarizationQuery.refetch();
+      expect(r.isError).toBe(true);
+      expect(r.error?.name).toBe("UpgradeRequiredError");
+      expect((r.error as import("@/lib/errors/upgrade-required").UpgradeRequiredError).tier).toBe("anon");
+    });
+  });
+
   it("logs error when signInAnonymously returns an error and stays unauthenticated", async () => {
     mockGetSession.mockResolvedValue({ data: { session: null } });
     mockSignInAnonymously.mockResolvedValue({

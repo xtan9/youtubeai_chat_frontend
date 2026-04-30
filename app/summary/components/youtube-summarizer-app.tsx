@@ -15,6 +15,8 @@ import { LanguagePicker } from "./language-picker";
 import { SummaryTabs } from "./summary-tabs";
 import { ChatTab } from "./chat-tab";
 import { PlayerRefProvider } from "@/lib/contexts/player-ref";
+import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
+import { UpgradeCard } from "@/components/paywall/UpgradeCard";
 import type { SummaryResult } from "@/lib/types";
 import {
   SUPPORTED_LANGUAGE_CODES,
@@ -258,7 +260,13 @@ export function YouTubeSummarizerApp({
 
   const summaryContent = (
     <>
-      <AuthErrorBanner authError={queryError?.message} />
+      {/* 402 cap-hit: render UpgradeCard instead of generic error banner.
+          TODO: add e2e for this in Task 11 */}
+      {queryError instanceof UpgradeRequiredError ? (
+        <UpgradeCard variant="summary-cap" />
+      ) : (
+        <AuthErrorBanner authError={queryError?.message} />
+      )}
       {streamError && <StreamErrorBanner message={streamError} />}
       {!streamError && (streamingProgress || isProcessing) && (
         <>
