@@ -74,10 +74,12 @@ beforeEach(() => {
 });
 
 describe("viewVideoTranscriptAction", () => {
-  it("returns transcript + writes view_transcript audit", async () => {
+  it("returns the single summary's transcript and writes view_transcript audit", async () => {
+    // Production has at most one summary per video — see migration
+    // 20260423000000_drop_thinking_columns. The action returns that
+    // row's transcript and writes an audit entry.
     const client = buildSupabaseClient([
       {
-        // canonical lookup
         table: "summaries",
         response: {
           data: {
@@ -85,14 +87,12 @@ describe("viewVideoTranscriptAction", () => {
             video_id: VALID_VIDEO_UUID,
             transcript: "the transcript",
             transcript_source: "auto_captions",
-            enable_thinking: false,
             created_at: "2026-04-01T00:00:00Z",
           },
           error: null,
         },
       },
       {
-        // video metadata
         table: "videos",
         response: {
           data: {
@@ -122,13 +122,11 @@ describe("viewVideoTranscriptAction", () => {
     expect(auditCall.resourceId).toBe(VALID_SUMMARY_UUID);
     expect(auditCall.metadata).toEqual({
       video_id: VALID_VIDEO_UUID,
-      used_fallback_variant: false,
     });
   });
 
   it("returns video_not_found when no summary exists", async () => {
     const client = buildSupabaseClient([
-      { table: "summaries", response: { data: null, error: null } },
       { table: "summaries", response: { data: null, error: null } },
     ]);
     requireAdminClientMock.mockReturnValue(client);
@@ -171,28 +169,11 @@ describe("viewVideoTranscriptAction", () => {
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("returns internal_error and skips audit when canonical fetch errors", async () => {
+  it("returns internal_error and skips audit when summary fetch errors", async () => {
     const client = buildSupabaseClient([
       {
         table: "summaries",
         response: { data: null, error: { message: "table missing" } },
-      },
-    ]);
-    requireAdminClientMock.mockReturnValue(client);
-
-    const result = await viewVideoTranscriptAction(VALID_VIDEO_UUID);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("internal_error");
-    expect(writeAuditMock).not.toHaveBeenCalled();
-  });
-
-  it("returns internal_error and skips audit when fallback fetch errors", async () => {
-    const client = buildSupabaseClient([
-      { table: "summaries", response: { data: null, error: null } },
-      {
-        table: "summaries",
-        response: { data: null, error: { message: "fallback boom" } },
       },
     ]);
     requireAdminClientMock.mockReturnValue(client);
@@ -214,7 +195,6 @@ describe("viewVideoTranscriptAction", () => {
             video_id: VALID_VIDEO_UUID,
             transcript: "raw",
             transcript_source: "unknown_future_source",
-            enable_thinking: false,
             created_at: "2026-04-29T10:00:00Z",
           },
           error: null,
@@ -230,36 +210,6 @@ describe("viewVideoTranscriptAction", () => {
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("sets usedFallbackVariant=true when canonical missing and fallback returned", async () => {
-    const client = buildSupabaseClient([
-      { table: "summaries", response: { data: null, error: null } },
-      {
-        table: "summaries",
-        response: {
-          data: {
-            id: VALID_SUMMARY_UUID,
-            video_id: VALID_VIDEO_UUID,
-            transcript: "fallback transcript",
-            transcript_source: "auto_captions",
-            enable_thinking: true,
-            created_at: "2026-04-02T00:00:00Z",
-          },
-          error: null,
-        },
-      },
-      { table: "videos", response: { data: null, error: null } },
-    ]);
-    requireAdminClientMock.mockReturnValue(client);
-    writeAuditMock.mockResolvedValue({ ok: true, id: "audit-fb" });
-
-    const result = await viewVideoTranscriptAction(VALID_VIDEO_UUID);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.usedFallbackVariant).toBe(true);
-    const auditCall = writeAuditMock.mock.calls[0][1];
-    expect((auditCall.metadata as Record<string, unknown>).used_fallback_variant).toBe(true);
-  });
-
   it("flags videoFetchFailed when video metadata fetch errors", async () => {
     const client = buildSupabaseClient([
       {
@@ -270,7 +220,6 @@ describe("viewVideoTranscriptAction", () => {
             video_id: VALID_VIDEO_UUID,
             transcript: "txt",
             transcript_source: "auto_captions",
-            enable_thinking: false,
             created_at: "2026-04-01T00:00:00Z",
           },
           error: null,
@@ -300,7 +249,6 @@ describe("viewVideoTranscriptAction", () => {
             video_id: VALID_VIDEO_UUID,
             transcript: "the transcript",
             transcript_source: "auto_captions",
-            enable_thinking: false,
             created_at: "2026-04-01T00:00:00Z",
           },
           error: null,
