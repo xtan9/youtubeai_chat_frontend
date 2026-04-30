@@ -1494,6 +1494,314 @@ async function computeTopUsers(
   });
 }
 
+// ─── Videos page queries ─────────────────────────────────────────────────
+
+const STALE_VIDEO_DAYS = 30;
+
+export async function listVideosWithStats(
+  client: SupabaseClient,
+  opts: VideoListOptions,
+): Promise<VideoListResult> {
+  const pageSize = Math.min(Math.max(opts.pageSize, 1), VIDEOS_PAGE_SIZE_CAP);
+  const page = Math.max(1, opts.page);
+  const exclude = opts.excludeAdminUserIds ?? [];
+
+  // 1. Fetch history rows (windowed in trending mode, all-time otherwise).
+  const window =
+    opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
+  let historyQuery = client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at");
+  if (window) {
+    historyQuery = historyQuery
+      .gte("accessed_at", window.start.toISOString())
+      .lte("accessed_at", window.end.toISOString());
+  }
+  const cleanedExcludes = exclude.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleanedExcludes.length > 0) {
+    historyQuery = historyQuery.not(
+      "user_id",
+      "in",
+      `(${cleanedExcludes.join(",")})`,
+    );
+  }
+  const { data: history, error: hErr } = await historyQuery.limit(
+    HISTORY_ROW_CAP,
+  );
+  if (hErr) throw new QueryError("listVideosWithStats:history", hErr.message);
+
+  if (!history || history.length === 0) {
+    return { rows: [], total: 0, truncated: false, page, pageCount: 1 };
+  }
+
+  // 2. Cap distinct video set + fetch metadata.
+  const videoIds = Array.from(
+    new Set(
+      (history as Array<{ video_id: string }>).map((h) => h.video_id),
+    ),
+  );
+  const truncated = videoIds.length >= VIDEOS_ROW_CAP;
+  const cappedIds = truncated ? videoIds.slice(0, VIDEOS_ROW_CAP) : videoIds;
+  if (truncated) {
+    console.warn("[admin-queries] listVideosWithStats: video cap hit", {
+      cap: VIDEOS_ROW_CAP,
+    });
+  }
+
+  const [videosRes, summariesRes] = await Promise.all([
+    client
+      .from("videos")
+      .select("id, title, channel_name, language, duration_seconds")
+      .in("id", cappedIds),
+    client
+      .from("summaries")
+      .select(
+        "video_id, transcript_source, model, processing_time_seconds, created_at, enable_thinking",
+      )
+      .in("video_id", cappedIds),
+  ]);
+  if (videosRes.error) {
+    throw new QueryError("listVideosWithStats:videos", videosRes.error.message);
+  }
+  if (summariesRes.error) {
+    throw new QueryError(
+      "listVideosWithStats:summaries",
+      summariesRes.error.message,
+    );
+  }
+
+  // 3. Aggregate per video.
+  const cappedHistory = (
+    history as Array<{ user_id: string; video_id: string; created_at: string }>
+  ).filter((h) => cappedIds.includes(h.video_id));
+  const rows = aggregateVideoRows(
+    cappedHistory,
+    (videosRes.data ?? []) as Array<Record<string, unknown>>,
+    (summariesRes.data ?? []) as Array<Record<string, unknown>>,
+  );
+
+  // 4. Filter, sort, paginate.
+  const filtered = filterVideoRows(rows, opts);
+  const sorted = sortVideoRows(filtered, opts.sort, opts.dir);
+  const total = sorted.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize;
+  const slice = sorted.slice(start, start + pageSize);
+
+  return { rows: slice, total, truncated, page, pageCount };
+}
+
+function pickCanonicalSummary(
+  summaries: Array<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  if (summaries.length === 0) return null;
+  const canonical = summaries.find((s) => s.enable_thinking === false);
+  return canonical ?? summaries[0];
+}
+
+function aggregateVideoRows(
+  history: Array<{ user_id: string; video_id: string; created_at: string }>,
+  videos: Array<Record<string, unknown>>,
+  summaries: Array<Record<string, unknown>>,
+): AdminVideoRow[] {
+  const videoById = new Map<string, Record<string, unknown>>();
+  for (const v of videos) videoById.set(String(v.id), v);
+
+  const summariesByVideo = new Map<string, Array<Record<string, unknown>>>();
+  for (const s of summaries) {
+    const vid = String(s.video_id);
+    const arr = summariesByVideo.get(vid) ?? [];
+    arr.push(s);
+    summariesByVideo.set(vid, arr);
+  }
+
+  type Bucket = {
+    users: Set<string>;
+    views: number;
+    lastSeen: string;
+    sourceCounts: Map<TranscriptSource, number>;
+    whisperViews: number;
+  };
+  const buckets = new Map<string, Bucket>();
+  for (const h of history) {
+    const summariesForVideo = summariesByVideo.get(h.video_id) ?? [];
+    const canonical = pickCanonicalSummary(summariesForVideo);
+    const source = (canonical?.transcript_source ??
+      "auto_captions") as TranscriptSource;
+    const bucket = buckets.get(h.video_id) ?? {
+      users: new Set<string>(),
+      views: 0,
+      lastSeen: h.created_at,
+      sourceCounts: new Map<TranscriptSource, number>(),
+      whisperViews: 0,
+    };
+    bucket.users.add(h.user_id);
+    bucket.views += 1;
+    bucket.sourceCounts.set(
+      source,
+      (bucket.sourceCounts.get(source) ?? 0) + 1,
+    );
+    if (source === "whisper") bucket.whisperViews += 1;
+    if (h.created_at > bucket.lastSeen) bucket.lastSeen = h.created_at;
+    buckets.set(h.video_id, bucket);
+  }
+
+  const now = Date.now();
+  const staleCutoff = now - STALE_VIDEO_DAYS * 86_400_000;
+
+  const out: AdminVideoRow[] = [];
+  for (const [videoId, bucket] of buckets) {
+    const video = videoById.get(videoId);
+    const allSummaries = summariesByVideo.get(videoId) ?? [];
+    const firstSummarizedAt =
+      allSummaries
+        .map((s) => String(s.created_at))
+        .filter((s) => s.length > 0)
+        .sort()[0] ?? bucket.lastSeen;
+    const modelsUsed = Array.from(
+      new Set(
+        allSummaries
+          .map((s) => (typeof s.model === "string" ? s.model : null))
+          .filter((m): m is string => m !== null),
+      ),
+    );
+    const sourceMix: { source: TranscriptSource; count: number }[] = [];
+    for (const [source, count] of bucket.sourceCounts) {
+      sourceMix.push({ source, count });
+    }
+    const whisperPct =
+      bucket.views > 0
+        ? Math.round((bucket.whisperViews / bucket.views) * 100)
+        : 0;
+    const latencies = allSummaries
+      .map((s) =>
+        typeof s.processing_time_seconds === "number"
+          ? (s.processing_time_seconds as number)
+          : null,
+      )
+      .filter((n): n is number => n !== null);
+    const lastSeenMs = new Date(bucket.lastSeen).getTime();
+    out.push({
+      videoId,
+      title: (video?.title as string | null) ?? null,
+      channelName: (video?.channel_name as string | null) ?? null,
+      language: (video?.language as string | null) ?? null,
+      durationSeconds:
+        typeof video?.duration_seconds === "number"
+          ? (video.duration_seconds as number)
+          : null,
+      firstSummarizedAt,
+      lastSummarizedAt: bucket.lastSeen,
+      distinctUsers: bucket.users.size,
+      totalSummaries: bucket.views,
+      sourceMix,
+      whisperPct,
+      modelsUsed,
+      p95ProcessingSeconds: p95(latencies),
+      flagged: bucket.views > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
+      status: lastSeenMs >= staleCutoff ? "active" : "stale",
+    });
+  }
+  return out;
+}
+
+function filterVideoRows(
+  rows: AdminVideoRow[],
+  opts: VideoListOptions,
+): AdminVideoRow[] {
+  return rows.filter((r) => {
+    if (opts.search) {
+      const q = opts.search.toLowerCase();
+      const inTitle = r.title?.toLowerCase().includes(q) ?? false;
+      const inChannel = r.channelName?.toLowerCase().includes(q) ?? false;
+      if (!inTitle && !inChannel) return false;
+    }
+    if (opts.language && r.language !== opts.language) return false;
+    if (opts.source && !r.sourceMix.some((m) => m.source === opts.source)) {
+      return false;
+    }
+    if (opts.channel && r.channelName !== opts.channel) return false;
+    if (opts.model && !r.modelsUsed.includes(opts.model)) return false;
+    if (opts.flaggedOnly && !r.flagged) return false;
+    if (
+      opts.firstSummarizedFrom &&
+      r.firstSummarizedAt < opts.firstSummarizedFrom
+    ) {
+      return false;
+    }
+    if (opts.firstSummarizedTo && r.firstSummarizedAt > opts.firstSummarizedTo) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function sortVideoRows(
+  rows: AdminVideoRow[],
+  sort: VideoSortKey,
+  dir: SortDir,
+): AdminVideoRow[] {
+  const sorted = rows.slice();
+  sorted.sort((a, b) => {
+    const primary = primaryVideoCompare(a, b, sort, dir);
+    if (primary !== 0) return primary;
+    return a.videoId.localeCompare(b.videoId);
+  });
+  return sorted;
+}
+
+function primaryVideoCompare(
+  a: AdminVideoRow,
+  b: AdminVideoRow,
+  sort: VideoSortKey,
+  dir: SortDir,
+): number {
+  switch (sort) {
+    case "distinctUsers":
+      return compareNullable(a.distinctUsers, b.distinctUsers, dir, numCmp);
+    case "totalSummaries":
+      return compareNullable(a.totalSummaries, b.totalSummaries, dir, numCmp);
+    case "title":
+      return compareNullable(a.title, b.title, dir, stringCmp);
+    case "channelName":
+      return compareNullable(a.channelName, b.channelName, dir, stringCmp);
+    case "language":
+      return compareNullable(a.language, b.language, dir, stringCmp);
+    case "firstSummarizedAt":
+      return compareNullable(
+        a.firstSummarizedAt,
+        b.firstSummarizedAt,
+        dir,
+        stringCmp,
+      );
+    case "lastSummarizedAt":
+      return compareNullable(
+        a.lastSummarizedAt,
+        b.lastSummarizedAt,
+        dir,
+        stringCmp,
+      );
+    case "whisperPct":
+      return compareNullable(a.whisperPct, b.whisperPct, dir, numCmp);
+    case "p95ProcessingSeconds":
+      return compareNullable(
+        a.p95ProcessingSeconds,
+        b.p95ProcessingSeconds,
+        dir,
+        numCmp,
+      );
+    case "durationSeconds":
+      return compareNullable(
+        a.durationSeconds,
+        b.durationSeconds,
+        dir,
+        numCmp,
+      );
+  }
+}
+
 // ─── Cursors ──────────────────────────────────────────────────────────────
 
 interface KeysetCursor {

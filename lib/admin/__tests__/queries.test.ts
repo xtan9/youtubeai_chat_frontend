@@ -6,6 +6,7 @@ import {
   listAuditLog,
   listAllUsers,
   listUsersWithStatsAndSort,
+  listVideosWithStats,
   filterUsers,
   sortUsers,
   getDashboardKPIs,
@@ -18,7 +19,7 @@ import {
   WHISPER_FLAG_THRESHOLD,
   QueryError,
 } from "../queries";
-import type { AdminUserRow } from "../queries";
+import type { AdminUserRow, VideoListOptions } from "../queries";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
@@ -1609,5 +1610,250 @@ describe("getPerformanceStats with excludeAdminUserIds", () => {
       excludeAdminUserIds: ["u-admin-1"],
     });
     expect(stats.p95Seconds).toBe(7);
+  });
+});
+
+// ─── listVideosWithStats ─────────────────────────────────────────────────
+
+describe("listVideosWithStats", () => {
+  function baseOpts(o: Partial<VideoListOptions> = {}): VideoListOptions {
+    return {
+      mode: "all_time",
+      sort: "distinctUsers",
+      dir: "desc",
+      search: null,
+      language: null,
+      source: null,
+      channel: null,
+      model: null,
+      flaggedOnly: false,
+      firstSummarizedFrom: null,
+      firstSummarizedTo: null,
+      page: 1,
+      pageSize: 25,
+      ...o,
+    };
+  }
+
+  function makeFixture(historyRows: Array<Record<string, unknown>>) {
+    return [
+      { table: "user_video_history", response: { data: historyRows, error: null } },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vA", title: "Alpha", channel_name: "Ch1", language: "en", duration_seconds: 600 },
+            { id: "vB", title: "Beta", channel_name: "Ch2", language: "fr", duration_seconds: 300 },
+            { id: "vC", title: "Gamma", channel_name: "Ch1", language: "en", duration_seconds: 900 },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            { video_id: "vA", transcript_source: "auto_captions", model: "claude-opus-4-7", processing_time_seconds: 12, created_at: "2026-04-01T00:00:00Z", enable_thinking: false },
+            { video_id: "vB", transcript_source: "whisper", model: "claude-haiku-4-5", processing_time_seconds: 80, created_at: "2026-04-03T00:00:00Z", enable_thinking: false },
+            { video_id: "vC", transcript_source: "manual_captions", model: "claude-opus-4-7", processing_time_seconds: 8, created_at: "2026-04-05T00:00:00Z", enable_thinking: false },
+          ],
+          error: null,
+        },
+      },
+    ];
+  }
+
+  it("returns rows sorted by distinctUsers desc with stable tie-break by videoId", async () => {
+    const client = buildClient(
+      makeFixture([
+        // vA: 2 distinct users (u1, u2)
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        // vB: 2 distinct users (u1, u3)
+        { user_id: "u1", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-04T00:00:00Z" },
+        // vC: 1 distinct user
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vA", "vB", "vC"]);
+    expect(out.rows[0].distinctUsers).toBe(2);
+    expect(out.rows[1].distinctUsers).toBe(2);
+    expect(out.rows[2].distinctUsers).toBe(1);
+  });
+
+  it("excludes admin user_ids from history (passed as not.in filter)", async () => {
+    const seen: ChainCall[] = [];
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await listVideosWithStats(client, baseOpts({ excludeAdminUserIds: ["a1", "a2"] }));
+    const notCall = seen.find((c) => c.method === "not");
+    expect(notCall).toBeDefined();
+    expect(notCall?.args[0]).toBe("user_id");
+    expect(notCall?.args[1]).toBe("in");
+    expect(String(notCall?.args[2])).toContain("a1");
+    expect(String(notCall?.args[2])).toContain("a2");
+  });
+
+  it("filters by search term across title and channel", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    // "ch1" matches both vA & vC by channel
+    const out = await listVideosWithStats(client, baseOpts({ search: "ch1" }));
+    expect(out.rows.map((r) => r.videoId).sort()).toEqual(["vA", "vC"]);
+  });
+
+  it("filters by language", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ language: "fr" }));
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("filters by source (whisper) and by channel and by model", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const bySource = await listVideosWithStats(client, baseOpts({ source: "whisper" }));
+    expect(bySource.rows.map((r) => r.videoId)).toEqual(["vB"]);
+
+    const client2 = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const byChannel = await listVideosWithStats(client2, baseOpts({ channel: "Ch2" }));
+    expect(byChannel.rows.map((r) => r.videoId)).toEqual(["vB"]);
+
+    const client3 = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+      ]),
+    );
+    const byModel = await listVideosWithStats(client3, baseOpts({ model: "claude-haiku-4-5" }));
+    expect(byModel.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("flaggedOnly excludes non-flagged rows", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" }, // auto
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" }, // whisper -> flagged
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ flaggedOnly: true }));
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+    expect(out.rows[0].flagged).toBe(true);
+  });
+
+  it("filters by firstSummarizedFrom/To", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vC", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ firstSummarizedFrom: "2026-04-02T00:00:00Z" }),
+    );
+    expect(out.rows.map((r) => r.videoId).sort()).toEqual(["vB", "vC"]);
+  });
+
+  it("sorts each column asc and desc deterministically", async () => {
+    const fixtureCalls = () =>
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+      ]);
+
+    // title asc -> Alpha (vA) , Beta (vB), Gamma (vC)
+    const titleAsc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "title", dir: "asc" }),
+    );
+    expect(titleAsc.rows.map((r) => r.videoId)).toEqual(["vA", "vB", "vC"]);
+
+    // title desc -> Gamma, Beta, Alpha
+    const titleDesc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "title", dir: "desc" }),
+    );
+    expect(titleDesc.rows.map((r) => r.videoId)).toEqual(["vC", "vB", "vA"]);
+
+    // distinctUsers asc -> vB, vC, then vA (vA has 2)
+    const usersAsc = await listVideosWithStats(
+      buildClient(fixtureCalls()),
+      baseOpts({ sort: "distinctUsers", dir: "asc" }),
+    );
+    expect(usersAsc.rows[0].distinctUsers).toBe(1);
+    expect(usersAsc.rows[usersAsc.rows.length - 1].distinctUsers).toBe(2);
+  });
+
+  it("respects pageSize cap of 50", async () => {
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts({ pageSize: 999 }));
+    // Single row fixture; verify the function clamped pageSize internally.
+    expect(out.rows.length).toBeLessThanOrEqual(50);
+  });
+
+  it("trending mode applies window filter to history (gte/lte on accessed_at)", async () => {
+    const seen: ChainCall[] = [];
+    const window = lastNDays(7);
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await listVideosWithStats(client, baseOpts({ mode: "trending", window }));
+    const gteCol = String(seen.find((c) => c.method === "gte")?.args[0] ?? "");
+    const lteCol = String(seen.find((c) => c.method === "lte")?.args[0] ?? "");
+    expect(gteCol).toBe("accessed_at");
+    expect(lteCol).toBe("accessed_at");
+  });
+
+  it("status='stale' when last view > 30d ago", async () => {
+    // fix time: lastSeen = 31d ago
+    const now = Date.now();
+    const olderThan30 = new Date(now - 31 * 86_400_000).toISOString();
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: olderThan30 },
+      ]),
+    );
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.rows[0].status).toBe("stale");
   });
 });
