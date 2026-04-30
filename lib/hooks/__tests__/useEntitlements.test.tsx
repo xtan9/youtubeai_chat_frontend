@@ -9,9 +9,9 @@ function freshQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 function wrapper(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
 }
 
 beforeEach(() => {
