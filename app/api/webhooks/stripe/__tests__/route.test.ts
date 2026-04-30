@@ -88,3 +88,47 @@ describe("Stripe webhook signature + idempotency", () => {
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 });
+
+describe("checkout.session.completed", () => {
+  it("writes pro subscription row", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_2",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          client_reference_id: "u1",
+          customer: "cus_1",
+          subscription: "sub_1",
+          metadata: { user_id: "u1" },
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_2" }], error: null });
+    mocks.retrieveSub.mockResolvedValue({
+      id: "sub_1",
+      status: "active",
+      cancel_at_period_end: false,
+      current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+      items: { data: [{ price: { id: "price_M" } }] },
+    });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "t=1,v1=x" },
+    }));
+
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "u1",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: "sub_1",
+        tier: "pro",
+        plan: "monthly",
+        status: "active",
+        cancel_at_period_end: false,
+      }),
+      expect.objectContaining({ onConflict: "user_id" })
+    );
+  });
+});

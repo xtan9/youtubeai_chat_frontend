@@ -67,17 +67,54 @@ async function dispatch(
   sr: ServiceClient,
   stripe: Stripe,
 ): Promise<void> {
-  // Filled in Tasks 6, 7, 8.
-  void sr; void stripe;
   switch (event.type) {
-    case "checkout.session.completed":
-      // Task 6
+    case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const userId = (session.metadata?.user_id ?? session.client_reference_id) as string | undefined;
+      const subId = typeof session.subscription === "string"
+        ? session.subscription
+        : session.subscription?.id;
+      const customerId = typeof session.customer === "string"
+        ? session.customer
+        : session.customer?.id;
+      if (!userId || !subId || !customerId) {
+        console.error("[stripe-webhook] checkout.completed missing fields", {
+          errorId: "WEBHOOK_CHECKOUT_MISSING_FIELDS",
+          id: event.id, userId, subId, customerId,
+        });
+        return;
+      }
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const periodEnd = periodEndToIso(
+        (sub as unknown as { current_period_end?: number }).current_period_end
+      );
+      const tier = deriveTier(sub.status, periodEnd);
+      const plan = priceIdToPlan(sub);
+
+      const { error } = await sr.from("user_subscriptions").upsert(
+        {
+          user_id: userId,
+          stripe_customer_id: customerId,
+          stripe_subscription_id: sub.id,
+          tier,
+          plan,
+          status: sub.status,
+          current_period_end: periodEnd,
+          cancel_at_period_end: sub.cancel_at_period_end,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      if (error) throw new Error(`upsert failed: ${error.message}`);
       break;
+    }
     case "customer.subscription.updated":
       // Task 7
+      void sr; void stripe;
       break;
     case "customer.subscription.deleted":
       // Task 8
+      void sr;
       break;
     case "invoice.payment_failed":
     case "invoice.paid":
@@ -87,4 +124,11 @@ async function dispatch(
       // Ignore
       break;
   }
+}
+
+function priceIdToPlan(sub: Stripe.Subscription): "monthly" | "yearly" | null {
+  const priceId = sub.items?.data[0]?.price?.id;
+  if (priceId === process.env.STRIPE_PRICE_MONTHLY) return "monthly";
+  if (priceId === process.env.STRIPE_PRICE_YEARLY) return "yearly";
+  return null;
 }
