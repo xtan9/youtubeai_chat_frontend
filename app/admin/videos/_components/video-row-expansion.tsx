@@ -114,8 +114,9 @@ export function VideoRowExpansion({ row }: VideoRowExpansionProps) {
           {truncated && (
             <div style={{ marginTop: 12 }}>
               <Pill tone="warn">
-                +{users.users.length} shown — drilldown capped at{" "}
-                {VIDEO_USERS_DRILLDOWN_CAP}. Older accesses not displayed.
+                {users.users.length} users shown — drilldown capped at{" "}
+                {VIDEO_USERS_DRILLDOWN_CAP} access rows. Older distinct
+                users not displayed.
               </Pill>
             </div>
           )}

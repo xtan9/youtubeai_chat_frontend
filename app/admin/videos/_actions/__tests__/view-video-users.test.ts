@@ -98,6 +98,7 @@ describe("viewVideoUsersAction", () => {
       return {
         viewedUserId: md.viewed_user_id as string,
         cacheHit: md.cache_hit as boolean,
+        drilldownTruncated: md.drilldown_truncated as boolean,
         action: arg.action,
         resourceType: arg.resourceType,
         resourceId: arg.resourceId,
@@ -109,6 +110,11 @@ describe("viewVideoUsersAction", () => {
       expect(a.resourceType).toBe("video");
       expect(a.resourceId).toBe(VALID_VIDEO_UUID);
       expect(a.videoId).toBe(VALID_VIDEO_UUID);
+      // Forensic reviewers six months out should be able to tell
+      // whether this audit row represents the full user set or a
+      // 200-cap subset directly from the audit metadata. The fixture
+      // returns truncated=false, so every row should record false.
+      expect(a.drilldownTruncated).toBe(false);
     }
     expect(audits.map((a) => a.viewedUserId).sort()).toEqual([
       "u1",

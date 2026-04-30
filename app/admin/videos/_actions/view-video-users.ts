@@ -68,6 +68,12 @@ export async function viewVideoUsersAction(
   // One audit row per revealed user. Fail-open per row — if a write fails
   // for one user, log + continue; the response still includes that user
   // with `auditId: null`.
+  //
+  // `drilldown_truncated` is captured per-row so a forensic reviewer
+  // querying this video's audit trail months from now can tell at a
+  // glance whether a `view_video_users` event represents the full
+  // user set or a 200-cap subset, even if the original drilldown
+  // response is long gone.
   const users = await Promise.all(
     drilldown.users.map(async (u) => {
       const auditResult = await writeAudit(client, {
@@ -79,6 +85,7 @@ export async function viewVideoUsersAction(
           video_id: videoId,
           viewed_user_id: u.userId,
           cache_hit: u.cacheHit,
+          drilldown_truncated: drilldown.truncated,
         },
       });
       return {
