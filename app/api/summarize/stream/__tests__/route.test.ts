@@ -513,6 +513,51 @@ describe("POST /api/summarize/stream", () => {
     });
   });
 
+  describe("Set-Cookie header (anon id minting)", () => {
+    it("sets yt_anon_id Set-Cookie on 402 when minting fresh anon id", async () => {
+      // Anon Supabase user, no existing cookie (default mock returns undefined),
+      // signAnonId returns "ok.sig" → cookie should be set even on the 402.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } },
+        error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const cookie = res.headers.get("Set-Cookie") ?? "";
+      expect(cookie).toMatch(/^yt_anon_id=/);
+      expect(cookie).toMatch(/HttpOnly/);
+      expect(cookie).toMatch(/Secure/);
+      expect(cookie).toMatch(/SameSite=Lax/);
+      expect(cookie).toMatch(/Max-Age=31536000/);
+    });
+
+    it("sets yt_anon_id Set-Cookie on 200 streaming response when minting fresh anon id", async () => {
+      // Anon Supabase user, no existing cookie, checkSummaryEntitlement allows.
+      // The Set-Cookie must also be present on the success streaming response.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } },
+        error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: true, remaining: 1, reason: "within_limit",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      const cookie = res.headers.get("Set-Cookie") ?? "";
+      expect(cookie).toMatch(/^yt_anon_id=/);
+      expect(cookie).toMatch(/HttpOnly/);
+      expect(cookie).toMatch(/Secure/);
+      expect(cookie).toMatch(/SameSite=Lax/);
+      expect(cookie).toMatch(/Max-Age=31536000/);
+    });
+  });
+
   describe("cache hit path", () => {
     it("emits cached stream events in order without calling LLM or VPS", async () => {
       mocks.getCachedSummary.mockResolvedValue(
