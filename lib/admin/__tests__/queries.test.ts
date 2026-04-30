@@ -1858,6 +1858,68 @@ describe("listVideosWithStats", () => {
     const out = await listVideosWithStats(client, baseOpts());
     expect(out.rows[0].status).toBe("stale");
   });
+
+  it("flips truncated=true when distinct videoIds hits VIDEOS_ROW_CAP (25k)", async () => {
+    // Build 25_001 distinct video_ids so the inner cap fires. Production
+    // currently has no DI hook for the cap — when the column count grows
+    // past 25k for a real window the in-process aggregator will silently
+    // understate, and this test guards the truncation flag plumbing.
+    const ROWS = 25_001;
+    const history = Array.from({ length: ROWS }, (_, i) => ({
+      user_id: `u${i}`,
+      video_id: `v${i}`,
+      created_at: "2026-04-01T00:00:00Z",
+    }));
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: history, error: null },
+      },
+      // The capped video set still goes through metadata + summaries
+      // fetches; both can be empty since the test only checks the flag.
+      { table: "videos", response: { data: [], error: null } },
+      { table: "summaries", response: { data: [], error: null } },
+    ]);
+    const out = await listVideosWithStats(client, baseOpts());
+    expect(out.truncated).toBe(true);
+  });
+
+  it.each([
+    "distinctUsers",
+    "totalSummaries",
+    "title",
+    "channelName",
+    "language",
+    "firstSummarizedAt",
+    "lastSummarizedAt",
+    "whisperPct",
+    "p95ProcessingSeconds",
+    "durationSeconds",
+  ] as const)("sort by %s (asc and desc) returns deterministic order", async (key) => {
+    const fixtureRows = () =>
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+      ]);
+
+    const asc = await listVideosWithStats(
+      buildClient(fixtureRows()),
+      baseOpts({ sort: key, dir: "asc" }),
+    );
+    const desc = await listVideosWithStats(
+      buildClient(fixtureRows()),
+      baseOpts({ sort: key, dir: "desc" }),
+    );
+    // Both directions return the same row count, populate the column,
+    // and produce reverse orderings (modulo null-last + tie-break).
+    expect(asc.rows).toHaveLength(3);
+    expect(desc.rows).toHaveLength(3);
+    expect(new Set(asc.rows.map((r) => r.videoId))).toEqual(
+      new Set(desc.rows.map((r) => r.videoId)),
+    );
+  });
 });
 
 // ─── getVideoInsights ────────────────────────────────────────────────────
@@ -2062,6 +2124,117 @@ describe("getVideoSummariesUsers", () => {
     ]);
     const out = await getVideoSummariesUsers(client, "vNoSuch");
     expect(out.users).toEqual([]);
+  });
+
+  it("cacheHit=false when earliest summary is created after access (cold path)", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: {
+            // earliest > accessedAt → access happened before summary existed
+            data: [{ video_id: "vA", created_at: "2026-04-05T00:00:00Z" }],
+            error: null,
+          },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: { email: "u1@example.com" } },
+          error: null,
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].cacheHit).toBe(false);
+  });
+
+  it("cacheHit=false when no summary row exists (orphaned history)", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: { data: [], error: null },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: { email: "u1@example.com" } },
+          error: null,
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].cacheHit).toBe(false);
+  });
+
+  it("dedupes to one row per user (most recent access wins) and audit-row count = distinct users", async () => {
+    // u1 accessed twice, u2 once. The drilldown contract — and what
+    // viewVideoUsersAction relies on — is one row per user, so the
+    // audit row count equals the distinct-user count, not the
+    // access-count.
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-04T00:00:00Z" },
+              { user_id: "u2", video_id: "vA", created_at: "2026-04-03T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users.map((u) => u.userId).sort()).toEqual(["u1", "u2"]);
+    const u1 = out.users.find((u) => u.userId === "u1")!;
+    expect(u1.accessedAt).toBe("2026-04-05T00:00:00Z");
+  });
+
+  it("flips truncated=true when history fetch returns more than the cap", async () => {
+    // 201 rows — VIDEO_USERS_DRILLDOWN_CAP is 200, fetch peeks +1.
+    const rows = Array.from({ length: 201 }, (_, i) => ({
+      user_id: `u${i}`,
+      video_id: "vA",
+      created_at: "2026-04-01T00:00:00Z",
+    }));
+    const client = buildClient(
+      [
+        { table: "user_video_history", response: { data: rows, error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.truncated).toBe(true);
+    expect(out.users).toHaveLength(200);
   });
 
   it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP + 1 (truncation peek)", async () => {

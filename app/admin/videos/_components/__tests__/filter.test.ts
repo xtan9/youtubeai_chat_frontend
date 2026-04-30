@@ -25,6 +25,18 @@ describe("video filter", () => {
     expect(parseVideoSort("nope")).toBe(DEFAULT_SORT);
   });
 
+  it("parseVideoDir explicitly accepts 'asc' (and rejects unknown values)", () => {
+    expect(parseVideoDir("asc")).toBe("asc");
+    expect(parseVideoDir("desc")).toBe(DEFAULT_DIR);
+    expect(parseVideoDir("nonsense")).toBe(DEFAULT_DIR);
+  });
+
+  it("clamps window above MAX_WINDOW_DAYS (365)", () => {
+    expect(parseVideoSearchParams({ window: "10000" }).windowDays).toBe(365);
+    expect(parseVideoSearchParams({ window: "366" }).windowDays).toBe(365);
+    expect(parseVideoSearchParams({ window: "365" }).windowDays).toBe(365);
+  });
+
   it("accepts known sort keys", () => {
     expect(parseVideoSort("title")).toBe("title");
     expect(parseVideoSort("whisperPct")).toBe("whisperPct");

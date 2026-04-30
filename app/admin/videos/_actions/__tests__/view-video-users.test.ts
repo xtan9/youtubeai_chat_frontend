@@ -86,16 +86,54 @@ describe("viewVideoUsersAction", () => {
     if (!result.ok) return;
     expect(result.users).toHaveLength(3);
     expect(writeAuditMock).toHaveBeenCalledTimes(3);
-    for (const call of writeAuditMock.mock.calls) {
-      const arg = call[1];
-      expect(arg.action).toBe("view_video_users");
-      expect(arg.resourceType).toBe("video");
-      expect(arg.resourceId).toBe(VALID_VIDEO_UUID);
-      const metadata = arg.metadata as Record<string, unknown>;
-      expect(metadata.video_id).toBe(VALID_VIDEO_UUID);
-      expect(typeof metadata.viewed_user_id).toBe("string");
-      expect(typeof metadata.cache_hit).toBe("boolean");
+
+    // Security-forensics: the SET of viewed_user_id values written to
+    // audit MUST equal the set of revealed user IDs. A closure bug that
+    // wrote `viewed_user_id: "u1"` for all three would currently ship
+    // green if we only asserted call count + types. Same for cache_hit
+    // — each row's value must match the corresponding user's cacheHit.
+    const audits = writeAuditMock.mock.calls.map((c) => {
+      const arg = c[1];
+      const md = arg.metadata as Record<string, unknown>;
+      return {
+        viewedUserId: md.viewed_user_id as string,
+        cacheHit: md.cache_hit as boolean,
+        action: arg.action,
+        resourceType: arg.resourceType,
+        resourceId: arg.resourceId,
+        videoId: md.video_id as string,
+      };
+    });
+    for (const a of audits) {
+      expect(a.action).toBe("view_video_users");
+      expect(a.resourceType).toBe("video");
+      expect(a.resourceId).toBe(VALID_VIDEO_UUID);
+      expect(a.videoId).toBe(VALID_VIDEO_UUID);
     }
+    expect(audits.map((a) => a.viewedUserId).sort()).toEqual([
+      "u1",
+      "u2",
+      "u3",
+    ]);
+    // The cache_hit map must align with the input: u1=true, u2=false, u3=true
+    const cacheHitByUser = Object.fromEntries(
+      audits.map((a) => [a.viewedUserId, a.cacheHit]),
+    );
+    expect(cacheHitByUser).toEqual({ u1: true, u2: false, u3: true });
+  });
+
+  it("does not write audit when drilldown returns zero users", async () => {
+    getVideoSummariesUsersMock.mockResolvedValue({
+      videoId: VALID_VIDEO_UUID,
+      users: [],
+      truncated: false,
+    });
+
+    const result = await viewVideoUsersAction(VALID_VIDEO_UUID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.users).toEqual([]);
+    expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
   it("audit fail on one user does not prevent others from being audited or returned", async () => {
