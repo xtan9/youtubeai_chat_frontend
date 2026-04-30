@@ -36,6 +36,14 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/",
   },
+  // `openGraph.images` and `twitter.images` are deliberately NOT set here.
+  // Per Next.js, metadata.openGraph.images takes precedence over the
+  // `opengraph-image.{ext|tsx}` file convention; setting them at the root
+  // layout would override every per-route generated card. Each indexable
+  // route ships its own `opengraph-image.tsx` (or .png for the home),
+  // which Next.js auto-wires into the OG + Twitter meta tags. Routes that
+  // need a one-off override (e.g. blog posts with a custom hero image)
+  // can still set `images` in their own `generateMetadata`.
   openGraph: {
     title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
     description:
@@ -44,14 +52,6 @@ export const metadata: Metadata = {
     siteName: "youtubeai.chat",
     type: "website",
     locale: "en_US",
-    images: [
-      {
-        url: "/youtube-summary-demo.png",
-        width: 1919,
-        height: 1244,
-        alt: "youtubeai.chat — instant AI summaries of YouTube videos",
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
@@ -59,7 +59,6 @@ export const metadata: Metadata = {
     description:
       "Summarize any YouTube video in seconds and chat with its content using AI. Works in 30+ languages. Free to try — no signup or paywall.",
     creator: "@YouTubeAI",
-    images: ["/youtube-summary-demo.png"],
   },
   robots: {
     index: true,

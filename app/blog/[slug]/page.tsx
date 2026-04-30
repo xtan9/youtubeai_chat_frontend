@@ -30,7 +30,16 @@ export async function generateMetadata({
   const post = loadBlogPost(slug);
   if (!post) return { title: "Post not found" };
   const url = `/blog/${post.slug}`;
-  const ogImage = post.ogImage ?? "/youtube-summary-demo.png";
+  // Only set `images` explicitly when the post frontmatter declares a
+  // custom hero — otherwise let `app/blog/[slug]/opengraph-image.tsx`
+  // generate a dynamic card with the post's title and description.
+  // (metadata.openGraph.images would override the file convention.)
+  const explicitOgImage = post.ogImage
+    ? { images: [{ url: post.ogImage }] }
+    : {};
+  const explicitTwitterImage = post.ogImage
+    ? { images: [post.ogImage] }
+    : {};
   return {
     title: `${post.title} | YouTubeAI`,
     description: post.description,
@@ -45,13 +54,13 @@ export async function generateMetadata({
       publishedTime: `${post.publishedAt}T00:00:00Z`,
       modifiedTime: `${post.updatedAt}T00:00:00Z`,
       authors: [post.author],
-      images: [{ url: ogImage }],
+      ...explicitOgImage,
     },
     twitter: {
       card: "summary_large_image",
       title: post.title,
       description: post.description,
-      images: [ogImage],
+      ...explicitTwitterImage,
     },
   };
 }
