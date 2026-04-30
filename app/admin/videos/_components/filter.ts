@@ -1,9 +1,5 @@
-import {
-  VIDEOS_PAGE_SIZE_CAP,
-  type VideoSortKey,
-  type VideoMode,
-  type SortDir,
-} from "@/lib/admin/queries";
+import type { VideoSortKey, VideoMode, SortDir } from "@/lib/admin/queries";
+import { VIDEOS_PAGE_SIZE_CAP } from "@/lib/admin/admin-constants";
 
 export const DEFAULT_MODE: VideoMode = "all_time";
 export const DEFAULT_SORT: VideoSortKey = "distinctUsers";

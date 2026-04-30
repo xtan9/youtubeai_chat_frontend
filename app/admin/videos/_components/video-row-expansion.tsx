@@ -2,10 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { Btn, Pill } from "../../_components/atoms";
-import {
-  type AdminVideoRow,
-  VIDEO_USERS_DRILLDOWN_CAP,
-} from "@/lib/admin/queries";
+import type { AdminVideoRow } from "@/lib/admin/queries";
+import { VIDEO_USERS_DRILLDOWN_CAP } from "@/lib/admin/admin-constants";
 import {
   viewVideoUsersAction,
   type ViewVideoUsersResult,

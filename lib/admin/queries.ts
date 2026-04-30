@@ -22,33 +22,21 @@ export const ALL_SOURCES: readonly TranscriptSource[] = [
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 export { WHISPER_FLAG_THRESHOLD } from "./constants";
 
-/** Hard caps on rows pulled into Node memory for in-process aggregation.
- * In the current scale (low-thousands of summaries / month), these are
- * far above the realistic window size; if a 90-day window starts hitting
- * either cap the percentile/cache-hit math will silently understate, so
- * raise both before that happens. Listed here so future growth flips one
- * knob, not a scattered set. */
-const SUMMARIES_ROW_CAP = 50_000;
-const HISTORY_ROW_CAP = 100_000;
-/** Cap on per-page row count returned by listAuditLog. Bounds a single
- * service-role table scan in the worst-case bad-cursor path. */
-const AUDIT_PAGE_SIZE_CAP = 200;
-/** Cap on per-page row count returned by listUsersWithStatsAndSort. */
-const USERS_PAGE_SIZE_CAP = 100;
-/** Hard cap on rows surfaced to the /admin/videos page. Aligned with
- * SUMMARIES_ROW_CAP / HISTORY_ROW_CAP — when this fires the UI shows a
- * truncation banner. */
-const VIDEOS_ROW_CAP = 25_000;
-/** Cap on revealed users for a single video's audit-logged drill-down.
- * Exported so the row-expansion component can render a "+N more" hint
- * with the same number when {@link VideoUsersDrilldown.truncated} is
- * set — drift would surface a misleading message. */
-export const VIDEO_USERS_DRILLDOWN_CAP = 200;
-/** Hard cap on the videos table's pageSize query param. Exported so the
- * search-param parser and the query share a single source — drift would
- * silently round wider page sizes down server-side after the parser had
- * already accepted them. */
-export const VIDEOS_PAGE_SIZE_CAP = 50;
+// Caps live in `admin-constants.ts` so client components can import the
+// runtime values without pulling the `import "server-only"` side-effect
+// at the top of this file. Re-export the pair that callers historically
+// imported from this module so existing import paths stay stable.
+import {
+  SUMMARIES_ROW_CAP,
+  HISTORY_ROW_CAP,
+  AUDIT_PAGE_SIZE_CAP,
+  USERS_PAGE_SIZE_CAP,
+  VIDEOS_ROW_CAP,
+  VIDEO_USERS_DRILLDOWN_CAP,
+  VIDEOS_PAGE_SIZE_CAP,
+} from "./admin-constants";
+
+export { VIDEO_USERS_DRILLDOWN_CAP, VIDEOS_PAGE_SIZE_CAP };
 
 type DailyPoint = { day: string; value: number };
 
