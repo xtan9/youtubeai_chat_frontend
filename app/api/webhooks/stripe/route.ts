@@ -1,4 +1,4 @@
-import { getStripe, deriveTier, periodEndToIso } from "@/lib/services/stripe";
+import { getStripe, deriveTier, periodEndToIso, readCurrentPeriodEnd } from "@/lib/services/stripe";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import type Stripe from "stripe";
 
@@ -6,6 +6,34 @@ export const runtime = "nodejs"; // need raw body
 export const dynamic = "force-dynamic";
 
 type ServiceClient = NonNullable<ReturnType<typeof getServiceRoleClient>>;
+
+// Architectural canary for the original P2.11 bug: when status is active
+// or trialing, tier MUST be "pro". If we derived "free", something
+// upstream silently dropped period_end (basil schema drift, malformed
+// payload, retire-and-replace). Refuse to write the poisoned row and
+// throw so the outer catch deletes the idempotency row and Stripe
+// retries — same pattern as DB errors. Returning 200 with a poisoned
+// write was the exact failure mode we shipped; this guard converts it
+// to an alertable 500 + retry.
+function assertActiveSubscriptionGotProTier(
+  status: Stripe.Subscription.Status,
+  tier: "free" | "pro",
+  context: { eventId: string; subId: string },
+): void {
+  if ((status === "active" || status === "trialing") && tier === "free") {
+    console.error(
+      "[stripe-webhook] active subscription derived tier=free — refusing poisoned write",
+      {
+        errorId: "WEBHOOK_ACTIVE_FREE_TIER_DEFECT",
+        ...context,
+        status,
+      },
+    );
+    throw new Error(
+      `active subscription ${context.subId} resolved to tier=free`,
+    );
+  }
+}
 
 export async function POST(request: Request) {
   const sig = request.headers.get("stripe-signature");
@@ -103,11 +131,13 @@ async function dispatch(
         return;
       }
       const sub = await stripe.subscriptions.retrieve(subId);
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
+      assertActiveSubscriptionGotProTier(sub.status, tier, {
+        eventId: event.id,
+        subId: sub.id,
+      });
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {
@@ -129,11 +159,13 @@ async function dispatch(
     case "customer.subscription.updated": {
       const sub = event.data.object as Stripe.Subscription;
       const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
+      assertActiveSubscriptionGotProTier(sub.status, tier, {
+        eventId: event.id,
+        subId: sub.id,
+      });
 
       // Find user_id by stripe_customer_id (we own the mapping)
       const { data: row, error: lookupErr } = await sr
@@ -193,9 +225,7 @@ async function dispatch(
         return;
       }
 
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {

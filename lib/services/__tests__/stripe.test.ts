@@ -53,6 +53,46 @@ describe("deriveTier", () => {
   });
 });
 
+describe("readCurrentPeriodEnd", () => {
+  // basil API (2025-05-28+) moved current_period_end from Subscription
+  // to Subscription.items.data[]. Reading the top-level field returns
+  // null in basil payloads and silently produces tier="free" for every
+  // paying user — production-impacting bug discovered during P2.11 e2e.
+  it("reads from items[0].current_period_end (basil schema)", async () => {
+    const { readCurrentPeriodEnd } = await loadFresh();
+    const sub = {
+      items: { data: [{ current_period_end: 1234567890 }] },
+    } as unknown as import("stripe").Stripe.Subscription;
+    expect(readCurrentPeriodEnd(sub)).toBe(1234567890);
+  });
+
+  it("falls back to top-level current_period_end (pre-basil schema)", async () => {
+    const { readCurrentPeriodEnd } = await loadFresh();
+    const sub = {
+      current_period_end: 9876543210,
+      items: { data: [] },
+    } as unknown as import("stripe").Stripe.Subscription;
+    expect(readCurrentPeriodEnd(sub)).toBe(9876543210);
+  });
+
+  it("prefers items[0] over top-level when both present", async () => {
+    const { readCurrentPeriodEnd } = await loadFresh();
+    const sub = {
+      current_period_end: 1111,
+      items: { data: [{ current_period_end: 2222 }] },
+    } as unknown as import("stripe").Stripe.Subscription;
+    expect(readCurrentPeriodEnd(sub)).toBe(2222);
+  });
+
+  it("returns null when neither location has a finite number", async () => {
+    const { readCurrentPeriodEnd } = await loadFresh();
+    const sub = {
+      items: { data: [{ current_period_end: null }] },
+    } as unknown as import("stripe").Stripe.Subscription;
+    expect(readCurrentPeriodEnd(sub)).toBeNull();
+  });
+});
+
 describe("priceIdForPlan", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
