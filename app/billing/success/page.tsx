@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 const POLL_INTERVAL_MS = 2000;
@@ -9,6 +10,7 @@ const POLL_TIMEOUT_MS = 30_000;
 
 export default function BillingSuccessPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [phase, setPhase] = useState<"polling" | "ok" | "timeout">("polling");
 
   useEffect(() => {
@@ -24,6 +26,11 @@ export default function BillingSuccessPage() {
         if (res.ok) {
           const body = await res.json();
           if (body?.tier === "pro") {
+            // Invalidate the cached entitlements query so any other
+            // component subscribing via useEntitlements() re-fetches
+            // and sees pro immediately, instead of waiting for the
+            // 30s staleTime or a window refocus.
+            qc.invalidateQueries({ queryKey: ["entitlements"] });
             setPhase("ok");
             // Brief celebratory pause then return home. Guarded so unmount
             // during this 1.5s window doesn't yank the user back to /.
@@ -50,7 +57,7 @@ export default function BillingSuccessPage() {
       if (pollTimer !== undefined) clearTimeout(pollTimer);
       if (redirectTimer !== undefined) clearTimeout(redirectTimer);
     };
-  }, [router]);
+  }, [router, qc]);
 
   return (
     <main className="container mx-auto max-w-md px-4 py-16 text-center">
