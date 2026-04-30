@@ -38,7 +38,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       after: vi.fn(afterPassthrough),
       // Anon-cookie helpers — exposed so tests can override signAnonId
       // to return null (simulating ANON_COOKIE_SECRET missing).
-      signAnonId: vi.fn((): string | null => "mock.sig"),
+      signAnonId: vi.fn((id: string): string | null => `${id}.sig`),
       verifyAnonId: vi.fn((s: string): string | null => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null)),
     },
   };
