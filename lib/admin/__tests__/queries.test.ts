@@ -2064,7 +2064,10 @@ describe("getVideoSummariesUsers", () => {
     expect(out.users).toEqual([]);
   });
 
-  it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP", async () => {
+  it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP + 1 (truncation peek)", async () => {
+    // Fetches one extra row past the cap so we can flip `truncated`
+    // instead of silently dropping the tail. The +1 is sliced off
+    // before the dedup pass.
     const seen: ChainCall[] = [];
     const client = buildClient([
       {
@@ -2075,6 +2078,6 @@ describe("getVideoSummariesUsers", () => {
     ]);
     await getVideoSummariesUsers(client, "vA");
     const limit = seen.find((c) => c.method === "limit");
-    expect(limit?.args[0]).toBe(200);
+    expect(limit?.args[0]).toBe(201);
   });
 });

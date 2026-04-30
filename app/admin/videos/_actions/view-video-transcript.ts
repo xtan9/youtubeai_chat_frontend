@@ -3,13 +3,8 @@
 import { requireAdminPage } from "@/app/admin/_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import { writeAudit } from "@/lib/admin/audit";
+import { ALL_SOURCES } from "@/lib/admin/queries";
 import type { TranscriptSource } from "@/lib/admin/types";
-
-const ALLOWED_SOURCES: readonly TranscriptSource[] = [
-  "manual_captions",
-  "auto_captions",
-  "whisper",
-] as const;
 
 export interface ViewVideoTranscriptOk {
   ok: true;
@@ -100,7 +95,7 @@ export async function viewVideoTranscriptAction(
   if (!summaryRow) return { ok: false, reason: "video_not_found" };
 
   const rawSource = String(summaryRow.transcript_source ?? "auto_captions");
-  if (!ALLOWED_SOURCES.includes(rawSource as TranscriptSource)) {
+  if (!ALL_SOURCES.includes(rawSource as TranscriptSource)) {
     console.error("[view-video-transcript] unknown transcript_source", {
       videoId,
       rawSource,

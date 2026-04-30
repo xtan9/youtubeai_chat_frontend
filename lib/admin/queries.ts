@@ -1,12 +1,18 @@
 import "server-only";
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TranscriptSource } from "@/lib/admin/types";
 import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
 export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
-const ALL_SOURCES: readonly TranscriptSource[] = [
+/** Canonical list of `transcript_source` values the rest of the admin
+ * surface understands. Exported so `app/admin/videos/page.tsx` and the
+ * server actions don't redefine the same literal array (drift would let
+ * a new source silently sort/filter as `auto_captions`). Keep in sync
+ * with `TranscriptSource` in `lib/admin/types.ts`. */
+export const ALL_SOURCES: readonly TranscriptSource[] = [
   "manual_captions",
   "auto_captions",
   "whisper",
@@ -34,8 +40,11 @@ const USERS_PAGE_SIZE_CAP = 100;
 const VIDEOS_ROW_CAP = 25_000;
 /** Cap on revealed users for a single video's audit-logged drill-down. */
 const VIDEO_USERS_DRILLDOWN_CAP = 200;
-/** Hard cap on the videos table's pageSize query param. */
-const VIDEOS_PAGE_SIZE_CAP = 50;
+/** Hard cap on the videos table's pageSize query param. Exported so the
+ * search-param parser and the query share a single source — drift would
+ * silently round wider page sizes down server-side after the parser had
+ * already accepted them. */
+export const VIDEOS_PAGE_SIZE_CAP = 50;
 
 type DailyPoint = { day: string; value: number };
 
@@ -443,9 +452,9 @@ export interface AdminVideoRow {
   /** Count of history rows ("views") for this video. */
   totalSummaries: number;
   sourceMix: { source: TranscriptSource; count: number }[];
-  /** % of views served by Whisper (0 or 100 in practice today; modeled
-   * as a number so the column sorts and a future per-segment refetch
-   * wouldn't break the type). */
+  /** Always 0 or 100 today: the canonical summary is picked once per
+   * video, so every view shares one source. Modeled as `number` to keep
+   * the column sort and a future per-view refetch type-stable. */
   whisperPct: number;
   /** Distinct summaries.model values seen for this video. */
   modelsUsed: string[];
@@ -502,7 +511,8 @@ export interface VideoInsights {
   totalUniqueVideos: number;
   /** Total views across every video in scope. */
   totalSummaries: number;
-  /** % of unique videos that ever needed Whisper. */
+  /** Percentage of videos in the current scope whose canonical summary's
+   * `transcript_source` is `whisper`. */
   whisperVideoSharePct: number;
   topChannels: { channelName: string; videoCount: number }[];
   languageMix: { language: string; videoCount: number }[];
@@ -525,9 +535,16 @@ export interface VideoUsersDrilldown {
     /** null when emailLookupOk=false or the user genuinely has no email. */
     email: string | null;
     emailLookupOk: boolean;
+    /** Most recent access for this user. Each user appears once even if
+     * they accessed the video N times — the audit row count must equal
+     * the distinct revealed-user count, not the access count. */
     accessedAt: string;
     cacheHit: boolean;
   }[];
+  /** True when the underlying `user_video_history` fetch hit
+   * VIDEO_USERS_DRILLDOWN_CAP. Lets the UI surface a "+N more" banner
+   * instead of silently dropping the tail. */
+  truncated: boolean;
 }
 
 export async function listUsersWithStatsAndSort(
@@ -699,7 +716,12 @@ export interface ListAllUsersOptions {
   rowCap?: number;
 }
 
-export async function listAllUsers(
+/** Internal worker — paginated `auth.admin.listUsers` aggregator.
+ * Wrapped by the exported {@link listAllUsers} via React's `cache()` so
+ * `/admin/videos` (which calls it from both the layout's
+ * {@link fetchRegisteredUsersTotal} and the page's
+ * {@link listAdminUserIds}) only does the pagination once per request. */
+async function listAllUsersUncached(
   client: SupabaseClient,
   opts: ListAllUsersOptions = {},
 ): Promise<ListAllUsersResult> {
@@ -736,6 +758,17 @@ export async function listAllUsers(
   }
   return { users: collected, total, truncated };
 }
+
+/** Request-scoped memoized variant of {@link listAllUsersUncached}.
+ * `cache()` keys on the argument identity tuple — `(client, opts)` — so
+ * the layout and the page must reuse the same `client` instance and
+ * default `opts` shape to share the cached pagination. */
+export const listAllUsers = cache(
+  (
+    client: SupabaseClient,
+    opts: ListAllUsersOptions = {},
+  ): Promise<ListAllUsersResult> => listAllUsersUncached(client, opts),
+);
 
 /**
  * Sidebar badge count: signed-up users excluding the admin allowlist
@@ -1573,9 +1606,10 @@ export async function listVideosWithStats(
   }
 
   // 3. Aggregate per video.
+  const cappedIdSet = new Set(cappedIds);
   const cappedHistory = (
     history as Array<{ user_id: string; video_id: string; created_at: string }>
-  ).filter((h) => cappedIds.includes(h.video_id));
+  ).filter((h) => cappedIdSet.has(h.video_id));
   const rows = aggregateVideoRows(
     cappedHistory,
     (videosRes.data ?? []) as Array<Record<string, unknown>>,
@@ -1725,13 +1759,19 @@ function filterVideoRows(
     if (opts.channel && r.channelName !== opts.channel) return false;
     if (opts.model && !r.modelsUsed.includes(opts.model)) return false;
     if (opts.flaggedOnly && !r.flagged) return false;
+    // `firstSummarizedAt` is a full ISO timestamp; `firstSummarizedFrom`
+    // / `firstSummarizedTo` are date-only strings ("YYYY-MM-DD") from the
+    // URL. Lex-comparing them directly silently filters out the entire
+    // end day (e.g. "2026-04-30T08:..." > "2026-04-30"). Compare on the
+    // day prefix to keep the inclusive-end-day contract.
+    const firstSummarizedDay = r.firstSummarizedAt.slice(0, 10);
     if (
       opts.firstSummarizedFrom &&
-      r.firstSummarizedAt < opts.firstSummarizedFrom
+      firstSummarizedDay < opts.firstSummarizedFrom
     ) {
       return false;
     }
-    if (opts.firstSummarizedTo && r.firstSummarizedAt > opts.firstSummarizedTo) {
+    if (opts.firstSummarizedTo && firstSummarizedDay > opts.firstSummarizedTo) {
       return false;
     }
     return true;
@@ -1966,18 +2006,26 @@ export async function getVideoSummariesUsers(
   client: SupabaseClient,
   videoId: string,
 ): Promise<VideoUsersDrilldown> {
+  // Fetch one extra row past the cap so we can flip `truncated` instead
+  // of silently dropping the tail. The +1 is sliced off before the
+  // dedup pass below.
   const { data: history, error: hErr } = await client
     .from("user_video_history")
     .select("user_id, video_id, created_at:accessed_at")
     .eq("video_id", videoId)
     .order("accessed_at", { ascending: false })
-    .limit(VIDEO_USERS_DRILLDOWN_CAP);
+    .limit(VIDEO_USERS_DRILLDOWN_CAP + 1);
   if (hErr) {
     throw new QueryError("getVideoSummariesUsers:history", hErr.message);
   }
   if (!history || history.length === 0) {
-    return { videoId, users: [] };
+    return { videoId, users: [], truncated: false };
   }
+
+  const truncated = history.length > VIDEO_USERS_DRILLDOWN_CAP;
+  const slicedHistory = truncated
+    ? history.slice(0, VIDEO_USERS_DRILLDOWN_CAP)
+    : history;
 
   // Earliest summary for the video — used to compute cacheHit. A history
   // row counts as a cache-hit when the canonical summary already existed
@@ -1996,13 +2044,33 @@ export async function getVideoSummariesUsers(
     if (!earliest || ts < earliest) earliest = ts;
   }
 
-  const typedHistory = history as Array<{
+  const typedHistory = slicedHistory as Array<{
     user_id: string;
     video_id: string;
     created_at: string;
   }>;
+  // Aggregate per user — keep the most recent access. The drilldown
+  // contract is "one row per revealed user", which is what feeds
+  // `viewVideoUsersAction` writing one audit row per result. A previous
+  // map-per-history version could write N audit rows for one user who
+  // accessed the video N times, distorting forensics.
+  const seen = new Map<
+    string,
+    { userId: string; accessedAt: string }
+  >();
+  for (const h of typedHistory) {
+    const prev = seen.get(h.user_id);
+    if (!prev || h.created_at > prev.accessedAt) {
+      seen.set(h.user_id, {
+        userId: h.user_id,
+        accessedAt: h.created_at,
+      });
+    }
+  }
+  const distinctUsers = Array.from(seen.values());
+
   // Resolve emails in parallel (mirrors computeTopUsers pattern).
-  const userIds = Array.from(new Set(typedHistory.map((h) => h.user_id)));
+  const userIds = distinctUsers.map((u) => u.userId);
   const lookups = await Promise.all(
     userIds.map(async (id) => {
       try {
@@ -2028,17 +2096,17 @@ export async function getVideoSummariesUsers(
 
   return {
     videoId,
-    users: typedHistory.map((h) => {
-      const accessedAt = h.created_at;
-      const lookup = lookupById.get(h.user_id);
+    users: distinctUsers.map((u) => {
+      const lookup = lookupById.get(u.userId);
       return {
-        userId: h.user_id,
+        userId: u.userId,
         email: lookup?.email ?? null,
         emailLookupOk: lookup?.ok ?? false,
-        accessedAt,
-        cacheHit: earliest ? earliest < accessedAt : false,
+        accessedAt: u.accessedAt,
+        cacheHit: earliest ? earliest < u.accessedAt : false,
       };
     }),
+    truncated,
   };
 }
 

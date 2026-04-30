@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
+  ALL_SOURCES,
   listVideosWithStats,
   getVideoInsights,
   listAdminUserIds,
@@ -23,14 +24,8 @@ interface PageProps {
   searchParams: Promise<Record<string, string | undefined>>;
 }
 
-const ALLOWED_SOURCES: readonly TranscriptSource[] = [
-  "manual_captions",
-  "auto_captions",
-  "whisper",
-] as const;
-
 function isTranscriptSource(value: string): value is TranscriptSource {
-  return (ALLOWED_SOURCES as readonly string[]).includes(value);
+  return (ALL_SOURCES as readonly string[]).includes(value);
 }
 
 export default async function AdminVideosPage({ searchParams }: PageProps) {
