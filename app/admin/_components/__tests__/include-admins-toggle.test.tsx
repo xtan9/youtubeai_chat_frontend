@@ -6,10 +6,11 @@ import userEvent from "@testing-library/user-event";
 const replace = vi.fn();
 let currentSearch = "";
 let currentPath = "/admin";
+let useSearchParamsValue: URLSearchParams | null = new URLSearchParams("");
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
   usePathname: () => currentPath,
-  useSearchParams: () => new URLSearchParams(currentSearch),
+  useSearchParams: () => useSearchParamsValue,
 }));
 
 import { IncludeAdminsToggle } from "../include-admins-toggle";
@@ -18,6 +19,7 @@ beforeEach(() => {
   replace.mockClear();
   currentSearch = "";
   currentPath = "/admin";
+  useSearchParamsValue = new URLSearchParams(currentSearch);
 });
 afterEach(() => cleanup());
 
@@ -51,6 +53,7 @@ describe("IncludeAdminsToggle", () => {
 
   it("clicking when checked calls router.replace WITHOUT include_admins", async () => {
     currentSearch = "include_admins=1";
+    useSearchParamsValue = new URLSearchParams(currentSearch);
     const user = userEvent.setup();
     render(<IncludeAdminsToggle checked={true} />);
     await user.click(screen.getByRole("switch", { name: /include admins/i }));
@@ -61,11 +64,24 @@ describe("IncludeAdminsToggle", () => {
 
   it("preserves other URL params when toggling on", async () => {
     currentSearch = "window=7";
+    useSearchParamsValue = new URLSearchParams(currentSearch);
     const user = userEvent.setup();
     render(<IncludeAdminsToggle checked={false} />);
     await user.click(screen.getByRole("switch", { name: /include admins/i }));
     const arg = replace.mock.calls[0][0] as string;
     expect(arg).toContain("window=7");
     expect(arg).toContain("include_admins=1");
+  });
+
+  it("does not throw when useSearchParams returns null (Suspense edge case)", async () => {
+    // Next 15 can return null from useSearchParams during prerender
+    // without a Suspense boundary. The component must coalesce.
+    useSearchParamsValue = null;
+    const user = userEvent.setup();
+    render(<IncludeAdminsToggle checked={false} />);
+    await user.click(screen.getByRole("switch", { name: /include admins/i }));
+    expect(replace).toHaveBeenCalledWith(
+      expect.stringContaining("include_admins=1"),
+    );
   });
 });

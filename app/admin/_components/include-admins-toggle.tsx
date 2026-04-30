@@ -25,10 +25,10 @@ export function IncludeAdminsToggle({ checked }: IncludeAdminsToggleProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const handleChange = (next: boolean) => {
-    const sp = new URLSearchParams(searchParams.toString());
+    const sp = new URLSearchParams(searchParams?.toString() ?? "");
     if (next) sp.set("include_admins", "1");
     else sp.delete("include_admins");
     const qs = sp.toString();
@@ -48,7 +48,6 @@ export function IncludeAdminsToggle({ checked }: IncludeAdminsToggleProps) {
         id="include-admins-toggle"
         checked={checked}
         onCheckedChange={handleChange}
-        disabled={isPending}
         aria-label="Include admins"
       />
     </div>
