@@ -34,12 +34,11 @@ export async function generateMetadata({
   // custom hero — otherwise let `app/blog/[slug]/opengraph-image.tsx`
   // generate a dynamic card with the post's title and description.
   // (metadata.openGraph.images would override the file convention.)
-  const explicitOgImage = post.ogImage
-    ? { images: [{ url: post.ogImage }] }
-    : {};
-  const explicitTwitterImage = post.ogImage
-    ? { images: [post.ogImage] }
-    : {};
+  // Both spreads use the string form so the OG and Twitter shapes don't
+  // diverge — Next accepts `[{ url: string }]` and `[string]` for OG, but
+  // Twitter only accepts the latter. One shape across both surfaces reads
+  // less like a bug.
+  const explicitImages = post.ogImage ? { images: [post.ogImage] } : {};
   return {
     title: `${post.title} | YouTubeAI`,
     description: post.description,
@@ -54,13 +53,13 @@ export async function generateMetadata({
       publishedTime: `${post.publishedAt}T00:00:00Z`,
       modifiedTime: `${post.updatedAt}T00:00:00Z`,
       authors: [post.author],
-      ...explicitOgImage,
+      ...explicitImages,
     },
     twitter: {
       card: "summary_large_image",
       title: post.title,
       description: post.description,
-      ...explicitTwitterImage,
+      ...explicitImages,
     },
   };
 }

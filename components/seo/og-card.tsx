@@ -54,7 +54,11 @@ export function buildOgCard({ title, subtitle, eyebrow }: OgCardInput) {
             style={{
               backgroundImage:
                 "linear-gradient(90deg, #a78bfa 0%, #f472b6 50%, #67e8f9 100%)",
+              // Satori needs the WebKit-prefixed property explicitly —
+              // unprefixed `backgroundClip: "text"` alone leaves the
+              // wordmark transparent on some Satori versions.
               backgroundClip: "text",
+              WebkitBackgroundClip: "text",
               color: "transparent",
             }}
           >
