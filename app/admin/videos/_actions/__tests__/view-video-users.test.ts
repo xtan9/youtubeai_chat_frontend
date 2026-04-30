@@ -85,6 +85,7 @@ describe("viewVideoUsersAction", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.users).toHaveLength(3);
+    expect(result.truncated).toBe(false);
     expect(writeAuditMock).toHaveBeenCalledTimes(3);
 
     // Security-forensics: the SET of viewed_user_id values written to
@@ -139,7 +140,41 @@ describe("viewVideoUsersAction", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.users).toEqual([]);
+    expect(result.truncated).toBe(false);
     expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates truncated=true from the drilldown query through the action result", async () => {
+    // Cap-hit fixture — the action should pass `truncated` through
+    // to the wire so the row-expansion UI can surface its banner.
+    // A regression that drops this field would silently degrade the
+    // operator's ability to know they're not seeing the full user set.
+    getVideoSummariesUsersMock.mockResolvedValue({
+      videoId: VALID_VIDEO_UUID,
+      users: [
+        {
+          userId: "u1",
+          email: "u1@example.com",
+          emailLookupOk: true,
+          accessedAt: "2026-04-04T00:00:00Z",
+          cacheHit: true,
+        },
+      ],
+      truncated: true,
+    });
+    writeAuditMock.mockResolvedValue({ ok: true, id: "audit-1" });
+
+    const result = await viewVideoUsersAction(VALID_VIDEO_UUID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.truncated).toBe(true);
+    // And it must appear on the per-user audit metadata too — the
+    // forensic guarantee asserted in commit 2.
+    const md = writeAuditMock.mock.calls[0][1].metadata as Record<
+      string,
+      unknown
+    >;
+    expect(md.drilldown_truncated).toBe(true);
   });
 
   it("audit fail on one user does not prevent others from being audited or returned", async () => {

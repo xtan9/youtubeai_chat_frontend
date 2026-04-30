@@ -1786,6 +1786,57 @@ describe("listVideosWithStats", () => {
     expect(out.rows.map((r) => r.videoId).sort()).toEqual(["vB", "vC"]);
   });
 
+  it("includes a row whose firstSummarizedAt is the same day as a date-only firstSummarizedTo (regression guard for 9e77f5a)", async () => {
+    // Regression for the bug fixed in commit 9e77f5a: comparing a
+    // full ISO timestamp lex-against a date-only string is broken
+    // because "2026-04-30T08:30:00Z" > "2026-04-30" and rows in
+    // the morning of the end-day got dropped. The fix slices the
+    // ISO timestamp to its date prefix before comparing — if a
+    // future change drops `.slice(0, 10)`, the row below will be
+    // excluded and this test fails.
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: {
+          data: [
+            { user_id: "u1", video_id: "vDay", created_at: "2026-04-30T08:30:00Z" },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "videos",
+        response: {
+          data: [
+            { id: "vDay", title: "Day-edge", channel_name: "Ch", language: "en", duration_seconds: 100 },
+          ],
+          error: null,
+        },
+      },
+      {
+        table: "summaries",
+        response: {
+          data: [
+            {
+              video_id: "vDay",
+              transcript_source: "auto_captions",
+              model: "claude-opus-4-7",
+              processing_time_seconds: 5,
+              created_at: "2026-04-30T08:30:00Z",
+              enable_thinking: false,
+            },
+          ],
+          error: null,
+        },
+      },
+    ]);
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ firstSummarizedTo: "2026-04-30" }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vDay"]);
+  });
+
   it("sorts each column asc and desc deterministically", async () => {
     const fixtureCalls = () =>
       makeFixture([
@@ -1885,41 +1936,59 @@ describe("listVideosWithStats", () => {
   });
 
   it.each([
-    "distinctUsers",
-    "totalSummaries",
-    "title",
-    "channelName",
-    "language",
-    "firstSummarizedAt",
-    "lastSummarizedAt",
-    "whisperPct",
-    "p95ProcessingSeconds",
-    "durationSeconds",
-  ] as const)("sort by %s (asc and desc) returns deterministic order", async (key) => {
-    const fixtureRows = () =>
-      makeFixture([
-        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
-        { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
-        { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
-        { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
-      ]);
+    // Each entry: (sort key, expectsDistinctOrder). When the fixture
+    // produces rows that genuinely tie on the column (e.g. all rows
+    // have totalSummaries=1), asc and desc collapse to the same
+    // tie-break ordering, so we can only assert set-equality. For
+    // every other column at least two rows have distinct values, so
+    // asc must NOT equal desc — that catches a no-op direction bug
+    // the previous set-only assertion would silently pass.
+    ["distinctUsers", true],
+    ["totalSummaries", false],
+    ["title", true],
+    ["channelName", true],
+    ["language", true],
+    ["firstSummarizedAt", true],
+    ["lastSummarizedAt", true],
+    ["whisperPct", true],
+    ["p95ProcessingSeconds", true],
+    ["durationSeconds", true],
+  ] as const)(
+    "sort by %s (asc and desc) returns deterministic order",
+    async (key, expectsDistinctOrder) => {
+      const fixtureRows = () =>
+        makeFixture([
+          { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+          { user_id: "u2", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+          { user_id: "u3", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+          { user_id: "u4", video_id: "vC", created_at: "2026-04-05T00:00:00Z" },
+        ]);
 
-    const asc = await listVideosWithStats(
-      buildClient(fixtureRows()),
-      baseOpts({ sort: key, dir: "asc" }),
-    );
-    const desc = await listVideosWithStats(
-      buildClient(fixtureRows()),
-      baseOpts({ sort: key, dir: "desc" }),
-    );
-    // Both directions return the same row count, populate the column,
-    // and produce reverse orderings (modulo null-last + tie-break).
-    expect(asc.rows).toHaveLength(3);
-    expect(desc.rows).toHaveLength(3);
-    expect(new Set(asc.rows.map((r) => r.videoId))).toEqual(
-      new Set(desc.rows.map((r) => r.videoId)),
-    );
-  });
+      const asc = await listVideosWithStats(
+        buildClient(fixtureRows()),
+        baseOpts({ sort: key, dir: "asc" }),
+      );
+      const desc = await listVideosWithStats(
+        buildClient(fixtureRows()),
+        baseOpts({ sort: key, dir: "desc" }),
+      );
+      // Both directions return the same row count and populate the
+      // same set of videoIds.
+      expect(asc.rows).toHaveLength(3);
+      expect(desc.rows).toHaveLength(3);
+      expect(new Set(asc.rows.map((r) => r.videoId))).toEqual(
+        new Set(desc.rows.map((r) => r.videoId)),
+      );
+      if (expectsDistinctOrder) {
+        // Asc and desc must produce different orderings — guards
+        // against a no-op direction bug where sorting silently
+        // ignores `dir` and returns the same row sequence both ways.
+        expect(asc.rows.map((r) => r.videoId)).not.toEqual(
+          desc.rows.map((r) => r.videoId),
+        );
+      }
+    },
+  );
 });
 
 // ─── getVideoInsights ────────────────────────────────────────────────────
