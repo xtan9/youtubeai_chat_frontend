@@ -490,6 +490,13 @@ export interface VideoListOptions {
   firstSummarizedTo: string | null;
   page: number;
   pageSize: number;
+  /** Drop every video that any of these user IDs has ever touched (all-time,
+   * window-independent — a video the admin tested last year shouldn't
+   * re-enter trending this month). Stricter than the user-id history filter
+   * used by getDashboardKPIs/getPerformanceStats: there, only admin views
+   * are excluded but mixed videos still appear. The videos page uses the
+   * stricter video-level filter to keep admin/QA traffic from inflating
+   * what otherwise looks like organic catalog growth. */
   excludeAdminUserIds?: string[];
 }
 
@@ -511,6 +518,8 @@ export interface VideoInsights {
 export interface VideoInsightsOptions {
   mode: VideoMode;
   window?: TimeWindow;
+  /** See {@link VideoListOptions.excludeAdminUserIds} — same video-level
+   * (not user-level) filter so the insights bar matches the table. */
   excludeAdminUserIds?: string[];
 }
 
@@ -1508,6 +1517,44 @@ async function computeTopUsers(
 
 const STALE_VIDEO_DAYS = 30;
 
+/** Set of video_ids that any of the given user IDs has *ever* touched in
+ * `user_video_history`. Always all-time — windowing this would let an
+ * admin's stale test from outside the trending window re-enter the list.
+ * Capped at HISTORY_ROW_CAP; truncation here would underestimate the
+ * admin set and let some admin-touched videos through, so we log on cap.
+ *
+ * Returns an empty Set when no admin IDs are provided (or all are blank),
+ * so callers can skip the round-trip. */
+async function listAdminTouchedVideoIds(
+  client: SupabaseClient,
+  adminUserIds: string[],
+): Promise<Set<string>> {
+  const cleaned = adminUserIds.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
+  if (cleaned.length === 0) return new Set();
+
+  const { data, error } = await client
+    .from("user_video_history")
+    .select("video_id")
+    .in("user_id", cleaned)
+    .limit(HISTORY_ROW_CAP);
+  if (error) {
+    throw new QueryError("listAdminTouchedVideoIds", error.message);
+  }
+  if (data && data.length === HISTORY_ROW_CAP) {
+    console.warn(
+      "[admin-queries] listAdminTouchedVideoIds: cap hit — some admin-touched videos may slip through the videos-page filter",
+      { cap: HISTORY_ROW_CAP, adminCount: cleaned.length },
+    );
+  }
+  const ids = new Set<string>();
+  for (const row of (data ?? []) as Array<{ video_id: string }>) {
+    ids.add(row.video_id);
+  }
+  return ids;
+}
+
 export async function listVideosWithStats(
   client: SupabaseClient,
   opts: VideoListOptions,
@@ -1516,7 +1563,15 @@ export async function listVideosWithStats(
   const page = Math.max(1, opts.page);
   const exclude = opts.excludeAdminUserIds ?? [];
 
-  // 1. Fetch history rows (windowed in trending mode, all-time otherwise).
+  // 1. Resolve the admin-touched video set first so we can drop those
+  //    videos entirely (not just admin views). See VideoListOptions
+  //    excludeAdminUserIds doc for why this is video-level rather than
+  //    user-level.
+  const adminTouchedVideos = await listAdminTouchedVideoIds(client, exclude);
+
+  // 2. Fetch history rows (windowed in trending mode, all-time otherwise).
+  //    No DB-side user_id filter — admin-touched videos drop in JS so the
+  //    URL doesn't grow with the admin video set (which can be large).
   const window =
     opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
   let historyQuery = client
@@ -1527,22 +1582,22 @@ export async function listVideosWithStats(
       .gte("accessed_at", window.start.toISOString())
       .lte("accessed_at", window.end.toISOString());
   }
-  const cleanedExcludes = exclude.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-  if (cleanedExcludes.length > 0) {
-    historyQuery = historyQuery.not(
-      "user_id",
-      "in",
-      `(${cleanedExcludes.join(",")})`,
-    );
-  }
-  const { data: history, error: hErr } = await historyQuery.limit(
+  const { data: rawHistory, error: hErr } = await historyQuery.limit(
     HISTORY_ROW_CAP,
   );
   if (hErr) throw new QueryError("listVideosWithStats:history", hErr.message);
 
-  if (!history || history.length === 0) {
+  const history =
+    adminTouchedVideos.size > 0
+      ? (rawHistory ?? []).filter(
+          (h) =>
+            !adminTouchedVideos.has(
+              (h as { video_id: string }).video_id,
+            ),
+        )
+      : (rawHistory ?? []);
+
+  if (history.length === 0) {
     return { rows: [], total: 0, truncated: false, page, pageCount: 1 };
   }
 
@@ -1834,6 +1889,11 @@ export async function getVideoInsights(
     opts.mode === "trending" ? (opts.window ?? lastNDays(30)) : null;
   const exclude = opts.excludeAdminUserIds ?? [];
 
+  // Resolve the admin-touched video set first so the insights bar drops
+  // the same videos that listVideosWithStats drops — keeps the page header
+  // ("N videos summarized") consistent with the table below it.
+  const adminTouchedVideos = await listAdminTouchedVideoIds(client, exclude);
+
   let historyQuery = client
     .from("user_video_history")
     .select("user_id, video_id, created_at:accessed_at");
@@ -1842,20 +1902,20 @@ export async function getVideoInsights(
       .gte("accessed_at", window.start.toISOString())
       .lte("accessed_at", window.end.toISOString());
   }
-  const cleanedExcludes = exclude.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-  if (cleanedExcludes.length > 0) {
-    historyQuery = historyQuery.not(
-      "user_id",
-      "in",
-      `(${cleanedExcludes.join(",")})`,
-    );
-  }
-  const { data: history, error: hErr } = await historyQuery.limit(
+  const { data: rawHistory, error: hErr } = await historyQuery.limit(
     HISTORY_ROW_CAP,
   );
   if (hErr) throw new QueryError("getVideoInsights:history", hErr.message);
+
+  const history =
+    adminTouchedVideos.size > 0
+      ? (rawHistory ?? []).filter(
+          (h) =>
+            !adminTouchedVideos.has(
+              (h as { video_id: string }).video_id,
+            ),
+        )
+      : (rawHistory ?? []);
 
   if (!history || history.length === 0) {
     return {

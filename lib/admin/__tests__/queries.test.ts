@@ -1685,22 +1685,71 @@ describe("listVideosWithStats", () => {
     expect(out.rows[2].distinctUsers).toBe(1);
   });
 
-  it("excludes admin user_ids from history (passed as not.in filter)", async () => {
+  it("pre-fetches admin-touched video_ids with an in() filter on user_id (all-time)", async () => {
     const seen: ChainCall[] = [];
     const client = buildClient([
       {
+        // First call: listAdminTouchedVideoIds — pull every video any
+        // admin user has ever touched.
         table: "user_video_history",
         response: { data: [], error: null },
         expect: (calls) => seen.push(...calls),
       },
+      {
+        // Second call: the main history fetch (no user_id filter — admin
+        // videos drop in JS, see comment in listVideosWithStats).
+        table: "user_video_history",
+        response: { data: [], error: null },
+      },
     ]);
     await listVideosWithStats(client, baseOpts({ excludeAdminUserIds: ["a1", "a2"] }));
-    const notCall = seen.find((c) => c.method === "not");
-    expect(notCall).toBeDefined();
-    expect(notCall?.args[0]).toBe("user_id");
-    expect(notCall?.args[1]).toBe("in");
-    expect(String(notCall?.args[2])).toContain("a1");
-    expect(String(notCall?.args[2])).toContain("a2");
+    const inCall = seen.find((c) => c.method === "in");
+    expect(inCall).toBeDefined();
+    expect(inCall?.args[0]).toBe("user_id");
+    expect(inCall?.args[1]).toEqual(["a1", "a2"]);
+    // Admin-touched lookup must be all-time — no window filter.
+    expect(seen.some((c) => c.method === "gte")).toBe(false);
+    expect(seen.some((c) => c.method === "lte")).toBe(false);
+  });
+
+  it("drops every video any admin touched, even when non-admins also viewed it", async () => {
+    // vA: admin viewed it AND a non-admin viewed it → drop entirely.
+    // vB: only non-admin viewers → keep.
+    const client = buildClient([
+      {
+        // listAdminTouchedVideoIds — admin a1 has history for vA only.
+        table: "user_video_history",
+        response: {
+          data: [{ video_id: "vA" }],
+          error: null,
+        },
+      },
+      // Then the regular fixture (history → videos → summaries).
+      ...makeFixture([
+        { user_id: "a1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-02T00:00:00Z" },
+        { user_id: "u2", video_id: "vB", created_at: "2026-04-03T00:00:00Z" },
+      ]),
+    ]);
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ excludeAdminUserIds: ["a1"] }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vB"]);
+  });
+
+  it("skips the admin-touched lookup entirely when excludeAdminUserIds is empty", async () => {
+    // Only the main history fetch should hit the DB — no pre-fetch round-trip.
+    const client = buildClient(
+      makeFixture([
+        { user_id: "u1", video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+      ]),
+    );
+    const out = await listVideosWithStats(
+      client,
+      baseOpts({ excludeAdminUserIds: [] }),
+    );
+    expect(out.rows.map((r) => r.videoId)).toEqual(["vA"]);
   });
 
   it("filters by search term across title and channel", async () => {
