@@ -131,8 +131,54 @@ async function checkSignedInSummaryEntitlement(
   }
 }
 
-// Stub for now — Task 8 implements
-async function checkAnonSummaryEntitlement(anonId: string): Promise<EntitlementResult> {
-  void anonId;
-  return { tier: "anon", allowed: true, remaining: ANON_LIMITS.summariesLifetime, reason: "fail_open" };
+async function checkAnonSummaryEntitlement(
+  anonId: string
+): Promise<EntitlementResult> {
+  const limit = ANON_LIMITS.summariesLifetime;
+  const supabase = getServiceRoleClient();
+  if (!supabase) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[entitlements] service-role missing for anon check", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_NO_CREDS",
+      });
+    }
+    return { tier: "anon", allowed: true, remaining: limit, reason: "fail_open" };
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("increment_anon_summary_quota", {
+      p_anon_id: anonId,
+    });
+    if (error) {
+      const code = (error as { code?: string }).code;
+      const tag = code && DEPLOY_DEFECT_CODES.has(code)
+        ? "ENTITLEMENT_FAIL_OPEN_DEPLOY_DEFECT"
+        : "ENTITLEMENT_FAIL_OPEN_RPC";
+      console.error("[entitlements] anon RPC error (fail-open)", {
+        errorId: tag, anonId, code, error,
+      });
+      return { tier: "anon", allowed: true, remaining: limit, reason: "fail_open" };
+    }
+    const count = typeof data === "number" ? data : Number(data);
+    if (!Number.isFinite(count)) {
+      console.error("[entitlements] anon RPC bad data (fail-open)", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_BAD_DATA", anonId, data,
+      });
+      return { tier: "anon", allowed: true, remaining: limit, reason: "fail_open" };
+    }
+    if (count > limit) {
+      return { tier: "anon", allowed: false, remaining: 0, reason: "exceeded" };
+    }
+    return {
+      tier: "anon",
+      allowed: true,
+      remaining: Math.max(0, limit - count),
+      reason: "within_limit",
+    };
+  } catch (err) {
+    console.error("[entitlements] anon check threw (fail-open)", {
+      errorId: "ENTITLEMENT_FAIL_OPEN_UNEXPECTED", anonId, err,
+    });
+    return { tier: "anon", allowed: true, remaining: limit, reason: "fail_open" };
+  }
 }

@@ -147,3 +147,55 @@ describe("checkSummaryEntitlement (signed-in users)", () => {
     expect(err).toHaveBeenCalled();
   });
 });
+
+describe("checkSummaryEntitlement (anon)", () => {
+  beforeEach(() => {
+    mocks.rpc.mockReset();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+  });
+
+  it("first use: allowed, remaining=0 after this call", async () => {
+    mocks.rpc.mockResolvedValue({ data: 1, error: null });
+    const { checkSummaryEntitlement, ANON_LIMITS } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({
+      anonId: "11111111-1111-1111-1111-111111111111",
+      isAnon: true,
+    });
+    expect(r).toEqual({
+      tier: "anon",
+      allowed: true,
+      remaining: ANON_LIMITS.summariesLifetime - 1,
+      reason: "within_limit",
+    });
+  });
+
+  it("second use: denied", async () => {
+    mocks.rpc.mockResolvedValue({ data: 2, error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({
+      anonId: "11111111-1111-1111-1111-111111111111",
+      isAnon: true,
+    });
+    expect(r).toEqual({
+      tier: "anon",
+      allowed: false,
+      remaining: 0,
+      reason: "exceeded",
+    });
+  });
+
+  it("RPC error: fail-open", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "42501" } });
+    const { checkSummaryEntitlement, ANON_LIMITS } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({
+      anonId: "11111111-1111-1111-1111-111111111111",
+      isAnon: true,
+    });
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBe("fail_open");
+    expect(r.remaining).toBe(ANON_LIMITS.summariesLifetime);
+  });
+});
