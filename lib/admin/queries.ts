@@ -941,6 +941,7 @@ export async function getDashboardKPIs(
     end: new Date(window.start.getTime() - 86_400_000),
   };
 
+  const wantFilter = exclude.length > 0;
   const [current, previous, history, prevHistory] = await Promise.all([
     fetchSummariesIn(client, window),
     fetchSummariesIn(client, prevWindow),
@@ -948,7 +949,32 @@ export async function getDashboardKPIs(
     fetchHistoryIn(client, prevWindow, exclude),
   ]);
 
-  const summariesPerDay = bucketByDay(current, "created_at", window);
+  // When excluding admin activity, restrict summary-derived KPIs (counts,
+  // p95s, source mix, summaries-per-day) to summaries whose video appears
+  // in the (admin-filtered) history. A video that only admins watched
+  // should contribute zero to these metrics.
+  //
+  // Fail-soft: if the caller wanted filtering but history is empty (e.g.
+  // admins truly watched nothing in the window, or fetchHistoryIn ran
+  // ahead of any user activity), skip the filter and surface unfiltered
+  // numbers rather than zeroing the page out. Mirrors the contract
+  // getPerformanceStats introduced in PR #92.
+  const includedCurrent = wantFilter
+    ? new Set(history.map((h) => h.video_id))
+    : null;
+  const includedPrev = wantFilter
+    ? new Set(prevHistory.map((h) => h.video_id))
+    : null;
+  const filteredCurrent =
+    wantFilter && history.length > 0
+      ? current.filter((s) => includedCurrent!.has(s.video_id))
+      : current;
+  const filteredPrev =
+    wantFilter && prevHistory.length > 0
+      ? previous.filter((s) => includedPrev!.has(s.video_id))
+      : previous;
+
+  const summariesPerDay = bucketByDay(filteredCurrent, "created_at", window);
   const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
     const distinct = new Set<string>();
     for (const r of rows) distinct.add(r.user_id);
@@ -961,7 +987,7 @@ export async function getDashboardKPIs(
   });
 
   const sourceCounts = new Map<TranscriptSource, number>();
-  for (const s of current) {
+  for (const s of filteredCurrent) {
     sourceCounts.set(
       s.transcript_source as TranscriptSource,
       (sourceCounts.get(s.transcript_source as TranscriptSource) ?? 0) + 1,
@@ -975,23 +1001,37 @@ export async function getDashboardKPIs(
   const cacheHitCurrent = computeCacheHitRate(history);
   const cacheHitPrevious = computeCacheHitRate(prevHistory);
 
-  const topUsers = await computeTopUsers(client, history, current, 5);
+  // computeTopUsers indexes by history.user_id (already filtered) and
+  // looks up summaries by video_id only to decorate transcript_source /
+  // latency. Pass filteredCurrent for symmetry with the other
+  // summary-derived metrics — videos absent from filtered history won't
+  // be referenced anyway, but this keeps the input set explicit.
+  const topUsers = await computeTopUsers(client, history, filteredCurrent, 5);
 
-  const whisperCount = current.filter((s) => s.transcript_source === "whisper")
-    .length;
-  const whisperPrev = previous.filter((s) => s.transcript_source === "whisper")
-    .length;
+  const whisperCount = filteredCurrent.filter(
+    (s) => s.transcript_source === "whisper",
+  ).length;
+  const whisperPrev = filteredPrev.filter(
+    (s) => s.transcript_source === "whisper",
+  ).length;
 
   return {
     window,
-    summaries: { current: current.length, previous: previous.length },
+    summaries: {
+      current: filteredCurrent.length,
+      previous: filteredPrev.length,
+    },
     whisper: { current: whisperCount, previous: whisperPrev },
     p95Seconds: {
-      current: p95(current.map((s) => s.processing_time_seconds)),
-      previous: p95(previous.map((s) => s.processing_time_seconds)),
+      current: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
+      previous: p95(filteredPrev.map((s) => s.processing_time_seconds)),
     },
-    transcribeP95Seconds: p95(current.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(current.map((s) => s.summarize_time_seconds)),
+    transcribeP95Seconds: p95(
+      filteredCurrent.map((s) => s.transcribe_time_seconds),
+    ),
+    summarizeP95Seconds: p95(
+      filteredCurrent.map((s) => s.summarize_time_seconds),
+    ),
     cacheHitRatePct: { current: cacheHitCurrent, previous: cacheHitPrevious },
     summariesPerDay,
     dauPerDay,
