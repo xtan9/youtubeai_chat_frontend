@@ -73,3 +73,77 @@ describe("getUserTier", () => {
     expect(await getUserTier("u1")).toBe("free");
   });
 });
+
+describe("checkSummaryEntitlement (signed-in users)", () => {
+  beforeEach(() => {
+    mocks.rpc.mockReset();
+    mocks.from.mockReset();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+  });
+
+  function stubTier(tier: "free" | "pro") {
+    mocks.from.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: { tier }, error: null }),
+        }),
+      }),
+    });
+  }
+
+  it("Pro: returns unlimited regardless of count", async () => {
+    stubTier("pro");
+    mocks.rpc.mockResolvedValue({ data: 9999, error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+  });
+
+  it("Free under cap: allowed=true, remaining=limit-count", async () => {
+    stubTier("free");
+    mocks.rpc.mockResolvedValue({ data: 3, error: null });
+    const { checkSummaryEntitlement, FREE_LIMITS } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r).toEqual({
+      tier: "free",
+      allowed: true,
+      remaining: FREE_LIMITS.summariesPerMonth - 3,
+      reason: "within_limit",
+    });
+  });
+
+  it("Free at boundary (count===10): allowed", async () => {
+    stubTier("free");
+    mocks.rpc.mockResolvedValue({ data: 10, error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r.allowed).toBe(true);
+    expect(r.remaining).toBe(0);
+  });
+
+  it("Free over cap (count===11): denied", async () => {
+    stubTier("free");
+    mocks.rpc.mockResolvedValue({ data: 11, error: null });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r).toEqual({
+      tier: "free",
+      allowed: false,
+      remaining: 0,
+      reason: "exceeded",
+    });
+  });
+
+  it("Free RPC error: fail-open with errorId", async () => {
+    stubTier("free");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "42883" } });
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
+    expect(r.allowed).toBe(true);
+    expect(r.reason).toBe("fail_open");
+    expect(err).toHaveBeenCalled();
+  });
+});

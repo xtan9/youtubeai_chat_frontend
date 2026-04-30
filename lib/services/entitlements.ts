@@ -57,3 +57,82 @@ export async function getUserTier(userId: string): Promise<"free" | "pro"> {
   if (!data) return "free";
   return data.tier === "pro" ? "pro" : "free";
 }
+
+type CheckSummaryArgs =
+  | { userId: string; isAnon: false }
+  | { anonId: string; isAnon: true };
+
+export async function checkSummaryEntitlement(
+  args: CheckSummaryArgs
+): Promise<EntitlementResult> {
+  if (args.isAnon) {
+    return checkAnonSummaryEntitlement(args.anonId);
+  }
+  return checkSignedInSummaryEntitlement(args.userId);
+}
+
+async function checkSignedInSummaryEntitlement(
+  userId: string
+): Promise<EntitlementResult> {
+  const tier = await getUserTier(userId);
+  if (tier === "pro") {
+    return { tier: "pro", allowed: true, remaining: Number.POSITIVE_INFINITY, reason: "unlimited" };
+  }
+
+  const limit = FREE_LIMITS.summariesPerMonth;
+  const supabase = getServiceRoleClient();
+  if (!supabase) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[entitlements] service-role missing for summary check", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_NO_CREDS",
+      });
+    }
+    return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+  }
+
+  const yearMonth = getYearMonthUtc();
+
+  try {
+    const { data, error } = await supabase.rpc("increment_monthly_summary", {
+      p_user_id: userId,
+      p_year_month: yearMonth,
+    });
+    if (error) {
+      const code = (error as { code?: string }).code;
+      const tag = code && DEPLOY_DEFECT_CODES.has(code)
+        ? "ENTITLEMENT_FAIL_OPEN_DEPLOY_DEFECT"
+        : "ENTITLEMENT_FAIL_OPEN_RPC";
+      console.error("[entitlements] summary RPC error (fail-open)", {
+        errorId: tag, userId, code, error,
+      });
+      return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+    }
+    const count = typeof data === "number" ? data : Number(data);
+    if (!Number.isFinite(count)) {
+      console.error("[entitlements] summary RPC bad data (fail-open)", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_BAD_DATA", userId, data,
+      });
+      return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+    }
+    if (count > limit) {
+      return { tier: "free", allowed: false, remaining: 0, reason: "exceeded" };
+    }
+    return {
+      tier: "free",
+      allowed: true,
+      remaining: Math.max(0, limit - count),
+      reason: "within_limit",
+    };
+  } catch (err) {
+    console.error("[entitlements] summary check threw (fail-open)", {
+      errorId: "ENTITLEMENT_FAIL_OPEN_UNEXPECTED", userId, err,
+    });
+    return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
+  }
+}
+
+// Stub for now — Task 8 implements
+async function checkAnonSummaryEntitlement(anonId: string): Promise<EntitlementResult> {
+  void anonId;
+  return { tier: "anon", allowed: true, remaining: ANON_LIMITS.summariesLifetime, reason: "fail_open" };
+}
