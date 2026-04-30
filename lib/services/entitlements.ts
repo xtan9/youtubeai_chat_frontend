@@ -10,14 +10,16 @@ export const ANON_LIMITS = {
   summariesLifetime: 1,
 } as const;
 
+// SQLSTATEs that mean "code shipped before its migration ran" rather than
+// "the dependency itself is sick". 42883 = undefined_function (RPC missing),
+// 42501 = insufficient_privilege (GRANT not applied yet). Tagged separately
+// so the on-call dashboard can split deploy ordering bugs from real outages.
 const DEPLOY_DEFECT_CODES = new Set(["42883", "42501"]);
 
-export type Tier = "anon" | "free" | "pro";
-
 export type EntitlementResult =
-  | { tier: "anon" | "free"; allowed: true; remaining: number; reason: "within_limit" | "fail_open" }
-  | { tier: "anon" | "free"; allowed: false; remaining: 0; reason: "exceeded" }
-  | { tier: "pro"; allowed: true; remaining: number; reason: "unlimited" };
+  | { readonly tier: "anon" | "free"; readonly allowed: true; readonly remaining: number; readonly reason: "within_limit" | "fail_open" }
+  | { readonly tier: "anon" | "free"; readonly allowed: false; readonly remaining: 0; readonly reason: "exceeded" }
+  | { readonly tier: "pro"; readonly allowed: true; readonly remaining: number; readonly reason: "unlimited" };
 
 export function getYearMonthUtc(d: Date = new Date()): string {
   const y = d.getUTCFullYear();
@@ -185,13 +187,19 @@ async function checkAnonSummaryEntitlement(
 
 /**
  * Per-video chat cap. We query existing chat_messages rather than a
- * dedicated counter: row volume is bounded (≤ FREE_LIMITS.chatMessagesPerVideo
- * for free, unbounded for pro but pro skips this branch). The (video_id,
- * user_id) index makes this O(log n).
+ * dedicated counter: row volume is bounded for free, and pro skips this
+ * branch entirely. The (user_id, video_id, created_at) index makes this
+ * an indexed range scan.
  *
- * NOTE: this counts EXISTING messages — call this BEFORE writing the new
- * user message. count === 5 means "5 already exist, this would be the 6th",
- * which is the cap-hit case for free (limit is 5 messages total).
+ * NOTE on column choice: chat_messages.video_id (the videos.id UUID) is
+ * the FK to videos. We count by video_id, not summary_id — chat is per-video
+ * regardless of which summary language was generated, and chat_messages has
+ * no summary_id column.
+ *
+ * NOTE on counting: this counts EXISTING messages — call this BEFORE writing
+ * the new user message. count === 5 means "5 already exist, this would be
+ * the 6th", which is the cap-hit case for free (limit is 5 user messages
+ * per video; assistant messages are filtered out via .eq("role", "user")).
  */
 export async function checkChatEntitlement(
   userId: string,
