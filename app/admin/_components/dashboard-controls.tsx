@@ -1,14 +1,11 @@
 "use client";
 
-import {
-  useRouter,
-  usePathname,
-  useSearchParams,
-} from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { Calendar, ChevronDown, RefreshCcw } from "lucide-react";
 import { Btn } from "./atoms";
 import { DateRangePopover } from "./date-range-popover";
+import { IncludeAdminsToggle } from "./include-admins-toggle";
 import { useDismissable } from "./use-dismissable";
 
 interface DashboardControlsProps {
@@ -28,8 +25,6 @@ export function DashboardControls({
   includeAdmins,
 }: DashboardControlsProps) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -39,26 +34,11 @@ export function DashboardControls({
     startTransition(() => router.refresh());
   };
 
-  const toggleIncludeAdmins = () => {
-    const sp = new URLSearchParams(searchParams.toString());
-    if (includeAdmins) sp.delete("include_admins");
-    else sp.set("include_admins", "1");
-    const qs = sp.toString();
-    startTransition(() => router.replace(qs ? `${pathname}?${qs}` : pathname));
-  };
-
   const label = WINDOW_LABEL[windowDays] ?? `Last ${windowDays} days`;
 
   return (
     <div className="row gap-8">
-      <Btn
-        size="sm"
-        kind={includeAdmins ? undefined : "ghost"}
-        onClick={toggleIncludeAdmins}
-        title="Toggle whether admin-account activity is included in metrics"
-      >
-        {includeAdmins ? "incl. admins" : "real users"}
-      </Btn>
+      <IncludeAdminsToggle checked={includeAdmins} />
       <div ref={wrapperRef} style={{ position: "relative" }}>
         <Btn size="sm" onClick={() => setOpen(!open)}>
           <Calendar size={13} /> {label}
