@@ -3,9 +3,12 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getHistoryPage } from "@/lib/services/user-history";
 import { getChatMessageCounts } from "@/lib/services/chat-counts";
+import { getUserTier, FREE_LIMITS } from "@/lib/services/entitlements";
 import { HistoryList } from "@/app/components/history/history-list";
 import { HistoryFetchError } from "@/app/components/history/history-fetch-error";
 import { HistoryPagination } from "./components/history-pagination";
+import { HistoryAnonEmpty } from "@/components/paywall/HistoryAnonEmpty";
+import { HistoryFreeBanner } from "@/components/paywall/HistoryFreeBanner";
 
 export const metadata: Metadata = {
   title: "Your summaries - YouTubeAI.chat",
@@ -26,6 +29,18 @@ export default async function HistoryPage({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
+
+  // Anon Supabase users have a user.id but is_anonymous=true. Show the
+  // signup empty state and don't query their (empty) history at all.
+  if (user.is_anonymous) {
+    return (
+      <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8">
+        <HistoryAnonEmpty />
+      </main>
+    );
+  }
+
+  const tier = await getUserTier(user.id);
 
   const params = await searchParams;
   const parsed = parseInt(params.page ?? "1", 10);
@@ -62,6 +77,12 @@ export default async function HistoryPage({
 
       {result.ok ? (
         <>
+          {tier === "free" && (
+            <HistoryFreeBanner
+              used={result.total}
+              limit={FREE_LIMITS.historyItems}
+            />
+          )}
           <HistoryList rows={result.rows} chatCounts={chatCounts} />
           <HistoryPagination
             current={page}
