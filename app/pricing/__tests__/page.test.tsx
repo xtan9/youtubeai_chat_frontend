@@ -18,12 +18,6 @@ vi.mock("@/lib/hooks/useEntitlements", () => ({
   useEntitlements: vi.fn(),
 }));
 
-// Lazily import the _push spy after module graph is settled
-async function getMockPush() {
-  const mod = await import("next/navigation");
-  return (mod as unknown as { _push: ReturnType<typeof vi.fn> })._push;
-}
-
 function freshQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
