@@ -122,6 +122,31 @@ describe("idempotency cleanup on handler failure", () => {
   });
 });
 
+describe("checkout.session.completed missing fields", () => {
+  it("checkout.session.completed: missing user_id → 200, no upsert", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_missing",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          customer: "cus_1",
+          subscription: "sub_1",
+          // no metadata, no client_reference_id
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_missing" }], error: null });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "x" },
+    }));
+    expect(res.status).toBe(200);
+    expect(mocks.retrieveSub).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("customer.subscription.updated", () => {
   function buildEvent(sub: Partial<{
     id: string; status: string; customer: string;
@@ -274,6 +299,38 @@ describe("checkout.session.completed", () => {
       }),
       expect.objectContaining({ onConflict: "user_id" })
     );
+  });
+});
+
+describe("invoice events (no-ops)", () => {
+  it("invoice.paid: 200 no-op (no upsert)", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      data: { object: {} },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_invoice_paid" }], error: null });
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "x" },
+    }));
+    expect(res.status).toBe(200);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("invoice.payment_failed: 200 no-op (no upsert)", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_invoice_failed",
+      type: "invoice.payment_failed",
+      data: { object: {} },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_invoice_failed" }], error: null });
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "x" },
+    }));
+    expect(res.status).toBe(200);
+    expect(mocks.upsert).not.toHaveBeenCalled();
   });
 });
 
