@@ -28,7 +28,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const usersTotal = await fetchRegisteredUsersTotal(
     client,
-    principal.allowlist,
+    Array.from(principal.allowlist),
   );
 
   return (

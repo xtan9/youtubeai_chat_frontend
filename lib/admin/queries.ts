@@ -28,6 +28,14 @@ const HISTORY_ROW_CAP = 100_000;
 const AUDIT_PAGE_SIZE_CAP = 200;
 /** Cap on per-page row count returned by listUsersWithStatsAndSort. */
 const USERS_PAGE_SIZE_CAP = 100;
+/** Hard cap on rows surfaced to the /admin/videos page. Aligned with
+ * SUMMARIES_ROW_CAP / HISTORY_ROW_CAP — when this fires the UI shows a
+ * truncation banner. */
+const VIDEOS_ROW_CAP = 25_000;
+/** Cap on revealed users for a single video's audit-logged drill-down. */
+const VIDEO_USERS_DRILLDOWN_CAP = 200;
+/** Hard cap on the videos table's pageSize query param. */
+const VIDEOS_PAGE_SIZE_CAP = 50;
 
 type DailyPoint = { day: string; value: number };
 
@@ -416,6 +424,110 @@ export interface UserListResult {
   truncated: boolean;
   page: number;
   pageCount: number;
+}
+
+// ─── Videos page types ────────────────────────────────────────────────────
+
+export interface AdminVideoRow {
+  videoId: string;
+  title: string | null;
+  channelName: string | null;
+  language: string | null;
+  durationSeconds: number | null;
+  /** Earliest summaries.created_at observed for this video. */
+  firstSummarizedAt: string;
+  /** Most recent user_video_history.accessed_at observed. */
+  lastSummarizedAt: string;
+  /** Distinct user_id in history (admin user_ids excluded by caller). */
+  distinctUsers: number;
+  /** Count of history rows ("views") for this video. */
+  totalSummaries: number;
+  sourceMix: { source: TranscriptSource; count: number }[];
+  /** % of views served by Whisper (0 or 100 in practice today; modeled
+   * as a number so the column sorts and a future per-segment refetch
+   * wouldn't break the type). */
+  whisperPct: number;
+  /** Distinct summaries.model values seen for this video. */
+  modelsUsed: string[];
+  p95ProcessingSeconds: number | null;
+  /** Whether `whisperPct > WHISPER_FLAG_THRESHOLD`. */
+  flagged: boolean;
+  /** "stale" when no view in the last 30d, else "active". */
+  status: "active" | "stale";
+}
+
+export interface VideoListResult {
+  rows: AdminVideoRow[];
+  total: number;
+  truncated: boolean;
+  page: number;
+  pageCount: number;
+}
+
+export type VideoMode = "all_time" | "trending";
+
+export type VideoSortKey =
+  | "distinctUsers"
+  | "totalSummaries"
+  | "title"
+  | "channelName"
+  | "language"
+  | "firstSummarizedAt"
+  | "lastSummarizedAt"
+  | "whisperPct"
+  | "p95ProcessingSeconds"
+  | "durationSeconds";
+
+export interface VideoListOptions {
+  mode: VideoMode;
+  /** Required when mode === "trending"; ignored when mode === "all_time". */
+  window?: TimeWindow;
+  sort: VideoSortKey;
+  dir: SortDir;
+  search: string | null;
+  language: string | null;
+  source: TranscriptSource | null;
+  channel: string | null;
+  model: string | null;
+  flaggedOnly: boolean;
+  /** ISO date or null. Compared lexicographically against firstSummarizedAt. */
+  firstSummarizedFrom: string | null;
+  firstSummarizedTo: string | null;
+  page: number;
+  pageSize: number;
+  excludeAdminUserIds?: string[];
+}
+
+export interface VideoInsights {
+  totalUniqueVideos: number;
+  /** Total views across every video in scope. */
+  totalSummaries: number;
+  /** % of unique videos that ever needed Whisper. */
+  whisperVideoSharePct: number;
+  topChannels: { channelName: string; videoCount: number }[];
+  languageMix: { language: string; videoCount: number }[];
+  /** Source mix counted by view, not by video. */
+  sourceMix: { source: TranscriptSource; count: number }[];
+  /** Populated only when mode === "trending". */
+  trendingPerDay?: DailyPoint[];
+}
+
+export interface VideoInsightsOptions {
+  mode: VideoMode;
+  window?: TimeWindow;
+  excludeAdminUserIds?: string[];
+}
+
+export interface VideoUsersDrilldown {
+  videoId: string;
+  users: {
+    userId: string;
+    /** null when emailLookupOk=false or the user genuinely has no email. */
+    email: string | null;
+    emailLookupOk: boolean;
+    accessedAt: string;
+    cacheHit: boolean;
+  }[];
 }
 
 export async function listUsersWithStatsAndSort(
