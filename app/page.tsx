@@ -1,4 +1,5 @@
 import { InputForm } from "./components/input-form";
+import { AnonHomepageGate } from "./components/anon-homepage-gate";
 import { Benefits } from "./components/benefits";
 import { UseCases } from "./components/use-cases";
 import { HowItWorks } from "./components/how-it-works";
@@ -13,6 +14,8 @@ export default function Home() {
   return (
     <main className="flex flex-col items-center px-4">
       <HeroSection />
+
+      <AnonHomepageGate />
 
       <section className="w-full max-w-6xl mx-auto mb-16">
         <InputForm />
