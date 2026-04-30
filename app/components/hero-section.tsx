@@ -1,4 +1,4 @@
-import { Brain, Sparkles, Clock } from "lucide-react";
+import { Brain, Sparkles, Clock, Globe } from "lucide-react";
 
 // Animation keyframes live in app/globals.css (`.animate-float*`) so this
 // component renders server-side and ships zero JS.
@@ -19,7 +19,7 @@ export function HeroSection() {
           <div className="inline-flex items-center gap-2 bg-surface-base/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/20 mb-6">
             <Sparkles size={16} className="text-accent-brand" />
             <span className="text-sm font-medium text-text-primary">
-              100% Free Forever • No Paywall
+              Free to start • No signup needed
             </span>
           </div>
 
@@ -48,9 +48,9 @@ export function HeroSection() {
               </span>
             </div>
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
-              <Sparkles className="w-5 h-5 text-accent-brand" />
+              <Globe className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-text-primary">
-                No Paywall or Limits
+                30+ Languages
               </span>
             </div>
           </div>

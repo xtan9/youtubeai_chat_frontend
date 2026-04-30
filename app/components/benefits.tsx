@@ -1,4 +1,4 @@
-import { Clock, Brain, Sparkles, Zap } from "lucide-react";
+import { Clock, Brain, MessageCircle, Zap, BookmarkCheck } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -53,17 +53,17 @@ export function Benefits() {
             <div className="flex items-start gap-4">
               <Avatar className="h-12 w-12 rounded-lg bg-accent-brand-secondary/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <Sparkles className="w-6 h-6 text-accent-brand-secondary" />
+                  <MessageCircle className="w-6 h-6 text-accent-brand-secondary" />
                 </AvatarFallback>
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Watch Smarter, Not Longer
+                  Chat With the Transcript
                 </CardTitle>
                 <CardDescription className={description}>
-                  Skip the fluff and focus on what matters. Perfect for
-                  researchers, students, and professionals who need information
-                  without the time investment.
+                  After the summary, ask follow-up questions and let the AI
+                  pull the answer straight from the transcript. Drill into a
+                  specific moment without scrubbing the timeline.
                 </CardDescription>
               </div>
             </div>
@@ -163,16 +163,16 @@ export function Benefits() {
             <div className="flex justify-center mb-6">
               <Avatar className="h-24 w-24">
                 <AvatarFallback>
-                  <Brain className="w-12 h-12 text-accent-brand-secondary" />
+                  <BookmarkCheck className="w-12 h-12 text-accent-brand-secondary" />
                 </AvatarFallback>
               </Avatar>
             </div>
             <CardTitle className="text-xl font-semibold mb-2">
-              Optimize Learning
+              Build Your Library
             </CardTitle>
             <CardDescription className={description}>
-              Boost information retention with structured summaries and key
-              point extraction
+              Sign in and every summary is saved to your dashboard, ready to
+              revisit, re-chat, or share later
             </CardDescription>
           </CardContent>
         </Card>

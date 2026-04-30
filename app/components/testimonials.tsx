@@ -1,11 +1,10 @@
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const cardBase =
   "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
 const muted = "text-gray-500 dark:text-gray-400";
 const body = "text-gray-700 dark:text-gray-300 font-medium";
-const footerBorder = "border-gray-100 dark:border-white/10";
 
 const testimonials = [
   {
@@ -14,7 +13,6 @@ const testimonials = [
     handle: "@AlexTeaches",
     rating: 5,
     text: "As a university professor, I've integrated this tool into my teaching workflow. It helps me quickly digest research videos and create more effective lecture materials. My students love that I can recommend specific video segments rather than entire lectures.",
-    date: "May 12, 2023",
   },
   {
     id: 2,
@@ -22,7 +20,6 @@ const testimonials = [
     handle: "@SophiaTechLead",
     rating: 5,
     text: "Game-changer for my engineering team. We process dozens of technical talks weekly to stay current with industry developments. This tool cuts our research time by 70% and helps us identify the most relevant information for our projects.",
-    date: "June 8, 2023",
   },
   {
     id: 3,
@@ -30,7 +27,6 @@ const testimonials = [
     handle: "@ContentWithMarcus",
     rating: 5,
     text: "As a content creator, I need to stay on top of trends without spending hours watching videos. This summarizer gives me the perfect balance of depth and efficiency. The key points extraction is surprisingly insightful—it catches nuances that other tools miss.",
-    date: "July 15, 2023",
   },
 ];
 
@@ -79,9 +75,6 @@ export function Testimonials() {
 
               <p className={`${body} mb-4`}>{testimonial.text}</p>
             </CardContent>
-            <CardFooter className={`px-6 py-3 border-t ${footerBorder}`}>
-              <div className={`text-xs ${muted}`}>{testimonial.date}</div>
-            </CardFooter>
           </Card>
         ))}
       </div>

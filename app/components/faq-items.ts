@@ -20,13 +20,18 @@ export const faqItems: FaqItem[] = [
       "We've trained our models on diverse datasets across academic, technical, business, and entertainment domains. This allows our system to recognize specialized terminology, understand complex concepts, and accurately summarize even highly technical videos with proper context.",
   },
   {
-    question: "What formats can I export my video summaries in?",
+    question: "Can I ask follow-up questions about a video?",
     answer:
-      "We offer multiple export options to fit your workflow. You can copy text directly to your clipboard, download as PDF or markdown, save to your account library, or share via direct link. All these features are available completely free of charge.",
+      "Yes. Every summary has a Chat tab where you can ask anything and get an answer pulled straight from the transcript — clarify a concept, find a specific moment, or compare what two speakers said. Suggested follow-up prompts surface as you go so you can dig deeper without having to know what to ask.",
   },
   {
-    question: "Is this service really 100% free?",
+    question: "What's free, and what's in the Pro tier?",
     answer:
-      "Yes! Our service is completely free with no hidden costs or premium tiers. We believe in making AI-powered video analysis accessible to everyone. You get full access to all features without any paywalls or usage restrictions.",
+      "You can summarize one video with no signup, just to try it. Free signed-in accounts get 10 summaries per month and 5 chat messages per video. Pro is $4.99/month (billed yearly) or $6.99/month and unlocks unlimited summaries and unlimited chat. No credit card required for the free tier.",
+  },
+  {
+    question: "Are my summaries saved?",
+    answer:
+      "If you're signed in, yes — every summary lands in your dashboard with the full transcript, the AI summary, and any chat history you had with it. You can revisit, re-chat, or share a direct link to any past result.",
   },
 ];
