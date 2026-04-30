@@ -15,8 +15,8 @@ describe("buildHowToSchema", () => {
     expect(schema.description).toMatch(/.+/);
   });
 
-  it("emits 4 sequential HowToSteps with non-empty content", () => {
-    expect(schema.step).toHaveLength(4);
+  it("emits 5 sequential HowToSteps with non-empty content", () => {
+    expect(schema.step).toHaveLength(5);
     schema.step.forEach((s, i) => {
       expect(s["@type"]).toBe("HowToStep");
       expect(s.position).toBe(i + 1);

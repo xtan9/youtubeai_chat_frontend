@@ -21,11 +21,15 @@ const STEPS = [
   },
   {
     title: "Smart Processing Begins",
-    body: "Our system downloads the video, extracts the audio, transcribes the content, and applies natural language processing to identify key themes and insights.",
+    body: "Our system downloads the video, extracts the audio, transcribes the content in 30+ languages, and applies natural language processing to identify key themes and insights.",
   },
   {
-    title: "Explore Your Results",
-    body: "Receive a comprehensive breakdown with key points, timestamps, and thematic analysis. Share, save, or export your results in multiple formats.",
+    title: "Get Your Summary",
+    body: "Receive a structured breakdown with key points, themes, and clickable timestamps. Copy any passage, save it to your library, or share a link to the result.",
+  },
+  {
+    title: "Ask Follow-Up Questions",
+    body: "Switch to the Chat tab and ask anything about the video. The AI answers from the transcript, with suggested follow-up prompts so you can dig deeper without re-watching.",
   },
 ];
 
@@ -33,7 +37,7 @@ export function HowItWorks() {
   return (
     <section id="how-it-works" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Your Video Insights in 4 Steps</h2>
+        <h2 className="text-4xl font-bold">Your Video Insights in 5 Steps</h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">

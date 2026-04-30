@@ -34,9 +34,10 @@ export function UseCases() {
                   Academic Excellence
                 </CardTitle>
                 <CardDescription className={description}>
-                  Transform how you study with lecture summaries, research video
-                  analysis, and course material digests. Get the key concepts
-                  without rewatching hours of educational content.
+                  Turn a 90-minute lecture into a structured outline, then
+                  ask the AI to clarify a specific concept or pull every
+                  formula it cited. Saves rewatching just to find the one
+                  minute that mattered.
                 </CardDescription>
               </div>
             </div>
@@ -58,9 +59,10 @@ export function UseCases() {
                   Professional Development
                 </CardTitle>
                 <CardDescription className={description}>
-                  Stay ahead in your field without the time sink. Extract
-                  insights from industry talks, conference presentations, and
-                  technical tutorials in a fraction of the time.
+                  Get the key takeaways from a 2-hour interview podcast in
+                  60 seconds, then chat with the transcript to drill into
+                  the part that actually applies to your work. 30+ languages,
+                  any public video.
                 </CardDescription>
               </div>
             </div>
