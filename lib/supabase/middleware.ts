@@ -78,7 +78,27 @@ export async function updateSession(request: NextRequest) {
     // Smoke tests hit /api/health from an unauthenticated runner. The
     // endpoint itself reads only server env vars (no user context) and
     // returns shallow infra status, so exposing it publicly is safe.
-    request.nextUrl.pathname === "/api/health";
+    request.nextUrl.pathname === "/api/health" ||
+    // Stripe webhook deliveries arrive with a Stripe-Signature header but
+    // no Supabase JWT — they cannot authenticate via Supabase by design.
+    // The route handler verifies the signature with STRIPE_WEBHOOK_SECRET
+    // and rejects unsigned/forged requests itself; bypassing the auth
+    // redirect here is what lets the handler actually run. Without this,
+    // every webhook is 307'd to an HTML login page and signature
+    // verification never runs — the entire payment flow silently breaks.
+    request.nextUrl.pathname.startsWith("/api/webhooks/") ||
+    // Billing routes (checkout, portal) handle their own auth check and
+    // return JSON 401 for unauthenticated requests. Redirecting them to
+    // /auth/login via middleware turns a clean JSON response into an
+    // HTML 307 that fetch() can't act on, so the frontend can't show
+    // "session expired" or retry. The route handlers gate access; the
+    // middleware just gets out of the way.
+    request.nextUrl.pathname.startsWith("/api/billing/") ||
+    // /api/me/entitlements serves all three tiers (anon / free / pro)
+    // from a single endpoint. Redirecting unauth callers to /auth/login
+    // would prevent the anon-cookie branch from running, breaking the
+    // homepage's UI hydration for genuinely-anonymous visitors.
+    request.nextUrl.pathname === "/api/me/entitlements";
 
   if (!user && !isPublicPath) {
     // no user and not accessing a public path, redirect to login
