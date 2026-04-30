@@ -13,7 +13,7 @@ export function PricingProCard({ plan }: { plan: Plan }) {
 
   const onClick = async () => {
     if (!ent || ent.tier === "anon") {
-      router.push("/auth/sign-up?redirect_to=/pricing?intent=upgrade");
+      router.push("/auth/sign-up?redirect_to=" + encodeURIComponent("/pricing?intent=upgrade"));
       return;
     }
     if (ent.tier === "pro") return; // already pro
