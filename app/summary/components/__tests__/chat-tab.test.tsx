@@ -18,6 +18,7 @@ import {
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { ChatTab } from "../chat-tab";
 import {
   controlledSseResponse,
@@ -32,6 +33,14 @@ vi.mock("@/lib/contexts/user-context", () => ({
   useUser: vi.fn(() => ({
     user: null,
     session: null,
+    isLoading: false,
+    error: null,
+  })),
+}));
+
+vi.mock("@/lib/hooks/useEntitlements", () => ({
+  useEntitlements: vi.fn(() => ({
+    data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
     isLoading: false,
     error: null,
   })),
@@ -473,6 +482,143 @@ describe("ChatTab", () => {
         screen.getByRole("button", { name: /Summarize the key takeaways/ }),
       ).toBeTruthy(),
     );
+  });
+
+  it("renders ChatCapBanner (free-cap) when the stream returns a 402 free_chat_exceeded", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onStream: () =>
+        new Response(
+          JSON.stringify({
+            errorCode: "free_chat_exceeded",
+            tier: "free",
+            upgradeUrl: "/pricing",
+            message: "Chat cap reached",
+          }),
+          {
+            status: 402,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/ask anything about this video/i)).toBeTruthy(),
+    );
+
+    const input = screen.getByLabelText(/chat message/i) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/used 5\/5 free chat messages/i),
+      ).toBeTruthy(),
+    );
+    // Chat input should be replaced by the banner
+    expect(screen.queryByLabelText(/chat message/i)).toBeNull();
+  });
+
+  it("renders ChatCapBanner (anon-blocked) when the stream returns a 402 anon_chat_blocked", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onStream: () =>
+        new Response(
+          JSON.stringify({
+            errorCode: "anon_chat_blocked",
+            tier: "anon",
+            upgradeUrl: "/auth/sign-up",
+            message: "Sign up to chat",
+          }),
+          {
+            status: 402,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/ask anything about this video/i)).toBeTruthy(),
+    );
+
+    const input = screen.getByLabelText(/chat message/i) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/sign up to chat/i)).toBeTruthy(),
+    );
+    // Link goes to sign-up for anon-blocked
+    const link = screen.getByRole("link");
+    expect(link.getAttribute("href")).toBe("/auth/sign-up");
+  });
+
+  it("renders ChatCapCounter at 4/5 messages for free tier", async () => {
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: { tier: "free", caps: { summariesUsed: 4, summariesLimit: 10 } },
+      isLoading: false,
+      error: null,
+    });
+    const fetchMock = makeRouter({
+      onMessages: () =>
+        jsonResponse({
+          messages: [
+            { id: "m1", role: "user", content: "q1", createdAt: "2026-04-01T00:00:00Z" },
+            { id: "m2", role: "assistant", content: "a1", createdAt: "2026-04-01T00:00:01Z" },
+            { id: "m3", role: "user", content: "q2", createdAt: "2026-04-01T00:00:02Z" },
+            { id: "m4", role: "assistant", content: "a2", createdAt: "2026-04-01T00:00:03Z" },
+            { id: "m5", role: "user", content: "q3", createdAt: "2026-04-01T00:00:04Z" },
+            { id: "m6", role: "assistant", content: "a3", createdAt: "2026-04-01T00:00:05Z" },
+            { id: "m7", role: "user", content: "q4", createdAt: "2026-04-01T00:00:06Z" },
+            { id: "m8", role: "assistant", content: "a4", createdAt: "2026-04-01T00:00:07Z" },
+          ],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("q1")).toBeTruthy(),
+    );
+
+    // 4 user messages, limit=5 → counter should appear (4 >= 5-2=3)
+    expect(screen.getByText("4 of 5 free messages used")).toBeTruthy();
+  });
+
+  it("does not render ChatCapCounter at 2/5 messages for free tier", async () => {
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: { tier: "free", caps: { summariesUsed: 2, summariesLimit: 10 } },
+      isLoading: false,
+      error: null,
+    });
+    const fetchMock = makeRouter({
+      onMessages: () =>
+        jsonResponse({
+          messages: [
+            { id: "m1", role: "user", content: "q1", createdAt: "2026-04-01T00:00:00Z" },
+            { id: "m2", role: "assistant", content: "a1", createdAt: "2026-04-01T00:00:01Z" },
+            { id: "m3", role: "user", content: "q2", createdAt: "2026-04-01T00:00:02Z" },
+            { id: "m4", role: "assistant", content: "a2", createdAt: "2026-04-01T00:00:03Z" },
+          ],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(<ChatTab youtubeUrl={VALID_URL} active={true} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("q1")).toBeTruthy(),
+    );
+
+    // 2 user messages, limit=5 → counter should be silent (2 < 5-2=3)
+    expect(screen.queryByText(/of 5 free messages used/i)).toBeNull();
   });
 
   it("has no axe a11y violations on the empty-state orchestrator", async () => {

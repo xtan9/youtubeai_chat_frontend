@@ -22,6 +22,7 @@ import {
   rawSseResponse,
   sseResponse,
 } from "@/tests-utils/chat-test-helpers";
+import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 
 // Mock UserContext at module load — every test then dictates session state
 // via `(useUser as Mock).mockReturnValue(...)` instead of mounting the real
@@ -507,6 +508,98 @@ describe("useChatStream", () => {
       await pending!;
     });
 
+    expect(result.current.error).toBeNull();
+  });
+
+  it("throws UpgradeRequiredError when the route returns 402 with free_chat_exceeded", async () => {
+    setLiveSession();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          errorCode: "free_chat_exceeded",
+          tier: "free",
+          upgradeUrl: "/pricing",
+          message: "Chat cap reached",
+        }),
+        {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL }),
+      { wrapper: wrapper(freshQueryClient()) },
+    );
+
+    await act(async () => {
+      await result.current.send("anything");
+    });
+
+    expect(result.current.upgradeError).toBeInstanceOf(UpgradeRequiredError);
+    expect(result.current.upgradeError?.errorCode).toBe("free_chat_exceeded");
+    expect(result.current.upgradeError?.tier).toBe("free");
+    // Generic error string must NOT be set — the 402 is not an error banner
+    expect(result.current.error).toBeNull();
+    expect(result.current.streaming).toBe(false);
+  });
+
+  it("throws UpgradeRequiredError with anon_chat_blocked errorCode for anon 402", async () => {
+    setLiveSession();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          errorCode: "anon_chat_blocked",
+          tier: "anon",
+          upgradeUrl: "/auth/sign-up",
+          message: "Sign up to chat",
+        }),
+        {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL }),
+      { wrapper: wrapper(freshQueryClient()) },
+    );
+
+    await act(async () => {
+      await result.current.send("hello");
+    });
+
+    expect(result.current.upgradeError).toBeInstanceOf(UpgradeRequiredError);
+    expect(result.current.upgradeError?.errorCode).toBe("anon_chat_blocked");
+    expect(result.current.upgradeError?.tier).toBe("anon");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("defaults to free_chat_exceeded when 402 body is non-JSON", async () => {
+    setLiveSession();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("Payment Required", {
+        status: 402,
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL }),
+      { wrapper: wrapper(freshQueryClient()) },
+    );
+
+    await act(async () => {
+      await result.current.send("hello");
+    });
+
+    expect(result.current.upgradeError).toBeInstanceOf(UpgradeRequiredError);
+    expect(result.current.upgradeError?.errorCode).toBe("free_chat_exceeded");
     expect(result.current.error).toBeNull();
   });
 
