@@ -31,6 +31,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       streamLlmSummary: vi.fn(),
       checkRateLimit: vi.fn(),
       classifyContent: vi.fn(),
+      checkSummaryEntitlement: vi.fn(),
       // Spy proxy for next/server's after(). Exposed as a mock so tests
       // can pin "the route uses after() to defer the cache write" —
       // the property the prod fix depends on.
@@ -105,6 +106,20 @@ vi.mock("@/lib/services/llm-client", () => ({
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
+}));
+vi.mock("@/lib/services/entitlements", () => ({
+  checkSummaryEntitlement: mocks.checkSummaryEntitlement,
+  FREE_LIMITS: { summariesPerMonth: 10, chatMessagesPerVideo: 5, historyItems: 10 },
+  ANON_LIMITS: { summariesLifetime: 1 },
+}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined }),
+}));
+vi.mock("@/lib/services/anon-cookie", () => ({
+  ANON_COOKIE_NAME: "yt_anon_id",
+  ANON_COOKIE_MAX_AGE_SECONDS: 31536000,
+  signAnonId: (id: string) => `${id}.sig`,
+  verifyAnonId: (s: string) => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null),
 }));
 vi.mock("@/lib/services/model-routing", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/model-routing")>(
@@ -185,6 +200,9 @@ describe("POST /api/summarize/stream", () => {
       data: { user: { id: "user-1", is_anonymous: false } },
     });
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
+    mocks.checkSummaryEntitlement.mockResolvedValue({
+      tier: "free", allowed: true, remaining: 10, reason: "within_limit",
+    });
     mocks.getCachedSummary.mockResolvedValue(null);
     mocks.getCachedTranscript.mockResolvedValue(null);
     // Default: metadata returns a graceful "no signal" — every existing
@@ -411,6 +429,57 @@ describe("POST /api/summarize/stream", () => {
           // would silently break the signal.
           youtubeUrl: VALID_URL,
         })
+      );
+    });
+  });
+
+  describe("entitlement gating", () => {
+    it("returns 402 with free_quota_exceeded when free user exceeded monthly cap", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "u1", is_anonymous: false } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "free", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body.errorCode).toBe("free_quota_exceeded");
+      expect(body.tier).toBe("free");
+      expect(body.upgradeUrl).toBe("/pricing");
+    });
+
+    it("returns 402 with anon_quota_exceeded when anon exceeded lifetime cap", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
+      });
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(402);
+      const body = await res.json();
+      expect(body.errorCode).toBe("anon_quota_exceeded");
+      expect(body.tier).toBe("anon");
+    });
+
+    it("logs entitlement fail_open without surfacing it in the response", async () => {
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "u1", is_anonymous: false } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
+      mocks.checkSummaryEntitlement.mockResolvedValue({
+        tier: "free", allowed: true, remaining: 10, reason: "fail_open",
+      });
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      expect(err).toHaveBeenCalledWith(
+        expect.stringContaining("entitlement bypassed"),
+        expect.objectContaining({ errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST" }),
       );
     });
   });
