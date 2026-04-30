@@ -1,4 +1,4 @@
-import { getStripe, deriveTier, periodEndToIso } from "@/lib/services/stripe";
+import { getStripe, deriveTier, periodEndToIso, readCurrentPeriodEnd } from "@/lib/services/stripe";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import type Stripe from "stripe";
 
@@ -103,9 +103,7 @@ async function dispatch(
         return;
       }
       const sub = await stripe.subscriptions.retrieve(subId);
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
 
@@ -129,9 +127,7 @@ async function dispatch(
     case "customer.subscription.updated": {
       const sub = event.data.object as Stripe.Subscription;
       const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
 
@@ -193,9 +189,7 @@ async function dispatch(
         return;
       }
 
-      const periodEnd = periodEndToIso(
-        (sub as unknown as { current_period_end?: number }).current_period_end
-      );
+      const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {

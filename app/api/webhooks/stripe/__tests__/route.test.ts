@@ -27,6 +27,20 @@ vi.mock("@/lib/services/stripe", () => {
     },
     periodEndToIso: (s: number | null | undefined) =>
       s ? new Date(s * 1000).toISOString() : null,
+    // basil API moved current_period_end from Subscription to
+    // Subscription.items.data[]. Mirror the real helper's read-items-first,
+    // fall-back-to-top-level shape so tests using either fixture pass.
+    readCurrentPeriodEnd: (sub: {
+      items?: { data?: Array<{ current_period_end?: number }> };
+      current_period_end?: number;
+    }) => {
+      const item = sub.items?.data?.[0];
+      const itemEnd = item?.current_period_end;
+      if (typeof itemEnd === "number" && Number.isFinite(itemEnd)) return itemEnd;
+      const topEnd = sub.current_period_end;
+      if (typeof topEnd === "number" && Number.isFinite(topEnd)) return topEnd;
+      return null;
+    },
   };
 });
 
@@ -183,6 +197,41 @@ describe("customer.subscription.updated", () => {
     expect(mocks.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: "u1", tier: "pro", status: "active", plan: "monthly" }),
       expect.objectContaining({ onConflict: "user_id" }),
+    );
+  });
+
+  it("basil-shape (period_end on items only) → tier=pro", async () => {
+    // Real basil-API payload: top-level current_period_end is omitted, the
+    // value lives on each subscription item. This pins the regression we
+    // hit during P2.11 e2e — webhook reading sub.current_period_end was
+    // null on every paying user, silently producing tier="free".
+    const future = Math.floor(Date.now() / 1000) + 365 * 86400;
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_basil",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          status: "active",
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_Y" }, current_period_end: future }] },
+        },
+      },
+    });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "u1",
+        tier: "pro",
+        plan: "yearly",
+        current_period_end: new Date(future * 1000).toISOString(),
+      }),
+      expect.anything(),
     );
   });
 
