@@ -229,3 +229,54 @@ describe("checkout.session.completed", () => {
     );
   });
 });
+
+describe("customer.subscription.deleted", () => {
+  it("tier=free, subscription_id null, customer kept", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_d",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          status: "canceled",
+          current_period_end: Math.floor(Date.now() / 1000),
+          cancel_at_period_end: false,
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_d" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "u1",
+        stripe_customer_id: "cus_1",
+        stripe_subscription_id: null,
+        tier: "free",
+        plan: null,
+        cancel_at_period_end: false,
+      }),
+      expect.objectContaining({ onConflict: "user_id" }),
+    );
+  });
+
+  it("logs and 200s when customer is unknown (no row mapping)", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_d2",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_x", customer: "cus_x", status: "canceled" } },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_d2" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: null, error: null });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(res.status).toBe(200);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
