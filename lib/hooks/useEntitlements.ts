@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 export type EntitlementsData = {
   tier: "anon" | "free" | "pro";
@@ -32,10 +33,21 @@ async function fetchEntitlements(): Promise<EntitlementsData> {
  * after a mutation that changes tier or caps (e.g. /billing/success → tier=pro).
  */
 export function useEntitlements() {
-  return useQuery({
+  const query = useQuery({
     queryKey: ["entitlements"],
     queryFn: fetchEntitlements,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (query.error) {
+      console.error("[useEntitlements] fetch failed (paywall surfaces will silently degrade)", {
+        errorId: "USE_ENTITLEMENTS_FETCH_FAIL",
+        err: query.error,
+      });
+    }
+  }, [query.error]);
+
+  return query;
 }

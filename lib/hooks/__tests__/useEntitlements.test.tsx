@@ -71,4 +71,16 @@ describe("useEntitlements", () => {
     const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
+
+  it("logs console.error with errorId when fetch rejects", async () => {
+    vi.spyOn(global, "fetch").mockRejectedValue(new Error("network failure"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const qc = freshQueryClient();
+    const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper(qc) });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(errSpy).toHaveBeenCalledWith(
+      "[useEntitlements] fetch failed (paywall surfaces will silently degrade)",
+      expect.objectContaining({ errorId: "USE_ENTITLEMENTS_FETCH_FAIL" })
+    );
+  });
 });
