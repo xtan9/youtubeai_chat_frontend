@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   retrieveSub: vi.fn(),
   upsert: vi.fn(),
   fromUserSubsLookup: vi.fn(),
+  deleteEvent: vi.fn(),
 }));
 
 vi.mock("@/lib/services/stripe", () => {
@@ -35,6 +36,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
       if (table === "stripe_webhook_events") {
         return {
           upsert: () => ({ select: mocks.insertEvent }),
+          delete: () => ({ eq: mocks.deleteEvent }),
         };
       }
       if (table === "user_subscriptions") {
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
   vi.stubEnv("STRIPE_PRICE_MONTHLY", "price_M");
   vi.stubEnv("STRIPE_PRICE_YEARLY", "price_Y");
+  mocks.deleteEvent.mockResolvedValue({ error: null });
 });
 
 describe("Stripe webhook signature + idempotency", () => {
@@ -86,6 +89,36 @@ describe("Stripe webhook signature + idempotency", () => {
     }));
     expect(res.status).toBe(200);
     expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("idempotency cleanup on handler failure", () => {
+  it("500 + deletes idempotency row when dispatch throws", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_x",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          status: "active",
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_M" } }] },
+          current_period_end: Math.floor(Date.now() / 1000) + 86400,
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_x" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: { message: "boom" } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "x" },
+    }));
+    expect(res.status).toBe(500);
+    expect(mocks.deleteEvent).toHaveBeenCalledWith("event_id", "evt_x");
   });
 });
 

@@ -57,7 +57,25 @@ export async function POST(request: Request) {
     console.error("[stripe-webhook] handler threw", {
       errorId: "WEBHOOK_HANDLER_THREW", id: event.id, type: event.type, err,
     });
-    // 5xx → Stripe retries (good — we want it to retry on transient failures)
+    // Critical: delete the idempotency row so Stripe's retry re-runs dispatch.
+    // Without this, the next delivery sees the row already inserted, returns
+    // 200 immediately, and the event is permanently lost (no tier flip).
+    // Best-effort delete — if this fails, log and 500 anyway. Worst case is
+    // Stripe's redelivery hits the dedupe and we lose one event, but at least
+    // we logged both failures.
+    const del = await sr
+      .from("stripe_webhook_events")
+      .delete()
+      .eq("event_id", event.id);
+    if (del.error) {
+      console.error("[stripe-webhook] failed to delete idempotency row after handler failure", {
+        errorId: "WEBHOOK_IDEMPOTENCY_CLEANUP_FAIL",
+        id: event.id,
+        code: (del.error as { code?: string }).code,
+      });
+    }
+    // 5xx → Stripe retries, and the row we just deleted means the retry
+    // will pass the idempotency check and re-run dispatch.
     return new Response("handler error", { status: 500 });
   }
 }
