@@ -6,6 +6,10 @@ const mocks = vi.hoisted(() => {
       select: vi.fn(() => b),
       eq: vi.fn(() => b),
       is: vi.fn(() => b),
+      order: vi.fn(() => b),
+      range: vi.fn(() => Promise.resolve({ data: [], error: null })),
+      delete: vi.fn(() => b),
+      in: vi.fn(() => Promise.resolve({ error: null })),
       maybeSingle: vi.fn(),
       single: vi.fn(),
       upsert: vi.fn(() => b),
@@ -35,6 +39,13 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: mocks.createClient,
+}));
+
+// Stub entitlements so writeCachedSummary's FIFO eviction doesn't call
+// the real getUserTier (which would need a fully-wired service-role mock).
+vi.mock("../entitlements", () => ({
+  getUserTier: vi.fn().mockResolvedValue("free"),
+  FREE_LIMITS: { historyItems: 10, summariesPerMonth: 10, chatMessagesPerVideo: 5 },
 }));
 
 async function loadFresh() {
