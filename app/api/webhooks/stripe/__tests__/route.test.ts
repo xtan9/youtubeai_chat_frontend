@@ -89,6 +89,103 @@ describe("Stripe webhook signature + idempotency", () => {
   });
 });
 
+describe("customer.subscription.updated", () => {
+  function buildEvent(sub: Partial<{
+    id: string; status: string; customer: string;
+    current_period_end: number; cancel_at_period_end: boolean;
+    items: { data: Array<{ price: { id: string } }> };
+  }>) {
+    return {
+      id: `evt_${Math.random()}`,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_M" } }] },
+          ...sub,
+        },
+      },
+    };
+  }
+
+  beforeEach(() => {
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "x" }], error: null });
+  });
+
+  it("active + future period → tier=pro", async () => {
+    const future = Math.floor(Date.now() / 1000) + 30 * 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({ status: "active", current_period_end: future }));
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "u1", tier: "pro", status: "active", plan: "monthly" }),
+      expect.objectContaining({ onConflict: "user_id" }),
+    );
+  });
+
+  it("past_due within 3 days → tier=pro (grace)", async () => {
+    const twoDaysAgo = Math.floor(Date.now() / 1000) - 2 * 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({ status: "past_due", current_period_end: twoDaysAgo }));
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ tier: "pro", status: "past_due" }),
+      expect.anything(),
+    );
+  });
+
+  it("past_due over 3 days → tier=free", async () => {
+    const fiveDaysAgo = Math.floor(Date.now() / 1000) - 5 * 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({ status: "past_due", current_period_end: fiveDaysAgo }));
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ tier: "free", status: "past_due" }),
+      expect.anything(),
+    );
+  });
+
+  it("plan switch monthly → yearly updates `plan`", async () => {
+    const future = Math.floor(Date.now() / 1000) + 365 * 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({
+      status: "active", current_period_end: future,
+      items: { data: [{ price: { id: "price_Y" } }] },
+    }));
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ plan: "yearly" }),
+      expect.anything(),
+    );
+  });
+
+  it("logs and 200s when customer is unknown (no row mapping)", async () => {
+    const future = Math.floor(Date.now() / 1000) + 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({ status: "active", current_period_end: future }));
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: null, error: null });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(res.status).toBe(200);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("checkout.session.completed", () => {
   it("writes pro subscription row", async () => {
     mocks.constructEvent.mockReturnValue({

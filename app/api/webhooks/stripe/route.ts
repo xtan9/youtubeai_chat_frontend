@@ -108,13 +108,48 @@ async function dispatch(
       if (error) throw new Error(`upsert failed: ${error.message}`);
       break;
     }
-    case "customer.subscription.updated":
-      // Task 7
-      void sr; void stripe;
+    case "customer.subscription.updated": {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+      const periodEnd = periodEndToIso(
+        (sub as unknown as { current_period_end?: number }).current_period_end
+      );
+      const tier = deriveTier(sub.status, periodEnd);
+      const plan = priceIdToPlan(sub);
+
+      // Find user_id by stripe_customer_id (we own the mapping)
+      const { data: row } = await sr
+        .from("user_subscriptions")
+        .select("user_id")
+        .eq("stripe_customer_id", customerId)
+        .maybeSingle();
+      if (!row?.user_id) {
+        console.error("[stripe-webhook] subscription.updated for unknown customer", {
+          errorId: "WEBHOOK_UNKNOWN_CUSTOMER",
+          id: event.id, customerId,
+        });
+        return;
+      }
+
+      const { error } = await sr.from("user_subscriptions").upsert(
+        {
+          user_id: row.user_id,
+          stripe_customer_id: customerId,
+          stripe_subscription_id: sub.id,
+          tier,
+          plan,
+          status: sub.status,
+          current_period_end: periodEnd,
+          cancel_at_period_end: sub.cancel_at_period_end,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      if (error) throw new Error(`upsert failed: ${error.message}`);
       break;
+    }
     case "customer.subscription.deleted":
       // Task 8
-      void sr;
       break;
     case "invoice.payment_failed":
     case "invoice.paid":
