@@ -16,7 +16,7 @@ type ServiceClient = NonNullable<ReturnType<typeof getServiceRoleClient>>;
 // write was the exact failure mode we shipped; this guard converts it
 // to an alertable 500 + retry.
 function assertActiveSubscriptionGotProTier(
-  status: Stripe.Subscription.Status | string,
+  status: Stripe.Subscription.Status,
   tier: "free" | "pro",
   context: { eventId: string; subId: string },
 ): void {
