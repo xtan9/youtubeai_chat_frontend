@@ -186,7 +186,7 @@ async function checkAnonSummaryEntitlement(
 /**
  * Per-video chat cap. We query existing chat_messages rather than a
  * dedicated counter: row volume is bounded (≤ FREE_LIMITS.chatMessagesPerVideo
- * for free, unbounded for pro but pro skips this branch). The (summary_id,
+ * for free, unbounded for pro but pro skips this branch). The (video_id,
  * user_id) index makes this O(log n).
  *
  * NOTE: this counts EXISTING messages — call this BEFORE writing the new
@@ -195,7 +195,7 @@ async function checkAnonSummaryEntitlement(
  */
 export async function checkChatEntitlement(
   userId: string,
-  summaryId: string
+  videoId: string
 ): Promise<EntitlementResult> {
   const tier = await getUserTier(userId);
   if (tier === "pro") {
@@ -217,7 +217,7 @@ export async function checkChatEntitlement(
     const { count, error } = await supabase
       .from("chat_messages")
       .select("*", { count: "exact", head: true })
-      .eq("summary_id", summaryId)
+      .eq("video_id", videoId)
       .eq("user_id", userId)
       .eq("role", "user");
     if (error) {
@@ -226,7 +226,7 @@ export async function checkChatEntitlement(
         ? "ENTITLEMENT_FAIL_OPEN_DEPLOY_DEFECT"
         : "ENTITLEMENT_FAIL_OPEN_CHAT_COUNT";
       console.error("[entitlements] chat count error (fail-open)", {
-        errorId: tag, userId, summaryId, code,
+        errorId: tag, userId, videoId, code,
       });
       return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
     }
@@ -242,7 +242,7 @@ export async function checkChatEntitlement(
     };
   } catch (err) {
     console.error("[entitlements] chat check threw (fail-open)", {
-      errorId: "ENTITLEMENT_FAIL_OPEN_UNEXPECTED", userId, summaryId, err,
+      errorId: "ENTITLEMENT_FAIL_OPEN_UNEXPECTED", userId, videoId, err,
     });
     return { tier: "free", allowed: true, remaining: limit, reason: "fail_open" };
   }
