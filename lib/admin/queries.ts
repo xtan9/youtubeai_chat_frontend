@@ -1962,6 +1962,86 @@ export async function getVideoInsights(
   };
 }
 
+export async function getVideoSummariesUsers(
+  client: SupabaseClient,
+  videoId: string,
+): Promise<VideoUsersDrilldown> {
+  const { data: history, error: hErr } = await client
+    .from("user_video_history")
+    .select("user_id, video_id, created_at:accessed_at")
+    .eq("video_id", videoId)
+    .order("accessed_at", { ascending: false })
+    .limit(VIDEO_USERS_DRILLDOWN_CAP);
+  if (hErr) {
+    throw new QueryError("getVideoSummariesUsers:history", hErr.message);
+  }
+  if (!history || history.length === 0) {
+    return { videoId, users: [] };
+  }
+
+  // Earliest summary for the video — used to compute cacheHit. A history
+  // row counts as a cache-hit when the canonical summary already existed
+  // before the access.
+  const { data: summaries, error: sErr } = await client
+    .from("summaries")
+    .select("video_id, created_at")
+    .eq("video_id", videoId);
+  if (sErr) {
+    throw new QueryError("getVideoSummariesUsers:summaries", sErr.message);
+  }
+
+  let earliest: string | null = null;
+  for (const s of (summaries ?? []) as Array<Record<string, unknown>>) {
+    const ts = String(s.created_at);
+    if (!earliest || ts < earliest) earliest = ts;
+  }
+
+  const typedHistory = history as Array<{
+    user_id: string;
+    video_id: string;
+    created_at: string;
+  }>;
+  // Resolve emails in parallel (mirrors computeTopUsers pattern).
+  const userIds = Array.from(new Set(typedHistory.map((h) => h.user_id)));
+  const lookups = await Promise.all(
+    userIds.map(async (id) => {
+      try {
+        const { data, error } = await client.auth.admin.getUserById(id);
+        if (error) {
+          console.error(
+            "[admin-queries] getVideoSummariesUsers email lookup failed",
+            { userId: id, message: error.message },
+          );
+          return { userId: id, email: null, ok: false };
+        }
+        return { userId: id, email: data.user?.email ?? null, ok: true };
+      } catch (err) {
+        console.error(
+          "[admin-queries] getVideoSummariesUsers email lookup threw",
+          { userId: id, err },
+        );
+        return { userId: id, email: null, ok: false };
+      }
+    }),
+  );
+  const lookupById = new Map(lookups.map((l) => [l.userId, l] as const));
+
+  return {
+    videoId,
+    users: typedHistory.map((h) => {
+      const accessedAt = h.created_at;
+      const lookup = lookupById.get(h.user_id);
+      return {
+        userId: h.user_id,
+        email: lookup?.email ?? null,
+        emailLookupOk: lookup?.ok ?? false,
+        accessedAt,
+        cacheHit: earliest ? earliest < accessedAt : false,
+      };
+    }),
+  };
+}
+
 // ─── Cursors ──────────────────────────────────────────────────────────────
 
 interface KeysetCursor {

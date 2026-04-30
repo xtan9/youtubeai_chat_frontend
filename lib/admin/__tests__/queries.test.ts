@@ -8,6 +8,7 @@ import {
   listUsersWithStatsAndSort,
   listVideosWithStats,
   getVideoInsights,
+  getVideoSummariesUsers,
   filterUsers,
   sortUsers,
   getDashboardKPIs,
@@ -1977,5 +1978,103 @@ describe("getVideoInsights", () => {
     );
     const allTime = await getVideoInsights(client2, { mode: "all_time" });
     expect(allTime.trendingPerDay).toBeUndefined();
+  });
+});
+
+// ─── getVideoSummariesUsers ──────────────────────────────────────────────
+
+describe("getVideoSummariesUsers", () => {
+  it("returns the distinct user list with email lookups and cacheHit", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+              { user_id: "u2", video_id: "vA", created_at: "2026-04-04T00:00:00Z" },
+              { user_id: "u3", video_id: "vA", created_at: "2026-04-03T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: {
+            data: [
+              { video_id: "vA", created_at: "2026-04-01T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+      ],
+      {
+        getUserById: (id: string) => {
+          const m: Record<string, string> = {
+            u1: "u1@example.com",
+            u2: "u2@example.com",
+            u3: "u3@example.com",
+          };
+          return { data: { user: { email: m[id] } }, error: null };
+        },
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users).toHaveLength(3);
+    expect(out.users.map((u) => u.userId)).toEqual(["u1", "u2", "u3"]);
+    expect(out.users[0].email).toBe("u1@example.com");
+    expect(out.users[0].emailLookupOk).toBe(true);
+    expect(out.users[0].cacheHit).toBe(true); // earliest summary < accessedAt
+  });
+
+  it("emailLookupOk=false when auth lookup errors", async () => {
+    const client = buildClient(
+      [
+        {
+          table: "user_video_history",
+          response: {
+            data: [
+              { user_id: "u1", video_id: "vA", created_at: "2026-04-05T00:00:00Z" },
+            ],
+            error: null,
+          },
+        },
+        {
+          table: "summaries",
+          response: { data: [], error: null },
+        },
+      ],
+      {
+        getUserById: () => ({
+          data: { user: null },
+          error: { message: "auth down" },
+        }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.users[0].email).toBeNull();
+    expect(out.users[0].emailLookupOk).toBe(false);
+  });
+
+  it("returns empty users array when no history", async () => {
+    const client = buildClient([
+      { table: "user_video_history", response: { data: [], error: null } },
+    ]);
+    const out = await getVideoSummariesUsers(client, "vNoSuch");
+    expect(out.users).toEqual([]);
+  });
+
+  it("limits the row fetch to VIDEO_USERS_DRILLDOWN_CAP", async () => {
+    const seen: ChainCall[] = [];
+    const client = buildClient([
+      {
+        table: "user_video_history",
+        response: { data: [], error: null },
+        expect: (calls) => seen.push(...calls),
+      },
+    ]);
+    await getVideoSummariesUsers(client, "vA");
+    const limit = seen.find((c) => c.method === "limit");
+    expect(limit?.args[0]).toBe(200);
   });
 });
