@@ -61,11 +61,12 @@ export async function POST(request: Request) {
         tier: "free",
       });
       if (error) {
-        console.error("[billing/checkout] upsert failed", {
+        console.error("[billing/checkout] upsert failed (aborting checkout)", {
           errorId: "BILLING_UPSERT_FAIL",
           userId: user.id,
           code: error.code,
         });
+        return Response.json({ message: "Service unavailable" }, { status: 503 });
       }
     }
 

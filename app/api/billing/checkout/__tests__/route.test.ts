@@ -132,6 +132,25 @@ it("reuses existing customer when user_subscriptions row already exists", async 
   );
 });
 
+it("503 when upsert fails (does not create checkout session)", async () => {
+  mocks.getUser.mockResolvedValue({
+    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
+    error: null,
+  });
+  mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
+  mocks.customersCreate.mockResolvedValue({ id: "cus_1" });
+  mocks.upsert.mockResolvedValue({ error: { code: "23505" } });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+
+  const { POST } = await import("../route");
+  const res = await POST(new Request("http://x", {
+    method: "POST",
+    body: JSON.stringify({ plan: "monthly" }),
+  }));
+  expect(res.status).toBe(503);
+  expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+});
+
 it("503 when Stripe throws", async () => {
   mocks.getUser.mockResolvedValue({
     data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
