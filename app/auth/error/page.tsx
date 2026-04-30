@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Authentication Error - YouTubeAI.chat",
   description: "An error occurred during authentication.",
+  // Auth pages don't belong in the index — Disallow in robots.txt only
+  // suppresses crawling, not indexing of externally-linked URLs.
   robots: { index: false, follow: false },
 };
 
