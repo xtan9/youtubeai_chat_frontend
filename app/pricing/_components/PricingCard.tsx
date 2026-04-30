@@ -10,6 +10,7 @@ export function PricingProCard({ plan }: { plan: Plan }) {
   const router = useRouter();
   const { data: ent } = useEntitlements();
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
     if (!ent || ent.tier === "anon") {
@@ -17,6 +18,7 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       return;
     }
     if (ent.tier === "pro") return; // already pro
+    setError(null);
     setPending(true);
     try {
       const res = await fetch("/api/billing/checkout", {
@@ -26,18 +28,21 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       });
       if (!res.ok) {
         console.error("[pricing] checkout failed", { status: res.status });
+        setError("Couldn't start checkout. Please try again.");
         setPending(false);
         return;
       }
       const body = (await res.json()) as { url?: string };
       if (!body.url) {
         console.error("[pricing] checkout response missing url");
+        setError("Couldn't start checkout. Please try again.");
         setPending(false);
         return;
       }
       window.location.assign(body.url);
     } catch (err) {
       console.error("[pricing] checkout threw", err);
+      setError("Couldn't start checkout. Please try again.");
       setPending(false);
     }
   };
@@ -68,6 +73,11 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       >
         {cta}
       </Button>
+      {error ? (
+        <p className="text-caption text-accent-danger mt-2" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }

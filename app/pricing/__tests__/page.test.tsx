@@ -75,6 +75,29 @@ describe("PricingPage", () => {
     });
   });
 
+  it("shows inline error text when checkout fetch fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response("", { status: 500 }),
+      );
+    const qc = freshQueryClient();
+    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /upgrade/i }).length).toBeGreaterThan(0),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /upgrade/i })[0]);
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).not.toBeNull()
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(/checkout/i);
+  });
+
   it("FAQ renders all 4 items", () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } }), { status: 200 }),

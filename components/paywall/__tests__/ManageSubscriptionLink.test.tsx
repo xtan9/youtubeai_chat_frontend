@@ -43,4 +43,39 @@ describe("ManageSubscriptionLink", () => {
     });
     expect(window.location.assign).not.toHaveBeenCalled();
   });
+
+  it("shows inline error text on non-ok response", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(global, "fetch").mockResolvedValue(new Response("", { status: 503 }));
+    render(<ManageSubscriptionLink />);
+    fireEvent.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).not.toBeNull()
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(/billing portal/i);
+  });
+
+  it("shows inline error text when response has no url", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200 })
+    );
+    render(<ManageSubscriptionLink />);
+    fireEvent.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).not.toBeNull()
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(/billing portal/i);
+  });
+
+  it("shows inline error text on thrown fetch error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(global, "fetch").mockRejectedValue(new Error("network down"));
+    render(<ManageSubscriptionLink />);
+    fireEvent.click(screen.getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).not.toBeNull()
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(/billing portal/i);
+  });
 });
