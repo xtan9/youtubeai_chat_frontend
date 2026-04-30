@@ -136,11 +136,16 @@ async function dispatch(
       const plan = priceIdToPlan(sub);
 
       // Find user_id by stripe_customer_id (we own the mapping)
-      const { data: row } = await sr
+      const { data: row, error: lookupErr } = await sr
         .from("user_subscriptions")
         .select("user_id")
         .eq("stripe_customer_id", customerId)
         .maybeSingle();
+      if (lookupErr) {
+        // DB error — throw so the outer try/catch returns 500 + deletes the
+        // idempotency row, so Stripe's retry can re-run dispatch.
+        throw new Error(`customer lookup failed: ${lookupErr.message}`);
+      }
       if (!row?.user_id) {
         console.error("[stripe-webhook] subscription.updated for unknown customer", {
           errorId: "WEBHOOK_UNKNOWN_CUSTOMER",
@@ -170,11 +175,16 @@ async function dispatch(
       const sub = event.data.object as Stripe.Subscription;
       const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
 
-      const { data: row } = await sr
+      const { data: row, error: lookupErr } = await sr
         .from("user_subscriptions")
         .select("user_id")
         .eq("stripe_customer_id", customerId)
         .maybeSingle();
+      if (lookupErr) {
+        // DB error — throw so the outer try/catch returns 500 + deletes the
+        // idempotency row, so Stripe's retry can re-run dispatch.
+        throw new Error(`customer lookup failed: ${lookupErr.message}`);
+      }
       if (!row?.user_id) {
         console.error("[stripe-webhook] subscription.deleted for unknown customer", {
           errorId: "WEBHOOK_UNKNOWN_CUSTOMER",

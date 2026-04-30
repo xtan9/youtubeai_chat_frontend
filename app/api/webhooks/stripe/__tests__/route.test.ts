@@ -217,6 +217,20 @@ describe("customer.subscription.updated", () => {
     expect(res.status).toBe(200);
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
+
+  it("500 + deletes idempotency row when customer lookup returns DB error", async () => {
+    const future = Math.floor(Date.now() / 1000) + 86400;
+    mocks.constructEvent.mockReturnValue(buildEvent({ status: "active", current_period_end: future }));
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_lookup_err" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: null, error: { message: "db down" } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(res.status).toBe(500);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.deleteEvent).toHaveBeenCalled();
+  });
 });
 
 describe("checkout.session.completed", () => {
@@ -311,5 +325,22 @@ describe("customer.subscription.deleted", () => {
     const res = await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
     expect(res.status).toBe(200);
     expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("500 + deletes idempotency row when customer lookup returns DB error", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_del_err",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_x", customer: "cus_x", status: "canceled" } },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_del_err" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: null, error: { message: "db down" } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(res.status).toBe(500);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.deleteEvent).toHaveBeenCalled();
   });
 });
