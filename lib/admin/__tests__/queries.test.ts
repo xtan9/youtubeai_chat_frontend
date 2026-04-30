@@ -453,7 +453,6 @@ describe("getUserSummaries", () => {
               transcript_source: "whisper",
               model: "claude-opus-4-7",
               processing_time_seconds: 10,
-              enable_thinking: false,
             },
           ],
           error: null,
@@ -467,7 +466,11 @@ describe("getUserSummaries", () => {
     expect(rows[0].model).toBe("claude-opus-4-7");
   });
 
-  it("prefers enable_thinking=false when both variants exist for a video", async () => {
+  it("uses the single summary row per video (post-dedup-migration schema)", async () => {
+    // After migration 20260423000000_drop_thinking_columns, production
+    // has at most one summary row per video. This test pins that the
+    // function returns that single row's fields (no canonical/fallback
+    // dance, no preference rule).
     const client = buildClient([
       {
         table: "user_video_history",
@@ -489,17 +492,14 @@ describe("getUserSummaries", () => {
         table: "summaries",
         response: {
           data: [
-            // thinking-enabled comes first; the canonical (enable_thinking=false)
-            // is second. The function must still pick the canonical.
-            { id: "sum-thinking", video_id: "v1", transcript_source: "auto_captions", model: "claude-opus-4-7", processing_time_seconds: 12, enable_thinking: true },
-            { id: "sum-canonical", video_id: "v1", transcript_source: "auto_captions", model: "claude-haiku-4-5", processing_time_seconds: 4, enable_thinking: false },
+            { id: "sum-only", video_id: "v1", transcript_source: "auto_captions", model: "claude-haiku-4-5", processing_time_seconds: 4 },
           ],
           error: null,
         },
       },
     ]);
     const rows = await getUserSummaries(client, "u1", 10);
-    expect(rows[0].summaryId).toBe("sum-canonical");
+    expect(rows[0].summaryId).toBe("sum-only");
     expect(rows[0].model).toBe("claude-haiku-4-5");
   });
 
@@ -1655,9 +1655,9 @@ describe("listVideosWithStats", () => {
         table: "summaries",
         response: {
           data: [
-            { video_id: "vA", transcript_source: "auto_captions", model: "claude-opus-4-7", processing_time_seconds: 12, created_at: "2026-04-01T00:00:00Z", enable_thinking: false },
-            { video_id: "vB", transcript_source: "whisper", model: "claude-haiku-4-5", processing_time_seconds: 80, created_at: "2026-04-03T00:00:00Z", enable_thinking: false },
-            { video_id: "vC", transcript_source: "manual_captions", model: "claude-opus-4-7", processing_time_seconds: 8, created_at: "2026-04-05T00:00:00Z", enable_thinking: false },
+            { video_id: "vA", transcript_source: "auto_captions", model: "claude-opus-4-7", processing_time_seconds: 12, created_at: "2026-04-01T00:00:00Z" },
+            { video_id: "vB", transcript_source: "whisper", model: "claude-haiku-4-5", processing_time_seconds: 80, created_at: "2026-04-03T00:00:00Z" },
+            { video_id: "vC", transcript_source: "manual_captions", model: "claude-opus-4-7", processing_time_seconds: 8, created_at: "2026-04-05T00:00:00Z" },
           ],
           error: null,
         },
@@ -1823,7 +1823,6 @@ describe("listVideosWithStats", () => {
               model: "claude-opus-4-7",
               processing_time_seconds: 5,
               created_at: "2026-04-30T08:30:00Z",
-              enable_thinking: false,
             },
           ],
           error: null,
@@ -2012,9 +2011,9 @@ describe("getVideoInsights", () => {
         table: "summaries",
         response: {
           data: [
-            { video_id: "vA", transcript_source: "auto_captions", enable_thinking: false },
-            { video_id: "vB", transcript_source: "whisper", enable_thinking: false },
-            { video_id: "vC", transcript_source: "manual_captions", enable_thinking: false },
+            { video_id: "vA", transcript_source: "auto_captions" },
+            { video_id: "vB", transcript_source: "whisper" },
+            { video_id: "vC", transcript_source: "manual_captions" },
           ],
           error: null,
         },
@@ -2074,7 +2073,6 @@ describe("getVideoInsights", () => {
     const summaries = channels.map((v) => ({
       video_id: v.id,
       transcript_source: "auto_captions",
-      enable_thinking: false,
     }));
     const history = channels.map((v, i) => ({
       user_id: `u${i}`,
