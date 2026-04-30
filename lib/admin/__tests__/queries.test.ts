@@ -2216,8 +2216,10 @@ describe("getVideoSummariesUsers", () => {
     expect(u1.accessedAt).toBe("2026-04-05T00:00:00Z");
   });
 
-  it("flips truncated=true when history fetch returns more than the cap", async () => {
-    // 201 rows — VIDEO_USERS_DRILLDOWN_CAP is 200, fetch peeks +1.
+  it("flips truncated=true when the +1 peek row reveals a distinct user dropped past the cap", async () => {
+    // 201 rows, all distinct user_ids — VIDEO_USERS_DRILLDOWN_CAP is
+    // 200. The peek row (#200) belongs to a user NOT in the kept slice,
+    // so a distinct user was hidden. Banner should fire.
     const rows = Array.from({ length: 201 }, (_, i) => ({
       user_id: `u${i}`,
       video_id: "vA",
@@ -2234,6 +2236,41 @@ describe("getVideoSummariesUsers", () => {
     );
     const out = await getVideoSummariesUsers(client, "vA");
     expect(out.truncated).toBe(true);
+    expect(out.users).toHaveLength(200);
+  });
+
+  it("truncated=false when the +1 peek row is for a user already in the kept set", async () => {
+    // 200 rows for distinct users (fully populates the kept slice) +
+    // 1 extra row that duplicates an existing kept user. The cap was
+    // hit on the raw row count, but no distinct user was dropped —
+    // the banner would falsely claim hidden users if `truncated`
+    // were derived from raw row count alone.
+    const rows = [
+      ...Array.from({ length: 200 }, (_, i) => ({
+        user_id: `u${i}`,
+        video_id: "vA",
+        // Distinct timestamps so dedup keeps the most recent. The
+        // duplicate row below is older, so `u0`'s accessedAt won't
+        // change.
+        created_at: `2026-04-${String((i % 28) + 1).padStart(2, "0")}T05:00:00Z`,
+      })),
+      {
+        user_id: "u0",
+        video_id: "vA",
+        created_at: "2026-04-01T00:00:00Z",
+      },
+    ];
+    const client = buildClient(
+      [
+        { table: "user_video_history", response: { data: rows, error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+      ],
+      {
+        getUserById: () => ({ data: { user: { email: null } }, error: null }),
+      },
+    );
+    const out = await getVideoSummariesUsers(client, "vA");
+    expect(out.truncated).toBe(false);
     expect(out.users).toHaveLength(200);
   });
 

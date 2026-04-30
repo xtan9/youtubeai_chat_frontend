@@ -61,8 +61,11 @@ export function VideoContentModal({
     startTransition(async () => {
       // Reset state at the start of each fetch — done inside the
       // transition body (not the effect body) to satisfy
-      // react-hooks/set-state-in-effect.
+      // react-hooks/set-state-in-effect. Clear `content` BEFORE the
+      // action runs so a failed mode-switch never leaves the previous
+      // mode's body visible alongside the new mode's error pill.
       setError(null);
+      setContent(null);
       try {
         const result =
           mode === "summary"
@@ -208,7 +211,7 @@ export function VideoContentModal({
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: 18 }}>
-          {content && (
+          {content && content.mode === mode && (
             <pre
               style={{
                 whiteSpace: "pre-wrap",
