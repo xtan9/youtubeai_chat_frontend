@@ -9,38 +9,21 @@ const mocks = vi.hoisted(() => ({
   deleteEvent: vi.fn(),
 }));
 
-vi.mock("@/lib/services/stripe", () => {
-  const PAST_DUE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+// Use the REAL `deriveTier`, `periodEndToIso`, and `readCurrentPeriodEnd`
+// so a future divergence in production logic surfaces here. Mocking those
+// helpers byte-for-byte (the prior shape) was a drift trap — the very
+// kind of payload-shape divergence PR #104 fixes. Only stub `getStripe`
+// (the only side-effecting/network-touching surface).
+vi.mock("@/lib/services/stripe", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/stripe")>(
+    "@/lib/services/stripe",
+  );
   return {
+    ...actual,
     getStripe: () => ({
       webhooks: { constructEvent: mocks.constructEvent },
       subscriptions: { retrieve: mocks.retrieveSub },
     }),
-    deriveTier: (status: string | null | undefined, periodEndIso: string | null | undefined) => {
-      if (!status || !periodEndIso) return "free";
-      const end = Date.parse(periodEndIso);
-      if (!Number.isFinite(end)) return "free";
-      const now = Date.now();
-      if (status === "active" || status === "trialing") return end > now ? "pro" : "free";
-      if (status === "past_due") return end > now - PAST_DUE_GRACE_MS ? "pro" : "free";
-      return "free";
-    },
-    periodEndToIso: (s: number | null | undefined) =>
-      s ? new Date(s * 1000).toISOString() : null,
-    // basil API moved current_period_end from Subscription to
-    // Subscription.items.data[]. Mirror the real helper's read-items-first,
-    // fall-back-to-top-level shape so tests using either fixture pass.
-    readCurrentPeriodEnd: (sub: {
-      items?: { data?: Array<{ current_period_end?: number }> };
-      current_period_end?: number;
-    }) => {
-      const item = sub.items?.data?.[0];
-      const itemEnd = item?.current_period_end;
-      if (typeof itemEnd === "number" && Number.isFinite(itemEnd)) return itemEnd;
-      const topEnd = sub.current_period_end;
-      if (typeof topEnd === "number" && Number.isFinite(topEnd)) return topEnd;
-      return null;
-    },
   };
 });
 
@@ -202,9 +185,9 @@ describe("customer.subscription.updated", () => {
 
   it("basil-shape (period_end on items only) → tier=pro", async () => {
     // Real basil-API payload: top-level current_period_end is omitted, the
-    // value lives on each subscription item. This pins the regression we
-    // hit during P2.11 e2e — webhook reading sub.current_period_end was
-    // null on every paying user, silently producing tier="free".
+    // value lives on each subscription item. Pins the regression PR #104
+    // fixes — webhook reading sub.current_period_end was null on every
+    // paying user, silently producing tier="free".
     const future = Math.floor(Date.now() / 1000) + 365 * 86400;
     mocks.constructEvent.mockReturnValue({
       id: "evt_basil",
@@ -233,6 +216,37 @@ describe("customer.subscription.updated", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("active subscription with missing period_end → 500 + idempotency row deleted (canary)", async () => {
+    // The architectural fix from PR #104 review: a tier=free write for
+    // an active subscription is a code defect, not a data state. Throw
+    // so Stripe retries (idempotency row deleted by outer catch).
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_canary",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_x",
+          customer: "cus_1",
+          status: "active",
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_M" } }] },
+          // current_period_end intentionally omitted in BOTH locations
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_canary" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const res = await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "x" },
+    }));
+    expect(res.status).toBe(500);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.deleteEvent).toHaveBeenCalledWith("event_id", "evt_canary");
   });
 
   it("past_due within 3 days → tier=pro (grace)", async () => {
@@ -349,6 +363,47 @@ describe("checkout.session.completed", () => {
       expect.objectContaining({ onConflict: "user_id" })
     );
   });
+
+  it("basil-shape (period_end on items only) → tier=pro [PR #104 regression]", async () => {
+    // Primary purchase path: brand-new paying user free→pro. Pins basil
+    // schema fix at the checkout.session.completed handler too.
+    const future = Math.floor(Date.now() / 1000) + 365 * 86400;
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_basil_checkout",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          client_reference_id: "u1",
+          customer: "cus_1",
+          subscription: "sub_1",
+          metadata: { user_id: "u1" },
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_basil_checkout" }], error: null });
+    mocks.retrieveSub.mockResolvedValue({
+      id: "sub_1",
+      status: "active",
+      cancel_at_period_end: false,
+      // top-level current_period_end omitted — it lives on items.data[0]
+      items: { data: [{ price: { id: "price_Y" }, current_period_end: future }] },
+    });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "t=1,v1=x" },
+    }));
+
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tier: "pro",
+        plan: "yearly",
+        current_period_end: new Date(future * 1000).toISOString(),
+      }),
+      expect.anything(),
+    );
+  });
 });
 
 describe("invoice events (no-ops)", () => {
@@ -414,6 +469,40 @@ describe("customer.subscription.deleted", () => {
         cancel_at_period_end: false,
       }),
       expect.objectContaining({ onConflict: "user_id" }),
+    );
+  });
+
+  it("basil-shape persists items[0] period_end on cancel [PR #104 regression]", async () => {
+    // Tier is hard-coded "free" on delete, but current_period_end is
+    // still written and read by the billing UI to show "valid until".
+    // Pins that the basil schema fix flows through this handler too.
+    const past = Math.floor(Date.now() / 1000) - 86400;
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_d_basil",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          status: "canceled",
+          cancel_at_period_end: false,
+          // top-level current_period_end omitted; lives on items.data[0]
+          items: { data: [{ price: { id: "price_M" }, current_period_end: past }] },
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({ data: [{ event_id: "evt_d_basil" }], error: null });
+    mocks.fromUserSubsLookup.mockResolvedValue({ data: { user_id: "u1" }, error: null });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", { method: "POST", body: "{}", headers: { "stripe-signature": "x" } }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tier: "free",
+        current_period_end: new Date(past * 1000).toISOString(),
+      }),
+      expect.anything(),
     );
   });
 

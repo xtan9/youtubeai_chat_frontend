@@ -7,6 +7,34 @@ export const dynamic = "force-dynamic";
 
 type ServiceClient = NonNullable<ReturnType<typeof getServiceRoleClient>>;
 
+// Architectural canary for the original P2.11 bug: when status is active
+// or trialing, tier MUST be "pro". If we derived "free", something
+// upstream silently dropped period_end (basil schema drift, malformed
+// payload, retire-and-replace). Refuse to write the poisoned row and
+// throw so the outer catch deletes the idempotency row and Stripe
+// retries — same pattern as DB errors. Returning 200 with a poisoned
+// write was the exact failure mode we shipped; this guard converts it
+// to an alertable 500 + retry.
+function assertActiveSubscriptionGotProTier(
+  status: Stripe.Subscription.Status | string,
+  tier: "free" | "pro",
+  context: { eventId: string; subId: string },
+): void {
+  if ((status === "active" || status === "trialing") && tier === "free") {
+    console.error(
+      "[stripe-webhook] active subscription derived tier=free — refusing poisoned write",
+      {
+        errorId: "WEBHOOK_ACTIVE_FREE_TIER_DEFECT",
+        ...context,
+        status,
+      },
+    );
+    throw new Error(
+      `active subscription ${context.subId} resolved to tier=free`,
+    );
+  }
+}
+
 export async function POST(request: Request) {
   const sig = request.headers.get("stripe-signature");
   if (!sig) return new Response("Missing signature", { status: 400 });
@@ -106,6 +134,10 @@ async function dispatch(
       const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
+      assertActiveSubscriptionGotProTier(sub.status, tier, {
+        eventId: event.id,
+        subId: sub.id,
+      });
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {
@@ -130,6 +162,10 @@ async function dispatch(
       const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
+      assertActiveSubscriptionGotProTier(sub.status, tier, {
+        eventId: event.id,
+        subId: sub.id,
+      });
 
       // Find user_id by stripe_customer_id (we own the mapping)
       const { data: row, error: lookupErr } = await sr

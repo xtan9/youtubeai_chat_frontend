@@ -15,16 +15,12 @@ export function getStripe(): Stripe | null {
   }
   // SDK v22 ships with apiVersion "2026-04-22.dahlia" as LatestApiVersion;
   // we pin to "2025-05-28.basil" — the basil-family snapshot the Dashboard
-  // webhook endpoint is configured for. In the basil family,
-  // `current_period_end` and `current_period_start` live on
-  // `Subscription.items.data[].` (NOT on the Subscription itself) — read
-  // them via `readCurrentPeriodEnd()` below, never via `sub.current_period_end`
-  // which is `null` in basil payloads and silently produces tier="free" for
-  // every paying user.
-  // The Dashboard webhook config and this SDK version must agree on the
-  // family or the payload shape our handlers expect will drift. Cast
-  // through `never` to satisfy the literal-union check without silently
-  // upgrading to the SDK default.
+  // webhook endpoint is configured for. The Dashboard webhook config and
+  // this SDK version must agree or payload shapes drift between the source
+  // of events and the handlers parsing them. See `readCurrentPeriodEnd()`
+  // for the basil schema move that motivates this pin. Cast through
+  // `never` to satisfy the literal-union check without silently upgrading
+  // to the SDK default.
   _client = new Stripe(key, { apiVersion: "2025-05-28.basil" as never });
   return _client;
 }
@@ -50,7 +46,18 @@ export function deriveTier(
 ): "free" | "pro" {
   if (!status || !currentPeriodEndIso) return "free";
   const periodEnd = Date.parse(currentPeriodEndIso);
-  if (!Number.isFinite(periodEnd)) return "free";
+  if (!Number.isFinite(periodEnd)) {
+    // A non-finite Date.parse on a value our own `periodEndToIso` produced
+    // is a code defect, not a data condition — caller passed a malformed
+    // ISO string. Log so it shows up in alerts; falling through to "free"
+    // matches the existing fail-closed posture.
+    console.error("[stripe] deriveTier got unparseable periodEndIso", {
+      errorId: "STRIPE_PERIOD_END_PARSE_FAIL",
+      status,
+      currentPeriodEndIso,
+    });
+    return "free";
+  }
   const now = Date.now();
 
   if (status === "active" || status === "trialing") {
@@ -70,23 +77,42 @@ export function periodEndToIso(unixSeconds: number | null | undefined): string |
   return new Date(unixSeconds * 1000).toISOString();
 }
 
+// Localizes the basil-vs-dahlia schema cast to one named seam. SDK v22's
+// `Stripe.Subscription` reflects the dahlia type shape, but our pinned
+// runtime apiVersion (`2025-05-28.basil`) returns payloads where
+// `current_period_end` lives on `Subscription.items.data[]` instead of
+// on the Subscription itself. Reading via this type instead of inline
+// `as unknown as { current_period_end?: number }` keeps the boundary
+// greppable and lets the helper body read fields normally.
+type BasilSubscription = Stripe.Subscription & { current_period_end?: number };
+type BasilSubscriptionItem = Stripe.SubscriptionItem & { current_period_end?: number };
+
 /**
  * Read the subscription's current period end (unix seconds), accounting
  * for Stripe's basil-family schema move. In the basil API
  * (`2025-05-28.basil`+), `current_period_end` lives on each
- * `subscription_item`, not on the subscription itself. Reading
- * `sub.current_period_end` on a basil payload returns `null` and produces
- * tier="free" for every paying user.
+ * `subscription_item`, not on the subscription itself; reading the
+ * top-level field on a basil payload returns `null` and downstream
+ * `deriveTier(status, null)` short-circuits to `"free"`.
  *
- * We read items first; fall back to the (now-deprecated) top-level field
- * for safety against pre-basil events still in flight or fixtures from
- * earlier API versions.
+ * Reads items first; falls back to the top-level field for fixtures
+ * or events delivered under an older pinned apiVersion. Logs a structured
+ * `STRIPE_PERIOD_END_MISSING` errorId when neither location is present —
+ * that branch indicates schema drift, not a free user, so callers can
+ * alert on it without having to pattern-match the resulting tier="free"
+ * write in production logs.
  */
 export function readCurrentPeriodEnd(sub: Stripe.Subscription): number | null {
-  const item = sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined;
+  const item = (sub as BasilSubscription).items?.data?.[0] as BasilSubscriptionItem | undefined;
   const itemEnd = item?.current_period_end;
   if (typeof itemEnd === "number" && Number.isFinite(itemEnd)) return itemEnd;
-  const topEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
+  const topEnd = (sub as BasilSubscription).current_period_end;
   if (typeof topEnd === "number" && Number.isFinite(topEnd)) return topEnd;
+  console.error("[stripe] period_end missing in both items[0] and top-level", {
+    errorId: "STRIPE_PERIOD_END_MISSING",
+    subId: sub.id,
+    status: sub.status,
+    hasItems: !!sub.items?.data?.length,
+  });
   return null;
 }
