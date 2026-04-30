@@ -68,6 +68,7 @@ export function buildAdminNav({ usersTotal }: BuildAdminNavOptions): NavSection[
     {
       label: "Content",
       items: [
+        { href: "/admin/videos", label: "Videos", icon: <Video className="icon" /> },
         { href: "/admin/channels", label: "Channels", icon: <Video className="icon" /> },
         { href: "/admin/languages", label: "Languages", icon: <Languages className="icon" /> },
       ],
