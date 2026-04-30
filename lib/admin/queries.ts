@@ -953,18 +953,8 @@ export async function getDashboardKPIs(
   // history so videos only admins watched contribute zero. If real-user
   // history is empty in window, KPIs honestly show zero — the toggle
   // promises filtering, not graceful fallback.
-  const includedCurrent = wantFilter
-    ? new Set(history.map((h) => h.video_id))
-    : null;
-  const includedPrev = wantFilter
-    ? new Set(prevHistory.map((h) => h.video_id))
-    : null;
-  const filteredCurrent = wantFilter
-    ? current.filter((s) => includedCurrent!.has(s.video_id))
-    : current;
-  const filteredPrev = wantFilter
-    ? previous.filter((s) => includedPrev!.has(s.video_id))
-    : previous;
+  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
+  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
 
   const summariesPerDay = bucketByDay(filteredCurrent, "created_at", window);
   const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
@@ -1079,18 +1069,8 @@ export async function getPerformanceStats(
   // When excluding admins, intersect latency samples with admin-filtered
   // history. Empty real-user history means null percentiles — the toggle
   // promises filtering, not fallback to all-activity numbers.
-  const includedCurrent = wantFilter
-    ? new Set(history.map((h) => h.video_id))
-    : null;
-  const includedPrev = wantFilter
-    ? new Set(prevHistory.map((h) => h.video_id))
-    : null;
-  const filteredCurrent = wantFilter
-    ? current.filter((s) => includedCurrent!.has(s.video_id))
-    : current;
-  const filteredPrev = wantFilter
-    ? previous.filter((s) => includedPrev!.has(s.video_id))
-    : previous;
+  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
+  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
 
   const byDay = new Map<string, number[]>();
   for (const s of filteredCurrent) {
@@ -1194,6 +1174,16 @@ async function fetchHistoryForExclusion(
     );
     return [];
   }
+}
+
+function restrictSummariesToHistory<T extends { video_id: string }>(
+  summaries: T[],
+  history: HistoryRow[],
+  wantFilter: boolean,
+): T[] {
+  if (!wantFilter) return summaries;
+  const allowed = new Set(history.map((h) => h.video_id));
+  return summaries.filter((s) => allowed.has(s.video_id));
 }
 
 async function fetchHistoryIn(
