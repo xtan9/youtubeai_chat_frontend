@@ -14,6 +14,8 @@ export default function BillingSuccessPage() {
   useEffect(() => {
     const startedAt = Date.now();
     let stopped = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
       if (stopped) return;
@@ -23,8 +25,11 @@ export default function BillingSuccessPage() {
           const body = await res.json();
           if (body?.tier === "pro") {
             setPhase("ok");
-            // Brief celebratory pause then return home
-            setTimeout(() => router.replace("/"), 1500);
+            // Brief celebratory pause then return home. Guarded so unmount
+            // during this 1.5s window doesn't yank the user back to /.
+            redirectTimer = setTimeout(() => {
+              if (!stopped) router.replace("/");
+            }, 1500);
             return;
           }
         }
@@ -35,12 +40,15 @@ export default function BillingSuccessPage() {
         setPhase("timeout");
         return;
       }
-      setTimeout(tick, POLL_INTERVAL_MS);
+      pollTimer = setTimeout(tick, POLL_INTERVAL_MS);
     };
 
     tick();
+
     return () => {
       stopped = true;
+      if (pollTimer !== undefined) clearTimeout(pollTimer);
+      if (redirectTimer !== undefined) clearTimeout(redirectTimer);
     };
   }, [router]);
 
