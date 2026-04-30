@@ -13,7 +13,7 @@ import {
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
-  fetchUsersTotal,
+  fetchRegisteredUsersTotal,
   listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
   QueryError,
@@ -1096,25 +1096,60 @@ describe("listUsersWithStatsAndSort", () => {
   });
 });
 
-describe("fetchUsersTotal", () => {
-  it("returns total from auth.admin.listUsers", async () => {
+describe("fetchRegisteredUsersTotal", () => {
+  it("counts only signed-up, non-admin, non-anonymous users", async () => {
     const client = {
       from: vi.fn(),
       auth: {
         admin: {
           listUsers: vi.fn(async () => ({
-            data: { users: [], total: 643 },
+            data: {
+              users: [
+                { id: "u1", email: "alice@example.com", is_anonymous: false },
+                { id: "u2", email: "bob@example.com", is_anonymous: false },
+                { id: "u3", email: null, is_anonymous: true },
+                { id: "u4", email: "anon-x@y", is_anonymous: true },
+                { id: "u5", email: "ADMIN@example.com", is_anonymous: false },
+              ],
+              total: 5,
+            },
             error: null,
           })),
           getUserById: vi.fn(),
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchUsersTotal(client);
-    expect(out).toBe(643);
+    const out = await fetchRegisteredUsersTotal(client, ["admin@example.com"]);
+    expect(out).toBe(2);
   });
 
-  it("returns null and logs on error", async () => {
+  it("treats allowlist comparison as case-insensitive", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: {
+              users: [
+                {
+                  id: "u1",
+                  email: "Owner@Example.com",
+                  is_anonymous: false,
+                },
+              ],
+              total: 1,
+            },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchRegisteredUsersTotal(client, ["owner@example.com"]);
+    expect(out).toBe(0);
+  });
+
+  it("returns null on listUsers error", async () => {
     const client = {
       from: vi.fn(),
       auth: {
@@ -1127,12 +1162,44 @@ describe("fetchUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchUsersTotal(client);
+    const out = await fetchRegisteredUsersTotal(client, []);
     expect(out).toBeNull();
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("fetchUsersTotal"),
+      expect.stringContaining("fetchRegisteredUsersTotal"),
       expect.any(Object),
     );
+  });
+
+  it("paginates through multiple pages", async () => {
+    const pageOne = Array.from({ length: 200 }, (_, i) => ({
+      id: `p1-${i}`,
+      email: `p1-${i}@example.com`,
+      is_anonymous: false,
+    }));
+    const pageTwo = Array.from({ length: 50 }, (_, i) => ({
+      id: `p2-${i}`,
+      email: `p2-${i}@example.com`,
+      is_anonymous: false,
+    }));
+    const pages = [
+      { users: pageOne, total: 250 },
+      { users: pageTwo, total: 250 },
+    ];
+    let i = 0;
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => {
+            const next = pages[i++] ?? { users: [], total: 250 };
+            return { data: next, error: null };
+          }),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+    const out = await fetchRegisteredUsersTotal(client, []);
+    expect(out).toBe(250);
   });
 });
 

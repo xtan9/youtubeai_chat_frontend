@@ -625,22 +625,35 @@ export async function listAllUsers(
   return { users: collected, total, truncated };
 }
 
-/** Cheap one-shot total user count for sidebar badge. Returns null on
- * error so the badge can render gracefully. */
-export async function fetchUsersTotal(
+/**
+ * Sidebar badge count: signed-up users excluding the admin allowlist
+ * and anonymous Supabase sessions. Pages through {@link listAllUsers}
+ * because Supabase's `auth.admin.listUsers` exposes no server-side
+ * filter for `is_anonymous = false`.
+ *
+ * Returns `null` on error so the badge degrades gracefully.
+ */
+export async function fetchRegisteredUsersTotal(
   client: SupabaseClient,
+  allowlist: readonly string[],
 ): Promise<number | null> {
-  const { data, error } = await client.auth.admin.listUsers({
-    page: 1,
-    perPage: 1,
-  });
-  if (error) {
-    console.error("[admin-queries] fetchUsersTotal failed", {
-      message: error.message,
+  try {
+    const { users } = await listAllUsers(client);
+    const adminSet = new Set(allowlist.map((e) => e.toLowerCase()));
+    let count = 0;
+    for (const u of users) {
+      if (u.is_anonymous) continue;
+      if (!u.email) continue;
+      if (adminSet.has(u.email.toLowerCase())) continue;
+      count++;
+    }
+    return count;
+  } catch (err) {
+    console.error("[admin-queries] fetchRegisteredUsersTotal failed", {
+      message: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
-  return data?.total ?? null;
 }
 
 /**
