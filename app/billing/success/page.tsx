@@ -23,6 +23,12 @@ export default function BillingSuccessPage() {
       if (stopped) return;
       try {
         const res = await fetch("/api/me/entitlements", { cache: "no-store" });
+        if (!res.ok) {
+          console.error("[billing/success] entitlements non-ok during poll", {
+            errorId: "BILLING_SUCCESS_POLL_NON_OK",
+            status: res.status,
+          });
+        }
         if (res.ok) {
           const body = await res.json();
           if (body?.tier === "pro") {
@@ -40,8 +46,11 @@ export default function BillingSuccessPage() {
             return;
           }
         }
-      } catch {
-        // ignore — try again on next tick
+      } catch (err) {
+        console.error("[billing/success] entitlements poll threw", {
+          errorId: "BILLING_SUCCESS_POLL_THREW",
+          err,
+        });
       }
       if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
         setPhase("timeout");
