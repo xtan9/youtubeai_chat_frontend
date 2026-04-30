@@ -36,6 +36,10 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       // can pin "the route uses after() to defer the cache write" —
       // the property the prod fix depends on.
       after: vi.fn(afterPassthrough),
+      // Anon-cookie helpers — exposed so tests can override signAnonId
+      // to return null (simulating ANON_COOKIE_SECRET missing).
+      signAnonId: vi.fn((id: string) => `${id}.sig`),
+      verifyAnonId: vi.fn((s: string) => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null)),
     },
   };
 });
@@ -118,8 +122,8 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/services/anon-cookie", () => ({
   ANON_COOKIE_NAME: "yt_anon_id",
   ANON_COOKIE_MAX_AGE_SECONDS: 31536000,
-  signAnonId: (id: string) => `${id}.sig`,
-  verifyAnonId: (s: string) => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null),
+  signAnonId: (id: string) => mocks.signAnonId(id),
+  verifyAnonId: (s: string) => mocks.verifyAnonId(s),
 }));
 vi.mock("@/lib/services/model-routing", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/model-routing")>(
@@ -199,6 +203,9 @@ describe("POST /api/summarize/stream", () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "user-1", is_anonymous: false } },
     });
+    // Default anon-cookie helpers — tests override per-case when needed.
+    mocks.signAnonId.mockImplementation((id: string) => `${id}.sig`);
+    mocks.verifyAnonId.mockImplementation((s: string) => (s.endsWith(".sig") ? s.replace(/\.sig$/, "") : null));
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29 });
     mocks.checkSummaryEntitlement.mockResolvedValue({
       tier: "free", allowed: true, remaining: 10, reason: "within_limit",
@@ -480,6 +487,28 @@ describe("POST /api/summarize/stream", () => {
       expect(err).toHaveBeenCalledWith(
         expect.stringContaining("entitlement bypassed"),
         expect.objectContaining({ errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST" }),
+      );
+    });
+
+    it("anon Supabase user, no cookie, signAnonId returns null → 200 (fail-open as anon) with ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET logged", async () => {
+      // Simulates ANON_COOKIE_SECRET missing or too short: signAnonId returns null.
+      // The route must NOT fall through to checkSummaryEntitlement({ userId, isAnon: false })
+      // which would silently debit the signed-in monthly counter.
+      mocks.getUser.mockResolvedValue({
+        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
+      });
+      mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
+      // signAnonId returns null → secret missing path
+      mocks.signAnonId.mockReturnValue(null);
+      mocks.getCachedSummary.mockResolvedValue(cachedFixture());
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      expect(res.status).toBe(200);
+      // checkSummaryEntitlement must NOT have been called (fail-open path skips it)
+      expect(mocks.checkSummaryEntitlement).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("anon entitlement bypassed"),
+        expect.objectContaining({ errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET" }),
       );
     });
   });

@@ -269,9 +269,31 @@ export async function POST(request: Request) {
     }
   }
 
-  const entitlement = anonId
-    ? await checkSummaryEntitlement({ anonId, isAnon: true })
-    : await checkSummaryEntitlement({ userId: authedUser.id, isAnon: false });
+  let entitlement: Awaited<ReturnType<typeof checkSummaryEntitlement>>;
+  if (isAnonymous) {
+    if (anonId) {
+      entitlement = await checkSummaryEntitlement({ anonId, isAnon: true });
+    } else {
+      // ANON_COOKIE_SECRET missing/too short — anon-cookie service already
+      // logged ANON_COOKIE_SECRET_MISSING. Fail-open as anon (allow this
+      // request, log the bypass) instead of debiting the signed-in monthly
+      // counter, which would silently grant 10/month to anon users.
+      console.error("[summarize/stream] anon entitlement bypassed — secret missing", {
+        stage: "unknown" satisfies LogStage,
+        errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET",
+        userId: authedUser.id,
+        youtubeUrl: youtube_url,
+      });
+      entitlement = {
+        tier: "anon",
+        allowed: true,
+        remaining: 1,
+        reason: "fail_open",
+      };
+    }
+  } else {
+    entitlement = await checkSummaryEntitlement({ userId: authedUser.id, isAnon: false });
+  }
 
   if (entitlement.reason === "fail_open") {
     console.error("[summarize/stream] entitlement bypassed (fail-open)", {
