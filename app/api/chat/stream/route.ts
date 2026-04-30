@@ -118,7 +118,7 @@ export async function POST(request: Request) {
     console.error("[chat/stream] entitlement bypassed (fail-open)", {
       errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
       userId,
-      summaryId: cachedSummary.videoId,
+      videoId: cachedSummary.videoId,
     });
   }
   if (!entitlement.allowed) {
