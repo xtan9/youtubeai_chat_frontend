@@ -5,14 +5,24 @@ import { Brain, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
+import { useEntitlements } from "@/lib/hooks/useEntitlements";
+import { ManageSubscriptionLink } from "@/components/paywall/ManageSubscriptionLink";
 
 export function Header() {
   const { user } = useUser();
   const router = useRouter();
   const supabase = createClient();
+  const { data: entitlements } = useEntitlements();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -68,16 +78,32 @@ export function Header() {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <ProfileAvatar user={user} />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSignOut}
-                  className="text-text-muted hover:text-text-primary hover:bg-state-hover rounded-full"
-                >
-                  <LogOut size={16} />
-                  <span className="ml-2 hidden sm:inline">Sign Out</span>
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"
+                      aria-label="User menu"
+                    >
+                      <ProfileAvatar user={user} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-48">
+                    {entitlements?.tier === "pro" && (
+                      <DropdownMenuItem asChild>
+                        <ManageSubscriptionLink />
+                      </DropdownMenuItem>
+                    )}
+                    {entitlements?.tier === "pro" && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onSelect={handleSignOut}
+                      className="cursor-pointer"
+                    >
+                      <LogOut size={16} />
+                      <span>Sign Out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
           </div>
