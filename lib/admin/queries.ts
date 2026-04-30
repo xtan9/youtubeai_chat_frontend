@@ -983,11 +983,6 @@ export async function getDashboardKPIs(
   const cacheHitCurrent = computeCacheHitRate(history);
   const cacheHitPrevious = computeCacheHitRate(prevHistory);
 
-  // computeTopUsers indexes by history.user_id (already filtered) and
-  // looks up summaries by video_id only to decorate transcript_source /
-  // latency. Pass filteredCurrent for symmetry with the other
-  // summary-derived metrics — videos absent from filtered history won't
-  // be referenced anyway, but this keeps the input set explicit.
   const topUsers = await computeTopUsers(client, history, filteredCurrent, 5);
 
   const whisperCount = filteredCurrent.filter(
@@ -1149,11 +1144,10 @@ interface HistoryRow {
   cacheHit?: boolean;
 }
 
-/** Fail-soft wrapper around fetchHistoryIn used by getPerformanceStats.
- * If the history read errors, log + return [] so the perf page can still
- * render. The caller distinguishes "no rows" vs "fetch errored" only via
- * the documented fail-soft contract: empty history → drop the filter,
- * not "filter everything out". */
+/** Used by getPerformanceStats: a history-fetch error logs and returns []
+ * so the perf page renders instead of 500-ing. With honest filtering, []
+ * now zeroes the filtered metrics — that's preferable to crashing the
+ * page on a transient read failure. */
 async function fetchHistoryForExclusion(
   client: SupabaseClient,
   window: TimeWindow,
@@ -1163,7 +1157,7 @@ async function fetchHistoryForExclusion(
     return await fetchHistoryIn(client, window, exclude);
   } catch (err) {
     console.error(
-      "[admin-queries] getPerformanceStats: history fetch failed; falling back to no filter",
+      "[admin-queries] getPerformanceStats: history fetch failed; filtered metrics will be empty",
       {
         message: err instanceof Error ? err.message : String(err),
         window: {

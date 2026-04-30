@@ -10,16 +10,12 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 interface IncludeAdminsToggleProps {
-  /** When true the URL has ?include_admins=1 and admin activity is shown. */
   checked: boolean;
 }
 
 /**
- * Small client toggle wired to ?include_admins URL state. Shared by
- * /admin and /admin/performance — both read the same URL param.
- *
- * Default unchecked = exclude admins (the operator-friendly default
- * the spec calls for).
+ * Toggle wired to the ?include_admins URL param. Default unchecked
+ * because admin activity skews operator-facing metrics.
  */
 export function IncludeAdminsToggle({ checked }: IncludeAdminsToggleProps) {
   const router = useRouter();
