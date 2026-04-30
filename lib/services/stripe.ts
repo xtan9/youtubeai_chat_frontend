@@ -14,10 +14,14 @@ export function getStripe(): Stripe | null {
     return null;
   }
   // SDK v22 ships with apiVersion "2026-04-22.dahlia" as LatestApiVersion;
-  // we pin to the spec-required "2025-08-27.basil" which determines webhook
-  // payload shape. Cast through `never` to satisfy the literal-union check
-  // without silently upgrading to the SDK default.
-  _client = new Stripe(key, { apiVersion: "2025-08-27.basil" as never });
+  // we pin to "2025-05-28.basil" — the basil-family snapshot the Dashboard
+  // webhook endpoint is configured for. Within the basil family,
+  // current_period_end stays at the subscription level (it moved to
+  // subscription items in the acacia family). The Dashboard webhook config
+  // and this SDK version must agree on the family or the payload shape our
+  // handlers expect will drift. Cast through `never` to satisfy the
+  // literal-union check without silently upgrading to the SDK default.
+  _client = new Stripe(key, { apiVersion: "2025-05-28.basil" as never });
   return _client;
 }
 

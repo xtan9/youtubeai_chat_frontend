@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { chatThreadQueryKey } from "./useChatThread";
 import {
   ChatSseEventSchema,
@@ -20,6 +21,9 @@ export interface ChatStreamApi {
   readonly streaming: boolean;
   readonly draft: { readonly user: string; readonly assistant: string } | null;
   readonly error: string | null;
+  /** Set when the server returned 402 Payment Required. Consumers can
+   *  inspect `upgradeError.errorCode` to pick the right paywall surface. */
+  readonly upgradeError: UpgradeRequiredError | null;
 }
 
 const MAX_PARSE_WARNINGS_PER_STREAM = 3;
@@ -75,6 +79,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
     { user: string; assistant: string } | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+  const [upgradeError, setUpgradeError] = useState<UpgradeRequiredError | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const abort = useCallback(() => {
@@ -90,6 +95,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
       const controller = new AbortController();
       abortRef.current = controller;
       setError(null);
+      setUpgradeError(null);
       setStreaming(true);
       setDraft({ user: message, assistant: "" });
 
@@ -139,6 +145,27 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
         });
 
         if (!response.ok) {
+          if (response.status === 402) {
+            let body: {
+              errorCode?: string;
+              tier?: string;
+              upgradeUrl?: string;
+              message?: string;
+            } = {};
+            try {
+              body = (await response.json()) as typeof body;
+            } catch {
+              // non-JSON error body
+            }
+            throw new UpgradeRequiredError({
+              errorCode:
+                (body.errorCode as UpgradeRequiredError["errorCode"]) ??
+                "free_chat_exceeded",
+              tier: (body.tier as UpgradeRequiredError["tier"]) ?? "free",
+              upgradeUrl: body.upgradeUrl ?? "/pricing",
+              message: body.message ?? "Upgrade required",
+            });
+          }
           let serverMessage = "Could not send message.";
           try {
             const body = (await response.json()) as { message?: string };
@@ -190,8 +217,13 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
           (err instanceof DOMException && err.name === "AbortError") ||
           controller.signal.aborted;
         if (!aborted) {
-          const msg = err instanceof Error ? err.message : "Could not send message.";
-          setError(msg);
+          if (err instanceof UpgradeRequiredError) {
+            setUpgradeError(err);
+          } else {
+            const msg =
+              err instanceof Error ? err.message : "Could not send message.";
+            setError(msg);
+          }
         }
       } finally {
         setStreaming(false);
@@ -209,5 +241,5 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
     [youtubeUrl, session, queryClient]
   );
 
-  return { send, abort, streaming, draft, error };
+  return { send, abort, streaming, draft, error, upgradeError };
 }

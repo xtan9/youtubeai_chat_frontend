@@ -48,6 +48,7 @@ describe("updateSession", () => {
     ["/blog", "blog index"],
     ["/blog/some-post", "blog post"],
     ["/faq", "faq"],
+    ["/pricing", "pricing page"],
     ["/api/health", "health probe"],
     // Paywall routes — must be reachable unauthenticated for their own
     // auth strategies to run (signature verification, JSON 401, anon-tier

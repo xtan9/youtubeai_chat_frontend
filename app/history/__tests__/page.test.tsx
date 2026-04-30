@@ -6,6 +6,7 @@ import type { HistoryRow } from "@/lib/services/user-history";
 
 const mockGetUser = vi.fn();
 const mockGetHistoryPage = vi.fn();
+const mockGetUserTier = vi.fn();
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockRedirect = vi.fn((_path: string) => {
   throw new Error("REDIRECT");
@@ -22,6 +23,10 @@ vi.mock("@/lib/services/user-history", () => ({
 const mockGetChatMessageCounts = vi.fn();
 vi.mock("@/lib/services/chat-counts", () => ({
   getChatMessageCounts: (...args: unknown[]) => mockGetChatMessageCounts(...args),
+}));
+vi.mock("@/lib/services/entitlements", () => ({
+  getUserTier: (...args: unknown[]) => mockGetUserTier(...args),
+  FREE_LIMITS: { historyItems: 10 },
 }));
 vi.mock("next/navigation", () => ({
   redirect: (path: string) => mockRedirect(path),
@@ -42,6 +47,8 @@ describe("HistoryPage", () => {
   beforeEach(() => {
     mockGetUser.mockReset();
     mockGetHistoryPage.mockReset();
+    mockGetUserTier.mockReset();
+    mockGetUserTier.mockResolvedValue("free");
     mockRedirect.mockClear();
     mockGetChatMessageCounts.mockReset();
     mockGetChatMessageCounts.mockResolvedValue(new Map());
@@ -178,6 +185,49 @@ describe("HistoryPage", () => {
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(
       screen.queryByText(/haven't summarized any videos yet/i),
+    ).toBeNull();
+  });
+
+  it("shows HistoryAnonEmpty and does NOT call getHistoryPage for anon users", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "anon-1", is_anonymous: true } },
+    });
+    const ui = await HistoryPage({ searchParams: Promise.resolve({}) });
+    renderWithProviders(ui);
+    expect(
+      screen.getByRole("heading", { name: /save and revisit your summaries/i }),
+    ).toBeTruthy();
+    expect(mockGetHistoryPage).not.toHaveBeenCalled();
+  });
+
+  it("shows HistoryFreeBanner for free users at cap (total=10)", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetUserTier.mockResolvedValue("free");
+    mockGetHistoryPage.mockResolvedValue({
+      ok: true,
+      rows: [ROW],
+      total: 10,
+      totalPages: 1,
+    });
+    const ui = await HistoryPage({ searchParams: Promise.resolve({}) });
+    renderWithProviders(ui);
+    expect(screen.getByText(/showing 10 of 10/i)).toBeTruthy();
+    expect(screen.getByText(/auto-replaced/i)).toBeTruthy();
+  });
+
+  it("does NOT show HistoryFreeBanner for pro users", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    mockGetUserTier.mockResolvedValue("pro");
+    mockGetHistoryPage.mockResolvedValue({
+      ok: true,
+      rows: [ROW],
+      total: 1,
+      totalPages: 1,
+    });
+    const ui = await HistoryPage({ searchParams: Promise.resolve({}) });
+    renderWithProviders(ui);
+    expect(
+      screen.queryByText(/upgrade for unlimited history/i),
     ).toBeNull();
   });
 });

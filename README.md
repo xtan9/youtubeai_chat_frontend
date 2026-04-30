@@ -70,6 +70,40 @@ Migrations live in `supabase/migrations/` and are applied by `.github/workflows/
 - Enforced atomically via an `INSERT ... ON CONFLICT DO UPDATE RETURNING` RPC.
 - Fail-open if Supabase is unreachable; every fail-open path logs so abuse-wall regressions are visible.
 
+## Paywall (freemium)
+
+Spec: [`docs/superpowers/specs/2026-04-29-paywall-design.md`](docs/superpowers/specs/2026-04-29-paywall-design.md)
+
+- **Anon:** 1 lifetime summary per browser (HMAC-signed cookie via `lib/services/anon-cookie.ts`). No chat. No history.
+- **Free:** 10 summaries/month (UTC reset on the 1st), 5 chat messages/video, 10-item history with FIFO eviction.
+- **Pro:** unlimited summaries / chat / history. $4.99/mo billed yearly ($59.88/yr) or $6.99/mo monthly via Stripe.
+- Pricing page at `/pricing`. Manage subscription via the user dropdown (Pro users only) → opens Stripe Customer Portal.
+
+### Paywall endpoints
+
+| Path | Purpose |
+|---|---|
+| `POST /api/billing/checkout` | Auth-required. Creates Stripe Customer + Checkout Session. Body `{ plan: "monthly" \| "yearly" }`. |
+| `POST /api/billing/portal` | Auth-required. Returns Stripe Customer Portal URL. |
+| `POST /api/webhooks/stripe` | Signature-verified, idempotent. Source of truth for `user_subscriptions.tier`. |
+| `GET /api/me/entitlements` | Returns `{ tier, caps, subscription? }` for the UI. |
+
+### Stripe env vars (Vercel)
+
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`, `NEXT_PUBLIC_SITE_URL`. Plus `ANON_COOKIE_SECRET` (32+ random chars) for the anon-id signed cookie.
+
+### Local Stripe webhook testing
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```
+
+Copy the printed `whsec_...` into `.env.local` as `STRIPE_WEBHOOK_SECRET`. Test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0341` (declines after subscribing — useful for past_due flow).
+
+### Middleware note
+
+The Stripe webhook plus all `/api/billing/*` routes and `/api/me/entitlements` are in the public-path list in `lib/supabase/middleware.ts` — they handle their own auth (signature verification or JSON 401), and middleware-redirecting them would 307 webhooks to `/auth/login` and clobber JSON billing responses into HTML.
+
 ## Model routing
 
 The summarize route picks between Claude Haiku 4.5 and Claude Sonnet 4.6 automatically per request. Routing happens in `lib/services/model-routing.ts`:

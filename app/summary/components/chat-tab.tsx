@@ -4,6 +4,9 @@ import { useCallback, useState } from "react";
 import { useChatStream } from "@/lib/hooks/useChatStream";
 import { useChatSuggestions } from "@/lib/hooks/useChatSuggestions";
 import { useChatThread } from "@/lib/hooks/useChatThread";
+import { useEntitlements } from "@/lib/hooks/useEntitlements";
+import { ChatCapBanner } from "@/components/paywall/ChatCapBanner";
+import { ChatCapCounter } from "@/components/paywall/ChatCapCounter";
 import { ChatClearButton } from "./chat-clear-button";
 import { ChatEmptyState } from "./chat-empty-state";
 import { ChatInput } from "./chat-input";
@@ -28,6 +31,7 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
   const thread = useChatThread(youtubeUrl, active);
   const stream = useChatStream({ youtubeUrl });
   const suggestions = useChatSuggestions(youtubeUrl, active);
+  const { data: ent } = useEntitlements();
 
   const handleSend = () => {
     const text = draftInput.trim();
@@ -53,6 +57,18 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
     persistedMessages.length === 0 &&
     !stream.draft &&
     !stream.streaming;
+
+  // Determine the chat cap banner variant based on the 402 error code.
+  const chatCapBannerVariant =
+    stream.upgradeError?.errorCode === "anon_chat_blocked"
+      ? "anon-blocked"
+      : "free-cap";
+
+  // Count user-sent messages to drive the soft counter.
+  const userMessageCount = persistedMessages.filter(
+    (m) => m.role === "user",
+  ).length;
+  const FREE_CHAT_LIMIT = 5;
 
   return (
     <div className="flex h-[640px] flex-col rounded-lg border border-border-default bg-surface-base">
@@ -99,14 +115,26 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
       )}
 
       <div className="border-t border-border-subtle p-3">
-        <ChatInput
-          value={draftInput}
-          onChange={setDraftInput}
-          onSend={handleSend}
-          onStop={stream.abort}
-          streaming={stream.streaming}
-          disabled={!youtubeUrl || clearPending}
-        />
+        {stream.upgradeError ? (
+          <ChatCapBanner variant={chatCapBannerVariant} />
+        ) : (
+          <>
+            <ChatInput
+              value={draftInput}
+              onChange={setDraftInput}
+              onSend={handleSend}
+              onStop={stream.abort}
+              streaming={stream.streaming}
+              disabled={!youtubeUrl || clearPending}
+            />
+            {ent?.tier === "free" && (
+              <ChatCapCounter
+                used={userMessageCount}
+                limit={FREE_CHAT_LIMIT}
+              />
+            )}
+          </>
+        )}
       </div>
     </div>
   );
