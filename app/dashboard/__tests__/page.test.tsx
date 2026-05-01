@@ -59,6 +59,33 @@ describe("DashboardPage", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/auth/login");
   });
 
+  it("redirects Supabase-anonymous user (is_anonymous=true) to /auth/login", async () => {
+    // Anon-auth users come from the hero's signInAnonymously() so they
+    // can chat without signing up. The middleware now correctly leaves
+    // them on `/`, but a direct visit to /dashboard must still bounce
+    // them — they have no real account and no history to show, and
+    // rendering "Welcome back," with an empty greeting is broken UX.
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "anon-1", email: "", is_anonymous: true } },
+    });
+    await expect(DashboardPage()).rejects.toThrow("REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/auth/login");
+  });
+
+  it("renders for user with is_anonymous=false explicitly set", async () => {
+    // Pins the negative case for the anon guard so a future predicate
+    // inversion (e.g. `!user || !user.is_anonymous`) fails this test
+    // instead of silently locking real users out of the dashboard.
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1", email: "u@example.com", is_anonymous: false } },
+    });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    expect(screen.getByTestId("input-form")).toBeTruthy();
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
   it("renders input form, recent label, and history list when authenticated", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },

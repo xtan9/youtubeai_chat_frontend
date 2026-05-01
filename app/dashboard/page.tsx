@@ -20,7 +20,13 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
+  // Anon-auth users go to /auth/login, NOT to a "you have no history yet"
+  // empty state like /history shows them. The dashboard is account-shaped
+  // (greeting, recent list, chat-count badges) and there is nothing
+  // useful for an account-less visitor here — sending them to login is
+  // the actionable next step. Don't "harmonize" with /history without
+  // also redesigning the dashboard.
+  if (!user || (user.is_anonymous ?? false)) redirect("/auth/login");
 
   const result = await getRecentHistory(supabase, user.id, RECENT_LIMIT);
   const showViewAll = result.ok && result.rows.length >= RECENT_LIMIT;
