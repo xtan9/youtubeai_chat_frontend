@@ -56,7 +56,9 @@ const LOADING_SUGGESTIONS_SENTINEL: readonly string[] = [];
 
 /**
  * Interactive hero widget for the marketing homepage. Three columns
- * sharing a 600px lg height:
+ * with col 1 driving the row height (via grid `align-items: stretch`)
+ * so cols 2 & 3 always match it regardless of platform-specific font
+ * wrapping in col 1's titles:
  *
  * 1. Playable react-youtube embed for the active sample, title +
  *    channel · duration line, and a 2×3 thumbnail grid of all six
@@ -212,10 +214,11 @@ function HeroDemoInner() {
           </div>
         </div>
 
-        {/* Col 2 — Summary | Transcript. `lg:h-0 lg:min-h-full` lets the
-            grid row sizing be driven by col 1's natural content; col 2's
-            tall summary content would otherwise force the row taller and
-            break the equal-height layout. */}
+        {/* Col 2 — Summary | Transcript. `lg:h-0` makes col 2's intrinsic
+            height effectively zero so the grid row is sized by col 1;
+            `lg:min-h-full` then re-stretches col 2 back to row height via
+            `items-stretch`. Without this, col 2's tall summary markdown
+            would force the row taller and col 1 would stretch to match. */}
         <div
           className={`flex flex-col min-w-0 lg:h-0 lg:min-h-full lg:overflow-hidden ${
             fading ? "opacity-0" : "opacity-100"
