@@ -189,7 +189,7 @@ function HeroDemoInner() {
     <section className="mx-auto max-w-page px-4 mb-16 w-full">
       <div className="grid gap-6 lg:grid-cols-[3fr_3.5fr_3.5fr] lg:items-stretch">
         {/* Col 1 — playable video + 2×3 thumbnail grid */}
-        <div className="flex flex-col gap-4 min-w-0 lg:h-150">
+        <div className="flex flex-col gap-4 min-w-0">
           <HeroPlayer
             key={activeId}
             videoId={activeId}
@@ -212,9 +212,12 @@ function HeroDemoInner() {
           </div>
         </div>
 
-        {/* Col 2 — Summary | Transcript */}
+        {/* Col 2 — Summary | Transcript. `lg:h-0 lg:min-h-full` lets the
+            grid row sizing be driven by col 1's natural content; col 2's
+            tall summary content would otherwise force the row taller and
+            break the equal-height layout. */}
         <div
-          className={`flex flex-col min-w-0 lg:h-150 ${
+          className={`flex flex-col min-w-0 lg:h-0 lg:min-h-full lg:overflow-hidden ${
             fading ? "opacity-0" : "opacity-100"
           } motion-safe:transition-opacity duration-base`}
         >
@@ -278,8 +281,9 @@ function HeroDemoInner() {
           </Tabs>
         </div>
 
-        {/* Col 3 — Chat */}
-        <div className="min-w-0 lg:h-150">
+        {/* Col 3 — Chat. Same height-trick as col 2 so col 1 drives the
+            row height and the chat fills it via grid-stretch + h-full. */}
+        <div className="flex flex-col min-w-0 lg:h-0 lg:min-h-full lg:overflow-hidden">
           <ChatTab
             youtubeUrl={sampleUrl}
             active={true}
