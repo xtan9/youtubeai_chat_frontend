@@ -1,4 +1,4 @@
-import { Brain, Sparkles, Clock, Globe } from "lucide-react";
+import { Captions, Globe, MessageCircle, Sparkles } from "lucide-react";
 
 // Animation keyframes live in app/globals.css (`.animate-float*`) so this
 // component renders server-side and ships zero JS.
@@ -19,7 +19,7 @@ export function HeroSection() {
           <div className="inline-flex items-center gap-2 bg-surface-base/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/20 mb-6">
             <Sparkles size={16} className="text-accent-brand" />
             <span className="text-sm font-medium text-text-primary">
-              Free to start • No signup needed
+              1 free video • No signup needed
             </span>
           </div>
 
@@ -28,29 +28,28 @@ export function HeroSection() {
           </h1>
 
           <p className="text-xl text-text-muted mb-8 max-w-3xl mx-auto">
-            Powered by YouTube transcript AI, this free YouTube summarizer
-            turns any video into a concise summary in seconds. Paste a link to
-            summarize a YouTube video, then chat with the YouTube video
-            transcript to jump straight to the moments that matter.
+            Paste any YouTube link and get a structured summary in seconds —
+            then chat with the video to jump to the moments that matter. Works
+            even on videos without captions, where most summarizers give up.
           </p>
 
           <div className="flex flex-wrap justify-center gap-4 mb-8">
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
-              <Brain className="w-5 h-5 text-accent-brand" />
+              <MessageCircle className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-text-primary">
-                Advanced AI Analysis
+                Chat with the video
               </span>
             </div>
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
-              <Clock className="w-5 h-5 text-accent-brand-secondary" />
+              <Captions className="w-5 h-5 text-accent-brand-secondary" />
               <span className="text-sm text-text-primary">
-                Save Hours of Watching
+                Works without captions
               </span>
             </div>
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Globe className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-text-primary">
-                30+ Languages
+                17 summary languages
               </span>
             </div>
           </div>

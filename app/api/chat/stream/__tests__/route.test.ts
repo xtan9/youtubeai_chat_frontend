@@ -189,6 +189,73 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
+  it("allows anonymous users to chat hero-demo videos via HERO_DEMO_VIDEO_IDS allowlist", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-2", is_anonymous: true } },
+      error: null,
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
+    expect(res.status).not.toBe(402);
+    expect(mocks.checkRateLimit).toHaveBeenCalled();
+  });
+
+  it("still 402s anonymous users on non-allowlisted videos even with the allowlist active", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-3", is_anonymous: true } },
+      error: null,
+    });
+    const { POST } = await import("../route");
+    // VALID_URL = dQw4w9WgXcQ — not in HERO_DEMO_VIDEO_IDS.
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.errorCode).toBe("anon_chat_blocked");
+  });
+
+  it("allows anonymous users on the youtu.be short-URL form for hero-demo videos", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-4", is_anonymous: true } },
+      error: null,
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({
+        youtube_url: "https://youtu.be/Hrbq66XqtCo",
+        message: "hi",
+      }),
+    );
+    expect(res.status).not.toBe(402);
+    expect(mocks.checkRateLimit).toHaveBeenCalled();
+  });
+
+  it("rejects malformed `?v=` values whose parsed id is too long, even if a hero-demo id is a prefix", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-5", is_anonymous: true } },
+      error: null,
+    });
+    const { POST } = await import("../route");
+    // `?v=Hrbq66XqtCoEXTRA` would be a substring-style attack on a naive
+    // allowlist check. The 11-char guard inside getYoutubeVideoId means
+    // the parsed id is null, so the allowlist returns false → 402.
+    const res = await POST(
+      makeRequest({
+        youtube_url: "https://www.youtube.com/watch?v=Hrbq66XqtCoEXTRA",
+        message: "hi",
+      }),
+    );
+    expect(res.status).toBe(402);
+  });
+
   it("returns 429 when rate-limited", async () => {
     mocks.checkRateLimit.mockResolvedValue({
       allowed: false,

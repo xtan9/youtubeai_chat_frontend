@@ -32,36 +32,28 @@ export function Footer() {
         </div>
         <div className="flex flex-wrap justify-center gap-4 text-sm text-text-muted">
           <a
-            href="https://www.youtube.com/creators/"
+            href="https://www.anthropic.com/claude"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-text-primary"
           >
-            YouTube Creator Academy
+            Powered by Claude
           </a>
           <a
-            href="https://openai.com/research/gpt-4"
+            href="https://openai.com/research/whisper"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-text-primary"
           >
-            Learn about GPT-4
+            OpenAI Whisper
           </a>
           <a
-            href="https://www.deeplearning.ai/"
+            href="https://support.google.com/youtube/answer/2734796"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-text-primary"
           >
-            DeepLearning.AI
-          </a>
-          <a
-            href="https://www.coursera.org/courses?query=video%20editing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-text-primary"
-          >
-            Video Editing Courses
+            YouTube captions guide
           </a>
         </div>
         <div className="text-sm text-text-muted">
