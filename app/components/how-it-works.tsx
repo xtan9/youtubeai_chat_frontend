@@ -4,34 +4,12 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PlayCircle } from "lucide-react";
 import Image from "next/image";
+import { HOW_IT_WORKS_STEPS } from "./how-it-works-steps";
 
 const cardBase =
   "bg-white dark:bg-white/5 backdrop-blur-sm border-gray-100 dark:border-white/10 shadow-sm";
 const description = "text-gray-700 dark:text-gray-300 font-medium";
 const badgeGradient = "bg-gradient-brand-primary";
-
-const STEPS = [
-  {
-    title: "Drop Your Video Link",
-    body: "Paste the URL of any public YouTube video — short clips, two-hour podcasts, lectures, keynotes. Length and topic don't matter.",
-  },
-  {
-    title: "Hit Summarize",
-    body: "One click, no settings to tune. Pick the output language if you want something other than English; otherwise we use a sensible default for your locale.",
-  },
-  {
-    title: "We Pull the Transcript",
-    body: "We grab YouTube's captions when they're available — that's the fast path. When the creator hasn't published captions, we fall back to downloading the audio and transcribing it with Whisper. Most summarizers fail on caption-less videos; we don't.",
-  },
-  {
-    title: "Get Your Summary",
-    body: "A structured breakdown with key points, themes, and clickable timestamps that jump the player to the moment cited. Copy any passage, save it to your dashboard, or share a link.",
-  },
-  {
-    title: "Ask Follow-Up Questions",
-    body: "Switch to the Chat tab and ask anything. Claude answers from the full transcript, with suggested follow-up prompts so you can dig deeper without re-watching.",
-  },
-];
 
 export function HowItWorks() {
   return (
@@ -42,7 +20,7 @@ export function HowItWorks() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="space-y-8">
-          {STEPS.map((step, i) => (
+          {HOW_IT_WORKS_STEPS.map((step, i) => (
             <div key={step.title} className="flex gap-4">
               <Badge
                 className={`shrink-0 w-10 h-10 rounded-full ${badgeGradient} flex items-center justify-center text-white font-bold p-0`}
