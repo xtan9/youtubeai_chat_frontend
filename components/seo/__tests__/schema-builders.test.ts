@@ -46,6 +46,13 @@ describe("buildOrganizationSchema", () => {
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
   });
+
+  it("publishes a customer-support contactPoint with the business email", () => {
+    expect(schema.contactPoint["@type"]).toBe("ContactPoint");
+    expect(schema.contactPoint.contactType).toBe("customer support");
+    expect(schema.contactPoint.email).toBe("contact@youtubeai.chat");
+    expect(schema.contactPoint.availableLanguage).toEqual(["English"]);
+  });
 });
 
 describe("buildWebApplicationSchema", () => {
