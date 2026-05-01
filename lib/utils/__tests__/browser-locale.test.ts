@@ -112,4 +112,40 @@ describe("pickDefaultLanguage — Traditional Chinese routing", () => {
       pickDefaultLanguage(["en-US", "zh-TW"], SUPPORTED_LANGUAGE_CODES),
     ).toBe("en");
   });
+
+  it("an earlier alias-routed tag still beats a later exact tag", () => {
+    // Mirror of the above — when the alias path is the first match, it
+    // wins over a later exact match. Pins the first-match semantics for
+    // alias routing too, not just exact-match routing.
+    expect(
+      pickDefaultLanguage(["zh-HK", "en"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("zh-TW");
+  });
+
+  it("normalizes POSIX-style underscores so zh_TW still routes to zh-TW", () => {
+    // Some Android WebViews and Electron hosts emit POSIX-style
+    // "zh_HK" / "zh_TW" instead of BCP-47 "zh-HK" / "zh-TW". The
+    // `_` → `-` normalization keeps both forms on the same path.
+    expect(pickDefaultLanguage(["zh_TW"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+    expect(pickDefaultLanguage(["zh_HK"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("walks descending prefixes for 4-part tags (loop decrement reachable)", () => {
+    // For "zh-Hant-TW-x", parts.length=4: the inner loop tries
+    // "zh-hant-tw" first (no alias), then "zh-hant" on the second
+    // iteration (matches). Pins the descending-prefix contract so a
+    // future maintainer can't replace the loop with a single
+    // 1-prefix lookup without breaking 4+ subtag inputs.
+    expect(
+      pickDefaultLanguage(["zh-Hant-TW-x"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("zh-TW");
+  });
+
+  it("falls back to English when the only entry is an empty string", () => {
+    expect(pickDefaultLanguage([""], SUPPORTED_LANGUAGE_CODES)).toBe("en");
+  });
 });

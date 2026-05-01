@@ -42,7 +42,7 @@ export function HeroSection() {
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Globe className="w-5 h-5 text-accent-brand" />
               <span className="text-sm text-text-primary">
-                17 summary languages
+                18 summary languages
               </span>
             </div>
           </div>

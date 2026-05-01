@@ -62,7 +62,7 @@ const LOADING_SUGGESTIONS_SENTINEL: readonly string[] = [];
  *    channel · duration line, and a 2×3 thumbnail grid of all six
  *    samples filling the remaining vertical space.
  * 2. Summary | Transcript tabs. Summary tab carries a live
- *    LanguagePicker (17 langs pre-cached) that swaps the rendered
+ *    LanguagePicker (18 langs pre-cached) that swaps the rendered
  *    markdown without touching the network. Transcript tab uses the
  *    /summary `<TranscriptParagraphs>` component for paragraph-grouped
  *    click-to-seek timestamps that drive the embedded player.

@@ -1,5 +1,5 @@
 /**
- * Seed prod cache with hero-demo translations for all 17 supported
+ * Seed prod cache with hero-demo translations for all 18 supported
  * summary languages × 6 demo videos = 102 (id, lang) combos.
  *
  * Strategy: Playwright signs into prod once via the /auth/login form,

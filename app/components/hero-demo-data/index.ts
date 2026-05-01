@@ -4,7 +4,7 @@
  * summary modules are dynamically imported on selection / language pick.
  *
  * Adding a sample:
- *   1. Cache it in prod via /summary?url=URL&lang=<each of 17> (or use
+ *   1. Cache it in prod via /summary?url=URL&lang=<each of 18> (or use
  *      scripts/seed-hero-demo-translations.ts).
  *   2. Run `pnpm tsx scripts/build-hero-demo-data.ts` to regenerate the
  *      per-id directory.
@@ -29,7 +29,7 @@ export interface HeroSampleBase {
   readonly id: HeroDemoVideoId;
   readonly segments: ReadonlyArray<TranscriptSegment>;
   // Stays a free string in the registry surface so the `videos.language`
-  // column (which can carry codes outside our 17-language picker set,
+  // column (which can carry codes outside our 18-language picker set,
   // e.g. an auto-detected source-only locale) round-trips intact through
   // the dump → build pipeline. The picker itself is typed
   // SupportedLanguageCode separately.
@@ -93,7 +93,7 @@ export function formatTimestamp(seconds: number): string {
 // Static (id, lang) → loader map. Verbose but unambiguous: every
 // dynamic import string is a literal, so both vite (test) and webpack
 // (production) emit one chunk per (id, lang) without warnings or
-// fall-through to a directory context. 6 ids × 17 langs = 102 entries.
+// fall-through to a directory context. 6 ids × 18 langs = 108 entries.
 //
 // Typed as `Record<HeroDemoVideoId, Record<SupportedLanguageCode, ...>>`
 // — adding a 7th id to HERO_DEMO_VIDEO_IDS or a new language code

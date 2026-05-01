@@ -1,7 +1,4 @@
-// PLACEHOLDER: clones zh.ts (Simplified) so the loader matrix compiles.
-// Replace with real Traditional summaries via the follow-up data PR
-// (see docs/superpowers/specs/2026-05-01-traditional-chinese-zh-tw-design.md
-//  → "Hero demo data — bootstrap and follow-up").
+// TODO(zh-tw-data): cloned from zh.ts (Simplified) — replace with real Traditional content.
 
 import type { HeroSampleSummary } from "../index";
 
