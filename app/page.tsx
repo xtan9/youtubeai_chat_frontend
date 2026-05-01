@@ -4,7 +4,6 @@ import { AnonHomepageGate } from "./components/anon-homepage-gate";
 import { Benefits } from "./components/benefits";
 import { UseCases } from "./components/use-cases";
 import { HowItWorks } from "./components/how-it-works";
-import { Testimonials } from "./components/testimonials";
 import { FAQ } from "./components/faq";
 import { HeroSection } from "./components/hero-section";
 import FaqJsonLd from "@/components/seo/faq-jsonld";
@@ -55,7 +54,6 @@ export default function Home() {
       <Benefits />
       <UseCases />
       <HowItWorks />
-      <Testimonials />
       <FAQ />
       <FaqJsonLd />
       <JsonLd id="structured-data-howto" data={buildHowToSchema()} />
