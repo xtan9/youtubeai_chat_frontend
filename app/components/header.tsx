@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Brain, LogOut } from "lucide-react";
+import { Brain, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -15,14 +15,11 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
-import { useEntitlements } from "@/lib/hooks/useEntitlements";
-import { ManageSubscriptionLink } from "@/components/paywall/ManageSubscriptionLink";
 
 export function Header() {
   const { user } = useUser();
   const router = useRouter();
   const supabase = createClient();
-  const { data: entitlements } = useEntitlements();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -89,12 +86,16 @@ export function Header() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
-                    {entitlements?.tier === "pro" && (
-                      <DropdownMenuItem asChild>
-                        <ManageSubscriptionLink />
-                      </DropdownMenuItem>
-                    )}
-                    {entitlements?.tier === "pro" && <DropdownMenuSeparator />}
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/account"
+                        className="cursor-pointer flex items-center gap-2"
+                      >
+                        <UserIcon size={16} />
+                        <span>Account</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onSelect={handleSignOut}
                       className="cursor-pointer"

@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Header } from "../header";
-import { useEntitlements } from "@/lib/hooks/useEntitlements";
 
 afterEach(cleanup);
 
@@ -27,10 +26,6 @@ vi.mock("@/lib/contexts/user-context", () => ({
     user: { id: "u1", is_anonymous: false, email: "test@example.com" },
     session: { access_token: "tok" },
   }),
-}));
-
-vi.mock("@/lib/hooks/useEntitlements", () => ({
-  useEntitlements: vi.fn(),
 }));
 
 vi.mock("@/components/profile-avatar", () => ({
@@ -60,51 +55,19 @@ beforeEach(() => {
 });
 
 describe("Header user menu", () => {
-  it("free tier — DropdownMenu has no 'Manage subscription' item", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
-    });
+  // The dropdown is now tier-agnostic — Account + Sign Out, regardless
+  // of Free vs Pro. The Stripe portal redirect lives on /account itself.
+  it("dropdown has 'Account' link to /account and 'Sign Out' for any signed-in user", () => {
     const qc = freshQueryClient();
     render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
 
     openDropdown(screen.getByRole("button", { name: /user menu/i }));
 
+    const account = screen.getByRole("menuitem", { name: /account/i });
+    expect(account).not.toBeNull();
+    const anchor = account.tagName.toLowerCase() === "a" ? account : account.querySelector("a");
+    expect(anchor?.getAttribute("href")).toBe("/account");
     expect(screen.queryByText(/manage subscription/i)).toBeNull();
-  });
-
-  it("pro tier — DropdownMenu shows 'Manage subscription'", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "pro", caps: { summariesUsed: 0, summariesLimit: -1 } },
-    });
-    const qc = freshQueryClient();
-    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
-
-    openDropdown(screen.getByRole("button", { name: /user menu/i }));
-
-    expect(screen.getByText(/manage subscription/i)).not.toBeNull();
-  });
-
-  it("Sign Out item is present for free tier", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
-    });
-    const qc = freshQueryClient();
-    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
-
-    openDropdown(screen.getByRole("button", { name: /user menu/i }));
-
-    expect(screen.getByText(/sign out/i)).not.toBeNull();
-  });
-
-  it("Sign Out item is present for pro tier", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "pro", caps: { summariesUsed: 0, summariesLimit: -1 } },
-    });
-    const qc = freshQueryClient();
-    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
-
-    openDropdown(screen.getByRole("button", { name: /user menu/i }));
-
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
 });

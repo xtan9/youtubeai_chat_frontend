@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
-export function ManageSubscriptionLink() {
+export function ManageSubscriptionButton() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,17 +35,16 @@ export function ManageSubscriptionLink() {
 
   return (
     <>
-      <button
+      <Button
         type="button"
         onClick={onClick}
         disabled={pending}
-        className="text-text-primary hover:bg-state-hover px-3 py-2 rounded-md text-body-sm w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
         data-paywall-action="manage-subscription"
       >
         {pending ? "Opening…" : "Manage subscription"}
-      </button>
+      </Button>
       {error ? (
-        <p className="text-caption text-accent-danger mt-1 px-3" role="alert">
+        <p className="text-caption text-accent-danger mt-2" role="alert">
           {error}
         </p>
       ) : null}
