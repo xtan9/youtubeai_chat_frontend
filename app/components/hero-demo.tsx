@@ -56,7 +56,9 @@ const LOADING_SUGGESTIONS_SENTINEL: readonly string[] = [];
 
 /**
  * Interactive hero widget for the marketing homepage. Three columns
- * sharing a 600px lg height:
+ * with col 1 driving the row height (via grid `align-items: stretch`)
+ * so cols 2 & 3 always match it regardless of platform-specific font
+ * wrapping in col 1's titles:
  *
  * 1. Playable react-youtube embed for the active sample, title +
  *    channel · duration line, and a 2×3 thumbnail grid of all six
@@ -189,7 +191,7 @@ function HeroDemoInner() {
     <section className="mx-auto max-w-page px-4 mb-16 w-full">
       <div className="grid gap-6 lg:grid-cols-[3fr_3.5fr_3.5fr] lg:items-stretch">
         {/* Col 1 — playable video + 2×3 thumbnail grid */}
-        <div className="flex flex-col gap-4 min-w-0 lg:h-150">
+        <div className="flex flex-col gap-4 min-w-0">
           <HeroPlayer
             key={activeId}
             videoId={activeId}
@@ -212,9 +214,13 @@ function HeroDemoInner() {
           </div>
         </div>
 
-        {/* Col 2 — Summary | Transcript */}
+        {/* Col 2 — Summary | Transcript. `lg:h-0` makes col 2's intrinsic
+            height effectively zero so the grid row is sized by col 1;
+            `lg:min-h-full` then re-stretches col 2 back to row height via
+            `items-stretch`. Without this, col 2's tall summary markdown
+            would force the row taller and col 1 would stretch to match. */}
         <div
-          className={`flex flex-col min-w-0 lg:h-150 ${
+          className={`flex flex-col min-w-0 lg:h-0 lg:min-h-full lg:overflow-hidden ${
             fading ? "opacity-0" : "opacity-100"
           } motion-safe:transition-opacity duration-base`}
         >
@@ -278,8 +284,9 @@ function HeroDemoInner() {
           </Tabs>
         </div>
 
-        {/* Col 3 — Chat */}
-        <div className="min-w-0 lg:h-150">
+        {/* Col 3 — Chat. Same height-trick as col 2 so col 1 drives the
+            row height and the chat fills it via grid-stretch + h-full. */}
+        <div className="flex flex-col min-w-0 lg:h-0 lg:min-h-full lg:overflow-hidden">
           <ChatTab
             youtubeUrl={sampleUrl}
             active={true}
