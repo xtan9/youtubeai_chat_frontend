@@ -22,6 +22,15 @@ interface ChatTabProps {
    * When omitted, the original hardcoded height applies.
    */
   readonly className?: string;
+  /**
+   * Override the suggested-questions empty state. When provided, the
+   * `/api/chat/suggestions` fetch is skipped — the override wins. Used
+   * by the homepage hero demo to ship pre-bundled per-language
+   * suggestions that swap when the demo's language picker changes.
+   * Pass `undefined` (the default) on `/summary` to keep the existing
+   * API-fetched behavior.
+   */
+  readonly suggestionsOverride?: readonly string[];
 }
 
 /**
@@ -29,7 +38,12 @@ interface ChatTabProps {
  * fetch only when the tab is active, so users who never click into chat
  * don't fire an extra request.
  */
-export function ChatTab({ youtubeUrl, active, className }: ChatTabProps) {
+export function ChatTab({
+  youtubeUrl,
+  active,
+  className,
+  suggestionsOverride,
+}: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
   // message input during the window — otherwise a message sent after
@@ -37,7 +51,12 @@ export function ChatTab({ youtubeUrl, active, className }: ChatTabProps) {
   const [clearPending, setClearPending] = useState(false);
   const thread = useChatThread(youtubeUrl, active);
   const stream = useChatStream({ youtubeUrl });
-  const suggestions = useChatSuggestions(youtubeUrl, active);
+  // Skip the API fetch when an override is provided — the demo never
+  // wants the server-generated native-language suggestions.
+  const suggestions = useChatSuggestions(
+    youtubeUrl,
+    active && suggestionsOverride === undefined,
+  );
   const { data: ent } = useEntitlements();
 
   const handleSend = () => {
@@ -116,7 +135,9 @@ export function ChatTab({ youtubeUrl, active, className }: ChatTabProps) {
       {showEmptyState ? (
         <ChatEmptyState
           onPickSuggestion={handlePickSuggestion}
-          dynamicSuggestions={suggestions.data?.suggestions}
+          dynamicSuggestions={
+            suggestionsOverride ?? suggestions.data?.suggestions
+          }
         />
       ) : (
         <ChatMessageList

@@ -44,6 +44,16 @@ const HeroThumbnailGrid = dynamic(() => import("./hero-thumbnail-grid"), {
   ssr: false,
 });
 
+// Stable reference passed to ChatTab.suggestionsOverride while the
+// per-(id, lang) summary module is still loading. The sentinel is a
+// non-undefined empty array so ChatTab disables `useChatSuggestions`
+// (the hook's `enabled` flag is `active && override === undefined`)
+// while ChatEmptyState's own `length > 0` guard makes the column
+// degrade to its static-English fallback for the brief loading window.
+// Keeping this at module scope guarantees referential equality across
+// re-renders, so the hook's `enabled` doesn't flap.
+const LOADING_SUGGESTIONS_SENTINEL: readonly string[] = [];
+
 /**
  * Interactive hero widget for the marketing homepage. Three columns
  * sharing a 600px lg height:
@@ -274,6 +284,15 @@ function HeroDemoInner() {
             youtubeUrl={sampleUrl}
             active={true}
             className="h-full"
+            // Always pass a non-undefined override so the hero demo
+            // never triggers a `/api/chat/suggestions` fetch. While the
+            // per-(id, lang) summary module is mid-lazy-load, fall back
+            // to LOADING_SUGGESTIONS_SENTINEL — ChatEmptyState degrades
+            // to static suggestions for the brief loading window, and
+            // once the module lands the localized tuple takes over.
+            suggestionsOverride={
+              summary?.suggestions ?? LOADING_SUGGESTIONS_SENTINEL
+            }
           />
         </div>
       </div>

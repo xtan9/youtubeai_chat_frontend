@@ -484,6 +484,86 @@ describe("ChatTab", () => {
     );
   });
 
+  it("treats an empty-array suggestionsOverride as a non-undefined sentinel: static fallback renders, API is not called", async () => {
+    // The hero demo passes a stable empty-array sentinel during the
+    // 250ms summary lazy-load so the API hook stays disabled. ChatEmptyState
+    // then degrades to its static suggestions list (length-zero override
+    // fails its own `length > 0` guard). Pinning this contract here is
+    // the only place that catches a regression which "cleans up" the
+    // hero-demo wiring back to `summary?.suggestions` (undefined during
+    // load) and re-introduces the API fetch.
+    let suggestionsCalled = 0;
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onSuggestions: () => {
+        suggestionsCalled += 1;
+        return jsonResponse({ suggestions: [] });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        suggestionsOverride={[]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Summarize the key takeaways/ }),
+      ).toBeTruthy(),
+    );
+    expect(suggestionsCalled).toBe(0);
+  });
+
+  it("renders the suggestionsOverride list when provided, ignoring the API", async () => {
+    // The override should win even when the API would have returned a
+    // different list — the hero demo uses this to ship pre-bundled
+    // per-language suggestions.
+    let suggestionsCalled = 0;
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onSuggestions: () => {
+        suggestionsCalled += 1;
+        return jsonResponse({
+          suggestions: [
+            "API suggestion 1",
+            "API suggestion 2",
+            "API suggestion 3",
+          ],
+        });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        suggestionsOverride={[
+          "Override question 1",
+          "Override question 2",
+          "Override question 3",
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Override question 1/ }),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Override question 2/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /API suggestion 1/ }),
+    ).toBeNull();
+    expect(suggestionsCalled).toBe(0);
+  });
+
   it("renders ChatCapBanner (free-cap) when the stream returns a 402 free_chat_exceeded", async () => {
     const fetchMock = makeRouter({
       onMessages: () => jsonResponse({ messages: [] }),

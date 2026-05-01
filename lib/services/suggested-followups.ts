@@ -1,19 +1,18 @@
 import "server-only";
-import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { callLlmJson } from "./llm-client";
 import { SONNET, type KnownModel } from "./models";
-
-// Wire shape persisted on summaries.suggested_followups. Validated via
-// zod so a future schema-drift in either the LLM output OR a hand-edit
-// of the cached row surfaces as a parse error rather than a silent
-// "render two suggestions" or "render undefined" UX bug.
-export const SuggestedFollowupsSchema = z
-  .array(z.string().min(1).max(160))
-  .min(3)
-  .max(3);
-
-export type SuggestedFollowups = z.infer<typeof SuggestedFollowupsSchema>;
+// Validated via zod so a future schema-drift in either the LLM output
+// OR a hand-edit of the cached row surfaces as a parse error rather
+// than a silent "render two suggestions" or "render undefined" UX bug.
+// The schema lives in a non-`server-only` sibling so build- and seed-
+// time scripts can validate against the same invariant; this module
+// re-exports for callers that already imported from here.
+import {
+  SuggestedFollowupsSchema,
+  type SuggestedFollowups,
+} from "./suggested-followups-schema";
+export { SuggestedFollowupsSchema, type SuggestedFollowups };
 
 const FOLLOWUPS_PROMPT = `You are designing the chat surface for a YouTube viewing app. The user has just finished reading the AI summary of a video and is opening a chat tab to dig deeper. Generate exactly three short follow-up questions that THIS specific summary would naturally invite — not generic questions that work for any video.
 

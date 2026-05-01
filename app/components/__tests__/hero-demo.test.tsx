@@ -17,8 +17,26 @@ vi.mock("@/lib/hooks/useAnonSession", () => ({
 }));
 
 vi.mock("@/app/summary/components/chat-tab", () => ({
-  ChatTab: ({ youtubeUrl }: { youtubeUrl: string | null }) => (
-    <div data-testid="chat-tab" data-yturl={youtubeUrl ?? ""} />
+  ChatTab: ({
+    youtubeUrl,
+    suggestionsOverride,
+  }: {
+    youtubeUrl: string | null;
+    suggestionsOverride?: readonly string[];
+  }) => (
+    <div
+      data-testid="chat-tab"
+      data-yturl={youtubeUrl ?? ""}
+      // Conditional `undefined` (not `?? ""`) so React omits the attribute
+      // entirely when the prop is undefined. The hero-demo "never passes
+      // an undefined override" test relies on `getAttribute` returning
+      // `null` to catch a regression back to `summary?.suggestions`.
+      data-suggestions={
+        suggestionsOverride === undefined
+          ? undefined
+          : suggestionsOverride.join("|")
+      }
+    />
   ),
 }));
 
@@ -102,6 +120,34 @@ describe("HeroDemo", () => {
     );
   });
 
+  it("never passes an undefined suggestionsOverride: protects /api/chat/suggestions from firing", async () => {
+    // ChatTab disables `useChatSuggestions` only when the override is
+    // a non-undefined value. The hero demo must always pass *something*
+    // (a stable empty-array sentinel during the loading window, or the
+    // bundled tuple after) so the API hook never fires for hero-demo
+    // visitors. A regression that drops the sentinel and goes back to
+    // `summary?.suggestions` would silently re-introduce an LLM-cost
+    // request on every page load.
+    render(<HeroDemo />);
+    const chat = screen.getByTestId("chat-tab");
+
+    // Initial render: summary is still loading, sentinel must be in
+    // place — `data-suggestions` is the joined override (empty string
+    // when override is `[]`). The mock omits the attribute entirely if
+    // the prop is `undefined`, so checking `!== null` confirms a
+    // non-undefined value flowed through.
+    expect(chat.getAttribute("data-suggestions")).not.toBeNull();
+
+    // After the lazy-load lands the bundled English suggestions appear.
+    await waitFor(
+      () => {
+        const v = chat.getAttribute("data-suggestions") ?? "";
+        expect(v.split("|").filter((s) => s.length > 0).length).toBe(3);
+      },
+      { timeout: 8000 },
+    );
+  });
+
   it("renders the English summary by default", async () => {
     render(<HeroDemo />);
     // The heading and grid buttons also match "Jensen Huang" — assert
@@ -179,6 +225,83 @@ describe("HeroDemo", () => {
       name: /Summary language/i,
     });
     expect(triggerAfter.textContent).toMatch(/Español/);
+  });
+
+  it("clicking a different sample updates ChatTab.suggestionsOverride to that sample's bundle", async () => {
+    const user = userEvent.setup();
+    render(<HeroDemo />);
+
+    // Wait for sample 1's bundled suggestions to land.
+    await waitFor(
+      () => {
+        const v =
+          screen.getByTestId("chat-tab").getAttribute("data-suggestions") ?? "";
+        expect(v.split("|").filter((s) => s.length > 0).length).toBe(3);
+      },
+      { timeout: 8000 },
+    );
+    const sample1Suggestions =
+      screen.getByTestId("chat-tab").getAttribute("data-suggestions") ?? "";
+
+    // Click sample 2.
+    const sample2 = screen.getByRole("button", {
+      name: /Master Your Sleep/i,
+    });
+    await user.click(sample2);
+    await waitFor(() => {
+      expect(sample2.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    // Wait for sample 2's bundled suggestions to land — they must
+    // differ from sample 1's. A regression that pinned the override to
+    // a stale closure (e.g. a future memoization mistake) would keep
+    // sample 1's suggestions visible on sample 2.
+    await waitFor(
+      () => {
+        const v =
+          screen.getByTestId("chat-tab").getAttribute("data-suggestions") ?? "";
+        expect(v.split("|").filter((s) => s.length > 0).length).toBe(3);
+        expect(v).not.toBe(sample1Suggestions);
+      },
+      { timeout: 8000 },
+    );
+  });
+
+  it("hands per-language suggestions to ChatTab; switching language updates them", async () => {
+    const user = userEvent.setup();
+    render(<HeroDemo />);
+
+    // Wait for the English summary to land, then capture the current
+    // suggestions string from the stub.
+    await waitFor(
+      () =>
+        expect(
+          (document.body.textContent ?? "").includes("Jensen Huang argues"),
+        ).toBe(true),
+      { timeout: 8000 },
+    );
+    const chat = screen.getByTestId("chat-tab");
+    const englishSuggestions = chat.getAttribute("data-suggestions") ?? "";
+    expect(englishSuggestions.length).toBeGreaterThan(0);
+    expect(englishSuggestions.split("|").length).toBe(3);
+
+    // Switch the picker to Spanish.
+    const trigger = screen.getByRole("button", { name: /Summary language/i });
+    await user.click(trigger);
+    const esOption = await screen.findByTestId("lang-option-es");
+    await user.click(esOption);
+
+    // Wait for the suggestions string to change.
+    await waitFor(
+      () => {
+        const updated =
+          screen.getByTestId("chat-tab").getAttribute("data-suggestions") ??
+          "";
+        expect(updated).not.toBe(englishSuggestions);
+        expect(updated.split("|").length).toBe(3);
+      },
+      { timeout: 8000 },
+    );
   });
 
   it("recovers when loadSummary rejects: column 2 doesn't stay permanently faded out", async () => {
