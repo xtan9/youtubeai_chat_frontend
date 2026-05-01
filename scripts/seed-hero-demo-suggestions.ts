@@ -27,11 +27,14 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { z } from "zod";
 
 import { HERO_DEMO_VIDEO_IDS } from "../lib/constants/hero-demo-ids";
 import { SUPPORTED_OUTPUT_LANGUAGES } from "../lib/constants/languages";
 import { SONNET } from "../lib/services/models";
+import {
+  SuggestedFollowupsSchema,
+  type SuggestedFollowups,
+} from "../lib/services/suggested-followups-schema";
 
 // Auto-load env from .env.production.local if present and the gateway
 // vars aren't already set. Mirrors how Next.js loads env files in
@@ -42,15 +45,6 @@ if (
 ) {
   process.loadEnvFile(".env.production.local");
 }
-
-// Mirrors lib/services/suggested-followups.ts:11-14. Single source of
-// truth would be ideal, but that file is server-only — so this
-// duplication is the controlled cost of running outside Next.
-const SuggestedFollowupsSchema = z
-  .array(z.string().min(1).max(160))
-  .min(3)
-  .max(3);
-type SuggestedFollowups = z.infer<typeof SuggestedFollowupsSchema>;
 
 const FOLLOWUPS_PROMPT = `You are designing the chat surface for a YouTube viewing app. The user has just finished reading the AI summary of a video and is opening a chat tab to dig deeper. Generate exactly three short follow-up questions that THIS specific summary would naturally invite — not generic questions that work for any video.
 
