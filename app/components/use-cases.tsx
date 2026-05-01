@@ -81,12 +81,14 @@ export function UseCases() {
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Content Creation & Research
+                  Creator Research
                 </CardTitle>
                 <CardDescription className={description}>
-                  Accelerate your content strategy by quickly analyzing market
-                  trends, competitor videos, and audience preferences. Build
-                  better content with data-driven insights.
+                  Pull the structure out of a long-form video in your niche —
+                  hooks, talking points, supporting examples — without
+                  rewatching. Then chat with the transcript to extract
+                  specific quotes, references, or arguments you want to riff
+                  on for your own content.
                 </CardDescription>
               </div>
             </div>

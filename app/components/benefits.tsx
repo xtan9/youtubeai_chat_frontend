@@ -1,4 +1,4 @@
-import { Clock, Brain, MessageCircle, Zap, BookmarkCheck } from "lucide-react";
+import { Brain, BookmarkCheck, Captions, Clock, MessageCircle, Zap } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -101,17 +101,19 @@ export function Benefits() {
             <div className="flex items-start gap-4">
               <Avatar className="h-12 w-12 rounded-lg bg-accent-warning/20 p-0">
                 <AvatarFallback className="bg-transparent">
-                  <Zap className="w-6 h-6 text-accent-warning" />
+                  <Captions className="w-6 h-6 text-accent-warning" />
                 </AvatarFallback>
               </Avatar>
               <div>
                 <CardTitle className="text-xl font-semibold mb-2">
-                  Effortless Experience
+                  Works Without Captions
                 </CardTitle>
                 <CardDescription className={description}>
-                  No complicated setup or learning curve. Paste a URL, click
-                  once, and receive your comprehensive summary in seconds—all
-                  with our intuitive interface.
+                  Most YouTube summarizers fail when a video has no
+                  transcript. We don&apos;t. When captions aren&apos;t
+                  available, we transcribe the audio with Whisper and
+                  summarize anyway — so caption-less talks, livestreams,
+                  and indie creators just work.
                 </CardDescription>
               </div>
             </div>

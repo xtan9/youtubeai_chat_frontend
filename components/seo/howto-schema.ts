@@ -9,23 +9,23 @@ type HowToStep = {
 const STEPS: HowToStep[] = [
   {
     name: "Drop Your Video Link",
-    text: "Find any YouTube video you want to analyze and copy the URL. Our system works with any public video regardless of length or complexity.",
+    text: "Paste the URL of any public YouTube video — short clips, two-hour podcasts, lectures, keynotes. Length and topic don't matter.",
   },
   {
-    name: "Activate AI Analysis",
-    text: "Hit the summarize button and watch our advanced AI engine spring into action. No configuration needed—we've optimized the settings for you.",
+    name: "Hit Summarize",
+    text: "One click, no settings to tune. Pick the output language if you want something other than English; otherwise we use a sensible default for your locale.",
   },
   {
-    name: "Smart Processing Begins",
-    text: "Our system downloads the video, extracts the audio, transcribes the content in 30+ languages, and applies natural language processing to identify key themes and insights.",
+    name: "We Pull the Transcript",
+    text: "We grab YouTube's captions when they're available. When the creator hasn't published captions, we fall back to downloading the audio and transcribing it with Whisper, so caption-less videos still work.",
   },
   {
     name: "Get Your Summary",
-    text: "Receive a structured breakdown with key points, themes, and clickable timestamps. Copy any passage, save it to your library, or share a link to the result.",
+    text: "A structured breakdown with key points, themes, and clickable timestamps that jump the player to the moment cited. Copy any passage, save it to your dashboard, or share a link.",
   },
   {
     name: "Ask Follow-Up Questions",
-    text: "Switch to the Chat tab and ask anything about the video. The AI answers from the transcript, with suggested follow-up prompts so you can dig deeper without re-watching.",
+    text: "Switch to the Chat tab and ask anything. Claude answers from the full transcript, with suggested follow-up prompts so you can dig deeper without re-watching.",
   },
 ];
 
