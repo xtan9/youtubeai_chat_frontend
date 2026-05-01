@@ -54,11 +54,14 @@ export default function HeroDemo() {
   const [data, setData] = useState<SampleData | null>(null);
   const [fading, setFading] = useState(false);
 
-  // Lazy-load the active sample's heavy data with a fade animation.
+  // Lazy-load the active sample's heavy data after the fade-out window.
+  // Setting `fading=true` happens in `handleSelect` (synchronous, before
+  // `activeId` flips) so this effect only handles the data load and the
+  // matching `fading=false` once it's painted — keeping setState out of
+  // the effect body satisfies `react-hooks/set-state-in-effect`.
   useEffect(() => {
     const sample = SAMPLES.find((s) => s.id === activeId);
     if (!sample) return;
-    setFading(true);
     const fadeDelay = setTimeout(() => {
       sample.loadFullData().then((d) => {
         setData(d);
@@ -74,6 +77,7 @@ export default function HeroDemo() {
 
   const handleSelect = (s: SampleMeta) => {
     if (s.id === activeId) return;
+    setFading(true);
     setActiveId(s.id);
     posthog?.capture("hero_demo_sample_selected", {
       sample_id: s.id,
