@@ -18,6 +18,7 @@ export const SUPPORTED_OUTPUT_LANGUAGES = [
   { code: "de", english: "German", native: "Deutsch" },
   { code: "id", english: "Indonesian", native: "Bahasa Indonesia" },
   { code: "zh", english: "Chinese (Simplified)", native: "简体中文" },
+  { code: "zh-TW", english: "Chinese (Traditional, Taiwan)", native: "繁體中文（台灣）" },
   { code: "ja", english: "Japanese", native: "日本語" },
   { code: "ko", english: "Korean", native: "한국어" },
   { code: "ar", english: "Arabic", native: "العربية" },

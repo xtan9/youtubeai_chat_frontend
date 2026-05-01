@@ -12,7 +12,7 @@ export const faqItems: FaqItem[] = [
   {
     question: "Does our tool support multiple languages for video analysis?",
     answer:
-      "Yes. We can transcribe videos in any language YouTube captions or Whisper covers, and you can pick the summary output from 17 supported languages — including English, Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Arabic, Hindi, and more. A Japanese podcast can produce an English summary, or a Spanish keynote a Mandarin one.",
+      "Yes. We can transcribe videos in any language YouTube captions or Whisper covers, and you can pick the summary output from 18 supported languages — including English, Spanish, French, German, Portuguese, Chinese (Simplified and Traditional), Japanese, Korean, Arabic, Hindi, and more. A Japanese podcast can produce an English summary, or a Spanish keynote a Mandarin one.",
   },
   {
     question: "How does our AI handle technical or specialized content?",

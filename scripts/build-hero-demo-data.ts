@@ -3,7 +3,7 @@
  *
  *   /tmp/yt-demo-data/all.json
  *     → app/components/hero-demo-data/<id>/base.ts          (transcript + meta)
- *     → app/components/hero-demo-data/<id>/<lang>.ts        (summary per language; 17 files)
+ *     → app/components/hero-demo-data/<id>/<lang>.ts        (summary per language; 18 files)
  *
  * Input shape (produced by the seed/dump pipeline — see
  * scripts/seed-hero-demo-translations.ts and the SQL dump in the

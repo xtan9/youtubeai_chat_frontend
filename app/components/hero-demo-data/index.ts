@@ -4,7 +4,7 @@
  * summary modules are dynamically imported on selection / language pick.
  *
  * Adding a sample:
- *   1. Cache it in prod via /summary?url=URL&lang=<each of 17> (or use
+ *   1. Cache it in prod via /summary?url=URL&lang=<each of 18> (or use
  *      scripts/seed-hero-demo-translations.ts).
  *   2. Run `pnpm tsx scripts/build-hero-demo-data.ts` to regenerate the
  *      per-id directory.
@@ -29,7 +29,7 @@ export interface HeroSampleBase {
   readonly id: HeroDemoVideoId;
   readonly segments: ReadonlyArray<TranscriptSegment>;
   // Stays a free string in the registry surface so the `videos.language`
-  // column (which can carry codes outside our 17-language picker set,
+  // column (which can carry codes outside our 18-language picker set,
   // e.g. an auto-detected source-only locale) round-trips intact through
   // the dump → build pipeline. The picker itself is typed
   // SupportedLanguageCode separately.
@@ -93,7 +93,7 @@ export function formatTimestamp(seconds: number): string {
 // Static (id, lang) → loader map. Verbose but unambiguous: every
 // dynamic import string is a literal, so both vite (test) and webpack
 // (production) emit one chunk per (id, lang) without warnings or
-// fall-through to a directory context. 6 ids × 17 langs = 102 entries.
+// fall-through to a directory context. 6 ids × 18 langs = 108 entries.
 //
 // Typed as `Record<HeroDemoVideoId, Record<SupportedLanguageCode, ...>>`
 // — adding a 7th id to HERO_DEMO_VIDEO_IDS or a new language code
@@ -113,6 +113,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./Hrbq66XqtCo/de").then(PICK),
     id: () => import("./Hrbq66XqtCo/id").then(PICK),
     zh: () => import("./Hrbq66XqtCo/zh").then(PICK),
+    "zh-TW": () => import("./Hrbq66XqtCo/zh-TW").then(PICK),
     ja: () => import("./Hrbq66XqtCo/ja").then(PICK),
     ko: () => import("./Hrbq66XqtCo/ko").then(PICK),
     ar: () => import("./Hrbq66XqtCo/ar").then(PICK),
@@ -132,6 +133,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./nm1TxQj9IsQ/de").then(PICK),
     id: () => import("./nm1TxQj9IsQ/id").then(PICK),
     zh: () => import("./nm1TxQj9IsQ/zh").then(PICK),
+    "zh-TW": () => import("./nm1TxQj9IsQ/zh-TW").then(PICK),
     ja: () => import("./nm1TxQj9IsQ/ja").then(PICK),
     ko: () => import("./nm1TxQj9IsQ/ko").then(PICK),
     ar: () => import("./nm1TxQj9IsQ/ar").then(PICK),
@@ -151,6 +153,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./Mde2q7GFCrw/de").then(PICK),
     id: () => import("./Mde2q7GFCrw/id").then(PICK),
     zh: () => import("./Mde2q7GFCrw/zh").then(PICK),
+    "zh-TW": () => import("./Mde2q7GFCrw/zh-TW").then(PICK),
     ja: () => import("./Mde2q7GFCrw/ja").then(PICK),
     ko: () => import("./Mde2q7GFCrw/ko").then(PICK),
     ar: () => import("./Mde2q7GFCrw/ar").then(PICK),
@@ -170,6 +173,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./csA9YhzYvmk/de").then(PICK),
     id: () => import("./csA9YhzYvmk/id").then(PICK),
     zh: () => import("./csA9YhzYvmk/zh").then(PICK),
+    "zh-TW": () => import("./csA9YhzYvmk/zh-TW").then(PICK),
     ja: () => import("./csA9YhzYvmk/ja").then(PICK),
     ko: () => import("./csA9YhzYvmk/ko").then(PICK),
     ar: () => import("./csA9YhzYvmk/ar").then(PICK),
@@ -189,6 +193,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./BWJ4vnXIvts/de").then(PICK),
     id: () => import("./BWJ4vnXIvts/id").then(PICK),
     zh: () => import("./BWJ4vnXIvts/zh").then(PICK),
+    "zh-TW": () => import("./BWJ4vnXIvts/zh-TW").then(PICK),
     ja: () => import("./BWJ4vnXIvts/ja").then(PICK),
     ko: () => import("./BWJ4vnXIvts/ko").then(PICK),
     ar: () => import("./BWJ4vnXIvts/ar").then(PICK),
@@ -208,6 +213,7 @@ const SUMMARY_LOADERS: Record<
     de: () => import("./Yy-EC-BdoNY/de").then(PICK),
     id: () => import("./Yy-EC-BdoNY/id").then(PICK),
     zh: () => import("./Yy-EC-BdoNY/zh").then(PICK),
+    "zh-TW": () => import("./Yy-EC-BdoNY/zh-TW").then(PICK),
     ja: () => import("./Yy-EC-BdoNY/ja").then(PICK),
     ko: () => import("./Yy-EC-BdoNY/ko").then(PICK),
     ar: () => import("./Yy-EC-BdoNY/ar").then(PICK),
