@@ -77,6 +77,7 @@ export function InputForm() {
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     aria-label="YouTube URL"
+                    autoComplete="off"
                     className="h-16 text-lg bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 placeholder:text-gray-500 dark:text-white dark:placeholder:text-gray-400"
                   />
 
