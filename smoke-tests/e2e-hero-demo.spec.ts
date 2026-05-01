@@ -58,8 +58,10 @@ test.describe("Hero demo widget", () => {
     await page.getByRole("tab", { name: /Transcript/i }).click();
 
     // Look for any element whose entire text content is a mm:ss
-    // timestamp. The first segment of any sample is "0:00".
-    await expect(page.getByText(/^0:0\d$/).first()).toBeVisible({
+    // timestamp. TranscriptParagraphs zero-pads minutes (formatTimestamp
+    // in app/summary/utils/group-segments.ts) so the first segment of
+    // any sample renders as "00:00".
+    await expect(page.getByText(/^00:0\d$/).first()).toBeVisible({
       timeout: 10_000,
     });
   });
