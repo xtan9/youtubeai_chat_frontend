@@ -155,9 +155,9 @@ describe("Button", () => {
   });
 
   describe("cursor affordance", () => {
-    // Tailwind v4 preflight resets <button> to cursor: default. Every
-    // governed Button must restore the hand cursor so consumers don't
-    // have to remember — this is the system's contract.
+    // Tailwind v4 preflight resets <button> to cursor: default — the
+    // governed Button has to restore the hand cursor so consumers don't
+    // have to remember.
     it("renders with cursor-pointer in the base classes", () => {
       renderWithProviders(<Button>Click</Button>);
       expect(screen.getByRole("button").className).toContain("cursor-pointer");
@@ -170,6 +170,17 @@ describe("Button", () => {
         </Button>,
       );
       expect(screen.getByRole("link").className).toContain("cursor-pointer");
+    });
+
+    it("lets a consumer override the cursor via className (tailwind-merge precedence)", () => {
+      // Pins the contract that loading-state (`cursor-wait`), drag, or
+      // not-allowed consumers can still win — guards against cn() being
+      // swapped for plain string concat or `cursor-pointer` being
+      // appended after className in the cva.
+      renderWithProviders(<Button className="cursor-wait">Loading</Button>);
+      const cls = screen.getByRole("button").className;
+      expect(cls).toContain("cursor-wait");
+      expect(cls).not.toContain("cursor-pointer");
     });
   });
 });
