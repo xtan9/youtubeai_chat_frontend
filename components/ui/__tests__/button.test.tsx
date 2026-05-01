@@ -153,4 +153,23 @@ describe("Button", () => {
       expect(button.getAttribute("aria-invalid")).toBe("true");
     });
   });
+
+  describe("cursor affordance", () => {
+    // Tailwind v4 preflight resets <button> to cursor: default. Every
+    // governed Button must restore the hand cursor so consumers don't
+    // have to remember — this is the system's contract.
+    it("renders with cursor-pointer in the base classes", () => {
+      renderWithProviders(<Button>Click</Button>);
+      expect(screen.getByRole("button").className).toContain("cursor-pointer");
+    });
+
+    it("propagates cursor-pointer onto asChild-rendered elements", () => {
+      renderWithProviders(
+        <Button asChild>
+          <a href="/x">Link</a>
+        </Button>,
+      );
+      expect(screen.getByRole("link").className).toContain("cursor-pointer");
+    });
+  });
 });
