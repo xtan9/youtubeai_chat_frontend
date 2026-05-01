@@ -51,6 +51,7 @@ describe("buildOrganizationSchema", () => {
     expect(schema.contactPoint["@type"]).toBe("ContactPoint");
     expect(schema.contactPoint.contactType).toBe("customer support");
     expect(schema.contactPoint.email).toBe("contact@youtubeai.chat");
+    expect(schema.contactPoint.availableLanguage).toEqual(["English"]);
   });
 });
 
