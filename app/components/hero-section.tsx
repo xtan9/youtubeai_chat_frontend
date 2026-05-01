@@ -1,4 +1,4 @@
-import { Captions, Globe, MessageCircle, Sparkles } from "lucide-react";
+import { Captions, Globe, MessageCircle } from "lucide-react";
 
 // Animation keyframes live in app/globals.css (`.animate-float*`) so this
 // component renders server-side and ships zero JS.
@@ -16,13 +16,6 @@ export function HeroSection() {
 
         {/* Main content */}
         <div className="relative z-10">
-          <div className="inline-flex items-center gap-2 bg-surface-base/80 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/20 mb-6">
-            <Sparkles size={16} className="text-accent-brand" />
-            <span className="text-sm font-medium text-text-primary">
-              1 free video • No signup needed
-            </span>
-          </div>
-
           <h1 className="text-4xl md:text-6xl font-bold bg-gradient-brand-accent bg-clip-text text-transparent mb-6">
             Summarize YouTube Videos with AI
           </h1>
