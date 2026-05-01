@@ -57,46 +57,27 @@ function openDropdown(trigger: Element) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: free tier — individual tests can override.
+  (useEntitlements as unknown as Mock).mockReturnValue({
+    data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
+  });
 });
 
 describe("Header user menu", () => {
-  it("free tier — DropdownMenu has no 'Manage subscription' item", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
-    });
+  it("free tier — DropdownMenu has 'Account' link to /account and 'Sign Out'", () => {
     const qc = freshQueryClient();
     render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
 
     openDropdown(screen.getByRole("button", { name: /user menu/i }));
 
-    expect(screen.queryByText(/manage subscription/i)).toBeNull();
-  });
-
-  it("pro tier — DropdownMenu shows 'Manage subscription'", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "pro", caps: { summariesUsed: 0, summariesLimit: -1 } },
-    });
-    const qc = freshQueryClient();
-    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
-
-    openDropdown(screen.getByRole("button", { name: /user menu/i }));
-
-    expect(screen.getByText(/manage subscription/i)).not.toBeNull();
-  });
-
-  it("Sign Out item is present for free tier", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
-    });
-    const qc = freshQueryClient();
-    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
-
-    openDropdown(screen.getByRole("button", { name: /user menu/i }));
-
+    const account = screen.getByRole("menuitem", { name: /account/i });
+    expect(account).not.toBeNull();
+    const anchor = account.tagName.toLowerCase() === "a" ? account : account.querySelector("a");
+    expect(anchor?.getAttribute("href")).toBe("/account");
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
 
-  it("Sign Out item is present for pro tier", () => {
+  it("pro tier — DropdownMenu has 'Account' and 'Sign Out' (no separate Manage Subscription item)", () => {
     (useEntitlements as unknown as Mock).mockReturnValue({
       data: { tier: "pro", caps: { summariesUsed: 0, summariesLimit: -1 } },
     });
@@ -105,6 +86,8 @@ describe("Header user menu", () => {
 
     openDropdown(screen.getByRole("button", { name: /user menu/i }));
 
+    expect(screen.getByRole("menuitem", { name: /account/i })).not.toBeNull();
+    expect(screen.queryByText(/manage subscription/i)).toBeNull();
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
 });
