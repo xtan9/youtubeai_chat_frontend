@@ -274,6 +274,7 @@ function HeroDemoInner() {
             youtubeUrl={sampleUrl}
             active={true}
             className="h-full"
+            suggestionsOverride={summary?.suggestions}
           />
         </div>
       </div>

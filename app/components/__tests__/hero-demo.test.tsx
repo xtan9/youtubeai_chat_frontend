@@ -17,8 +17,18 @@ vi.mock("@/lib/hooks/useAnonSession", () => ({
 }));
 
 vi.mock("@/app/summary/components/chat-tab", () => ({
-  ChatTab: ({ youtubeUrl }: { youtubeUrl: string | null }) => (
-    <div data-testid="chat-tab" data-yturl={youtubeUrl ?? ""} />
+  ChatTab: ({
+    youtubeUrl,
+    suggestionsOverride,
+  }: {
+    youtubeUrl: string | null;
+    suggestionsOverride?: readonly string[];
+  }) => (
+    <div
+      data-testid="chat-tab"
+      data-yturl={youtubeUrl ?? ""}
+      data-suggestions={(suggestionsOverride ?? []).join("|")}
+    />
   ),
 }));
 
@@ -179,6 +189,43 @@ describe("HeroDemo", () => {
       name: /Summary language/i,
     });
     expect(triggerAfter.textContent).toMatch(/Español/);
+  });
+
+  it("hands per-language suggestions to ChatTab; switching language updates them", async () => {
+    const user = userEvent.setup();
+    render(<HeroDemo />);
+
+    // Wait for the English summary to land, then capture the current
+    // suggestions string from the stub.
+    await waitFor(
+      () =>
+        expect(
+          (document.body.textContent ?? "").includes("Jensen Huang argues"),
+        ).toBe(true),
+      { timeout: 8000 },
+    );
+    const chat = screen.getByTestId("chat-tab");
+    const englishSuggestions = chat.getAttribute("data-suggestions") ?? "";
+    expect(englishSuggestions.length).toBeGreaterThan(0);
+    expect(englishSuggestions.split("|").length).toBe(3);
+
+    // Switch the picker to Spanish.
+    const trigger = screen.getByRole("button", { name: /Summary language/i });
+    await user.click(trigger);
+    const esOption = await screen.findByTestId("lang-option-es");
+    await user.click(esOption);
+
+    // Wait for the suggestions string to change.
+    await waitFor(
+      () => {
+        const updated =
+          screen.getByTestId("chat-tab").getAttribute("data-suggestions") ??
+          "";
+        expect(updated).not.toBe(englishSuggestions);
+        expect(updated.split("|").length).toBe(3);
+      },
+      { timeout: 8000 },
+    );
   });
 
   it("recovers when loadSummary rejects: column 2 doesn't stay permanently faded out", async () => {
