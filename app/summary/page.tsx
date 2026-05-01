@@ -52,8 +52,9 @@ export default async function SummaryPage({
           </h2>
           <p className="text-base md:text-lg text-text-muted">
             Paste a YouTube URL below and our AI extracts the key points,
-            themes, and insights in seconds. Works with any public video, in 30+
-            languages, with no signup or paywall.
+            themes, and insights in seconds. Works on any public video — even
+            ones without captions — and reads back in 17 summary languages.
+            No signup or paywall.
           </p>
         </section>
       )}
