@@ -218,6 +218,44 @@ describe("POST /api/chat/stream", () => {
     expect(body.errorCode).toBe("anon_chat_blocked");
   });
 
+  it("allows anonymous users on the youtu.be short-URL form for hero-demo videos", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-4", is_anonymous: true } },
+      error: null,
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({
+        youtube_url: "https://youtu.be/Hrbq66XqtCo",
+        message: "hi",
+      }),
+    );
+    expect(res.status).not.toBe(402);
+    expect(mocks.checkRateLimit).toHaveBeenCalled();
+  });
+
+  it("rejects malformed `?v=` values whose parsed id is too long, even if a hero-demo id is a prefix", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-5", is_anonymous: true } },
+      error: null,
+    });
+    const { POST } = await import("../route");
+    // `?v=Hrbq66XqtCoEXTRA` would be a substring-style attack on a naive
+    // allowlist check. The 11-char guard inside getYoutubeVideoId means
+    // the parsed id is null, so the allowlist returns false → 402.
+    const res = await POST(
+      makeRequest({
+        youtube_url: "https://www.youtube.com/watch?v=Hrbq66XqtCoEXTRA",
+        message: "hi",
+      }),
+    );
+    expect(res.status).toBe(402);
+  });
+
   it("returns 429 when rate-limited", async () => {
     mocks.checkRateLimit.mockResolvedValue({
       allowed: false,

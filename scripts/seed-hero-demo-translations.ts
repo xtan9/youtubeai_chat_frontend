@@ -30,7 +30,11 @@ import { SUPPORTED_OUTPUT_LANGUAGES } from "../lib/constants/languages";
 const PROD_BASE_URL = process.env.SEED_BASE_URL ?? "https://www.youtubeai.chat";
 const TEST_EMAIL = process.env.TEST_USER_EMAIL;
 const TEST_PASSWORD = process.env.TEST_USER_PASSWORD;
-const PER_REQUEST_TIMEOUT_MS = 240_000;
+// Match the summarize route's `maxDuration = 300` so a worst-case
+// fresh combo (full transcribe + LLM call) doesn't time out client-side
+// while the server is still completing. A shorter client timeout would
+// log an error against a combo that was actually about to land.
+const PER_REQUEST_TIMEOUT_MS = 300_000;
 const MAX_CONCURRENCY = 8;
 
 interface Combo {

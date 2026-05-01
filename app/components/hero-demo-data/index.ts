@@ -14,7 +14,10 @@
 import {
   type SupportedLanguageCode,
 } from "@/lib/constants/languages";
-import { HERO_DEMO_VIDEO_IDS } from "@/lib/constants/hero-demo-ids";
+import {
+  HERO_DEMO_VIDEO_IDS,
+  type HeroDemoVideoId,
+} from "@/lib/constants/hero-demo-ids";
 
 export interface TranscriptSegment {
   readonly text: string;
@@ -23,7 +26,7 @@ export interface TranscriptSegment {
 }
 
 export interface HeroSampleBase {
-  readonly id: string;
+  readonly id: HeroDemoVideoId;
   readonly segments: ReadonlyArray<TranscriptSegment>;
   // Stays a free string in the registry surface so the `videos.language`
   // column (which can carry codes outside our 17-language picker set,
@@ -34,14 +37,14 @@ export interface HeroSampleBase {
 }
 
 export interface HeroSampleSummary {
-  readonly id: string;
+  readonly id: HeroDemoVideoId;
   readonly language: string;
   readonly summary: string;
   readonly model: string;
 }
 
 export interface SampleMeta {
-  readonly id: string;
+  readonly id: HeroDemoVideoId;
   readonly title: string;
   readonly channel: string;
   readonly durationSec: number;
@@ -83,9 +86,14 @@ export function formatTimestamp(seconds: number): string {
 // dynamic import string is a literal, so both vite (test) and webpack
 // (production) emit one chunk per (id, lang) without warnings or
 // fall-through to a directory context. 6 ids × 17 langs = 102 entries.
+//
+// Typed as `Record<HeroDemoVideoId, Record<SupportedLanguageCode, ...>>`
+// — adding a 7th id to HERO_DEMO_VIDEO_IDS or a new language code
+// without filling this map fails `tsc`, replacing what would otherwise
+// be a runtime throw on first import with a compile-time guard.
 const PICK = (m: { default: HeroSampleSummary }) => m.default;
 const SUMMARY_LOADERS: Record<
-  string,
+  HeroDemoVideoId,
   Record<SupportedLanguageCode, () => Promise<HeroSampleSummary>>
 > = {
   Hrbq66XqtCo: {
@@ -204,7 +212,7 @@ const SUMMARY_LOADERS: Record<
   },
 };
 
-function summaryLoaderFor(id: string) {
+function summaryLoaderFor(id: HeroDemoVideoId) {
   return (
     lang: SupportedLanguageCode,
   ): Promise<HeroSampleSummary> => SUMMARY_LOADERS[id][lang]();

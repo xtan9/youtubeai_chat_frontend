@@ -61,8 +61,8 @@ export function UseCases() {
                 <CardDescription className={description}>
                   Get the key takeaways from a 2-hour interview podcast in
                   60 seconds, then chat with the transcript to drill into
-                  the part that actually applies to your work. 30+ languages,
-                  any public video.
+                  the part that actually applies to your work. 17 summary
+                  languages, any public video — captions optional.
                 </CardDescription>
               </div>
             </div>

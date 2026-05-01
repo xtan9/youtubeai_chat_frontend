@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://www.youtubeai.chat"),
   title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
   description:
-    "Summarize any YouTube video in seconds and chat with its content using AI. Works in 30+ languages. Free to try — no signup or paywall.",
+    "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 17 summary languages. Free to try, no signup needed.",
   keywords: [
     "YouTube video summarizer",
     "summarize YouTube video",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
     description:
-      "Summarize any YouTube video in seconds and chat with its content using AI. Works in 30+ languages. Free to try — no signup or paywall.",
+      "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 17 summary languages. Free to try, no signup needed.",
     url: "https://www.youtubeai.chat",
     siteName: "youtubeai.chat",
     type: "website",
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "YouTube Video Summarizer & AI Chat",
     description:
-      "Summarize any YouTube video in seconds and chat with its content using AI. Works in 30+ languages. Free to try — no signup or paywall.",
+      "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 17 summary languages. Free to try, no signup needed.",
     creator: "@YouTubeAI",
   },
   robots: {

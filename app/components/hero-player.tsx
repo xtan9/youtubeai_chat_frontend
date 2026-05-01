@@ -65,6 +65,18 @@ export default function HeroPlayer({ videoId, playerRef }: HeroPlayerProps) {
             playVideo: () => event.target.playVideo(),
           });
         }}
+        onError={(event) => {
+          // YouTube fires this for unembeddable / removed / region-blocked
+          // videos. Without surfacing it the iframe shows a YouTube error
+          // UI but the chat tab's [mm:ss] chips silently no-op against a
+          // player that never plays. Logged with a stable errorId so
+          // a dead demo video is alertable rather than mysterious.
+          console.error("[hero-player] HERO_PLAYER_ERROR", {
+            errorId: "HERO_PLAYER_ERROR",
+            videoId,
+            ytErrorCode: event.data,
+          });
+        }}
       />
     </div>
   );

@@ -180,4 +180,45 @@ describe("HeroDemo", () => {
     });
     expect(triggerAfter.textContent).toMatch(/Español/);
   });
+
+  it("recovers when loadSummary rejects: column 2 doesn't stay permanently faded out", async () => {
+    // Mock SAMPLES so the active sample's loadSummary rejects on first
+    // call. The component's catch branch must clear the fade so the
+    // user isn't staring at an invisible column — losing setFading(false)
+    // in the catch branch would silently regress this.
+    vi.resetModules();
+    vi.doMock("@/app/components/hero-demo-data", async () => {
+      const actual = await vi.importActual<
+        typeof import("@/app/components/hero-demo-data")
+      >("@/app/components/hero-demo-data");
+      return {
+        ...actual,
+        SAMPLES: [
+          {
+            id: "Hrbq66XqtCo",
+            title: "Will Nvidia",
+            channel: "C",
+            durationSec: 100,
+            loadBase: () =>
+              Promise.resolve({
+                id: "Hrbq66XqtCo",
+                segments: [],
+                nativeLanguage: "en",
+              }),
+            loadSummary: () => Promise.reject(new Error("simulated")),
+          },
+        ],
+      };
+    });
+    const { default: HeroDemoMocked } = await import("../hero-demo");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<HeroDemoMocked />);
+    // Wait long enough for the 250ms fade-out → reject → fade-clear cycle.
+    await new Promise((r) => setTimeout(r, 600));
+    // Look for the column 2 wrapper — its opacity class should NOT be
+    // opacity-0 anymore (the catch path called setFading(false)).
+    const col = document.querySelector(".motion-safe\\:transition-opacity");
+    expect(col?.className.includes("opacity-100")).toBe(true);
+    vi.doUnmock("@/app/components/hero-demo-data");
+  });
 });

@@ -7,17 +7,17 @@ export const faqItems: FaqItem[] = [
   {
     question: "What makes our YouTube AI Summarizer unique?",
     answer:
-      "Our platform combines advanced natural language processing with specialized video content analysis to deliver more than just transcripts. We extract meaningful insights, identify key themes, and structure information in a way that maximizes comprehension and retention—all with unmatched accuracy and speed.",
+      "Two things most competitors miss. First, we work on videos without captions: when YouTube has no transcript, we transcribe the audio with Whisper and summarize anyway, instead of failing. Second, every summary comes with a chat tab — ask follow-up questions and get answers pulled straight from the full transcript, so you can drill into a specific moment without rewatching.",
   },
   {
     question: "Does our tool support multiple languages for video analysis?",
     answer:
-      "Absolutely! Our AI system can process videos in over 30 languages with high accuracy. You can also choose to receive your summary in a different language than the original video, making it perfect for international research and learning.",
+      "Yes. We can transcribe videos in any language YouTube captions or Whisper covers, and you can pick the summary output from 17 supported languages — including English, Spanish, French, German, Portuguese, Chinese, Japanese, Korean, Arabic, Hindi, and more. A Japanese podcast can produce an English summary, or a Spanish keynote a Mandarin one.",
   },
   {
     question: "How does our AI handle technical or specialized content?",
     answer:
-      "We've trained our models on diverse datasets across academic, technical, business, and entertainment domains. This allows our system to recognize specialized terminology, understand complex concepts, and accurately summarize even highly technical videos with proper context.",
+      "Summaries and chat are powered by Anthropic's Claude — a frontier LLM that handles specialized terminology across academic, technical, business, and creative domains. We don't strip out jargon: we work straight from the full transcript, so technical talks, research lectures, and code-heavy tutorials keep their nuance instead of getting flattened.",
   },
   {
     question: "Can I ask follow-up questions about a video?",
