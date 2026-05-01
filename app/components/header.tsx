@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
-import { ManageSubscriptionLink } from "@/components/paywall/ManageSubscriptionLink";
+import { ManageSubscriptionButton } from "@/components/paywall/ManageSubscriptionButton";
 
 export function Header() {
   const { user } = useUser();
@@ -91,7 +91,7 @@ export function Header() {
                   <DropdownMenuContent align="end" className="min-w-48">
                     {entitlements?.tier === "pro" && (
                       <DropdownMenuItem asChild>
-                        <ManageSubscriptionLink />
+                        <ManageSubscriptionButton />
                       </DropdownMenuItem>
                     )}
                     {entitlements?.tier === "pro" && <DropdownMenuSeparator />}
