@@ -91,4 +91,26 @@ describe("useAnonSession", () => {
     expect(mockGetSession).not.toHaveBeenCalled();
     expect(mockSignInAnonymously).not.toHaveBeenCalled();
   });
+
+  it("logs and clears isLoading when getSession() rejects", async () => {
+    mockGetSession.mockRejectedValue(new Error("network down"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { result } = renderHook(() => useAnonSession());
+
+    // The catch path runs; finally clears isLoading; sign-in is never
+    // attempted because we never made it past the failed getSession.
+    await waitFor(() => {
+      expect(errSpy).toHaveBeenCalledWith(
+        "Error during anonymous authentication:",
+        expect.any(Error),
+      );
+    });
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+    expect(result.current.anonSession).toBeNull();
+    expect(mockSignInAnonymously).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
 });

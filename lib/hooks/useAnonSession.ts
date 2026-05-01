@@ -32,13 +32,11 @@ export function useAnonSession(): {
   const [anonSession, setAnonSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Mirrors the pattern used by the original inline block in
-  // `useYouTubeSummarizer`: no cleanup-cancel flag. Adding one breaks
-  // the effect because `setIsLoading(true)` triggers a re-render, which
-  // runs the cleanup of the prior effect and would cancel the in-flight
-  // async work before it resolves. The race is acceptable here because
-  // the guard `(!session && !anonSession && !isLoading)` ensures we
-  // only ever start one bootstrap.
+  // `isLoading` is in the deps array AND is set inside the effect, so
+  // every effect run cleans itself up before the async resolves. A
+  // naive `cancelled = true` cleanup flag would therefore drop every
+  // session. The single-bootstrap guard above keeps that safe: the
+  // effect only enters its body once per real auth state change.
   useEffect(() => {
     async function getAnonymousSession() {
       if (session || anonSession || isLoading) return;

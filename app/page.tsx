@@ -12,12 +12,11 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 
 // Heavy widget — pulls react-markdown + the chat hooks/UI. Dynamic-import
-// keeps it on its own JS chunk so the marketing-only sections (Benefits,
-// FAQ, etc.) stay light. We do NOT pass `ssr: false` here because that's
-// a hard error in Server Components (Next 15+) and the page itself is
-// server-rendered; HeroDemo's `"use client"` directive already keeps
-// hooks out of the SSR pass. The `loading` skeleton matches the
-// three-column grid the widget eventually renders so layout doesn't
+// keeps it on its own JS chunk so the marketing-only sections stay
+// light. We do NOT pass `ssr: false` here: Next 15 hard-errors when a
+// Server Component (which this page is) sets that flag, and HeroDemo's
+// `"use client"` directive already keeps its hooks out of the SSR pass.
+// The skeleton mirrors the eventual layout so the homepage doesn't
 // shift when the chunk lands.
 const HeroDemo = dynamic(() => import("./components/hero-demo"), {
   loading: () => (

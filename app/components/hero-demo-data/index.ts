@@ -9,82 +9,91 @@
  * video file, then add a row here.
  */
 
+/**
+ * One transcript line with playback timing. Same shape used by the
+ * production cache (`lib/types.ts:TranscriptSegment`); kept locally so
+ * the demo data files have zero runtime dependency on the live
+ * summarize pipeline. If the shapes diverge later, switch this alias to
+ * a re-export.
+ */
+export interface TranscriptSegment {
+  readonly text: string;
+  readonly start: number;
+  readonly duration: number;
+}
+
 export interface SampleData {
   readonly id: string;
   readonly summary: string;
-  readonly segments: ReadonlyArray<{
-    readonly text: string;
-    readonly start: number;
-    readonly duration: number;
-  }>;
+  readonly segments: ReadonlyArray<TranscriptSegment>;
   readonly model: string;
 }
 
+/**
+ * Lightweight per-sample registry entry. `youtubeUrl` and
+ * `thumbnailUrl` are NOT stored here — they're derived from `id` via
+ * the helpers below so the id↔url and id↔thumbnail invariants are
+ * structurally impossible to violate.
+ */
 export interface SampleMeta {
   readonly id: string;
-  readonly youtubeUrl: string;
   readonly title: string;
   readonly channel: string;
   readonly durationSec: number;
-  readonly thumbnailUrl: string;
+  /**
+   * Each `loadFullData` is a thunk so its dynamic `import()` stays a
+   * code-split signal to the bundler — flattening to a top-level
+   * `import` would eagerly bundle every sample's data and defeat the
+   * lazy-load.
+   */
   readonly loadFullData: () => Promise<SampleData>;
 }
 
-function ytThumb(id: string): string {
-  return `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+export function youtubeUrlFor(id: string): string {
+  return `https://www.youtube.com/watch?v=${id}`;
 }
 
-function ytUrl(id: string): string {
-  return `https://www.youtube.com/watch?v=${id}`;
+export function thumbnailUrlFor(id: string): string {
+  return `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
 }
 
 export const SAMPLES: ReadonlyArray<SampleMeta> = [
   {
     id: "Hrbq66XqtCo",
-    youtubeUrl: ytUrl("Hrbq66XqtCo"),
     title: "Jensen Huang – Will Nvidia’s moat persist?",
     channel: "Dwarkesh Patel",
     durationSec: 6191,
-    thumbnailUrl: ytThumb("Hrbq66XqtCo"),
     loadFullData: () => import("./Hrbq66XqtCo").then((m) => m.default),
   },
   {
     id: "nm1TxQj9IsQ",
-    youtubeUrl: ytUrl("nm1TxQj9IsQ"),
     title: "Master Your Sleep & Be More Alert When Awake",
     channel: "Andrew Huberman",
     durationSec: 4923,
-    thumbnailUrl: ytThumb("nm1TxQj9IsQ"),
     loadFullData: () => import("./nm1TxQj9IsQ").then((m) => m.default),
   },
   {
     id: "Mde2q7GFCrw",
-    youtubeUrl: ytUrl("Mde2q7GFCrw"),
     title:
       "Yuval Noah Harari: Human Nature, Intelligence, Power & Conspiracies #390",
     channel: "Lex Fridman",
     durationSec: 9881,
-    thumbnailUrl: ytThumb("Mde2q7GFCrw"),
     loadFullData: () => import("./Mde2q7GFCrw").then((m) => m.default),
   },
   {
     id: "csA9YhzYvmk",
-    youtubeUrl: ytUrl("csA9YhzYvmk"),
     title:
       "The Happiness Expert That Made 51 Million People Happier: Mo Gawdat | E101",
     channel: "The Diary Of A CEO",
     durationSec: 7054,
-    thumbnailUrl: ytThumb("csA9YhzYvmk"),
     loadFullData: () => import("./csA9YhzYvmk").then((m) => m.default),
   },
   {
     id: "BWJ4vnXIvts",
-    youtubeUrl: ytUrl("BWJ4vnXIvts"),
     title:
       "12 Laws Of Power For Life — Robert Greene | Modern Wisdom Podcast 383",
     channel: "Chris Williamson",
     durationSec: 3930,
-    thumbnailUrl: ytThumb("BWJ4vnXIvts"),
     loadFullData: () => import("./BWJ4vnXIvts").then((m) => m.default),
   },
 ];

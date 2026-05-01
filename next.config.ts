@@ -28,12 +28,8 @@ const nextConfig: NextConfig = {
   // This is required to support PostHog trailing slash API requests
   skipTrailingSlashRedirect: true,
   images: {
-    remotePatterns: [
-      // YouTube thumbnails surfaced by the hero demo widget on /
-      // (mini cards in the carousel + the active sample's hero
-      // thumbnail) and the existing /summary YoutubeVideo embed.
-      { protocol: "https", hostname: "i.ytimg.com" },
-    ],
+    // YouTube thumbnails (next/image).
+    remotePatterns: [{ protocol: "https", hostname: "i.ytimg.com" }],
   },
 };
 

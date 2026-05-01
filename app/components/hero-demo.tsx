@@ -20,6 +20,8 @@ import {
   SAMPLES,
   formatDuration,
   formatTimestamp,
+  thumbnailUrlFor,
+  youtubeUrlFor,
   type SampleData,
   type SampleMeta,
 } from "./hero-demo-data";
@@ -55,20 +57,38 @@ export default function HeroDemo() {
   const [fading, setFading] = useState(false);
 
   // Lazy-load the active sample's heavy data after the fade-out window.
-  // Setting `fading=true` happens in `handleSelect` (synchronous, before
-  // `activeId` flips) so this effect only handles the data load and the
-  // matching `fading=false` once it's painted — keeping setState out of
-  // the effect body satisfies `react-hooks/set-state-in-effect`.
+  // `fading=true` is set synchronously by the click handler so the fade
+  // paints before `import()` blocks the main thread; this effect waits
+  // 250ms for the paint, fetches the chunk, and clears the fade.
+  //
+  // The `cancelled` flag protects against rapid sample switches: when
+  // the user clicks A, then B before A's import resolves, A's `then`
+  // would otherwise overwrite B's content with stale data. Cancelling
+  // also recovers from a permanently-stuck fade if the chunk 404s on a
+  // mid-deploy request — `setFading(false)` runs in both branches.
   useEffect(() => {
     const sample = SAMPLES.find((s) => s.id === activeId);
     if (!sample) return;
+    let cancelled = false;
     const fadeDelay = setTimeout(() => {
-      sample.loadFullData().then((d) => {
-        setData(d);
-        setFading(false);
-      });
+      sample
+        .loadFullData()
+        .then((d) => {
+          if (cancelled) return;
+          setData(d);
+          setFading(false);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error(`[hero-demo] failed to load sample ${sample.id}:`, err);
+          // End the fade so the user isn't staring at an empty box.
+          // We deliberately keep prior `data` so the previous sample's
+          // content stays readable while we recover.
+          setFading(false);
+        });
     }, 250);
     return () => {
+      cancelled = true;
       clearTimeout(fadeDelay);
     };
   }, [activeId]);
@@ -85,7 +105,8 @@ export default function HeroDemo() {
     });
   };
 
-  const fullSummaryHref = `/summary?url=${encodeURIComponent(sample.youtubeUrl)}`;
+  const sampleUrl = youtubeUrlFor(sample.id);
+  const fullSummaryHref = `/summary?url=${encodeURIComponent(sampleUrl)}`;
 
   return (
     <section className="mx-auto max-w-page px-4 mb-16 w-full">
@@ -93,7 +114,7 @@ export default function HeroDemo() {
         {/* Col 1 — active video + carousel */}
         <div className="flex flex-col gap-4 min-w-0">
           <a
-            href={sample.youtubeUrl}
+            href={sampleUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="block group relative overflow-hidden rounded-xl border border-border-subtle"
@@ -101,7 +122,7 @@ export default function HeroDemo() {
           >
             <div className="relative aspect-video bg-surface-sunken">
               <Image
-                src={sample.thumbnailUrl}
+                src={thumbnailUrlFor(sample.id)}
                 alt={`${sample.title} — thumbnail`}
                 fill
                 sizes="(min-width: 1024px) 30vw, 100vw"
@@ -119,8 +140,13 @@ export default function HeroDemo() {
               {sample.channel} · {formatDuration(sample.durationSec)}
             </p>
           </div>
+          {/* A toggle-button group, not a listbox: each card is a button
+              with `aria-pressed` so the press-state is announced to AT.
+              Using `role="listbox"` here would require option/listbox
+              semantics on the children (arrow-key nav, aria-selected),
+              which fight the toggle-button pattern. */}
           <div
-            role="listbox"
+            role="group"
             aria-label="Sample videos"
             className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin"
           >
@@ -133,7 +159,7 @@ export default function HeroDemo() {
                   aria-pressed={active}
                   aria-label={s.title}
                   onClick={() => handleSelect(s)}
-                  className={`shrink-0 w-[120px] flex flex-col gap-1 rounded-lg p-1.5 border transition-colors duration-base cursor-pointer ${
+                  className={`shrink-0 w-30 flex flex-col gap-1 rounded-lg p-1.5 border transition-colors duration-base cursor-pointer ${
                     active
                       ? "border-accent-brand ring-2 ring-accent-brand/30"
                       : "border-border-subtle hover:border-border-default"
@@ -141,7 +167,7 @@ export default function HeroDemo() {
                 >
                   <div className="relative w-full aspect-video rounded overflow-hidden bg-surface-sunken">
                     <Image
-                      src={s.thumbnailUrl}
+                      src={thumbnailUrlFor(s.id)}
                       alt=""
                       fill
                       sizes="120px"
@@ -233,7 +259,7 @@ export default function HeroDemo() {
         {/* Col 3 — Chat */}
         <div className="min-w-0">
           <ChatTab
-            youtubeUrl={sample.youtubeUrl}
+            youtubeUrl={sampleUrl}
             active={true}
             className="h-[480px] lg:h-[560px]"
           />

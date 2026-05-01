@@ -18,6 +18,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import type { TranscriptSegment } from "../app/components/hero-demo-data";
+
 const VIDEO_IDS = [
   "Hrbq66XqtCo",
   "nm1TxQj9IsQ",
@@ -38,7 +40,10 @@ interface CapturedRecord {
   channel: string;
   durationSec: number;
   summary: string;
-  segments: Array<{ text: string; start: number; duration: number }>;
+  // The captured JSON arrives as a plain mutable array; we hand it to
+  // the per-video file as a TranscriptSegment[] which the consumer
+  // narrows back to ReadonlyArray via `SampleData`.
+  segments: TranscriptSegment[];
   model: string;
 }
 
