@@ -27,7 +27,15 @@ vi.mock("@/app/summary/components/chat-tab", () => ({
     <div
       data-testid="chat-tab"
       data-yturl={youtubeUrl ?? ""}
-      data-suggestions={(suggestionsOverride ?? []).join("|")}
+      // Conditional `undefined` (not `?? ""`) so React omits the attribute
+      // entirely when the prop is undefined. The hero-demo "never passes
+      // an undefined override" test relies on `getAttribute` returning
+      // `null` to catch a regression back to `summary?.suggestions`.
+      data-suggestions={
+        suggestionsOverride === undefined
+          ? undefined
+          : suggestionsOverride.join("|")
+      }
     />
   ),
 }));
