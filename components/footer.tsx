@@ -29,6 +29,12 @@ export function Footer() {
           >
             Terms of Service
           </Link>
+          <a
+            href="mailto:contact@youtubeai.chat"
+            className="text-sm text-text-muted hover:text-text-primary"
+          >
+            Contact
+          </a>
         </div>
         <div className="flex flex-wrap justify-center gap-4 text-sm text-text-muted">
           <a

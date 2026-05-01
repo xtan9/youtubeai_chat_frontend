@@ -13,5 +13,11 @@ export function buildOrganizationSchema() {
     url: "https://www.youtubeai.chat",
     description:
       "Free AI-powered YouTube video summarizer. Extracts key points, themes, and insights from any public YouTube video.",
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      email: "contact@youtubeai.chat",
+      availableLanguage: ["English"],
+    },
   };
 }
