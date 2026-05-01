@@ -30,6 +30,32 @@ export interface SampleData {
 }
 
 /**
+ * Per-sample base payload — transcript + metadata. Identical regardless
+ * of summary language; lazy-imported on sample selection. Replaces the
+ * legacy `SampleData.segments + summary + model` triplet starting in the
+ * 2026-04-30 hero-demo-improvements PR; the legacy types stay exported
+ * during the transitional commit window so this file still compiles
+ * before the per-id directories land.
+ */
+export interface HeroSampleBase {
+  readonly id: string;
+  readonly segments: ReadonlyArray<TranscriptSegment>;
+  // SupportedLanguageCode is intentionally widened to `string | null`
+  // here — the transitional commit can't import the language constant
+  // module without creating a circular dep through eslint plugins; the
+  // post-cutover index.ts (Task 11) tightens this back to the proper
+  // `SupportedLanguageCode | null`.
+  readonly nativeLanguage: string | null;
+}
+
+export interface HeroSampleSummary {
+  readonly id: string;
+  readonly language: string;
+  readonly summary: string;
+  readonly model: string;
+}
+
+/**
  * Lightweight per-sample registry entry. `youtubeUrl` and
  * `thumbnailUrl` are NOT stored here — they're derived from `id` via
  * the helpers below so the id↔url and id↔thumbnail invariants are
