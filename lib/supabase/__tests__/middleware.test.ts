@@ -157,6 +157,33 @@ describe("updateSession", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
+  it("does NOT redirect Supabase-anonymous user (is_anonymous=true) from / to /dashboard", async () => {
+    // Hero demo on `/` calls signInAnonymously() so anon visitors can use
+    // the in-page chat. That issues a real Supabase JWT with
+    // is_anonymous=true. The marketing homepage redirect must distinguish
+    // these from real signed-in users — otherwise every visitor who
+    // touches the hero gets bounced to /dashboard on the next visit.
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "anon-1", email: "", is_anonymous: true } },
+    });
+    const response = await updateSession(req("/"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("does NOT block Supabase-anonymous user from /api/chat/stream (anon chat is the whole point)", async () => {
+    // Defensive pin: anon-auth users MUST be able to reach chat/summarize
+    // routes from the homepage hero. A future refactor that broadens the
+    // unauthenticated bounce to also catch is_anonymous would silently
+    // break the anon-chat funnel.
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "anon-1", email: "", is_anonymous: true } },
+    });
+    const response = await updateSession(req("/api/chat/stream"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
   it("does NOT redirect authenticated user away from /summary", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },

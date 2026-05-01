@@ -48,7 +48,12 @@ export async function updateSession(request: NextRequest) {
   // Logged-in users get the personal dashboard instead of the marketing
   // homepage. The redirect lives here (not in `app/page.tsx`) so anonymous
   // visitors and crawlers still see the marketing/SEO content at `/`.
-  if (user && request.nextUrl.pathname === "/") {
+  // The `!is_anonymous` guard excludes Supabase anonymous-auth sessions
+  // (issued by the hero demo's signInAnonymously() so visitors can chat
+  // without signing up) — those users have a real JWT but no account, so
+  // they should keep seeing the marketing homepage, not get bounced to a
+  // dashboard with an empty greeting and no history.
+  if (user && !user.is_anonymous && request.nextUrl.pathname === "/") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

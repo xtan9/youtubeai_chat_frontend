@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
+  if (!user || user.is_anonymous) redirect("/auth/login");
 
   const result = await getRecentHistory(supabase, user.id, RECENT_LIMIT);
   const showViewAll = result.ok && result.rows.length >= RECENT_LIMIT;
