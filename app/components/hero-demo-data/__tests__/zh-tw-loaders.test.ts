@@ -10,11 +10,12 @@ import { SAMPLES } from "..";
 // Script-correctness of the `summary` text is verified out-of-band by
 // the follow-up data-only PR (see TODO(zh-tw-data) in each file).
 describe("hero-demo zh-TW loaders", () => {
-  for (const sample of SAMPLES) {
-    it(`${sample.id}: loadSummary("zh-TW") returns the matching id and language`, async () => {
+  it.each(SAMPLES)(
+    "$id: loadSummary(\"zh-TW\") returns the matching id and language",
+    async (sample) => {
       const payload = await sample.loadSummary("zh-TW");
       expect(payload.id).toBe(sample.id);
       expect(payload.language).toBe("zh-TW");
-    });
-  }
+    },
+  );
 });
