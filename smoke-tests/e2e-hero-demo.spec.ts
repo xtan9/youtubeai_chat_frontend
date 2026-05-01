@@ -78,4 +78,34 @@ test.describe("Hero demo widget", () => {
     // The original input form
     await expect(page.getByPlaceholder(/Enter YouTube URL here/)).toBeVisible();
   });
+
+  test("anon-auth visitor reloading / stays on / (does not bounce to /dashboard)", async ({
+    page,
+    context,
+  }) => {
+    // Regression for the bug where the hero's signInAnonymously() issues
+    // a JWT with is_anonymous=true, and the middleware's `/` → /dashboard
+    // redirect treated that as a real sign-in. Without the is_anonymous
+    // guard, every visitor who landed once was bounced to /dashboard on
+    // the next visit, where they saw "Welcome back," with an empty name.
+    await page.goto(BASE_URL + "/");
+    // Wait for the hero to mount and signInAnonymously() to land a cookie.
+    await expect(
+      page.getByRole("heading", { name: /Will Nvidia.*moat persist/i }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => (await context.cookies()).some((c) => /^sb-.*-auth-token$/.test(c.name)), {
+        timeout: 10_000,
+      })
+      .toBe(true);
+
+    // Re-navigate to `/`. The bug was visible on this second hit.
+    await page.goto(BASE_URL + "/");
+    expect(new URL(page.url()).pathname).toBe("/");
+    // Hero is still the page content — confirms we didn't end up on the
+    // dashboard's "Welcome back" greeting.
+    await expect(
+      page.getByRole("heading", { name: /Will Nvidia.*moat persist/i }),
+    ).toBeVisible({ timeout: 30_000 });
+  });
 });

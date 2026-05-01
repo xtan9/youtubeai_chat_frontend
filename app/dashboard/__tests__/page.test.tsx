@@ -72,6 +72,20 @@ describe("DashboardPage", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/auth/login");
   });
 
+  it("renders for user with is_anonymous=false explicitly set", async () => {
+    // Pins the negative case for the anon guard so a future predicate
+    // inversion (e.g. `!user || !user.is_anonymous`) fails this test
+    // instead of silently locking real users out of the dashboard.
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1", email: "u@example.com", is_anonymous: false } },
+    });
+    mockGetRecentHistory.mockResolvedValue({ ok: true, rows: [ROW] });
+    const ui = await DashboardPage();
+    renderWithProviders(ui);
+    expect(screen.getByTestId("input-form")).toBeTruthy();
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
   it("renders input form, recent label, and history list when authenticated", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },

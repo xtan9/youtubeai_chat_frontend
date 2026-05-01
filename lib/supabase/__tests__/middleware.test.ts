@@ -150,6 +150,22 @@ describe("updateSession", () => {
     );
   });
 
+  it("redirects user with is_anonymous=false explicitly set from / to /dashboard", async () => {
+    // The above test omits `is_anonymous`, which is `undefined` (legacy /
+    // pre-anon-auth JWT shape). Pinning the explicit-false case too
+    // protects the predicate from a future inversion (e.g. someone
+    // refactors `!user.is_anonymous` to `user.is_anonymous === true`,
+    // which would silently break the redirect for the common case).
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "u1", email: "u@example.com", is_anonymous: false } },
+    });
+    const response = await updateSession(req("/"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/dashboard"
+    );
+  });
+
   it("does NOT redirect anonymous user on /", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const response = await updateSession(req("/"));

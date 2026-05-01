@@ -53,7 +53,11 @@ export async function updateSession(request: NextRequest) {
   // without signing up) — those users have a real JWT but no account, so
   // they should keep seeing the marketing homepage, not get bounced to a
   // dashboard with an empty greeting and no history.
-  if (user && !user.is_anonymous && request.nextUrl.pathname === "/") {
+  if (
+    user &&
+    !(user.is_anonymous ?? false) &&
+    request.nextUrl.pathname === "/"
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
