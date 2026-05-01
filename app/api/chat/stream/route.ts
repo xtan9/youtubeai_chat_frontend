@@ -21,6 +21,7 @@ import {
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
 import { formatTimestamp } from "@/lib/utils/timestamp-citations";
+import { HERO_DEMO_VIDEO_IDS } from "@/lib/constants/hero-demo-ids";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -87,7 +88,20 @@ export async function POST(request: Request) {
   const userId = user.id;
   const isAnonymous = user.is_anonymous ?? false;
 
-  if (isAnonymous) {
+  // Anonymous chat is allowed only for the hero-demo sample videos so the
+  // marketing page on `/` can let visitors actually feel the chat
+  // experience without a sign-up wall. Their own pasted URLs still 402.
+  const demoVideoId = (() => {
+    const m = youtube_url.match(/[?&]v=([^&#]+)/);
+    if (m && m[1].length === 11) return m[1];
+    const short = youtube_url.match(/youtu\.be\/([^?&#]+)/);
+    return short && short[1].length === 11 ? short[1] : null;
+  })();
+  const isDemoVideo =
+    demoVideoId !== null &&
+    (HERO_DEMO_VIDEO_IDS as readonly string[]).includes(demoVideoId);
+
+  if (isAnonymous && !isDemoVideo) {
     return new Response(
       JSON.stringify({
         message: "Sign up to chat about your videos.",
