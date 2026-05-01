@@ -64,7 +64,6 @@ export function HeroSection() {
             <a href="#benefits" className="hover:text-text-primary transition-colors">Benefits</a>
             <a href="#use-cases" className="hover:text-text-primary transition-colors">Use Cases</a>
             <a href="#how-it-works" className="hover:text-text-primary transition-colors">How It Works</a>
-            <a href="#testimonials" className="hover:text-text-primary transition-colors">Testimonials</a>
             <a href="#faq" className="hover:text-text-primary transition-colors">FAQ</a>
           </nav>
         </div>
