@@ -10,7 +10,14 @@ export default defineConfig({
   test: {
     // Playwright owns `smoke-tests/*.spec.ts`. Vitest still runs unit
     // tests nested in `smoke-tests/__tests__/*.test.ts` (helpers).
-    exclude: [...configDefaults.exclude, "smoke-tests/*.spec.ts"],
+    // `.worktrees/**` holds local checkouts of other branches; tests
+    // there run against a different commit's source tree and would
+    // produce confusing false-positive failures, so always exclude.
+    exclude: [
+      ...configDefaults.exclude,
+      "smoke-tests/*.spec.ts",
+      ".worktrees/**",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],

@@ -1,5 +1,5 @@
 import { useUser } from "@/lib/contexts/user-context";
-import { createClient } from "@/lib/supabase/client";
+import { useAnonSession } from "@/lib/hooks/useAnonSession";
 
 import type { SummaryResult } from "@/lib/types";
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
@@ -12,7 +12,7 @@ import {
   UseQueryOptions,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback, useState, useEffect } from "react";
+import { useCallback } from "react";
 
 const debugLog: (...args: unknown[]) => void =
   process.env.NODE_ENV === "production" ? () => {} : console.log;
@@ -28,46 +28,10 @@ export function useYouTubeSummarizer(
 ) {
   const { user, session } = useUser();
   const router = useRouter();
-  const [anonSession, setAnonSession] = useState<{
-    access_token: string;
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-
-  // Get an anonymous session if user is not logged in
-  useEffect(() => {
-    async function getAnonymousSession() {
-      if (!session && !anonSession && !isLoading) {
-        setIsLoading(true);
-        try {
-          const supabase = createClient();
-
-          // Check if we already have an anonymous session
-          const { data: sessionData } = await supabase.auth.getSession();
-
-          if (sessionData?.session) {
-            debugLog("Using existing anonymous session");
-            setAnonSession(sessionData.session);
-          } else {
-            debugLog("Signing in anonymously");
-            const { data, error } = await supabase.auth.signInAnonymously();
-
-            if (error) {
-              console.error("Anonymous sign-in error:", error);
-            } else if (data?.session) {
-              debugLog("Anonymous sign-in successful");
-              setAnonSession(data.session);
-            }
-          }
-        } catch (error) {
-          console.error("Error during anonymous authentication:", error);
-        } finally {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    getAnonymousSession();
-  }, [session, anonSession, isLoading]);
+  // Anonymous Supabase session bootstrap is shared with the hero demo
+  // widget on / via this hook; both call sites must agree on flow so a
+  // visitor moving between pages doesn't double-sign-in.
+  const { anonSession, isLoading } = useAnonSession();
 
   const handleAuthError = useCallback(
     (status: number, message: string) => {

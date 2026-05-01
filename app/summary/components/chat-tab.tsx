@@ -11,10 +11,17 @@ import { ChatClearButton } from "./chat-clear-button";
 import { ChatEmptyState } from "./chat-empty-state";
 import { ChatInput } from "./chat-input";
 import { ChatMessageList } from "./chat-message-list";
+import { cn } from "@/lib/utils";
 
 interface ChatTabProps {
   readonly youtubeUrl: string | null;
   readonly active: boolean;
+  /**
+   * Override the outer container classes. Lets the hero demo widget on `/`
+   * use a shorter column height than `/summary`'s default `h-[640px]`.
+   * When omitted, the original hardcoded height applies.
+   */
+  readonly className?: string;
 }
 
 /**
@@ -22,7 +29,7 @@ interface ChatTabProps {
  * fetch only when the tab is active, so users who never click into chat
  * don't fire an extra request.
  */
-export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
+export function ChatTab({ youtubeUrl, active, className }: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
   // message input during the window — otherwise a message sent after
@@ -71,7 +78,12 @@ export function ChatTab({ youtubeUrl, active }: ChatTabProps) {
   const FREE_CHAT_LIMIT = 5;
 
   return (
-    <div className="flex h-[640px] flex-col rounded-lg border border-border-default bg-surface-base">
+    <div
+      className={cn(
+        "flex h-[640px] flex-col rounded-lg border border-border-default bg-surface-base",
+        className,
+      )}
+    >
       <div className="flex items-center justify-between border-b border-border-subtle p-2">
         <span className="px-2 text-body-sm font-medium text-text-secondary">
           Chat about this video
