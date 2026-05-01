@@ -484,6 +484,52 @@ describe("ChatTab", () => {
     );
   });
 
+  it("renders the suggestionsOverride list when provided, ignoring the API", async () => {
+    // The override should win even when the API would have returned a
+    // different list — the hero demo uses this to ship pre-bundled
+    // per-language suggestions.
+    let suggestionsCalled = 0;
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onSuggestions: () => {
+        suggestionsCalled += 1;
+        return jsonResponse({
+          suggestions: [
+            "API suggestion 1",
+            "API suggestion 2",
+            "API suggestion 3",
+          ],
+        });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        suggestionsOverride={[
+          "Override question 1",
+          "Override question 2",
+          "Override question 3",
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Override question 1/ }),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Override question 2/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /API suggestion 1/ }),
+    ).toBeNull();
+    expect(suggestionsCalled).toBe(0);
+  });
+
   it("renders ChatCapBanner (free-cap) when the stream returns a 402 free_chat_exceeded", async () => {
     const fetchMock = makeRouter({
       onMessages: () => jsonResponse({ messages: [] }),
