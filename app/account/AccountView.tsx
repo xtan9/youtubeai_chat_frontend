@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ManageSubscriptionButton } from "@/components/paywall/ManageSubscriptionButton";
 
 function formatRenewalDate(iso: string | null | undefined): string | null {
@@ -23,14 +24,20 @@ function formatRenewalDate(iso: string | null | undefined): string | null {
 
 function PlanCardSkeleton() {
   return (
-    <Card data-testid="plan-card-skeleton">
+    <Card
+      role="status"
+      aria-busy="true"
+      aria-label="Loading plan details"
+      data-testid="plan-card-skeleton"
+    >
       <CardHeader>
-        <div className="h-5 w-24 rounded bg-state-disabled animate-pulse" />
+        <Skeleton className="h-5 w-24" />
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <div className="h-4 w-48 rounded bg-state-disabled animate-pulse" />
-        <div className="h-4 w-40 rounded bg-state-disabled animate-pulse" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-4 w-40" />
       </CardContent>
+      <span className="sr-only">Loading plan details</span>
     </Card>
   );
 }
@@ -89,6 +96,12 @@ function ProPlanCard({
         ? "Billed monthly"
         : null;
   const cancelPending = subscription?.cancel_at_period_end ?? false;
+  // When tier is "pro" but the entitlements row hasn't filled in
+  // subscription metadata yet (Stripe webhook lag right after
+  // checkout), there's no cadence, no renewal, and no banner — just
+  // the title and the Manage Subscription escape hatch. Surface the
+  // sync state so the user understands why the card looks sparse.
+  const showSyncingNote = !subscription && !cadence && !renewal && !cancelPending;
 
   return (
     <Card>
@@ -98,6 +111,11 @@ function ProPlanCard({
       <CardContent className="flex flex-col gap-3">
         {cadence ? (
           <p className="text-body-md text-text-secondary">{cadence}</p>
+        ) : null}
+        {showSyncingNote ? (
+          <p className="text-body-md text-text-secondary">
+            Your subscription details are still syncing. You can manage your plan from the billing portal in the meantime.
+          </p>
         ) : null}
         {renewal && !cancelPending ? (
           <p className="text-body-md text-text-secondary">Renews on {renewal}</p>

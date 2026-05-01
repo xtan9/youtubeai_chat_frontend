@@ -194,7 +194,7 @@ describe("AccountView — Pro plan", () => {
     expect(banner.textContent).toMatch(/end of the current billing period/i);
   });
 
-  it("renders Manage Subscription button even when subscription metadata is missing (webhook-lag escape hatch)", () => {
+  it("renders Manage Subscription button + syncing note when subscription metadata is missing (webhook-lag escape hatch)", () => {
     setEntitlements({
       data: {
         tier: "pro",
@@ -207,6 +207,7 @@ describe("AccountView — Pro plan", () => {
     const qc = freshQueryClient();
     render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
     expect(screen.getByRole("button", { name: /manage subscription/i })).not.toBeNull();
+    expect(screen.getByText(/still syncing/i)).not.toBeNull();
   });
 
   it("does not render Free plan content for Pro users", () => {
@@ -234,6 +235,11 @@ describe("AccountView — entitlements loading and error states", () => {
     });
     const qc = freshQueryClient();
     render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+    // The skeleton announces itself to assistive tech via role="status"
+    // and aria-busy. We assert both the accessible name and the
+    // testid so a future restyle that drops the a11y attrs fails.
+    const skeleton = screen.getByRole("status", { name: /loading plan details/i });
+    expect(skeleton.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByTestId("plan-card-skeleton")).not.toBeNull();
     // Sign out is always reachable.
     expect(screen.getByRole("button", { name: /sign out/i })).not.toBeNull();
