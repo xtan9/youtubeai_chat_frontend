@@ -641,4 +641,30 @@ describe("ChatTab", () => {
     const results = await axe(container);
     expect(results).toHaveNoViolations();
   });
+
+  it("merges a custom className onto the outer container", async () => {
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        className="h-[480px] custom-cls"
+      />,
+      { queryClient: freshQueryClient() },
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/ask anything about this video/i)).toBeTruthy(),
+    );
+
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain("h-[480px]");
+    expect(root.className).toContain("custom-cls");
+    expect(root.className).toContain("flex");
+    expect(root.className).toContain("flex-col");
+  });
 });
