@@ -41,6 +41,14 @@ export interface HeroSampleSummary {
   readonly language: string;
   readonly summary: string;
   readonly model: string;
+  /**
+   * Three follow-up questions tailored to this (id, language) summary,
+   * pre-generated at seed time by `scripts/seed-hero-demo-suggestions.ts`
+   * and emitted by `scripts/build-hero-demo-data.ts`. Tuple-of-3 (not
+   * `string[]`) so a mis-shaped regen fails `tsc` instead of rendering
+   * one or two buttons in the empty state.
+   */
+  readonly suggestions: readonly [string, string, string];
 }
 
 export interface SampleMeta {
