@@ -1,34 +1,37 @@
 /**
  * Seed prod cache with hero-demo translations for all 17 supported
- * summary languages × 6 demo videos.
+ * summary languages × 6 demo videos = 102 (id, lang) combos.
  *
- * Strategy: directly POST to https://www.youtubeai.chat/api/summarize/stream
- * with a Supabase access token from the test account's password grant.
- * Skips Playwright entirely. Streams the SSE response and waits for the
- * `complete` (or `error`) terminal event before considering a combo done.
+ * Strategy: Playwright signs into prod once via the /auth/login form,
+ * then issues `context.request.post('/api/summarize/stream', ...)` for
+ * each combo. The Supabase SSR cookie set during sign-in rides on every
+ * subsequent request in the same context — that's what auth gives us
+ * (the route's middleware reads the cookie, not the Authorization
+ * header). Streams the SSE response and waits for the terminal event
+ * before moving on.
  *
- * Idempotent: combos already cached are detected by an early
- * `cached: true` event and skipped instantly. The summarize route
- * checks the per-(youtube_url, output_language) cache before any LLM
- * call.
+ * Idempotent — combos already cached resolve in <1s and emit an early
+ * `cached: true` event.
  *
  * Usage:
  *   set -a; source ~/.config/claude-test-creds/youtubeai.env; set +a
- *   pnpm tsx scripts/seed-hero-demo-translations.ts [--dry-run] [--concurrency=8] [--only=<id>]
+ *   pnpm tsx scripts/seed-hero-demo-translations.ts [--dry-run] [--concurrency=4] [--only=<id>]
  *
  * --dry-run:        list combos that WOULD be seeded; no network calls.
- * --concurrency=N:  parallel requests (default 8, max 12).
+ * --concurrency=N:  parallel requests (default 4, max 8).
  * --only=<id>:      only seed combos for one specific id.
  */
+import { chromium } from "@playwright/test";
+import type { APIRequestContext, BrowserContext } from "@playwright/test";
+
 import { HERO_DEMO_VIDEO_IDS } from "../lib/constants/hero-demo-ids";
 import { SUPPORTED_OUTPUT_LANGUAGES } from "../lib/constants/languages";
 
 const PROD_BASE_URL = process.env.SEED_BASE_URL ?? "https://www.youtubeai.chat";
-const SUPABASE_URL = process.env.SUPABASE_URL;
 const TEST_EMAIL = process.env.TEST_USER_EMAIL;
 const TEST_PASSWORD = process.env.TEST_USER_PASSWORD;
-const PER_REQUEST_TIMEOUT_MS = 240_000; // 4 min for cold transcribe + summarize
-const MAX_CONCURRENCY = 12;
+const PER_REQUEST_TIMEOUT_MS = 240_000;
+const MAX_CONCURRENCY = 8;
 
 interface Combo {
   readonly id: string;
@@ -44,8 +47,8 @@ function parseArgs(): {
   const dryRun = args.includes("--dry-run");
   const concArg = args.find((a) => a.startsWith("--concurrency="));
   const concurrency = concArg
-    ? Math.min(MAX_CONCURRENCY, Math.max(1, Number(concArg.split("=")[1]) || 8))
-    : 8;
+    ? Math.min(MAX_CONCURRENCY, Math.max(1, Number(concArg.split("=")[1]) || 4))
+    : 4;
   const onlyArg = args.find((a) => a.startsWith("--only="));
   const only = onlyArg ? onlyArg.split("=")[1] : null;
   return { dryRun, concurrency, only };
@@ -63,42 +66,46 @@ function buildCombos(only: string | null): Combo[] {
   return out;
 }
 
-interface SignInResult {
-  readonly accessToken: string;
-  readonly userId: string;
-}
-
-async function signIn(): Promise<SignInResult> {
-  if (!SUPABASE_URL || !TEST_EMAIL || !TEST_PASSWORD) {
+async function signIn(context: BrowserContext): Promise<void> {
+  if (!TEST_EMAIL || !TEST_PASSWORD) {
     throw new Error(
-      "Missing SUPABASE_URL / TEST_USER_EMAIL / TEST_USER_PASSWORD. " +
-        "Run: set -a; source ~/.config/claude-test-creds/youtubeai.env; set +a",
+      "Missing TEST_USER_EMAIL / TEST_USER_PASSWORD. Run: " +
+        "set -a; source ~/.config/claude-test-creds/youtubeai.env; set +a",
     );
   }
-  // Supabase REST password grant. The anon publishable key is technically
-  // required by the gateway; we read it from a public Supabase header
-  // lookup since the seed script intentionally avoids depending on the
-  // app's own client setup. Most Supabase projects accept the
-  // service-role key here too.
-  const apikey = process.env.SUPABASE_SECRET_KEY ?? "";
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey,
-      Authorization: `Bearer ${apikey}`,
-    },
-    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Supabase auth ${res.status}: ${txt}`);
+  const page = await context.newPage();
+  try {
+    await page.goto(`${PROD_BASE_URL}/auth/login`, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    await page.fill('input[type="email"]', TEST_EMAIL);
+    await page.fill('input[type="password"]', TEST_PASSWORD);
+    await page.click('button[type="submit"]');
+    // Wait for the auth cookie to land. The SSR cookie name is
+    // `sb-<project-ref>-auth-token` (possibly chunked into `-0`, `-1`).
+    // Polling cookies is more reliable than waitForURL on the prod
+    // signin -> middleware redirect chain.
+    const deadline = Date.now() + 30_000;
+    let signedIn = false;
+    while (Date.now() < deadline) {
+      const cookies = await context.cookies(PROD_BASE_URL);
+      if (cookies.some((c) => c.name.includes("auth-token"))) {
+        signedIn = true;
+        break;
+      }
+      await page.waitForTimeout(500);
+    }
+    if (!signedIn) {
+      const errorText = await page.locator(".text-accent-danger").first().textContent().catch(() => null);
+      throw new Error(
+        `Sign-in did not produce an auth cookie within 30s. ` +
+          `Form error: ${errorText ?? "(none visible)"}`,
+      );
+    }
+  } finally {
+    await page.close();
   }
-  const body = (await res.json()) as {
-    access_token: string;
-    user: { id: string };
-  };
-  return { accessToken: body.access_token, userId: body.user.id };
 }
 
 interface ComboResult {
@@ -110,81 +117,59 @@ interface ComboResult {
 
 async function processCombo(
   combo: Combo,
-  accessToken: string,
+  request: APIRequestContext,
 ): Promise<ComboResult> {
   const start = Date.now();
   const youtubeUrl = `https://www.youtube.com/watch?v=${combo.id}`;
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), PER_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${PROD_BASE_URL}/api/summarize/stream`, {
-      method: "POST",
+    const res = await request.post(`${PROD_BASE_URL}/api/summarize/stream`, {
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
         Accept: "text/event-stream",
       },
-      body: JSON.stringify({
+      data: {
         youtube_url: youtubeUrl,
         output_language: combo.lang,
         include_transcript: false,
-      }),
-      signal: ctrl.signal,
+      },
+      timeout: PER_REQUEST_TIMEOUT_MS,
     });
-    if (!res.ok) {
+    if (!res.ok()) {
       const txt = await res.text();
       return {
         combo,
         outcome: "error",
         elapsedMs: Date.now() - start,
-        errorMessage: `HTTP ${res.status}: ${txt.slice(0, 200)}`,
+        errorMessage: `HTTP ${res.status()}: ${txt.slice(0, 200)}`,
       };
     }
-    if (!res.body) {
-      return {
-        combo,
-        outcome: "error",
-        elapsedMs: Date.now() - start,
-        errorMessage: "no response body",
-      };
-    }
-
+    const body = await res.text();
     let cached = false;
     let sawComplete = false;
     let lastErrorMessage: string | null = null;
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const evt = JSON.parse(line.slice(6)) as {
-            type?: string;
-            cached?: boolean;
-            stage?: string;
-            progress?: number;
-            message?: string;
-          };
-          if (evt.cached === true) cached = true;
-          if (evt.type === "error" && typeof evt.message === "string") {
-            lastErrorMessage = evt.message;
-          }
-          if (
-            evt.type === "complete" ||
-            (evt.stage === "complete" && evt.progress === 100) ||
-            evt.type === "summary"
-          ) {
-            sawComplete = true;
-          }
-        } catch {
-          // ignore malformed events
+    for (const line of body.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const evt = JSON.parse(line.slice(6)) as {
+          type?: string;
+          cached?: boolean;
+          stage?: string;
+          progress?: number;
+          message?: string;
+        };
+        if (evt.cached === true) cached = true;
+        if (evt.type === "error" && typeof evt.message === "string") {
+          lastErrorMessage = evt.message;
         }
+        if (
+          evt.type === "complete" ||
+          (evt.stage === "complete" && evt.progress === 100) ||
+          evt.type === "summary"
+        ) {
+          sawComplete = true;
+        }
+      } catch {
+        // ignore malformed events
       }
     }
     if (lastErrorMessage && !sawComplete) {
@@ -194,11 +179,6 @@ async function processCombo(
         elapsedMs: Date.now() - start,
         errorMessage: lastErrorMessage,
       };
-    }
-    if (!sawComplete && !cached) {
-      // Stream ended without an explicit complete sentinel — the route
-      // sometimes closes the stream without a terminal event for cached
-      // hits. Treat as fresh-finished if no error surfaced.
     }
     return {
       combo,
@@ -212,8 +192,6 @@ async function processCombo(
       elapsedMs: Date.now() - start,
       errorMessage: err instanceof Error ? err.message : String(err),
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -229,8 +207,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const { accessToken, userId } = await signIn();
-  console.log(`[seed] signed in as user ${userId}`);
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  console.log("[seed] signing in...");
+  await signIn(context);
+  console.log("[seed] signed in OK");
 
   let processed = 0;
   let cachedCount = 0;
@@ -243,7 +224,7 @@ async function main(): Promise<void> {
     while (queue.length > 0) {
       const c = queue.shift();
       if (!c) return;
-      const result = await processCombo(c, accessToken);
+      const result = await processCombo(c, context.request);
       processed += 1;
       if (result.outcome === "cached") cachedCount += 1;
       else if (result.outcome === "fresh") freshCount += 1;
@@ -260,6 +241,9 @@ async function main(): Promise<void> {
     }
   }
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+  await context.close();
+  await browser.close();
 
   console.log(
     `[seed] done. processed=${processed} cached=${cachedCount} fresh=${freshCount} errors=${errorCount}`,
