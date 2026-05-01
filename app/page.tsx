@@ -12,11 +12,14 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 
 // Heavy widget — pulls react-markdown + the chat hooks/UI. Dynamic-import
-// with `ssr: false` keeps the initial homepage chunk small and lets the
-// widget hydrate after critical content. The skeleton matches the
-// eventual three-column grid so the page doesn't shift on hydration.
+// keeps it on its own JS chunk so the marketing-only sections (Benefits,
+// FAQ, etc.) stay light. We do NOT pass `ssr: false` here because that's
+// a hard error in Server Components (Next 15+) and the page itself is
+// server-rendered; HeroDemo's `"use client"` directive already keeps
+// hooks out of the SSR pass. The `loading` skeleton matches the
+// three-column grid the widget eventually renders so layout doesn't
+// shift when the chunk lands.
 const HeroDemo = dynamic(() => import("./components/hero-demo"), {
-  ssr: false,
   loading: () => (
     <section className="mx-auto max-w-page px-4 mb-16 w-full">
       <div className="grid gap-6 lg:grid-cols-[3fr_3.5fr_3.5fr] min-h-[480px]">
