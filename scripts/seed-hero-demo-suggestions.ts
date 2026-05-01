@@ -152,33 +152,58 @@ async function generateSuggestedFollowups(options: {
   // 1. Extract the first balanced top-level array.
   const firstArrayMatch = extractFirstJsonArray(trimmed) ?? trimmed;
   // Special-case: the model sometimes emits an object with three
-  // duplicate `"question": "..."` keys. JSON.parse collapses duplicates
-  // and we'd lose two of the three strings. Pre-extract each value.
-  const duplicateKeyMatches = Array.from(
-    firstArrayMatch.matchAll(
-      /"(?:question|q|text)"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
-    ),
-  ).map((m) => m[1]);
+  // Try the well-formed path first. The duplicate-key + question-regex
+  // fallbacks below only kick in if JSON.parse fails or returns a shape
+  // that isn't a usable 3-string array. Running them eagerly would let
+  // a valid array containing a string like `"question": "..."` get
+  // re-shaped by the regex when it shouldn't be — JSON.parse first
+  // means we only re-parse on actual failure.
   let parsed: unknown;
-  if (duplicateKeyMatches.length >= 3) {
-    parsed = duplicateKeyMatches.slice(0, 3);
-  } else {
-    try {
-      parsed = JSON.parse(firstArrayMatch);
-    } catch (parseErr) {
-      // Last-ditch fallback: the LLM sometimes uses unescaped ASCII
-      // quotes inside foreign-language strings (e.g. CJK quoting), so
-      // JSON.parse fails. Extract anything that looks like a question
-      // string ending in a recognized terminator.
+  let parseErr: unknown = null;
+  try {
+    parsed = JSON.parse(firstArrayMatch);
+  } catch (err) {
+    parseErr = err;
+  }
+
+  const isValidStringArray = (v: unknown): v is string[] =>
+    Array.isArray(v) && v.length >= 3 && v.every((e) => typeof e === "string");
+
+  if (!isValidStringArray(parsed)) {
+    // Fallback 1: the LLM sometimes emits an object with three
+    // duplicate `"question": "..."` keys (or `"q":`/`"text":`).
+    // JSON.parse collapses duplicates, so we lose two of the three —
+    // pull each occurrence directly out of the raw text.
+    const duplicateKeyMatches = Array.from(
+      firstArrayMatch.matchAll(
+        /"(?:question|q|text)"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
+      ),
+    ).map((m) => m[1]);
+    if (duplicateKeyMatches.length >= 3) {
+      parsed = duplicateKeyMatches.slice(0, 3);
+    } else if (parseErr !== null) {
+      // Fallback 2: the LLM sometimes leaves unescaped ASCII quotes
+      // inside foreign-language strings (e.g. CJK quoting), so
+      // JSON.parse fails on the whole array. Extract anything quoted
+      // that ends in a recognized question/exclamation/period
+      // terminator. Logged so an operator can spot when this branch
+      // fired against an unexpected input.
       const questionStrings = Array.from(
         firstArrayMatch.matchAll(/"([^"]+?[?？!！。\.])"/g),
       ).map((m) => m[1]);
       if (questionStrings.length >= 3) {
+        console.warn(
+          "[suggestions] regex-extracted questions after JSON.parse failure",
+          { preview: firstArrayMatch.slice(0, 200) },
+        );
         parsed = questionStrings.slice(0, 3);
       } else {
         throw parseErr;
       }
     }
+    // If the parse succeeded but the shape is wrong (e.g. nested array
+    // or array-of-objects), fall through to the normalization steps
+    // below — they handle those cases.
   }
   // Cope with two common LLM malformations:
   // - `[["q1","q2","q3"]]` — single-level nesting; unwrap.
