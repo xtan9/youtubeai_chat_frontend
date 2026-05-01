@@ -44,3 +44,72 @@ describe("pickDefaultLanguage", () => {
     expect(pickDefaultLanguage(["ja"], SUPPORTED_LANGUAGE_CODES)).toBe("ja");
   });
 });
+
+describe("pickDefaultLanguage — Traditional Chinese routing", () => {
+  it("routes zh-TW directly to zh-TW", () => {
+    expect(pickDefaultLanguage(["zh-TW"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("routes zh-HK to zh-TW (Traditional script alias)", () => {
+    expect(pickDefaultLanguage(["zh-HK"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("routes zh-MO to zh-TW (Traditional script alias)", () => {
+    expect(pickDefaultLanguage(["zh-MO"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("routes bare zh-Hant to zh-TW", () => {
+    expect(pickDefaultLanguage(["zh-Hant"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("routes zh-Hant-TW to zh-TW (script + region both Traditional)", () => {
+    expect(
+      pickDefaultLanguage(["zh-Hant-TW"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("zh-TW");
+  });
+
+  it("routes zh-Hant-CN to zh-TW (script wins over region)", () => {
+    expect(
+      pickDefaultLanguage(["zh-Hant-CN"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("zh-TW");
+  });
+
+  it("preserves zh (bare) → zh (Simplified)", () => {
+    expect(pickDefaultLanguage(["zh"], SUPPORTED_LANGUAGE_CODES)).toBe("zh");
+  });
+
+  it("preserves zh-CN → zh (Simplified)", () => {
+    expect(pickDefaultLanguage(["zh-CN"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh",
+    );
+  });
+
+  it("preserves zh-Hans-CN → zh (Simplified)", () => {
+    expect(
+      pickDefaultLanguage(["zh-Hans-CN"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("zh");
+  });
+
+  it("matches case-insensitively (ZH-tw → zh-TW)", () => {
+    expect(pickDefaultLanguage(["ZH-tw"], SUPPORTED_LANGUAGE_CODES)).toBe(
+      "zh-TW",
+    );
+  });
+
+  it("respects priority order — first matching tag wins", () => {
+    // English is in the supported set as the user's first preference, so
+    // it wins even though zh-TW appears later in the list. Sanity-check
+    // that adding the alias table didn't change priority semantics.
+    expect(
+      pickDefaultLanguage(["en-US", "zh-TW"], SUPPORTED_LANGUAGE_CODES),
+    ).toBe("en");
+  });
+});
