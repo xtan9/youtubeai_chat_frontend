@@ -12,23 +12,36 @@
  * Idempotent: combos whose `summaries[lang].suggestions` is already a
  * valid 3-string array are skipped.
  *
- * Requires LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY env vars (pull them
- * from prod with `vercel env pull .env.production.local --environment=production`
- * once and source via `set -a; source .env.production.local; set +a`).
+ * Requires LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY env vars. Easiest:
+ *   vercel env pull .env.production.local --environment=production
+ * The script auto-loads `.env.production.local` from the package root
+ * via Node's built-in `process.loadEnvFile`, which (unlike a shell
+ * `source`) interprets `\n` escapes inside double-quoted values, so the
+ * trailing-newline that Vercel writes into URL values is parsed cleanly.
  *
  * Usage:
- *   set -a; source .env.production.local; set +a
  *   pnpm tsx scripts/seed-hero-demo-suggestions.ts [--concurrency=4] [--only=<id>]
  *
  * --concurrency=N:  parallel LLM calls (default 4, max 8).
  * --only=<id>:      only seed combos for one specific id.
  */
 import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { z } from "zod";
 
 import { HERO_DEMO_VIDEO_IDS } from "../lib/constants/hero-demo-ids";
 import { SUPPORTED_OUTPUT_LANGUAGES } from "../lib/constants/languages";
 import { SONNET } from "../lib/services/models";
+
+// Auto-load env from .env.production.local if present and the gateway
+// vars aren't already set. Mirrors how Next.js loads env files in
+// production but for one-off Node scripts.
+if (
+  (!process.env.LLM_GATEWAY_URL || !process.env.LLM_GATEWAY_API_KEY) &&
+  existsSync(".env.production.local")
+) {
+  process.loadEnvFile(".env.production.local");
+}
 
 // Mirrors lib/services/suggested-followups.ts:11-14. Single source of
 // truth would be ideal, but that file is server-only — so this
@@ -53,9 +66,43 @@ Summary:
 {{SUMMARY}}
 </summary>`;
 
+function extractFirstJsonArray(text: string): string | null {
+  // Walk char-by-char tracking `[`/`]` depth while respecting strings —
+  // returns the substring covering the first top-level array, or null
+  // if no balanced array is found.
+  const start = text.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "[") depth += 1;
+    else if (ch === "]") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 async function generateSuggestedFollowups(options: {
   summary: string;
   timeoutMs: number;
+  temperature?: number;
 }): Promise<SuggestedFollowups> {
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
@@ -76,7 +123,7 @@ async function generateSuggestedFollowups(options: {
       body: JSON.stringify({
         model: SONNET,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0,
+        temperature: options.temperature ?? 0,
       }),
       signal: AbortSignal.timeout(options.timeoutMs),
     },
@@ -93,8 +140,72 @@ async function generateSuggestedFollowups(options: {
     throw new Error("LLM gateway response missing choices[0].message.content");
   }
   const trimmed = content.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-  const parsed = JSON.parse(trimmed);
-  return SuggestedFollowupsSchema.parse(parsed);
+  if (process.env.SEED_DEBUG) {
+    console.error(`[debug] raw response: ${trimmed.slice(0, 400)}`);
+  }
+  // The LLM occasionally emits multiple JSON arrays back-to-back, an
+  // object-per-question shape, or a bare-bracketed list with unescaped
+  // inner quotes around foreign-language text. Each fallback below
+  // corresponds to a malformation we hit while seeding the 6×17 demo
+  // data set — kept resilient so future re-seeds after model changes
+  // don't immediately break.
+  // 1. Extract the first balanced top-level array.
+  const firstArrayMatch = extractFirstJsonArray(trimmed) ?? trimmed;
+  // Special-case: the model sometimes emits an object with three
+  // duplicate `"question": "..."` keys. JSON.parse collapses duplicates
+  // and we'd lose two of the three strings. Pre-extract each value.
+  const duplicateKeyMatches = Array.from(
+    firstArrayMatch.matchAll(
+      /"(?:question|q|text)"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
+    ),
+  ).map((m) => m[1]);
+  let parsed: unknown;
+  if (duplicateKeyMatches.length >= 3) {
+    parsed = duplicateKeyMatches.slice(0, 3);
+  } else {
+    try {
+      parsed = JSON.parse(firstArrayMatch);
+    } catch (parseErr) {
+      // Last-ditch fallback: the LLM sometimes uses unescaped ASCII
+      // quotes inside foreign-language strings (e.g. CJK quoting), so
+      // JSON.parse fails. Extract anything that looks like a question
+      // string ending in a recognized terminator.
+      const questionStrings = Array.from(
+        firstArrayMatch.matchAll(/"([^"]+?[?？!！。\.])"/g),
+      ).map((m) => m[1]);
+      if (questionStrings.length >= 3) {
+        parsed = questionStrings.slice(0, 3);
+      } else {
+        throw parseErr;
+      }
+    }
+  }
+  // Cope with two common LLM malformations:
+  // - `[["q1","q2","q3"]]` — single-level nesting; unwrap.
+  // - `[{"question":"q1"},...]` — object-per-question; pull the string field.
+  let normalized: unknown = parsed;
+  if (
+    Array.isArray(normalized) &&
+    normalized.length === 1 &&
+    Array.isArray(normalized[0])
+  ) {
+    normalized = normalized[0];
+  }
+  if (
+    Array.isArray(normalized) &&
+    normalized.every(
+      (e) => typeof e === "object" && e !== null && !Array.isArray(e),
+    )
+  ) {
+    const objs = normalized as Array<Record<string, unknown>>;
+    // Pick the first string-typed value from each object — works for
+    // {question: "..."}, {q: "..."}, {text: "..."}, etc.
+    normalized = objs.map((o) => {
+      const v = Object.values(o).find((x) => typeof x === "string");
+      return typeof v === "string" ? v : null;
+    });
+  }
+  return SuggestedFollowupsSchema.parse(normalized);
 }
 
 const DATA_PATH = "/tmp/yt-demo-data/all.json";
@@ -185,10 +296,28 @@ async function main(): Promise<void> {
       const summary = data[c.id].summaries[c.lang].summary;
       const start = Date.now();
       try {
-        const followups = await generateSuggestedFollowups({
-          summary,
-          timeoutMs: PER_CALL_TIMEOUT_MS,
-        });
+        let followups: SuggestedFollowups;
+        try {
+          followups = await generateSuggestedFollowups({
+            summary,
+            timeoutMs: PER_CALL_TIMEOUT_MS,
+          });
+        } catch (firstErr) {
+          // One retry with a non-zero temperature — temp=0 occasionally
+          // produces a malformed shape that's consistently malformed
+          // across retries for the same combo. A small jitter is enough
+          // to nudge the model into the schema-conformant response.
+          console.log(
+            `[suggestions]   ${c.id} ${c.lang} retry with temp=0.4 after: ${
+              firstErr instanceof Error ? firstErr.message : String(firstErr)
+            }`,
+          );
+          followups = await generateSuggestedFollowups({
+            summary,
+            timeoutMs: PER_CALL_TIMEOUT_MS,
+            temperature: 0.4,
+          });
+        }
         data[c.id].summaries[c.lang].suggestions = followups;
         okCount += 1;
       } catch (err) {
