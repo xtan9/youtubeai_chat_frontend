@@ -40,7 +40,7 @@ export async function generateMetadata({
   // less like a bug.
   const explicitImages = post.ogImage ? { images: [post.ogImage] } : {};
   return {
-    title: `${post.title} | YouTubeAI`,
+    title: `${post.title} | YouTube AI Chat`,
     description: post.description,
     alternates: { canonical: url },
     authors: [{ name: post.author }],

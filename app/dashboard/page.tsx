@@ -9,7 +9,7 @@ import { HistoryList } from "@/app/components/history/history-list";
 import { HistoryFetchError } from "@/app/components/history/history-fetch-error";
 
 export const metadata: Metadata = {
-  title: "Dashboard - YouTubeAI.chat",
+  title: "Dashboard - YouTube AI Chat",
   robots: { index: false, follow: false },
 };
 

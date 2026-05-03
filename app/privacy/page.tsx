@@ -4,8 +4,8 @@ import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - YouTubeAI.chat",
-  description: "Privacy policy and data handling practices for YouTubeAI.chat",
+  title: "Privacy Policy - YouTube AI Chat",
+  description: "Privacy policy and data handling practices for YouTube AI Chat",
   alternates: {
     canonical: "/privacy",
   },
@@ -26,7 +26,7 @@ export default function PrivacyPolicy() {
         data={buildWebPageSchema({
           name: "Privacy Policy",
           description:
-            "Privacy policy and data handling practices for YouTubeAI.chat",
+            "Privacy policy and data handling practices for YouTube AI Chat",
           path: "/privacy",
         })}
       />
@@ -35,7 +35,7 @@ export default function PrivacyPolicy() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Introduction</h2>
         <p className="mb-4">
-          At YouTubeAI.chat, we take your privacy seriously. This Privacy Policy
+          At YouTube AI Chat, we take your privacy seriously. This Privacy Policy
           explains how we collect, use, and protect your personal information
           when you use our service.
         </p>

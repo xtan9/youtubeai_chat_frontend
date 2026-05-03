@@ -21,7 +21,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.youtubeai.chat"),
-  title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
+  title: "YouTube AI Chat — Free YouTube Video Summarizer & Chat",
   description:
     "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 18 summary languages. Free to try, no signup needed.",
   keywords: [
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     "AI video summary",
     "free YouTube summarizer",
   ],
-  authors: [{ name: "YouTubeAI" }],
+  authors: [{ name: "YouTube AI Chat" }],
   alternates: {
     canonical: "/",
   },
@@ -45,17 +45,17 @@ export const metadata: Metadata = {
   // need a one-off override (e.g. blog posts with a custom hero image)
   // can still set `images` in their own `generateMetadata`.
   openGraph: {
-    title: "YouTube Video Summarizer & AI Chat | youtubeai.chat",
+    title: "YouTube AI Chat — Free YouTube Video Summarizer & Chat",
     description:
       "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 18 summary languages. Free to try, no signup needed.",
     url: "https://www.youtubeai.chat",
-    siteName: "youtubeai.chat",
+    siteName: "YouTube AI Chat",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "YouTube Video Summarizer & AI Chat",
+    title: "YouTube AI Chat — Summarize & Chat with Any YouTube Video",
     description:
       "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 18 summary languages. Free to try, no signup needed.",
     creator: "@YouTubeAI",
@@ -68,9 +68,9 @@ export const metadata: Metadata = {
     "max-video-preview": -1,
     googleBot: "index, follow",
   },
-  applicationName: "YouTubeAI Summary",
+  applicationName: "YouTube AI Chat",
   appleWebApp: {
-    title: "YouTubeAI Summary",
+    title: "YouTube AI Chat",
     statusBarStyle: "default",
     capable: true,
   },

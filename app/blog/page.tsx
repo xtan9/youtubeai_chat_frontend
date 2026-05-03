@@ -7,12 +7,12 @@ import { PostCard } from "./components/post-card";
 import { Breadcrumbs } from "./components/breadcrumbs";
 
 export const metadata: Metadata = {
-  title: "Blog — Workflows, Comparisons, and Tutorials | YouTubeAI",
+  title: "Blog — Workflows, Comparisons, and Tutorials | YouTube AI Chat",
   description:
     "Practical guides for getting more out of YouTube videos with AI: podcast summaries, tutorial repurposing, lecture notes, and tool comparisons.",
   alternates: { canonical: "/blog" },
   openGraph: {
-    title: "YouTubeAI Blog",
+    title: "YouTube AI Chat Blog",
     description:
       "Workflows, comparisons, and tutorials for YouTube + AI summarization.",
     url: "/blog",
@@ -43,7 +43,7 @@ export default function BlogIndexPage() {
 
       <header className="mb-12">
         <h1 className="text-h1 font-bold text-text-primary tracking-tight mb-4">
-          From the YouTubeAI blog
+          From the YouTube AI Chat blog
         </h1>
         <p className="text-body-lg text-text-secondary max-w-2xl">
           Workflows, comparisons, and tutorials for getting more out of YouTube

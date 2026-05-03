@@ -13,7 +13,7 @@ const fixturePost: BlogPost = {
   slug: "sample-workflow-post",
   publishedAt: "2026-04-28",
   updatedAt: "2026-04-28",
-  author: "YouTubeAI Team",
+  author: "YouTube AI Chat Team",
   category: "workflows",
   tags: ["podcasts", "tutorials"],
   heroVideo: {

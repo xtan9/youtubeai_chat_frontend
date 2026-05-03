@@ -63,7 +63,7 @@ export function Footer() {
           </a>
         </div>
         <div className="text-sm text-text-muted">
-          © {new Date().getFullYear()} YouTubeAI.chat. All rights reserved.
+          © {new Date().getFullYear()} YouTube AI Chat. All rights reserved.
         </div>
       </div>
     </footer>

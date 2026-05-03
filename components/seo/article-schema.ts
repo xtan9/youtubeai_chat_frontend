@@ -24,11 +24,11 @@ export function buildBlogPostingSchema(post: BlogPost) {
     },
     publisher: {
       "@type": "Organization",
-      name: "YouTubeAI",
+      name: "YouTube AI Chat",
       url: SITE_URL,
       logo: {
         "@type": "ImageObject",
-        url: `${SITE_URL}/youtube-summary-demo.png`,
+        url: `${SITE_URL}/logo.svg`,
       },
     },
     mainEntityOfPage: { "@type": "WebPage", "@id": url },

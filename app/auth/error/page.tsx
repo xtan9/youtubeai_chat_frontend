@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Authentication Error - YouTubeAI.chat",
+  title: "Authentication Error - YouTube AI Chat",
   description: "An error occurred during authentication.",
   // Auth pages don't belong in the index — Disallow in robots.txt only
   // suppresses crawling, not indexing of externally-linked URLs.

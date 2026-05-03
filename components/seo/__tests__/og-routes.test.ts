@@ -77,7 +77,7 @@ describe("buildOgCard", () => {
     expect(text).toContain("SUBTITLE-MARKER");
     expect(text).toContain("EYEBROW-MARKER");
     // Wordmark is always rendered.
-    expect(text).toContain("youtubeai.chat");
+    expect(text).toContain("YouTube AI Chat");
   });
 
   it("omits subtitle and eyebrow when not provided", async () => {
@@ -87,7 +87,7 @@ describe("buildOgCard", () => {
     };
     const text = jsxText(result.__jsx);
     expect(text).toContain("ONLY-TITLE");
-    expect(text).toContain("youtubeai.chat");
+    expect(text).toContain("YouTube AI Chat");
     // Eyebrow placeholders shouldn't sneak in when the prop is absent.
     expect(text).not.toContain("undefined");
   });
@@ -123,7 +123,7 @@ describe("blog [slug] opengraph-image route", () => {
     // Fallback card uses the blog-index copy — pinning that string here
     // would couple this test to the static blog-index file. Instead just
     // assert we got *some* card with the wordmark rather than a throw.
-    expect(text).toContain("youtubeai.chat");
+    expect(text).toContain("YouTube AI Chat");
     expect(text).toContain("Workflows");
   });
 });

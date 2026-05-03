@@ -11,7 +11,7 @@ import { HistoryAnonEmpty } from "@/components/paywall/HistoryAnonEmpty";
 import { HistoryFreeBanner } from "@/components/paywall/HistoryFreeBanner";
 
 export const metadata: Metadata = {
-  title: "Your summaries - YouTubeAI.chat",
+  title: "Your summaries - YouTube AI Chat",
   robots: { index: false, follow: false },
 };
 

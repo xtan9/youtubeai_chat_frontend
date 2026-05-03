@@ -4,9 +4,9 @@ import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
 export const metadata: Metadata = {
-  title: "Terms of Service - YouTubeAI.chat",
+  title: "Terms of Service - YouTube AI Chat",
   description:
-    "Terms and conditions for using YouTubeAI.chat video summarization service",
+    "Terms and conditions for using YouTube AI Chat video summarization service",
   alternates: {
     canonical: "/terms",
   },
@@ -27,7 +27,7 @@ export default function TermsOfService() {
         data={buildWebPageSchema({
           name: "Terms of Service",
           description:
-            "Terms and conditions for using YouTubeAI.chat video summarization service",
+            "Terms and conditions for using YouTube AI Chat video summarization service",
           path: "/terms",
         })}
       />
@@ -36,7 +36,7 @@ export default function TermsOfService() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">1. Acceptance of Terms</h2>
         <p className="mb-4">
-          By accessing and using YouTubeAI.chat, you accept and agree to be
+          By accessing and using YouTube AI Chat, you accept and agree to be
           bound by the terms and provisions of this agreement.
         </p>
       </section>
@@ -46,7 +46,7 @@ export default function TermsOfService() {
           2. Description of Service
         </h2>
         <p className="mb-4">
-          YouTubeAI.chat provides an AI-powered video summarization service that
+          YouTube AI Chat provides an AI-powered video summarization service that
           creates summaries and key points from YouTube videos. The service is
           provided &ldquo;as is&rdquo; and may be modified or updated at any
           time.
@@ -83,7 +83,7 @@ export default function TermsOfService() {
         </h2>
         <p className="mb-4">
           The service, including its original content, features, and
-          functionality, is owned by YouTubeAI.chat and is protected by
+          functionality, is owned by YouTube AI Chat and is protected by
           international copyright, trademark, and other intellectual property
           rights laws.
         </p>
@@ -119,7 +119,7 @@ export default function TermsOfService() {
           7. Limitation of Liability
         </h2>
         <p className="mb-4">
-          YouTubeAI.chat shall not be liable for any indirect, incidental,
+          YouTube AI Chat shall not be liable for any indirect, incidental,
           special, consequential, or punitive damages resulting from your use or
           inability to use the service.
         </p>
@@ -137,7 +137,7 @@ export default function TermsOfService() {
         <h2 className="text-2xl font-semibold mb-4">9. Governing Law</h2>
         <p className="mb-4">
           These terms shall be governed by and construed in accordance with the
-          laws of the jurisdiction in which YouTubeAI.chat operates, without
+          laws of the jurisdiction in which YouTube AI Chat operates, without
           regard to its conflict of law provisions.
         </p>
       </section>

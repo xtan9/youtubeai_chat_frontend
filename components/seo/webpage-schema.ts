@@ -22,12 +22,12 @@ export function buildWebPageSchema({
     url,
     isPartOf: {
       "@type": "WebSite",
-      name: "youtubeai.chat",
+      name: "YouTube AI Chat",
       url: "https://www.youtubeai.chat",
     },
     publisher: {
       "@type": "Organization",
-      name: "youtubeai.chat",
+      name: "YouTube AI Chat",
       url: "https://www.youtubeai.chat",
     },
   };
