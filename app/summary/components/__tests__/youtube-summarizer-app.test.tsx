@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -80,9 +80,10 @@ describe("YouTubeSummarizerApp — 402 upgrade gate", () => {
       </Wrapper>
     );
 
-    // UpgradeCard with variant="summary-cap" renders this title
+    // UpgradeCard renders with the summary-cap variant data attribute. Don't
+    // assert specific copy here — it's owned by UpgradeCard's own test suite.
     expect(
-      screen.getByText(/you've used your 10 free summaries/i)
+      document.querySelector('[data-paywall-variant="summary-cap"]')
     ).not.toBeNull();
   });
 });
