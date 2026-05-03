@@ -71,3 +71,20 @@ describe("Header user menu", () => {
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
 });
+
+describe("Header brand link", () => {
+  // Pins the home link's a11y label, target, and that *both* visual
+  // elements of the lockup render — the YT AI mark (svg + aria-label)
+  // and the "YouTube AI Chat" wordmark. A future accidental swap-out of
+  // YtAiMark, or a regression that drops the wordmark span, would fail
+  // here without us having to look at a screenshot.
+  it("renders the brand link with the YT AI mark and the 'YouTube AI Chat' wordmark", () => {
+    const qc = freshQueryClient();
+    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    const home = screen.getByRole("link", { name: /youtube ai chat home/i });
+    expect(home.getAttribute("href")).toBe("/");
+    expect(home.querySelector('svg[aria-label="YT AI"]')).not.toBeNull();
+    expect(home.textContent).toContain("YouTube AI Chat");
+  });
+});

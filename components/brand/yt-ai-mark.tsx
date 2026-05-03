@@ -1,9 +1,10 @@
 import type { SVGProps } from "react";
 
 /**
- * Compact "YT / AI" wordmark used inside the gradient brand square in the
- * header and OG cards. Two-line lockup with a hairline divider keeps the
- * mark legible at 32-40px while staying recognizable when scaled up.
+ * Compact "YT / AI" wordmark used inside the gradient brand square in
+ * the header. Two-line lockup with a hairline divider keeps the mark
+ * legible at small header sizes while staying recognizable when scaled
+ * up.
  *
  * The mark uses `currentColor` so the parent controls foreground; the
  * gradient background is drawn by the wrapping container, not this SVG.

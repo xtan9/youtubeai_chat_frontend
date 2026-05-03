@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 import { buildOrganizationSchema } from "@/components/seo/organization-schema";
@@ -56,6 +58,15 @@ describe("buildOrganizationSchema", () => {
     expect(schema.contactPoint.contactType).toBe("customer support");
     expect(schema.contactPoint.email).toBe("contact@youtubeai.chat");
     expect(schema.contactPoint.availableLanguage).toEqual(["English"]);
+  });
+
+  // Pinning the URL string is not enough — a refactor that moves the
+  // logo path (e.g. /brand/logo.svg) or renames the asset would still
+  // pass the regex above while breaking Google's Knowledge Graph mark.
+  // This guards the asset side of the contract.
+  it("logo URL points at an asset that actually exists in /public", () => {
+    const path = new URL(schema.logo).pathname;
+    expect(existsSync(join(process.cwd(), "public", path))).toBe(true);
   });
 });
 

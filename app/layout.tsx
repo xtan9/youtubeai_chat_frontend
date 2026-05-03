@@ -58,6 +58,8 @@ export const metadata: Metadata = {
     title: "YouTube AI Chat — Summarize & Chat with Any YouTube Video",
     description:
       "Summarize any YouTube video — even ones without captions — and chat with the content using AI. 18 summary languages. Free to try, no signup needed.",
+    // Twitter/X account @-handle, not the brand string. Don't sweep
+    // this in future rebrands — change it only if the account is renamed.
     creator: "@YouTubeAI",
   },
   robots: {
