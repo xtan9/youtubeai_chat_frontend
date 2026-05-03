@@ -2,9 +2,9 @@ import { SignUpForm } from "./components/sign-up-form";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Sign Up - YouTubeAI.chat",
+  title: "Sign Up - YouTube AI Chat",
   description:
-    "Create a free YouTubeAI account to save and revisit your AI-generated YouTube video summaries.",
+    "Create a free YouTube AI Chat account to save and revisit your AI-generated YouTube video summaries.",
   alternates: {
     canonical: "/auth/sign-up",
   },

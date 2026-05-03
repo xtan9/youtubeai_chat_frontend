@@ -2,8 +2,8 @@ import { LoginForm } from "./components/login-form";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Login - YouTubeAI.chat",
-  description: "Login to access your YouTubeAI account",
+  title: "Login - YouTube AI Chat",
+  description: "Login to access your YouTube AI Chat account",
   alternates: {
     canonical: "https://www.youtubeai.chat/auth/login",
   },

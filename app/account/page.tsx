@@ -4,8 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AccountView } from "./AccountView";
 
 export const metadata: Metadata = {
-  title: "Account - YouTubeAI.chat",
-  description: "Manage your YouTubeAI account, plan, and subscription.",
+  title: "Account - YouTube AI Chat",
+  description: "Manage your YouTube AI Chat account, plan, and subscription.",
   robots: { index: false, follow: false },
 };
 

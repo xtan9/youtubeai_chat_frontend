@@ -2,7 +2,7 @@ import { buildOgCard, ogContentType, ogSize } from "@/components/seo/og-card";
 
 export const size = ogSize;
 export const contentType = ogContentType;
-export const alt = "YouTubeAI Blog — workflows, comparisons, and tutorials";
+export const alt = "YouTube AI Chat Blog — workflows, comparisons, and tutorials";
 
 export default function OG() {
   return buildOgCard({

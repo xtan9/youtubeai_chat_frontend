@@ -3,7 +3,7 @@ import { loadBlogPost } from "@/lib/content/blog";
 
 export const size = ogSize;
 export const contentType = ogContentType;
-export const alt = "YouTubeAI blog post";
+export const alt = "YouTube AI Chat blog post";
 
 export default async function OG({
   params,

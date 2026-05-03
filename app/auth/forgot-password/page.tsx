@@ -2,8 +2,8 @@ import { ForgotPasswordForm } from "./components/forgot-password-form";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Reset Password - YouTubeAI.chat",
-  description: "Reset your YouTubeAI account password.",
+  title: "Reset Password - YouTube AI Chat",
+  description: "Reset your YouTube AI Chat account password.",
   // Auth pages don't belong in the index — Disallow in robots.txt only
   // suppresses crawling, not indexing of externally-linked URLs.
   robots: { index: false, follow: false },

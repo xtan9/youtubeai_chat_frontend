@@ -38,7 +38,7 @@ const baseFields = {
   slug: z.string().regex(SLUG).optional(),
   publishedAt: z.string().regex(ISO_DATE),
   updatedAt: z.string().regex(ISO_DATE).optional(),
-  author: z.string().default("YouTubeAI Team"),
+  author: z.string().default("YouTube AI Chat Team"),
   tags: z.array(z.string()).default([]),
   ogImage: z.string().optional(),
   faq: z.array(FaqInlineSchema).optional(),

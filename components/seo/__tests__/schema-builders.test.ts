@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 import { buildOrganizationSchema } from "@/components/seo/organization-schema";
@@ -42,9 +44,13 @@ describe("buildOrganizationSchema", () => {
     // Pin the brand name — must stay in lock-step with WebApplication.name
     // (asserted in the buildWebApplicationSchema block) so Google can
     // consolidate them into a single Knowledge Graph entity.
-    expect(schema.name).toBe("youtubeai.chat");
+    expect(schema.name).toBe("YouTube AI Chat");
+    expect(schema.alternateName).toBe("youtubeai.chat");
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
+    // logo must resolve to an absolute URL — Google ignores relative paths
+    // here, and a missing logo means no Knowledge Panel mark.
+    expect(schema.logo).toMatch(/^https:\/\/www\.youtubeai\.chat\/logo\.svg$/);
   });
 
   it("publishes a customer-support contactPoint with the business email", () => {
@@ -52,6 +58,15 @@ describe("buildOrganizationSchema", () => {
     expect(schema.contactPoint.contactType).toBe("customer support");
     expect(schema.contactPoint.email).toBe("contact@youtubeai.chat");
     expect(schema.contactPoint.availableLanguage).toEqual(["English"]);
+  });
+
+  // Pinning the URL string is not enough — a refactor that moves the
+  // logo path (e.g. /brand/logo.svg) or renames the asset would still
+  // pass the regex above while breaking Google's Knowledge Graph mark.
+  // This guards the asset side of the contract.
+  it("logo URL points at an asset that actually exists in /public", () => {
+    const path = new URL(schema.logo).pathname;
+    expect(existsSync(join(process.cwd(), "public", path))).toBe(true);
   });
 });
 
@@ -64,7 +79,8 @@ describe("buildWebApplicationSchema", () => {
     expect(schema.applicationCategory).toBe("ProductivityApplication");
     // Pin the brand name exactly — a typo that left length>0 (e.g.
     // "youtubeai.cha") would still ship a broken brand string to Google.
-    expect(schema.name).toBe("youtubeai.chat");
+    expect(schema.name).toBe("YouTube AI Chat");
+    expect(schema.alternateName).toBe("youtubeai.chat");
     expect(schema.description.length).toBeGreaterThan(0);
     expect(schema.url).toMatch(/^https:\/\/www\.youtubeai\.chat/);
   });
@@ -139,7 +155,7 @@ describe("buildWebPageSchema", () => {
       "@type": "Organization",
       // Pin to the same brand string buildOrganizationSchema uses so a
       // brand rename can't drift the publisher field out of sync.
-      name: "youtubeai.chat",
+      name: "YouTube AI Chat",
       url: "https://www.youtubeai.chat",
     });
   });

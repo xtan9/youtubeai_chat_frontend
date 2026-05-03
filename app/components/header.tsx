@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Brain, LogOut, User as UserIcon } from "lucide-react";
+import { LogOut, User as UserIcon } from "lucide-react";
+import { YtAiMark } from "@/components/brand/yt-ai-mark";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -32,12 +33,16 @@ export function Header() {
       <div className="mx-auto max-w-page px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link
+              href="/"
+              aria-label="YouTube AI Chat home"
+              className="flex items-center gap-3 group"
+            >
               <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
-                <Brain size={20} className="text-white" />
+                <YtAiMark className="w-7 h-7 text-white" />
               </div>
               <span className="text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent">
-                YouTube AI Summarizer
+                YouTube AI Chat
               </span>
             </Link>
 

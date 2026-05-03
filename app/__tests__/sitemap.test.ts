@@ -13,7 +13,7 @@ function fixturePost(overrides: Partial<BlogPost>): BlogPost {
     slug: "p",
     publishedAt: "2026-01-01",
     updatedAt: "2026-01-01",
-    author: "YouTubeAI Team",
+    author: "YouTube AI Chat Team",
     category: "comparisons",
     tags: [],
     faq: undefined,

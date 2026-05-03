@@ -7,14 +7,14 @@ import { FaqList } from "./components/faq-list";
 import { Breadcrumbs } from "@/app/blog/components/breadcrumbs";
 
 export const metadata: Metadata = {
-  title: "Frequently Asked Questions | YouTubeAI",
+  title: "Frequently Asked Questions | YouTube AI Chat",
   description:
-    "Answers about pricing, accuracy, privacy, supported videos, and how YouTubeAI summarizes YouTube videos with AI.",
+    "Answers about pricing, accuracy, privacy, supported videos, and how YouTube AI Chat summarizes YouTube videos with AI.",
   alternates: { canonical: "/faq" },
   openGraph: {
-    title: "YouTubeAI FAQ",
+    title: "YouTube AI Chat FAQ",
     description:
-      "Answers about pricing, accuracy, privacy, and features of YouTubeAI.",
+      "Answers about pricing, accuracy, privacy, and features of YouTube AI Chat.",
     url: "/faq",
     type: "website",
   },
@@ -47,8 +47,8 @@ export default function FaqPage() {
           Frequently asked questions
         </h1>
         <p className="text-body-lg text-text-secondary max-w-2xl">
-          Quick answers about how YouTubeAI works, what it costs, what videos
-          it supports, and how your data is handled.
+          Quick answers about how YouTube AI Chat works, what it costs, what
+          videos it supports, and how your data is handled.
         </p>
       </header>
 

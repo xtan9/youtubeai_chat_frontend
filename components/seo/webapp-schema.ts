@@ -6,7 +6,8 @@ export function buildWebApplicationSchema() {
   return {
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    name: "youtubeai.chat",
+    name: "YouTube AI Chat",
+    alternateName: "youtubeai.chat",
     applicationCategory: "ProductivityApplication",
     description: "AI-powered YouTube video summarizer and chat tool",
     operatingSystem: "All",

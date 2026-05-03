@@ -5,7 +5,7 @@ export type FaqItem = {
 
 export const faqItems: FaqItem[] = [
   {
-    question: "What makes our YouTube AI Summarizer unique?",
+    question: "What makes YouTube AI Chat unique?",
     answer:
       "Two things most competitors miss. First, we work on videos without captions: when YouTube has no transcript, we transcribe the audio with Whisper and summarize anyway, instead of failing. Second, every summary comes with a chat tab — ask follow-up questions and get answers pulled straight from the full transcript, so you can drill into a specific moment without rewatching.",
   },

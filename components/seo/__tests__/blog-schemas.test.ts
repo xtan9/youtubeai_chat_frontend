@@ -13,7 +13,7 @@ const fixturePost: BlogPost = {
   slug: "sample-workflow-post",
   publishedAt: "2026-04-28",
   updatedAt: "2026-04-28",
-  author: "YouTubeAI Team",
+  author: "YouTube AI Chat Team",
   category: "workflows",
   tags: ["podcasts", "tutorials"],
   heroVideo: {
@@ -68,6 +68,21 @@ describe("buildBlogPostingSchema", () => {
   it("serializes without throwing", () => {
     expect(() => JSON.stringify(schema)).not.toThrow();
   });
+
+  // Pin to the same brand string buildOrganizationSchema uses so a
+  // brand rename can't drift the publisher field out of sync, and pin
+  // the publisher logo so a future refactor of the asset path is
+  // caught here too (Google falls back to no-logo silently).
+  it("attributes the post to the YouTube AI Chat Organization with the brand logo", () => {
+    expect(schema.publisher).toMatchObject({
+      "@type": "Organization",
+      name: "YouTube AI Chat",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://www.youtubeai.chat/logo.svg",
+      },
+    });
+  });
 });
 
 describe("buildBlogListingSchema", () => {
@@ -89,6 +104,17 @@ describe("buildBlogListingSchema", () => {
   it("handles empty arrays", () => {
     const empty = buildBlogListingSchema([]);
     expect(empty.blogPost).toEqual([]);
+  });
+
+  it("attributes the listing to the YouTube AI Chat Organization with the brand logo", () => {
+    expect(schema.publisher).toMatchObject({
+      "@type": "Organization",
+      name: "YouTube AI Chat",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://www.youtubeai.chat/logo.svg",
+      },
+    });
   });
 });
 

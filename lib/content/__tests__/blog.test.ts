@@ -27,7 +27,7 @@ describe("BlogPostFrontmatterSchema (discriminated union)", () => {
       category: "comparisons",
     });
     expect(result.category).toBe("comparisons");
-    expect(result.author).toBe("YouTubeAI Team"); // default
+    expect(result.author).toBe("YouTube AI Chat Team"); // default
     expect(result.tags).toEqual([]);
     expect(result.draft).toBe(false);
   });

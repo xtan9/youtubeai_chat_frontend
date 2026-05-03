@@ -8,13 +8,17 @@ export function buildBlogListingSchema(posts: BlogPost[]) {
     "@type": "Blog",
     "@id": `${SITE_URL}/blog`,
     url: `${SITE_URL}/blog`,
-    name: "YouTubeAI Blog",
+    name: "YouTube AI Chat Blog",
     description:
       "Workflows, comparisons, and tutorials for getting more out of YouTube videos with AI.",
     publisher: {
       "@type": "Organization",
-      name: "YouTubeAI",
+      name: "YouTube AI Chat",
       url: SITE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/logo.svg`,
+      },
     },
     blogPost: posts.map((p) => ({
       "@type": "BlogPosting",

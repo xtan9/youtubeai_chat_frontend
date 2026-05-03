@@ -62,7 +62,7 @@ export function buildOgCard({ title, subtitle, eyebrow }: OgCardInput) {
               color: "transparent",
             }}
           >
-            youtubeai.chat
+            YouTube AI Chat
           </span>
         </div>
 
