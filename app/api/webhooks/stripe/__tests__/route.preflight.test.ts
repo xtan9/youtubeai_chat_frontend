@@ -94,8 +94,28 @@ describe("Stripe webhook env preflight", () => {
 
     expect(res.status).toBe(503);
     const text = await res.text();
+    // Lock the exact body format — operators (and any future grep/parser)
+    // depend on this string shape, and a refactor to e.g. JSON.stringify
+    // would silently reword the operator-facing contract while looser
+    // .toContain() assertions kept passing.
+    expect(text).toBe(
+      "Service unavailable: missing STRIPE_WEBHOOK_SECRET, STRIPE_API_CLIENT, SUPABASE_SERVICE_ROLE",
+    );
+  });
+
+  it("503 lists STRIPE_WEBHOOK_SECRET when secret is empty string", async () => {
+    // Real misconfig mode: rotating an env var to an empty value in the
+    // Vercel UI is a one-click footgun. `!secret` treats it as missing —
+    // pin that so a future swap to `secret === undefined` regresses loudly.
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "");
+    mocks.getStripe.mockReturnValue(stripeStub);
+    mocks.getServiceRoleClient.mockReturnValue(srStub);
+
+    const { POST } = await import("../route");
+    const res = await POST(postWithSig());
+
+    expect(res.status).toBe(503);
+    const text = await res.text();
     expect(text).toContain("STRIPE_WEBHOOK_SECRET");
-    expect(text).toContain("STRIPE_API_CLIENT");
-    expect(text).toContain("SUPABASE_SERVICE_ROLE");
   });
 });
