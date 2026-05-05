@@ -43,11 +43,23 @@ export async function POST(request: Request) {
   const stripe = getStripe();
   const sr = getServiceRoleClient();
   if (!secret || !stripe || !sr) {
+    // Surface which component is missing in the 503 body. Stripe Dashboard
+    // shows the response body verbatim on failed events, so this is the
+    // operator's first signal during a misconfig (April 2026 incident:
+    // env-var rotation didn't auto-redeploy → silent 503s for hours).
+    const missing: string[] = [];
+    if (!secret) missing.push("STRIPE_WEBHOOK_SECRET");
+    if (!stripe) missing.push("STRIPE_API_CLIENT");
+    if (!sr) missing.push("SUPABASE_SERVICE_ROLE");
     console.error("[stripe-webhook] not configured", {
       errorId: "WEBHOOK_NOT_CONFIGURED",
       hasSecret: !!secret, hasStripe: !!stripe, hasSr: !!sr,
+      missing,
     });
-    return new Response("Service unavailable", { status: 503 });
+    return new Response(
+      `Service unavailable: missing ${missing.join(", ")}`,
+      { status: 503 },
+    );
   }
 
   const raw = await request.text();
