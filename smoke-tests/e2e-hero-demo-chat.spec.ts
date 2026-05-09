@@ -1,10 +1,5 @@
-// Regression for the bug where typing into the hero-demo chat returned
-// "Generate the summary first, then ask follow-up questions." The hero
-// videos serve their summary + transcript from static modules under
-// app/components/hero-demo-data/, so the DB cache is never seeded for
-// them and /api/chat/stream's old DB-only lookup 404'd. The fix routes
-// demo videos through a file-loaded fast path that also bypasses
-// rate-limit, entitlement, and history persistence.
+// Regression: anonymous visitors must be able to chat with hero-demo
+// videos on the marketing homepage without hitting USER_ERROR_NO_SUMMARY.
 import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
@@ -70,15 +65,22 @@ test.describe("Hero demo chat (anonymous)", () => {
 
     // The chat list renders the user's message immediately and an
     // assistant draft once the stream emits its first delta. Pinning
-    // both confirms the stream actually reached the UI rather than the
-    // route closing silently. The "thinking" indicator is rendered
-    // while we wait on the first delta — its appearance is the cleanest
-    // signal that the request was accepted (the buggy 404 path skipped
-    // it entirely because the route returned before opening the stream).
+    // the user-message visibility plus the indicator's eventual
+    // disappearance confirms the stream reached the UI.
+    //
+    // We deliberately do NOT assert "an assistant paragraph appears
+    // with non-empty text" here, because local dev typically lacks
+    // LLM_GATEWAY_URL / LLM_GATEWAY_API_KEY — the stream then emits an
+    // error event after the route's POST returns 200, the indicator
+    // clears with no draft text, and the assertion would fail on a
+    // green codebase. The original-bug 4xx ("Generate the summary
+    // first…") is already pinned by the response-status check above
+    // and the no-error-banner assertion below; that's what this e2e
+    // is for. The "stream actually streamed deltas" verification is
+    // covered by the unit tests that mock streamChatCompletion.
     const list = page.getByTestId("chat-message-list");
-    await expect(
-      list.getByText("What is Jensen's main argument about Nvidia's moat?"),
-    ).toBeVisible({ timeout: 10_000 });
+    const userQuestion = "What is Jensen's main argument about Nvidia's moat?";
+    await expect(list.getByText(userQuestion)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("chat-thinking-indicator")).toHaveCount(0, {
       timeout: 60_000,
     });

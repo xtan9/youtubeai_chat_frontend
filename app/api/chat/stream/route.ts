@@ -114,12 +114,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // Demo videos take a stateless fast path: file-loaded summary +
-  // transcript, no rate-limit, no entitlement, no history persist. The
-  // marketing homepage's interactive chat is the whole point of the
-  // allowlist — gating it on DB rows defeats that, and chat_messages.video_id
-  // is a UUID FK to videos(id) so a non-DB demo id can't be persisted
-  // anyway (see migrations/20260429000001_chat_messages.sql).
+  // Demo videos bypass rate-limit, entitlement, and chat_messages
+  // persistence: the marketing chat must work for anonymous visitors
+  // who have no DB-cached summary, no chat thread row, and no
+  // `videos(id)` row. `chat_messages.video_id` is `UUID NOT NULL
+  // REFERENCES videos(id)`, so demo ids — 11-char YouTube ids, not
+  // UUIDs — can neither satisfy the FK on insert nor be used as a
+  // UUID-typed equality predicate on read. Allowlisted via
+  // HERO_DEMO_VIDEO_IDS.
   if (!isDemoVideo) {
     const rateLimit = await checkRateLimit(userId, isAnonymous);
     if (rateLimit.reason === "fail_open") {
@@ -141,9 +143,9 @@ export async function POST(request: Request) {
   // translated languages is a follow-up. Both reads run in parallel
   // because they're independent cache lookups.
   //
-  // Demo videos read from the static file registry instead — the hero
-  // homepage doesn't pre-seed the DB cache, so DB lookups always miss
-  // for these six ids (this is the bug that prompted the file path).
+  // Demo videos read from the static file registry instead — demo
+  // summaries are never seeded into the DB cache, so the file
+  // registry is the only source.
   const [cachedSummary, cachedTranscript] = isDemoVideo
     ? await Promise.all([
         loadHeroDemoSummary(youtube_url),
@@ -194,10 +196,8 @@ export async function POST(request: Request) {
     return jsonError(413, USER_ERROR_TRANSCRIPT_TOO_LONG);
   }
 
-  // Demo chat is stateless — chat_messages.video_id is a UUID FK to
-  // videos(id) and demo ids aren't in `videos`, so loading or writing
-  // history for the demo path would always fail. Instead the marketing
-  // homepage gives every demo question a fresh thread.
+  // Demo path: stateless thread (see top-of-route comment for the FK
+  // reasoning). Every demo question runs against an empty history.
   let history: readonly ChatMessageRow[];
   if (isDemoVideo) {
     history = [];
@@ -248,10 +248,11 @@ export async function POST(request: Request) {
   // the same question twice.
   let closed = false;
   let assistantBuffer = "";
-  // Demo videos never persist (chat_messages.video_id FK can't resolve
-  // for non-DB ids), so seed the dedupe flag to "already done" — every
-  // persistUserOnly() and the cancel() handler short-circuit cleanly,
-  // and the success branch's appendChatTurn is gated below.
+  // Invariant: when `isDemoVideo`, `userMessagePersisted` stays `true`
+  // for the lifetime of the request, so all four persist sites become
+  // no-ops: persistUserOnly() (start-success / start-llm-fail /
+  // start-empty-response branches) and cancel(). The success branch's
+  // appendChatTurn is gated separately below.
   let userMessagePersisted = isDemoVideo;
 
   const stream = new ReadableStream({
@@ -375,9 +376,7 @@ export async function POST(request: Request) {
         // complete answer that vanishes on reload. Adding ~50–200ms of
         // DB-write latency to the perceived close is the right trade.
         //
-        // Demo videos skip persistence entirely — the marketing path is
-        // intentionally stateless and the FK to videos(id) wouldn't
-        // resolve anyway.
+        // Demo path: stateless (see top-of-route comment).
         if (isDemoVideo) {
           sendEvent({ type: "done" });
           return;

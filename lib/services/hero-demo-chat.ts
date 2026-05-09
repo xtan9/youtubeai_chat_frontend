@@ -15,17 +15,13 @@ import type {
 } from "./summarize-cache";
 
 // The hero-demo registry stores per-(id, language) summaries as static
-// modules under app/components/hero-demo-data/. Anonymous visitors on the
-// marketing homepage chat about these six videos without ever populating
-// the DB cache, so /api/chat/stream's DB-backed `getCachedSummary` /
-// `getCachedTranscript` return null and the route would 404 with
-// "Generate the summary first." This helper fills that gap by serving
-// the same shapes from the file registry.
-//
-// Demo chat is intentionally stateless: no rate-limit, no entitlement,
-// no chat_messages persist (the FK to videos(id) wouldn't resolve for a
-// non-DB id anyway). The route enforces those skips; this module only
-// owns the data load.
+// modules under app/components/hero-demo-data/. Anonymous visitors on
+// the marketing homepage chat about the videos in HERO_DEMO_VIDEO_IDS
+// without ever populating the DB cache, so /api/chat/stream's
+// DB-backed `getCachedSummary` / `getCachedTranscript` return null.
+// This module fills that gap by serving the same shapes from the file
+// registry. It owns only the data load — the route owns the policy
+// (rate-limit / entitlement / persistence skips).
 
 function isSupportedLanguageCode(
   code: string | null | undefined,
@@ -38,7 +34,17 @@ async function loadSampleData(youtubeUrl: string) {
   const id = getYoutubeVideoId(youtubeUrl);
   if (!isHeroDemoVideoId(id)) return null;
   const sample = SAMPLES.find((s) => s.id === id);
-  if (!sample) return null;
+  if (!sample) {
+    // Allowlist + registry are supposed to stay in lockstep (see the
+    // module-eval invariant in hero-demo-data/index.ts). If they ever
+    // drift, the user sees a generic 404 from the route — log so
+    // operators can find which id was orphaned.
+    console.error("[hero-demo-chat] allowlisted id missing from SAMPLES registry", {
+      errorId: "HERO_DEMO_REGISTRY_DRIFT",
+      videoId: id,
+    });
+    return null;
+  }
   return { id, sample };
 }
 
@@ -50,24 +56,37 @@ export async function loadHeroDemoSummary(
   const { id, sample } = resolved;
 
   let base;
-  let summary: HeroSampleSummary;
   try {
     base = await sample.loadBase();
-    // Mirror /summary chat (output_language IS NULL = native row): load
-    // the video's native-language summary. Fall back to "en" if the
-    // registry's nativeLanguage is outside the picker set, which keeps
-    // the path resilient to a future non-English demo whose native
-    // locale isn't one of the 17 we ship summaries for.
-    const lang: SupportedLanguageCode = isSupportedLanguageCode(
-      base.nativeLanguage,
-    )
-      ? base.nativeLanguage
-      : "en";
+  } catch (err) {
+    console.error("[hero-demo-chat] sample base load failed", {
+      errorId: "HERO_DEMO_BASE_LOAD_FAILED",
+      videoId: id,
+      err,
+    });
+    return null;
+  }
+
+  // Mirror /summary chat (output_language IS NULL = native row): load
+  // the video's native-language summary. Fall back to "en" if the
+  // registry's nativeLanguage is outside SUPPORTED_LANGUAGE_CODES,
+  // which keeps the path resilient to a future non-English demo whose
+  // native locale isn't one we ship summaries for.
+  const lang: SupportedLanguageCode = isSupportedLanguageCode(
+    base.nativeLanguage,
+  )
+    ? base.nativeLanguage
+    : "en";
+
+  let summary: HeroSampleSummary;
+  try {
     summary = await sample.loadSummary(lang);
   } catch (err) {
     console.error("[hero-demo-chat] sample summary load failed", {
       errorId: "HERO_DEMO_SUMMARY_LOAD_FAILED",
       videoId: id,
+      lang,
+      nativeLanguage: base.nativeLanguage,
       err,
     });
     return null;
@@ -96,22 +115,27 @@ export async function loadHeroDemoTranscript(
   if (!resolved) return null;
   const { id, sample } = resolved;
 
+  let base;
   try {
-    const base = await sample.loadBase();
-    return {
-      videoId: id,
-      title: sample.title,
-      channelName: sample.channel,
-      segments: base.segments,
-      transcriptSource: "auto_captions",
-      language: "en",
-    };
+    base = await sample.loadBase();
   } catch (err) {
-    console.error("[hero-demo-chat] sample transcript load failed", {
-      errorId: "HERO_DEMO_TRANSCRIPT_LOAD_FAILED",
+    // Same root cause as HERO_DEMO_BASE_LOAD_FAILED in the summary
+    // path; the shared id keeps Sentry triage from chasing two
+    // phantom incidents when one base chunk breaks.
+    console.error("[hero-demo-chat] sample base load failed", {
+      errorId: "HERO_DEMO_BASE_LOAD_FAILED",
       videoId: id,
       err,
     });
     return null;
   }
+
+  return {
+    videoId: id,
+    title: sample.title,
+    channelName: sample.channel,
+    segments: base.segments,
+    transcriptSource: "auto_captions",
+    language: "en",
+  };
 }

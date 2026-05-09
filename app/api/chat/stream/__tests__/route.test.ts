@@ -135,9 +135,9 @@ describe("POST /api/chat/stream", () => {
     });
     mocks.getCachedSummary.mockResolvedValue(SUMMARY_FIXTURE);
     mocks.getCachedTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
-    // Default demo fixtures mirror the DB-cache fixtures so existing
-    // demo-allowlist tests don't have to reseed; tests that assert the
-    // file-load path is exercised override these with their own values.
+    // Default these to the DB fixtures so allowlist-only tests don't
+    // need their own seed; the bug-condition test below overrides to
+    // assert the file path is independent of DB state.
     mocks.loadHeroDemoSummary.mockResolvedValue(SUMMARY_FIXTURE);
     mocks.loadHeroDemoTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
     mocks.listChatMessages.mockResolvedValue([]);
@@ -522,6 +522,43 @@ describe("POST /api/chat/stream", () => {
       "video-uuid",
       "Hi"
     );
+  });
+
+  it("demo path: cancel() does NOT call appendChatUserMessage even when caller aborts mid-stream", async () => {
+    // Pins the `userMessagePersisted = isDemoVideo` seed in route.ts.
+    // If a future refactor reverts that seed to `false`, every demo
+    // visitor who closes the tab mid-stream would hit appendChatUserMessage
+    // with a non-UUID video_id and FK-violate in production logs.
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-demo-cancel", is_anonymous: true } },
+      error: null,
+    });
+    const controller = new AbortController();
+    mocks.streamChatCompletion.mockImplementation(async function* (
+      opts: { signal: AbortSignal }
+    ) {
+      yield { type: "delta" as const, text: "partial" };
+      controller.abort();
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      Object.defineProperty(opts.signal, "aborted", {
+        value: true,
+        configurable: true,
+      });
+      throw err;
+    });
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const req = new Request("http://localhost/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ youtube_url: HERO_URL, message: "hi" }),
+      signal: controller.signal,
+    });
+    const res = await POST(req);
+    await readSse(res.body!).catch(() => []);
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
   });
 
   it("does NOT double-insert when cancel() fires after a clean appendChatTurn", async () => {
