@@ -75,9 +75,10 @@ test.describe("Hero demo chat (anonymous)", () => {
     // clears with no draft text, and the assertion would fail on a
     // green codebase. The original-bug 4xx ("Generate the summary
     // first…") is already pinned by the response-status check above
-    // and the no-error-banner assertion below; that's what this e2e
-    // is for. The "stream actually streamed deltas" verification is
-    // covered by the unit tests that mock streamChatCompletion.
+    // and the no-USER_ERROR_NO_SUMMARY assertion below; that's what
+    // this e2e is for. The "stream actually streamed deltas"
+    // verification is covered by the unit tests that mock
+    // streamChatCompletion.
     const list = page.getByTestId("chat-message-list");
     const userQuestion = "What is Jensen's main argument about Nvidia's moat?";
     await expect(list.getByText(userQuestion)).toBeVisible({ timeout: 10_000 });

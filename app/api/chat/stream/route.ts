@@ -118,10 +118,11 @@ export async function POST(request: Request) {
   // persistence: the marketing chat must work for anonymous visitors
   // who have no DB-cached summary, no chat thread row, and no
   // `videos(id)` row. `chat_messages.video_id` is `UUID NOT NULL
-  // REFERENCES videos(id)`, so demo ids — 11-char YouTube ids, not
-  // UUIDs — can neither satisfy the FK on insert nor be used as a
-  // UUID-typed equality predicate on read. Allowlisted via
-  // HERO_DEMO_VIDEO_IDS.
+  // REFERENCES videos(id)`, so demo ids (11-char YouTube ids, not
+  // UUIDs) can satisfy neither the UUID column type on insert nor a
+  // UUID-typed equality predicate on read — both fail with Postgres
+  // `22P02 invalid_text_representation` before the FK constraint is
+  // ever reached. Allowlisted via HERO_DEMO_VIDEO_IDS.
   if (!isDemoVideo) {
     const rateLimit = await checkRateLimit(userId, isAnonymous);
     if (rateLimit.reason === "fail_open") {
