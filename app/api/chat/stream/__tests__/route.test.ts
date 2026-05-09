@@ -11,6 +11,8 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       checkChatEntitlement: vi.fn(),
       getCachedSummary: vi.fn(),
       getCachedTranscript: vi.fn(),
+      loadHeroDemoSummary: vi.fn(),
+      loadHeroDemoTranscript: vi.fn(),
       listChatMessages: vi.fn(),
       appendChatTurn: vi.fn(),
       appendChatUserMessage: vi.fn(),
@@ -45,6 +47,11 @@ vi.mock("@/lib/services/entitlements", () => ({
 vi.mock("@/lib/services/summarize-cache", () => ({
   getCachedSummary: mocks.getCachedSummary,
   getCachedTranscript: mocks.getCachedTranscript,
+}));
+
+vi.mock("@/lib/services/hero-demo-chat", () => ({
+  loadHeroDemoSummary: mocks.loadHeroDemoSummary,
+  loadHeroDemoTranscript: mocks.loadHeroDemoTranscript,
 }));
 
 vi.mock("@/lib/services/chat-store", () => ({
@@ -128,6 +135,11 @@ describe("POST /api/chat/stream", () => {
     });
     mocks.getCachedSummary.mockResolvedValue(SUMMARY_FIXTURE);
     mocks.getCachedTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
+    // Default these to the DB fixtures so allowlist-only tests don't
+    // need their own seed; the bug-condition test below overrides to
+    // assert the file path is independent of DB state.
+    mocks.loadHeroDemoSummary.mockResolvedValue(SUMMARY_FIXTURE);
+    mocks.loadHeroDemoTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
     mocks.listChatMessages.mockResolvedValue([]);
     mocks.appendChatTurn.mockResolvedValue(undefined);
     mocks.appendChatUserMessage.mockResolvedValue(undefined);
@@ -189,7 +201,7 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
-  it("allows anonymous users to chat hero-demo videos via HERO_DEMO_VIDEO_IDS allowlist", async () => {
+  it("allows anonymous users to chat hero-demo videos and bypasses rate-limit + entitlement entirely", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "anon-2", is_anonymous: true } },
       error: null,
@@ -201,8 +213,81 @@ describe("POST /api/chat/stream", () => {
     const { POST } = await import("../route");
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
+    await readSse(res.body!);
     expect(res.status).not.toBe(402);
-    expect(mocks.checkRateLimit).toHaveBeenCalled();
+    // Demo path is intentionally stateless: no rate-limit, no entitlement,
+    // no DB cache lookups, no chat_messages reads or writes.
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+    expect(mocks.getCachedSummary).not.toHaveBeenCalled();
+    expect(mocks.getCachedTranscript).not.toHaveBeenCalled();
+    expect(mocks.loadHeroDemoSummary).toHaveBeenCalled();
+    expect(mocks.loadHeroDemoTranscript).toHaveBeenCalled();
+    expect(mocks.listChatMessages).not.toHaveBeenCalled();
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns the demo file-loaded summary + transcript even when the DB cache helpers would return null", async () => {
+    // Simulates the bug condition: the DB cache for these ids was
+    // never seeded because the hero registry serves them from static
+    // files. Before the fix, this 404'd with "Generate the summary
+    // first…" — the test pins that the demo path is now self-contained.
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-demo-bug", is_anonymous: true } },
+      error: null,
+    });
+    mocks.getCachedSummary.mockResolvedValue(null);
+    mocks.getCachedTranscript.mockResolvedValue(null);
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
+    expect(res.status).toBe(200);
+    const events = (await readSse(res.body!)).join("");
+    expect(events).toContain('"type":"delta"');
+    expect(events).toContain('"type":"done"');
+  });
+
+  it("404s a demo URL when the file registry itself can't load (defensive — should never happen in prod)", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-demo-missing", is_anonymous: true } },
+      error: null,
+    });
+    mocks.loadHeroDemoSummary.mockResolvedValue(null);
+    mocks.loadHeroDemoTranscript.mockResolvedValue(null);
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("demo path ignores entitlement.allowed=false from a stray mock (entitlement is fully bypassed)", async () => {
+    // Belt-and-braces: even if some future change accidentally calls
+    // checkChatEntitlement for demos, this asserts the demo response
+    // doesn't 402 on it. The not.toHaveBeenCalled assertion above
+    // pins the actual contract; this pins the consequence.
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-demo-paywall", is_anonymous: true } },
+      error: null,
+    });
+    mocks.checkChatEntitlement.mockResolvedValue({
+      tier: "free",
+      allowed: false,
+      remaining: 0,
+      reason: "exceeded",
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
+    expect(res.status).toBe(200);
   });
 
   it("still 402s anonymous users on non-allowlisted videos even with the allowlist active", async () => {
@@ -218,7 +303,7 @@ describe("POST /api/chat/stream", () => {
     expect(body.errorCode).toBe("anon_chat_blocked");
   });
 
-  it("allows anonymous users on the youtu.be short-URL form for hero-demo videos", async () => {
+  it("allows anonymous users on the youtu.be short-URL form for hero-demo videos (and still bypasses rate-limit)", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "anon-4", is_anonymous: true } },
       error: null,
@@ -234,8 +319,10 @@ describe("POST /api/chat/stream", () => {
         message: "hi",
       }),
     );
+    await readSse(res.body!);
     expect(res.status).not.toBe(402);
-    expect(mocks.checkRateLimit).toHaveBeenCalled();
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(mocks.loadHeroDemoSummary).toHaveBeenCalled();
   });
 
   it("rejects malformed `?v=` values whose parsed id is too long, even if a hero-demo id is a prefix", async () => {
@@ -435,6 +522,43 @@ describe("POST /api/chat/stream", () => {
       "video-uuid",
       "Hi"
     );
+  });
+
+  it("demo path: cancel() does NOT call appendChatUserMessage even when caller aborts mid-stream", async () => {
+    // Pins the `userMessagePersisted = isDemoVideo` seed in route.ts.
+    // If a future refactor reverts that seed to `false`, every demo
+    // visitor who closes the tab mid-stream would hit appendChatUserMessage
+    // with a non-UUID video_id and FK-violate in production logs.
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anon-demo-cancel", is_anonymous: true } },
+      error: null,
+    });
+    const controller = new AbortController();
+    mocks.streamChatCompletion.mockImplementation(async function* (
+      opts: { signal: AbortSignal }
+    ) {
+      yield { type: "delta" as const, text: "partial" };
+      controller.abort();
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      Object.defineProperty(opts.signal, "aborted", {
+        value: true,
+        configurable: true,
+      });
+      throw err;
+    });
+    const { POST } = await import("../route");
+    const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const req = new Request("http://localhost/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ youtube_url: HERO_URL, message: "hi" }),
+      signal: controller.signal,
+    });
+    const res = await POST(req);
+    await readSse(res.body!).catch(() => []);
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
   });
 
   it("does NOT double-insert when cancel() fires after a clean appendChatTurn", async () => {
