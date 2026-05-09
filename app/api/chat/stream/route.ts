@@ -23,6 +23,10 @@ import {
 import { formatTimestamp } from "@/lib/utils/timestamp-citations";
 import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
 import { getYoutubeVideoId } from "@/app/summary/utils";
+import {
+  loadHeroDemoSummary,
+  loadHeroDemoTranscript,
+} from "@/lib/services/hero-demo-chat";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -110,16 +114,24 @@ export async function POST(request: Request) {
     );
   }
 
-  const rateLimit = await checkRateLimit(userId, isAnonymous);
-  if (rateLimit.reason === "fail_open") {
-    console.error("[chat/stream] rate-limit bypassed (fail-open)", {
-      errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
-      userId,
-      youtubeUrl: youtube_url,
-    });
-  }
-  if (!rateLimit.allowed) {
-    return jsonError(429, "Rate limit exceeded. Please try again later.");
+  // Demo videos take a stateless fast path: file-loaded summary +
+  // transcript, no rate-limit, no entitlement, no history persist. The
+  // marketing homepage's interactive chat is the whole point of the
+  // allowlist — gating it on DB rows defeats that, and chat_messages.video_id
+  // is a UUID FK to videos(id) so a non-DB demo id can't be persisted
+  // anyway (see migrations/20260429000001_chat_messages.sql).
+  if (!isDemoVideo) {
+    const rateLimit = await checkRateLimit(userId, isAnonymous);
+    if (rateLimit.reason === "fail_open") {
+      console.error("[chat/stream] rate-limit bypassed (fail-open)", {
+        errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
+        userId,
+        youtubeUrl: youtube_url,
+      });
+    }
+    if (!rateLimit.allowed) {
+      return jsonError(429, "Rate limit exceeded. Please try again later.");
+    }
   }
 
   // Chat is gated on the video-native summary row already existing for
@@ -128,32 +140,43 @@ export async function POST(request: Request) {
   // only generated translated summaries hits 404 here — chat in
   // translated languages is a follow-up. Both reads run in parallel
   // because they're independent cache lookups.
-  const [cachedSummary, cachedTranscript] = await Promise.all([
-    getCachedSummary(youtube_url, null),
-    getCachedTranscript(youtube_url),
-  ]);
+  //
+  // Demo videos read from the static file registry instead — the hero
+  // homepage doesn't pre-seed the DB cache, so DB lookups always miss
+  // for these six ids (this is the bug that prompted the file path).
+  const [cachedSummary, cachedTranscript] = isDemoVideo
+    ? await Promise.all([
+        loadHeroDemoSummary(youtube_url),
+        loadHeroDemoTranscript(youtube_url),
+      ])
+    : await Promise.all([
+        getCachedSummary(youtube_url, null),
+        getCachedTranscript(youtube_url),
+      ]);
   if (!cachedSummary || !cachedTranscript) {
     return jsonError(404, USER_ERROR_NO_SUMMARY);
   }
 
-  const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
-  if (entitlement.reason === "fail_open") {
-    console.error("[chat/stream] entitlement bypassed (fail-open)", {
-      errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
-      userId,
-      videoId: cachedSummary.videoId,
-    });
-  }
-  if (!entitlement.allowed) {
-    return new Response(
-      JSON.stringify({
-        message: "You've used your 5 free chat messages on this video. Upgrade for unlimited.",
-        errorCode: "free_chat_exceeded",
-        tier: entitlement.tier,
-        upgradeUrl: "/pricing",
-      }),
-      { status: 402, headers: { "Content-Type": "application/json" } }
-    );
+  if (!isDemoVideo) {
+    const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
+    if (entitlement.reason === "fail_open") {
+      console.error("[chat/stream] entitlement bypassed (fail-open)", {
+        errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
+        userId,
+        videoId: cachedSummary.videoId,
+      });
+    }
+    if (!entitlement.allowed) {
+      return new Response(
+        JSON.stringify({
+          message: "You've used your 5 free chat messages on this video. Upgrade for unlimited.",
+          errorCode: "free_chat_exceeded",
+          tier: entitlement.tier,
+          upgradeUrl: "/pricing",
+        }),
+        { status: 402, headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
   const videoId = cachedTranscript.videoId;
@@ -171,24 +194,32 @@ export async function POST(request: Request) {
     return jsonError(413, USER_ERROR_TRANSCRIPT_TOO_LONG);
   }
 
+  // Demo chat is stateless — chat_messages.video_id is a UUID FK to
+  // videos(id) and demo ids aren't in `videos`, so loading or writing
+  // history for the demo path would always fail. Instead the marketing
+  // homepage gives every demo question a fresh thread.
   let history: readonly ChatMessageRow[];
-  try {
-    const fullHistory = await listChatMessages(userId, videoId);
-    // Cap history at the route boundary so a long-running thread can't
-    // blow the LLM's context window and the per-turn token cost stays
-    // bounded regardless of how many turns the user has accumulated.
-    history =
-      fullHistory.length > MAX_HISTORY_MESSAGES
-        ? fullHistory.slice(-MAX_HISTORY_MESSAGES)
-        : fullHistory;
-  } catch (err) {
-    console.error("[chat/stream] history load failed", {
-      errorId: "CHAT_HISTORY_LOAD_FAILED",
-      userId,
-      videoId,
-      err,
-    });
-    return jsonError(503, "Could not load chat history.");
+  if (isDemoVideo) {
+    history = [];
+  } else {
+    try {
+      const fullHistory = await listChatMessages(userId, videoId);
+      // Cap history at the route boundary so a long-running thread can't
+      // blow the LLM's context window and the per-turn token cost stays
+      // bounded regardless of how many turns the user has accumulated.
+      history =
+        fullHistory.length > MAX_HISTORY_MESSAGES
+          ? fullHistory.slice(-MAX_HISTORY_MESSAGES)
+          : fullHistory;
+    } catch (err) {
+      console.error("[chat/stream] history load failed", {
+        errorId: "CHAT_HISTORY_LOAD_FAILED",
+        userId,
+        videoId,
+        err,
+      });
+      return jsonError(503, "Could not load chat history.");
+    }
   }
 
   // Anthropic prompt caching via OpenAI-compat. Off by default — the
@@ -217,7 +248,11 @@ export async function POST(request: Request) {
   // the same question twice.
   let closed = false;
   let assistantBuffer = "";
-  let userMessagePersisted = false;
+  // Demo videos never persist (chat_messages.video_id FK can't resolve
+  // for non-DB ids), so seed the dedupe flag to "already done" — every
+  // persistUserOnly() and the cancel() handler short-circuit cleanly,
+  // and the success branch's appendChatTurn is gated below.
+  let userMessagePersisted = isDemoVideo;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -339,6 +374,14 @@ export async function POST(request: Request) {
         // a silent persist failure here would let the user see a
         // complete answer that vanishes on reload. Adding ~50–200ms of
         // DB-write latency to the perceived close is the right trade.
+        //
+        // Demo videos skip persistence entirely — the marketing path is
+        // intentionally stateless and the FK to videos(id) wouldn't
+        // resolve anyway.
+        if (isDemoVideo) {
+          sendEvent({ type: "done" });
+          return;
+        }
         try {
           await appendChatTurn({
             userId,
