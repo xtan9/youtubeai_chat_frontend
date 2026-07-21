@@ -19,7 +19,7 @@ export interface LlmStreamOptions {
   readonly signal?: AbortSignal;
   /**
    * Overrides LLM_MODEL env var when provided. `KnownModel | (string & {})`
-   * autocompletes the sanctioned Claude IDs while still accepting arbitrary
+   * autocompletes the sanctioned gateway IDs while still accepting arbitrary
    * strings for experimental env-var overrides.
    */
   readonly model?: KnownModel | (string & {});

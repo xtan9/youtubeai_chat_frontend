@@ -2,16 +2,12 @@ import { describe, it, expect } from "vitest";
 import { HAIKU, SONNET, type KnownModel } from "../models";
 
 describe("models constants", () => {
-  it("HAIKU includes the dated suffix (gateway requirement)", () => {
-    // Per models.ts comment: undated `claude-haiku-4-5` returns 502 from
-    // CLIProxyAPI ('unknown provider'). Dated form must be preserved.
-    expect(HAIKU).toMatch(/^claude-haiku-4-5-\d{8}$/);
+  it("uses the allowlisted low-cost OpenAI model", () => {
+    expect(HAIKU).toBe("gpt-5.4-mini");
   });
 
-  it("SONNET resolves through gateway aliasing (no dated suffix required)", () => {
-    // Per models.ts comment: SONNET works undated because its alias is
-    // wired through. The exact value is the contract; pin it.
-    expect(SONNET).toBe("claude-sonnet-4-6");
+  it("uses the allowlisted quality OpenAI model", () => {
+    expect(SONNET).toBe("gpt-5.6-sol");
   });
 
   it("HAIKU and SONNET are distinct", () => {

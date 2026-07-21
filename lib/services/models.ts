@@ -1,4 +1,4 @@
-// Central registry of Claude model IDs. Leaf module — depended on by both
+// Central registry of gateway model IDs. Leaf module — depended on by both
 // llm-client.ts (gateway call site) and model-routing.ts (routing rules),
 // with no downward dependencies of its own so both can import without
 // circular-import concerns.
@@ -11,15 +11,11 @@
 // enforcing it today — so reviewers should flag new gateway model
 // literals that bypass this file.
 
-// Haiku MUST include the dated suffix — CLIProxyAPI (the LLM gateway)
-// resolves `claude-haiku-4-5` as "unknown provider" and returns 502,
-// while the dated form routes cleanly. Sonnet 4-6 works undated because
-// its alias is wired through the gateway's model list. When a new Haiku
-// revision ships, update both the constant and `gh pr checks` a live
-// request before merging — the gateway's `GET /v1/models` is the
-// authoritative list.
-export const HAIKU = "claude-haiku-4-5-20251001";
-export const SONNET = "claude-sonnet-4-6";
+// These legacy constant names are retained to keep the routing change small:
+// HAIKU is the low-cost path and SONNET is the quality path. Both values are
+// now explicit OpenAI models allowlisted by llm-gateway.
+export const HAIKU = "gpt-5.4-mini";
+export const SONNET = "gpt-5.6-sol";
 
 // The narrow union we guarantee internally. Arbitrary strings still flow
 // through optional params (env var overrides) via `KnownModel | (string & {})`.
