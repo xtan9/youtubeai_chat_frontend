@@ -768,7 +768,7 @@ describe("POST /api/summarize/stream", () => {
       // CAPTIONS_FIXTURE transcript "captioned transcript" is very short (2
       // words, ~3 tokens) so it falls below SHORT_TOKENS → Haiku via
       // very_short.
-      expect(writeCall.model).toBe("claude-haiku-4-5-20251001");
+      expect(writeCall.model).toBe("gpt-5.4-mini");
     });
 
     it("emits a routing_decision log with reason and dimensions", async () => {
@@ -791,7 +791,7 @@ describe("POST /api/summarize/stream", () => {
       expect(routingLog).toBeDefined();
       expect(routingLog![1]).toMatchObject({
         event: "routing_decision",
-        model: "claude-haiku-4-5-20251001",
+        model: "gpt-5.4-mini",
         reason: "very_short",
         classifierRan: false,
       });
@@ -837,7 +837,7 @@ describe("POST /api/summarize/stream", () => {
       const streamArg = mocks.streamLlmSummary.mock.calls[0][0] as {
         model: string;
       };
-      expect(streamArg.model).toBe("claude-sonnet-4-6");
+      expect(streamArg.model).toBe("gpt-5.6-sol");
 
       const promptArgs = mocks.buildSummarizationPrompt.mock.calls[0] as [
         string,
@@ -847,7 +847,7 @@ describe("POST /api/summarize/stream", () => {
 
       const writeCall = mocks.writeCachedSummary.mock
         .calls[0][0] as CacheWriteParams;
-      expect(writeCall.model).toBe("claude-sonnet-4-6");
+      expect(writeCall.model).toBe("gpt-5.6-sol");
     });
 
     // Gate check: above LONG_TOKENS, the route must NOT call the classifier
@@ -872,7 +872,7 @@ describe("POST /api/summarize/stream", () => {
       const streamArg = mocks.streamLlmSummary.mock.calls[0][0] as {
         model: string;
       };
-      expect(streamArg.model).toBe("claude-sonnet-4-6");
+      expect(streamArg.model).toBe("gpt-5.6-sol");
     });
 
     // Degradation path: middle-zone transcript but classifier returns null
@@ -902,7 +902,7 @@ describe("POST /api/summarize/stream", () => {
       expect(routingLog).toBeDefined();
       expect(routingLog![1]).toMatchObject({
         event: "routing_decision",
-        model: "claude-sonnet-4-6",
+        model: "gpt-5.6-sol",
         reason: "classifier_failed_long",
         classifierRan: true,
         dimensions: null,

@@ -56,14 +56,19 @@ describe("checkRateLimit", () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it("logs error level in production when creds missing", async () => {
+  it("fails closed and logs in production when creds are missing", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     vi.stubEnv("NODE_ENV", "production");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { checkRateLimit } = await loadFreshModule();
-    await checkRateLimit("u1", false);
+    const result = await checkRateLimit("u1", false);
+    expect(result).toEqual({
+      allowed: false,
+      remaining: 0,
+      reason: "unavailable",
+    });
     expect(error).toHaveBeenCalled();
   });
 

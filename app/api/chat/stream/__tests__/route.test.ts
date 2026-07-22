@@ -201,31 +201,18 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
-  it("allows anonymous users to chat hero-demo videos and bypasses rate-limit + entitlement entirely", async () => {
+  it("blocks anonymous users on hero-demo videos before any LLM work", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "anon-2", is_anonymous: true } },
       error: null,
     });
-    mocks.streamChatCompletion.mockImplementation(async function* () {
-      yield { type: "delta" as const, text: "ok" };
-      yield { type: "done" as const };
-    });
     const { POST } = await import("../route");
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
-    await readSse(res.body!);
-    expect(res.status).not.toBe(402);
-    // Demo path is intentionally stateless: no rate-limit, no entitlement,
-    // no DB cache lookups, no chat_messages reads or writes.
+    expect(res.status).toBe(402);
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
-    expect(mocks.getCachedSummary).not.toHaveBeenCalled();
-    expect(mocks.getCachedTranscript).not.toHaveBeenCalled();
-    expect(mocks.loadHeroDemoSummary).toHaveBeenCalled();
-    expect(mocks.loadHeroDemoTranscript).toHaveBeenCalled();
-    expect(mocks.listChatMessages).not.toHaveBeenCalled();
-    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
-    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
   it("returns the demo file-loaded summary + transcript even when the DB cache helpers would return null", async () => {
@@ -234,7 +221,7 @@ describe("POST /api/chat/stream", () => {
     // files. Before the fix, this 404'd with "Generate the summary
     // first…" — the test pins that the demo path is now self-contained.
     mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-demo-bug", is_anonymous: true } },
+      data: { user: { id: "demo-user", is_anonymous: false } },
       error: null,
     });
     mocks.getCachedSummary.mockResolvedValue(null);
@@ -254,7 +241,7 @@ describe("POST /api/chat/stream", () => {
 
   it("404s a demo URL when the file registry itself can't load (defensive — should never happen in prod)", async () => {
     mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-demo-missing", is_anonymous: true } },
+      data: { user: { id: "demo-user", is_anonymous: false } },
       error: null,
     });
     mocks.loadHeroDemoSummary.mockResolvedValue(null);
@@ -271,7 +258,7 @@ describe("POST /api/chat/stream", () => {
     // doesn't 402 on it. The not.toHaveBeenCalled assertion above
     // pins the actual contract; this pins the consequence.
     mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-demo-paywall", is_anonymous: true } },
+      data: { user: { id: "demo-user", is_anonymous: false } },
       error: null,
     });
     mocks.checkChatEntitlement.mockResolvedValue({
@@ -303,9 +290,9 @@ describe("POST /api/chat/stream", () => {
     expect(body.errorCode).toBe("anon_chat_blocked");
   });
 
-  it("allows anonymous users on the youtu.be short-URL form for hero-demo videos (and still bypasses rate-limit)", async () => {
+  it("allows signed-in users on the youtu.be hero-demo URL and applies rate limits", async () => {
     mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-4", is_anonymous: true } },
+      data: { user: { id: "demo-user", is_anonymous: false } },
       error: null,
     });
     mocks.streamChatCompletion.mockImplementation(async function* () {
@@ -321,7 +308,7 @@ describe("POST /api/chat/stream", () => {
     );
     await readSse(res.body!);
     expect(res.status).not.toBe(402);
-    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith("demo-user", false);
     expect(mocks.loadHeroDemoSummary).toHaveBeenCalled();
   });
 
@@ -416,7 +403,7 @@ describe("POST /api/chat/stream", () => {
     expect(messages.every((m) => typeof m.content === "string")).toBe(true);
   });
 
-  it("emits the primer as a content-array tagged with cache_control: ephemeral when LLM_PROMPT_CACHE_ENABLED=true", async () => {
+  it("ignores the legacy Anthropic cache flag with the OpenAI backend", async () => {
     vi.stubEnv("LLM_PROMPT_CACHE_ENABLED", "true");
     let observed: unknown = null;
     mocks.streamChatCompletion.mockImplementation(async function* (opts: {
@@ -427,15 +414,10 @@ describe("POST /api/chat/stream", () => {
     });
     const { POST } = await import("../route");
     await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
-    type Block = { type: string; text: string; cache_control?: { type: string } };
-    type Msg = { role: string; content: string | Block[] };
+    type Msg = { role: string; content: string };
     const primer = (observed as Msg[])[0];
-    expect(Array.isArray(primer.content)).toBe(true);
-    const blocks = primer.content as Block[];
-    expect(blocks[0]?.cache_control).toEqual({ type: "ephemeral" });
-    // Operators flipping the env var should still see [mm:ss] markers
-    // — caching wraps the content, not replaces it.
-    expect(blocks[0]?.text).toMatch(/\[0:00\]\s+Welcome\./);
+    expect(typeof primer.content).toBe("string");
+    expect(primer.content).toMatch(/\[0:00\]\s+Welcome\./);
   });
 
   it("happy path streams delta events, ends with done, and persists turn", async () => {
@@ -530,7 +512,7 @@ describe("POST /api/chat/stream", () => {
     // visitor who closes the tab mid-stream would hit appendChatUserMessage
     // with a non-UUID video_id and FK-violate in production logs.
     mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-demo-cancel", is_anonymous: true } },
+      data: { user: { id: "demo-user", is_anonymous: false } },
       error: null,
     });
     const controller = new AbortController();

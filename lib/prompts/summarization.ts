@@ -25,7 +25,7 @@ export function buildSummarizationPrompt(
   // language — preserves every summary in its source language.
   // With an override: one-line swap to name the target language. Use the
   // English name rather than the native one because the surrounding prompt
-  // is in English and Claude's multilingual routing responds more reliably
+  // is in English and multilingual model routing responds more reliably
   // to a monolingual directive than a mixed-script one.
   const languageLine = outputLanguage
     ? `Respond in ${getLanguage(outputLanguage).english}.`

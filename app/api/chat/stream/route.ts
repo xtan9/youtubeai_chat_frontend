@@ -36,7 +36,7 @@ import {
 export const maxDuration = 120;
 
 // Hard cap on transcript size to keep prompt sane. ~4 chars/token; 600k
-// chars ≈ 150k tokens leaves headroom under typical Claude context limits
+// chars ≈ 150k tokens leaves headroom under the configured model context
 // after the system instructions and chat history are added.
 const TRANSCRIPT_HARD_CAP_CHARS = 600_000;
 
@@ -93,19 +93,13 @@ export async function POST(request: Request) {
   const userId = user.id;
   const isAnonymous = user.is_anonymous ?? false;
 
-  // Anonymous chat is allowed only for the hero-demo sample videos so the
-  // marketing page on `/` can let visitors actually feel the chat
-  // experience without a sign-up wall. Their own pasted URLs still 402.
-  // Reuses the canonical extractor so `embed/`, `shorts/`, `m.youtube.com`
-  // forms (and the 11-char length guard) all parse identically to the
-  // rest of the app.
-  const demoVideoId = getYoutubeVideoId(youtube_url);
-  const isDemoVideo = isHeroDemoVideoId(demoVideoId);
-
-  if (isAnonymous && !isDemoVideo) {
+  // Never spend upstream tokens for anonymous users. The former hero-demo
+  // exception was an unmetered public relay: callers could rotate anonymous
+  // sessions and repeatedly invoke the LLM without owning the gateway key.
+  if (isAnonymous) {
     return new Response(
       JSON.stringify({
-        message: "Sign up to chat about your videos.",
+        message: "Sign up to chat about videos.",
         errorCode: "anon_chat_blocked",
         tier: "anon",
         upgradeUrl: "/auth/sign-up",
@@ -114,27 +108,29 @@ export async function POST(request: Request) {
     );
   }
 
-  // Demo videos bypass rate-limit, entitlement, and chat_messages
-  // persistence: the marketing chat must work for anonymous visitors
-  // who have no DB-cached summary, no chat thread row, and no
+  // Signed-in users may still chat with static hero-demo assets, but those
+  // requests now consume the same per-user rate limit as every other chat.
+  const demoVideoId = getYoutubeVideoId(youtube_url);
+  const isDemoVideo = isHeroDemoVideoId(demoVideoId);
+
+  // Demo videos bypass entitlement and chat_messages persistence because
+  // they have no DB-cached summary, no chat thread row, and no
   // `videos(id)` row. `chat_messages.video_id` is `UUID NOT NULL
   // REFERENCES videos(id)`, so demo ids (11-char YouTube ids, not
   // UUIDs) can satisfy neither the UUID column type on insert nor a
   // UUID-typed equality predicate on read — both fail with Postgres
   // `22P02 invalid_text_representation` before the FK constraint is
   // ever reached. Allowlisted via HERO_DEMO_VIDEO_IDS.
-  if (!isDemoVideo) {
-    const rateLimit = await checkRateLimit(userId, isAnonymous);
-    if (rateLimit.reason === "fail_open") {
-      console.error("[chat/stream] rate-limit bypassed (fail-open)", {
-        errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
-        userId,
-        youtubeUrl: youtube_url,
-      });
-    }
-    if (!rateLimit.allowed) {
-      return jsonError(429, "Rate limit exceeded. Please try again later.");
-    }
+  const rateLimit = await checkRateLimit(userId, false);
+  if (rateLimit.reason === "fail_open") {
+    console.error("[chat/stream] rate-limit bypassed (fail-open)", {
+      errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
+      userId,
+      youtubeUrl: youtube_url,
+    });
+  }
+  if (!rateLimit.allowed) {
+    return jsonError(429, "Rate limit exceeded. Please try again later.");
   }
 
   // Chat is gated on the video-native summary row already existing for
@@ -223,15 +219,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Anthropic prompt caching via OpenAI-compat. Off by default — the
-  // gateway (CLIProxyAPI) hasn't been verified to pass cache_control
-  // through at the time of writing. Operators can flip the flag in
-  // env after running a probe (re-send the same primer twice and
-  // inspect Anthropic billing for cache hits). When stripped by the
-  // gateway, cache_control gracefully degrades to "no cache" rather
-  // than a 4xx, so the rollout is safe.
-  const cacheStablePrefix =
-    process.env.LLM_PROMPT_CACHE_ENABLED?.toLowerCase() === "true";
+  // Anthropic-specific cache_control blocks are not valid for the OpenAI
+  // backend. Keep the legacy prompt-builder option disabled even if an old
+  // deployment still carries LLM_PROMPT_CACHE_ENABLED.
+  const cacheStablePrefix = false;
   const messages = buildChatMessages({
     transcript: transcriptText,
     summary: cachedSummary.summary,

@@ -25,8 +25,16 @@ export type RateLimitResult =
   | {
       readonly allowed: false;
       readonly remaining: 0;
-      readonly reason: "exceeded";
+      readonly reason: "exceeded" | "unavailable";
     };
+
+function unavailableResult(limit: number): RateLimitResult {
+  // Cost controls must fail closed in production. Development and tests keep
+  // the old fail-open behavior so a local Supabase outage does not block work.
+  return process.env.NODE_ENV === "production"
+    ? { allowed: false, remaining: 0, reason: "unavailable" }
+    : { allowed: true, remaining: limit, reason: "fail_open" };
+}
 
 export function getWindowStart(date: Date): Date {
   const floored = new Date(date);
@@ -39,12 +47,10 @@ export function getWindowStart(date: Date): Date {
  * Backed by `increment_rate_limit` (INSERT ... ON CONFLICT ... RETURNING), so
  * concurrent requests can't both read the same count and double-increment.
  *
- * Fail-open policy: we return `{allowed: true, reason: "fail_open"}` on
- * infrastructure errors because 500-ing a user over a rate-limit lookup is
- * worse UX than briefly allowing an extra request. But every fail-open path
- * logs AND tags the result so callers/dashboards can alert on the rate of
- * fail-open responses — a silent bypass would turn a misconfigured deploy
- * into unbounded cost with no signal.
+ * Infrastructure failures fail closed in production because this check is a
+ * cost boundary. Development and tests fail open for local usability. Every
+ * failure is logged so dashboards can distinguish quota exhaustion from a
+ * broken deployment.
  */
 export async function checkRateLimit(
   userId: string,
@@ -68,7 +74,7 @@ export async function checkRateLimit(
         hasKey,
       });
     }
-    return { allowed: true, remaining: limit, reason: "fail_open" };
+    return unavailableResult(limit);
   }
 
   const windowStart = getWindowStart(new Date()).toISOString();
@@ -99,7 +105,7 @@ export async function checkRateLimit(
           error,
         });
       }
-      return { allowed: true, remaining: limit, reason: "fail_open" };
+      return unavailableResult(limit);
     }
 
     const count = typeof data === "number" ? data : Number(data);
@@ -109,7 +115,7 @@ export async function checkRateLimit(
         userId,
         data,
       });
-      return { allowed: true, remaining: limit, reason: "fail_open" };
+      return unavailableResult(limit);
     }
 
     if (count > limit) {
@@ -127,6 +133,6 @@ export async function checkRateLimit(
       isAnonymous,
       err,
     });
-    return { allowed: true, remaining: limit, reason: "fail_open" };
+    return unavailableResult(limit);
   }
 }
