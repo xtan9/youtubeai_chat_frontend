@@ -9,6 +9,7 @@ import { AdminAvatarMenu } from "./avatar-menu";
 import { findNavLabel } from "./nav-config";
 import { useAdmin } from "./admin-context";
 import { useDismissable } from "./use-dismissable";
+import { resetAnalyticsIdentity } from "@/lib/analytics/client";
 
 export function AdminTopbar() {
   const pathname = usePathname() ?? "/admin";
@@ -28,6 +29,8 @@ export function AdminTopbar() {
         status: error.status ?? null,
         message: error.message,
       });
+    } else {
+      resetAnalyticsIdentity();
     }
     router.push("/");
     router.refresh();

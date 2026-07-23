@@ -24,6 +24,13 @@ import {
 } from "@/tests-utils/chat-test-helpers";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 
+const analyticsMocks = vi.hoisted(() => ({
+  capture: vi.fn(),
+}));
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analyticsMocks.capture,
+}));
+
 // Mock UserContext at module load — every test then dictates session state
 // via `(useUser as Mock).mockReturnValue(...)` instead of mounting the real
 // provider (which would require a Supabase env at module init).
@@ -133,6 +140,7 @@ beforeEach(() => {
   vi.mocked(createClient).mockReturnValue(
     { auth: supabaseAuthMock } as unknown as ReturnType<typeof createClient>,
   );
+  analyticsMocks.capture.mockReset();
 });
 
 describe("useChatStream", () => {
@@ -168,6 +176,10 @@ describe("useChatStream", () => {
       message: "what is this video about?",
     });
     expect(supabaseAuthMock.getSession).not.toHaveBeenCalled();
+    expect(analyticsMocks.capture).toHaveBeenCalledWith("chat_started", {
+      account_type: "registered",
+      source_surface: "summary",
+    });
   });
 
   it("accumulates delta text into draft.assistant during streaming", async () => {

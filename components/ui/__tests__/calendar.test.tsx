@@ -134,11 +134,11 @@ describe("Calendar", () => {
       const buttons = container.querySelectorAll<HTMLButtonElement>(
         'button[data-day]',
       );
-      // Find the button corresponding to June 12 by its label
-      const day12 =
-        Array.from(buttons).find((b) =>
-          b.getAttribute("data-day")?.includes("6/12/2024"),
-        );
+      // Find June 12 by its visible day number. `data-day` is locale-formatted,
+      // so matching an en-US date string makes this test fail on other hosts.
+      const day12 = Array.from(buttons).find(
+        (button) => button.textContent?.trim() === "12",
+      );
       // react-day-picker drops disabled buttons' aria-selected and
       // adds aria-disabled / disabled attribute.
       expect(day12?.hasAttribute("disabled")).toBe(true);

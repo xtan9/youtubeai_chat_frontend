@@ -1,6 +1,7 @@
 import { getStripe, deriveTier, periodEndToIso, readCurrentPeriodEnd } from "@/lib/services/stripe";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import type Stripe from "stripe";
+import { captureSubscriptionActivated } from "@/lib/analytics/server";
 
 export const runtime = "nodejs"; // need raw body
 export const dynamic = "force-dynamic";
@@ -165,6 +166,17 @@ async function dispatch(
         { onConflict: "user_id" },
       );
       if (error) throw new Error(`upsert failed: ${error.message}`);
+      if (
+        tier === "pro" &&
+        (sub.status === "active" || sub.status === "trialing")
+      ) {
+        await captureSubscriptionActivated(userId, {
+          source_surface: "stripe_webhook",
+          plan: plan ?? "unknown",
+          billing_interval: plan ?? "unknown",
+          subscription_status: sub.status,
+        });
+      }
       break;
     }
     case "customer.subscription.updated": {
@@ -181,7 +193,7 @@ async function dispatch(
       // Find user_id by stripe_customer_id (we own the mapping)
       const { data: row, error: lookupErr } = await sr
         .from("user_subscriptions")
-        .select("user_id")
+        .select("user_id,tier,status")
         .eq("stripe_customer_id", customerId)
         .maybeSingle();
       if (lookupErr) {
@@ -212,6 +224,18 @@ async function dispatch(
         { onConflict: "user_id" },
       );
       if (error) throw new Error(`upsert failed: ${error.message}`);
+      if (
+        tier === "pro" &&
+        row.tier !== "pro" &&
+        (sub.status === "active" || sub.status === "trialing")
+      ) {
+        await captureSubscriptionActivated(row.user_id, {
+          source_surface: "stripe_webhook",
+          plan: plan ?? "unknown",
+          billing_interval: plan ?? "unknown",
+          subscription_status: sub.status,
+        });
+      }
       break;
     }
     case "customer.subscription.deleted": {

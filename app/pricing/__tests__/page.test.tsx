@@ -7,6 +7,13 @@ import PricingPage from "../page";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { cleanup } from "@testing-library/react";
 
+const analyticsMocks = vi.hoisted(() => ({
+  capture: vi.fn(),
+}));
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analyticsMocks.capture,
+}));
+
 // push fn lives inside the factory closure — available at hoisting time
 vi.mock("next/navigation", () => {
   const push = vi.fn();
@@ -76,6 +83,12 @@ describe("PricingPage", () => {
         expect.objectContaining({ method: "POST" }),
       );
       expect(window.location.assign).toHaveBeenCalledWith("https://checkout.stripe.com/x");
+      expect(analyticsMocks.capture).toHaveBeenCalledWith("checkout_started", {
+        account_type: "free",
+        source_surface: "pricing",
+        plan: "yearly",
+        billing_interval: "yearly",
+      });
     });
   });
 

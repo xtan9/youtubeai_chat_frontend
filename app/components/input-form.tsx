@@ -36,7 +36,7 @@ export function InputForm() {
 
     // Track the summary button click with PostHog
     posthog?.capture("summary_button_clicked", {
-      youtube_url: formUrl,
+      source_surface: "homepage",
     });
 
     setError(null);

@@ -16,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
+import { resetAnalyticsIdentity } from "@/lib/analytics/client";
 
 export function Header() {
   const { user } = useUser();
@@ -23,7 +24,10 @@ export function Header() {
   const supabase = createClient();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (!error) {
+      resetAnalyticsIdentity();
+    }
     // Navigate to home page
     router.push("/");
   };

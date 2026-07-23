@@ -11,6 +11,9 @@ afterEach(cleanup);
 
 const signOutSpy = vi.fn().mockResolvedValue({});
 const mockPush = vi.fn();
+const analyticsMocks = vi.hoisted(() => ({
+  resetAnalyticsIdentity: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
@@ -18,6 +21,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({ auth: { signOut: signOutSpy } }),
+}));
+
+vi.mock("@/lib/analytics/client", () => ({
+  resetAnalyticsIdentity: analyticsMocks.resetAnalyticsIdentity,
 }));
 
 vi.mock("@/lib/contexts/user-context", () => ({
@@ -38,6 +45,7 @@ const DEFAULT_USER = {
 beforeEach(() => {
   signOutSpy.mockClear();
   mockPush.mockClear();
+  analyticsMocks.resetAnalyticsIdentity.mockClear();
   // Default user; tests can override with mockReturnValueOnce / mockReturnValue
   (useUser as unknown as Mock).mockReturnValue({
     user: DEFAULT_USER,
@@ -283,6 +291,7 @@ describe("AccountView — Sign Out", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled());
+    expect(analyticsMocks.resetAnalyticsIdentity).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
   });
 });

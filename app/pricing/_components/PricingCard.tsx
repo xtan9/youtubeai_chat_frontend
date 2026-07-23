@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 type Plan = "monthly" | "yearly";
 
@@ -39,6 +40,12 @@ export function PricingProCard({ plan }: { plan: Plan }) {
         setPending(false);
         return;
       }
+      captureAnalyticsEvent("checkout_started", {
+        account_type: "free",
+        source_surface: "pricing",
+        plan,
+        billing_interval: plan,
+      });
       window.location.assign(body.url);
     } catch (err) {
       console.error("[pricing] checkout threw", err);
