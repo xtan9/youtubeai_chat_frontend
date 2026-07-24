@@ -68,7 +68,12 @@ test("public entry → controlled signed-in state → real chat response", async
         publicPage.getByText(/Jensen Huang argues/).first(),
       ).toBeVisible();
 
-      await publicPage.getByRole("tab", { name: /Transcript/i }).click();
+      const transcriptTab = publicPage.getByRole("tab", {
+        name: /Transcript/i,
+      });
+      await expect(transcriptTab).toBeVisible();
+      await transcriptTab.press("Enter", { timeout: 15_000 });
+      await expect(transcriptTab).toHaveAttribute("aria-selected", "true");
       await expect(publicPage.getByText(/^00:0\d$/).first()).toBeVisible();
     } finally {
       await publicContext.close();
