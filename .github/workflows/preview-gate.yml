@@ -115,31 +115,47 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           PREVIEW_TEST_USER_EMAIL: ${{ secrets.PREVIEW_TEST_USER_EMAIL }}
           PREVIEW_TEST_USER_PASSWORD: ${{ secrets.PREVIEW_TEST_USER_PASSWORD }}
+          PREVIEW_STORAGE_STATE_PATH: ${{ runner.temp }}/preview-critical-auth/state.json
+          PREVIEW_PLAYWRIGHT_OUTPUT_DIR: ${{ runner.temp }}/preview-critical-output
         run: >-
-          pnpm exec playwright test smoke-tests/preview-critical.spec.ts
+          pnpm exec playwright test
+          --config=playwright.preview.config.ts
           --workers=1
           --retries=0
           --forbid-only
 
-      - name: Sanitize Playwright evidence
-        id: sanitize
+      - name: Delete preview authentication state
+        if: always()
+        env:
+          PREVIEW_STORAGE_STATE_PATH: ${{ runner.temp }}/preview-critical-auth/state.json
+        run: >-
+          node scripts/preview-artifact-guard.mjs
+          cleanup
+          "$PREVIEW_STORAGE_STATE_PATH"
+          "$RUNNER_TEMP"
+
+      - name: Collect allowlisted preview evidence
+        id: evidence
         if: always()
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           PREVIEW_TEST_USER_EMAIL: ${{ secrets.PREVIEW_TEST_USER_EMAIL }}
           PREVIEW_TEST_USER_PASSWORD: ${{ secrets.PREVIEW_TEST_USER_PASSWORD }}
+          PREVIEW_STORAGE_STATE_PATH: ${{ runner.temp }}/preview-critical-auth/state.json
+          PREVIEW_PLAYWRIGHT_OUTPUT_DIR: ${{ runner.temp }}/preview-critical-output
+          PREVIEW_EVIDENCE_DIR: preview-evidence
         run: >-
-          node scripts/sanitize-playwright-artifacts.mjs
-          playwright-report
-          test-results
+          node scripts/preview-artifact-guard.mjs
+          collect
+          "$PREVIEW_PLAYWRIGHT_OUTPUT_DIR"
+          "$PREVIEW_EVIDENCE_DIR"
+          "$PREVIEW_STORAGE_STATE_PATH"
 
-      - name: Upload Playwright evidence
-        if: always() && steps.sanitize.outcome == 'success'
+      - name: Upload allowlisted preview evidence
+        if: always() && steps.evidence.outcome == 'success'
         uses: actions/upload-artifact@v5
         with:
           name: preview-critical-${{ github.event.deployment.sha }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: warn
+          path: preview-evidence/
+          if-no-files-found: error
           retention-days: 14

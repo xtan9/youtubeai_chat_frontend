@@ -16,6 +16,7 @@
 # playwright
 /test-results
 /playwright-report
+/preview-evidence
 /playwright/.cache
 
 # next.js

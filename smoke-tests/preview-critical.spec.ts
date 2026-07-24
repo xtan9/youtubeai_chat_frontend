@@ -35,27 +35,12 @@ function parseChatEvents(body: string): ChatEvent[] {
     .map((line) => JSON.parse(line.slice(6)) as ChatEvent);
 }
 
-test("public entry → controlled sign-in → real signed-in chat response", async ({
+test("public entry → controlled signed-in state → real chat response", async ({
   page,
 }) => {
   test.setTimeout(180_000);
 
   const baseUrl = requirePreviewUrl();
-  const bypassSecret = requireEnv("VERCEL_AUTOMATION_BYPASS_SECRET");
-  const email = requireEnv("PREVIEW_TEST_USER_EMAIL");
-  const password = requireEnv("PREVIEW_TEST_USER_PASSWORD");
-
-  await test.step("establish preview-only protection bypass", async () => {
-    const response = await page.context().request.get(`${baseUrl}/`, {
-      headers: {
-        "x-vercel-protection-bypass": bypassSecret,
-        "x-vercel-set-bypass-cookie": "true",
-      },
-    });
-
-    expect(response.status()).toBe(200);
-    expect(new URL(response.url()).origin).toBe(baseUrl);
-  });
 
   await test.step("render the public cached summary and transcript", async () => {
     await page.goto(`${baseUrl}/`);
@@ -68,11 +53,7 @@ test("public entry → controlled sign-in → real signed-in chat response", asy
     await expect(page.getByText(/^00:0\d$/).first()).toBeVisible();
   });
 
-  await test.step("sign in with the controlled preview identity", async () => {
-    await page.goto(`${baseUrl}/auth/login`);
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /^login$/i }).click();
+  await test.step("confirm the controlled signed-in state", async () => {
     await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible({
       timeout: 30_000,
     });
