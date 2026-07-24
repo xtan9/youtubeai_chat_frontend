@@ -145,6 +145,28 @@ describe("preview artifact guard", () => {
   });
 
   it.each([
+    ["__vercel_live_token", "derived-live-token"],
+    ["_vercel_jwt", "derived-jwt"],
+  ])(
+    "rejects the %s marker before retaining JUnit evidence",
+    async (marker, value) => {
+      const fixture = await baseFixture();
+      await writeFixture(
+        fixture.sourceDir,
+        "results.xml",
+        `<testsuite error="${marker}=${value}" />`,
+      );
+
+      await expect(
+        collectPreviewEvidence({ ...fixture, secrets: SECRETS }),
+      ).rejects.toThrow(/Credential or captured-session marker found/);
+      await expect(
+        readFile(join(fixture.evidenceDir, "results.xml")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+
+  it.each([
     ["percent-encoded secret", encodeURIComponent(SECRETS[1])],
     ["base64 secret", Buffer.from(SECRETS[2]).toString("base64")],
     ["base64url secret", Buffer.from(SECRETS[2]).toString("base64url")],

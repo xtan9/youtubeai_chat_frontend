@@ -31,6 +31,8 @@ const FORBIDDEN_PATH_PATTERNS = [
 ];
 const FORBIDDEN_CONTENT_MARKERS = [
   "__vercel_bypass",
+  "__vercel_live_token",
+  "_vercel_jwt",
   "x-vercel-protection-bypass",
   "playwrightreportbase64",
   "access_token",
