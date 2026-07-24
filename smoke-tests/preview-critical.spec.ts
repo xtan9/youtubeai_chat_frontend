@@ -55,7 +55,10 @@ test("public entry → controlled signed-in state → real chat response", async
     });
     try {
       const publicPage = await publicContext.newPage();
-      await publicPage.goto("/");
+      await publicPage.goto("/", {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
       await expect(
         publicPage.getByRole("heading", {
           name: /Will Nvidia.*moat persist/i,
@@ -73,7 +76,10 @@ test("public entry → controlled signed-in state → real chat response", async
   });
 
   await test.step("confirm the controlled signed-in state", async () => {
-    await page.goto(`${baseUrl}/`);
+    await page.goto(`${baseUrl}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
     await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible({
       timeout: 30_000,
     });
