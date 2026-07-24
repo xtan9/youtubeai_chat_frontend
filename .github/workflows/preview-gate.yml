@@ -1,0 +1,133 @@
+name: preview-critical
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: preview-critical-${{ github.event.deployment.id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Preview' &&
+      github.event.deployment.creator.login == 'vercel[bot]' &&
+      github.event.deployment_status.environment_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Verify trusted preview source
+        uses: actions/github-script@v8
+        env:
+          DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+        with:
+          script: |
+            const trustedAssociations = new Set([
+              "OWNER",
+              "MEMBER",
+              "COLLABORATOR",
+            ]);
+            const { data: pulls } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                ...context.repo,
+                commit_sha: process.env.DEPLOYMENT_SHA,
+              });
+            const trustedPull = pulls.find(
+              (pull) =>
+                pull.state === "open" &&
+                pull.head.repo?.full_name ===
+                  `${context.repo.owner}/${context.repo.repo}` &&
+                trustedAssociations.has(pull.author_association),
+            );
+
+            if (!trustedPull) {
+              core.setFailed(
+                "Preview secrets are limited to open, same-repository pull requests from trusted collaborators.",
+              );
+              return;
+            }
+
+            core.info(`Trusted preview source: pull request #${trustedPull.number}`);
+
+      - name: Require preview-only secrets
+        shell: bash
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          PREVIEW_TEST_USER_EMAIL: ${{ secrets.PREVIEW_TEST_USER_EMAIL }}
+          PREVIEW_TEST_USER_PASSWORD: ${{ secrets.PREVIEW_TEST_USER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${VERCEL_AUTOMATION_BYPASS_SECRET:?Missing VERCEL_AUTOMATION_BYPASS_SECRET}"
+          : "${PREVIEW_TEST_USER_EMAIL:?Missing PREVIEW_TEST_USER_EMAIL}"
+          : "${PREVIEW_TEST_USER_PASSWORD:?Missing PREVIEW_TEST_USER_PASSWORD}"
+
+      - name: Check out deployed commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact deployment state
+        shell: bash
+        env:
+          DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+          PREVIEW_URL: ${{ github.event.deployment_status.environment_url }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          test "$HEAD_SHA" = "$DEPLOYMENT_SHA"
+          node -e '
+            const url = new URL(process.env.PREVIEW_URL);
+            if (url.protocol !== "https:" || !url.hostname.endsWith(".vercel.app")) {
+              throw new Error(`Refusing non-Vercel preview URL: ${url.origin}`);
+            }
+          '
+          printf 'deployment_sha=%s\n' "$DEPLOYMENT_SHA"
+          printf 'preview_url=%s\n' "$PREVIEW_URL"
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run preview critical path
+        env:
+          CI: "true"
+          BASE_URL: ${{ github.event.deployment_status.environment_url }}
+          DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          PREVIEW_TEST_USER_EMAIL: ${{ secrets.PREVIEW_TEST_USER_EMAIL }}
+          PREVIEW_TEST_USER_PASSWORD: ${{ secrets.PREVIEW_TEST_USER_PASSWORD }}
+        run: >-
+          pnpm exec playwright test smoke-tests/preview-critical.spec.ts
+          --workers=1
+          --retries=0
+          --forbid-only
+
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: preview-critical-${{ github.event.deployment.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
