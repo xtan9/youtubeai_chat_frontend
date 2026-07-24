@@ -27,7 +27,9 @@ function walk(dir: string, base: string = dir): string[] {
       entry.isFile() &&
       (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))
     ) {
-      out.push(path.relative(base, full));
+      // Keep the allowlist platform-independent. Windows path.relative()
+      // emits backslashes, while the source-controlled paths below use "/".
+      out.push(path.relative(base, full).split(path.sep).join("/"));
     }
   }
   return out;

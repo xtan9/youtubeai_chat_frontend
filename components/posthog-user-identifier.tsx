@@ -1,27 +1,37 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePostHog } from "posthog-js/react";
 import { useUser } from "@/lib/contexts/user-context";
 
 export function PostHogUserIdentifier() {
   const posthog = usePostHog();
   const { user } = useUser();
+  const previousRegisteredUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!posthog || !user) return;
+    if (!posthog) return;
 
-    // When user state changes and user is available, identify them in PostHog
-    posthog.identify(user.id, {
-      email: user.email,
-      name: user.user_metadata?.full_name,
-    });
+    const previousRegisteredUserId = previousRegisteredUserIdRef.current;
+    if (!user || user.is_anonymous) {
+      if (previousRegisteredUserId) {
+        posthog.reset();
+        previousRegisteredUserIdRef.current = null;
+      }
+      return;
+    }
 
-    // Reset identity when user signs out
-    return () => {
-      if (user) return;
+    if (
+      previousRegisteredUserId &&
+      previousRegisteredUserId !== user.id
+    ) {
       posthog.reset();
-    };
+    }
+
+    posthog.identify(user.id, {
+      account_type: "registered",
+    });
+    previousRegisteredUserIdRef.current = user.id;
   }, [posthog, user]);
 
   return null;

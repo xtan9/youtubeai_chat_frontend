@@ -1,44 +1,33 @@
 "use client";
 
 import posthog from "posthog-js";
-import { PostHogProvider as PHProvider, usePostHog } from "posthog-js/react";
-import { Suspense, useEffect } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { PostHogProvider as PHProvider } from "posthog-js/react";
+import { useEffect } from "react";
 
-function SuspendedPostHogPageView() {
-  const posthogClient = usePostHog();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    if (!posthogClient) {
-      return;
-    }
-    posthogClient.capture("$pageview");
-  }, [posthogClient, pathname, searchParams]);
-
-  return null;
-}
+export const POSTHOG_CAPTURE_OPTIONS = {
+  capture_pageview: "history_change" as const,
+  capture_pageleave: true,
+  capture_exceptions: true,
+};
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
       return;
     }
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!.trim(), {
+    const projectToken = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
+    if (!projectToken) {
+      return;
+    }
+    posthog.init(projectToken, {
       api_host: "/ingest",
       ui_host: "https://us.posthog.com",
-      capture_pageview: "history_change",
-      capture_pageleave: true, // Enable pageleave capture
-      capture_exceptions: true, // This enables capturing exceptions using Error Tracking, set to false if you don't want this
+      ...POSTHOG_CAPTURE_OPTIONS,
     });
   }, []);
 
   return (
     <PHProvider client={posthog}>
-      <Suspense fallback={null}>
-        <SuspendedPostHogPageView />
-      </Suspense>
       {children}
     </PHProvider>
   );

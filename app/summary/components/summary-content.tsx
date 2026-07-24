@@ -45,12 +45,12 @@ export function SummaryContent({
   const handleNewSummary = useCallback(() => {
     // Track the "New Summary" button click
     posthog?.capture("new_summary_button_clicked", {
-      summary_title: summary.title,
+      source_surface: "summary",
     });
 
     // Call the original onNewSummary callback
     onNewSummary?.();
-  }, [onNewSummary, posthog, summary.title]);
+  }, [onNewSummary, posthog]);
 
   return (
     <div className="relative group">

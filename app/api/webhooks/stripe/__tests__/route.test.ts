@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   upsert: vi.fn(),
   fromUserSubsLookup: vi.fn(),
   deleteEvent: vi.fn(),
+  captureSubscriptionActivated: vi.fn(),
 }));
 
 // Use the REAL `deriveTier`, `periodEndToIso`, and `readCurrentPeriodEnd`
@@ -45,6 +46,10 @@ vi.mock("@/lib/supabase/service-role", () => ({
       throw new Error(`unexpected from(${table})`);
     },
   }),
+}));
+
+vi.mock("@/lib/analytics/server", () => ({
+  captureSubscriptionActivated: mocks.captureSubscriptionActivated,
 }));
 
 beforeEach(() => {
@@ -362,6 +367,12 @@ describe("checkout.session.completed", () => {
       }),
       expect.objectContaining({ onConflict: "user_id" })
     );
+    expect(mocks.captureSubscriptionActivated).toHaveBeenCalledWith("u1", {
+      source_surface: "stripe_webhook",
+      plan: "monthly",
+      billing_interval: "monthly",
+      subscription_status: "active",
+    });
   });
 
   it("basil-shape (period_end on items only) → tier=pro [PR #104 regression]", async () => {
@@ -403,6 +414,44 @@ describe("checkout.session.completed", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("does not emit subscription_activated for a duplicate pro update", async () => {
+    const future = Math.floor(Date.now() / 1000) + 30 * 86400;
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_existing_pro",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_1",
+          customer: "cus_1",
+          status: "active",
+          cancel_at_period_end: false,
+          current_period_end: future,
+          items: { data: [{ price: { id: "price_M" } }] },
+        },
+      },
+    });
+    mocks.insertEvent.mockResolvedValue({
+      data: [{ event_id: "evt_existing_pro" }],
+      error: null,
+    });
+    mocks.fromUserSubsLookup.mockResolvedValue({
+      data: { user_id: "u1", tier: "pro", status: "active" },
+      error: null,
+    });
+    mocks.upsert.mockResolvedValue({ error: null });
+
+    const { POST } = await import("../route");
+    await POST(
+      new Request("http://x", {
+        method: "POST",
+        body: "{}",
+        headers: { "stripe-signature": "x" },
+      }),
+    );
+
+    expect(mocks.captureSubscriptionActivated).not.toHaveBeenCalled();
   });
 });
 

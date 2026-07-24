@@ -31,6 +31,7 @@ interface ChatTabProps {
    * API-fetched behavior.
    */
   readonly suggestionsOverride?: readonly string[];
+  readonly analyticsSurface?: "summary" | "hero_demo";
 }
 
 /**
@@ -43,6 +44,7 @@ export function ChatTab({
   active,
   className,
   suggestionsOverride,
+  analyticsSurface = "summary",
 }: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
@@ -50,7 +52,10 @@ export function ChatTab({
   // the optimistic clear would be erased by the deferred DELETE.
   const [clearPending, setClearPending] = useState(false);
   const thread = useChatThread(youtubeUrl, active);
-  const stream = useChatStream({ youtubeUrl });
+  const stream = useChatStream({
+    youtubeUrl,
+    sourceSurface: analyticsSurface,
+  });
   // Skip the API fetch when an override is provided — the demo never
   // wants the server-generated native-language suggestions.
   const suggestions = useChatSuggestions(

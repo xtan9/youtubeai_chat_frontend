@@ -4,7 +4,10 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
-import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
+import {
+  SummaryRequestError,
+  useYouTubeSummarizer,
+} from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { useStageTimers } from "@/lib/hooks/useStageTimers";
 import { AuthErrorBanner } from "./auth-error-banner";
@@ -25,6 +28,7 @@ import {
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import { parseStreamingData, type StreamingProgress } from "../utils";
 import YoutubeVideo from "./youtube-video";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -41,6 +45,7 @@ export function YouTubeSummarizerApp({
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
   const firstRenderRef = useRef(true);
+  const analyticsOutcomeRef = useRef<string | null>(null);
 
   // `null` until the user actively picks a translation. Null = "ask the
   // server for the video-native summary" which reuses the existing NULL
@@ -68,7 +73,7 @@ export function YouTubeSummarizerApp({
   }, []);
 
   // Use custom hooks for complex logic
-  const { summarizationQuery } = useYouTubeSummarizer(
+  const { summarizationQuery, isAnonymous } = useYouTubeSummarizer(
     url,
     true,
     outputLanguage
@@ -80,6 +85,8 @@ export function YouTubeSummarizerApp({
     isLoading,
     isFetching,
     fetchStatus,
+    dataUpdatedAt,
+    errorUpdatedAt,
   } = summarizationQuery;
 
   // Handle streaming data (array)
@@ -150,6 +157,95 @@ export function YouTubeSummarizerApp({
       streamError: null as string | null,
     };
   }, [rawData, isLoading, isFetching]);
+
+  useEffect(() => {
+    const accountType = isAnonymous ? "anonymous" : "registered";
+    const outputLanguageProperty = outputLanguage ?? "video_native";
+
+    if (streamError) {
+      const outcomeKey = `stream-failed:${dataUpdatedAt}`;
+      if (analyticsOutcomeRef.current === outcomeKey) return;
+      analyticsOutcomeRef.current = outcomeKey;
+      captureAnalyticsEvent("summary_failed", {
+        account_type: accountType,
+        source_surface: "summary",
+        output_language: outputLanguageProperty,
+        failure_category: "processing",
+        error_code: "stream_error",
+      });
+      return;
+    }
+
+    if (queryError) {
+      const outcomeKey = `request-failed:${errorUpdatedAt}`;
+      if (analyticsOutcomeRef.current === outcomeKey) return;
+      analyticsOutcomeRef.current = outcomeKey;
+
+      if (queryError instanceof UpgradeRequiredError) {
+        captureAnalyticsEvent("summary_failed", {
+          account_type: accountType,
+          source_surface: "summary",
+          output_language: outputLanguageProperty,
+          failure_category: "quota",
+          error_code: queryError.errorCode,
+          http_status: 402,
+        });
+        return;
+      }
+
+      const status =
+        queryError instanceof SummaryRequestError
+          ? queryError.status
+          : undefined;
+      const failureCategory =
+        status === 401 || status === 403
+          ? "auth"
+          : status === 429
+            ? "rate_limit"
+            : "request";
+      captureAnalyticsEvent("summary_failed", {
+        account_type: accountType,
+        source_surface: "summary",
+        output_language: outputLanguageProperty,
+        failure_category: failureCategory,
+        error_code:
+          queryError instanceof SummaryRequestError
+            ? queryError.errorCode ?? "summary_request_failed"
+            : "summary_request_failed",
+        ...(status !== undefined ? { http_status: status } : {}),
+      });
+      return;
+    }
+
+    if (
+      streamingProgress?.stage === "complete" &&
+      data &&
+      data.summary.length > 0
+    ) {
+      const outcomeKey = `succeeded:${dataUpdatedAt}`;
+      if (analyticsOutcomeRef.current === outcomeKey) return;
+      analyticsOutcomeRef.current = outcomeKey;
+      captureAnalyticsEvent("summary_succeeded", {
+        account_type: accountType,
+        source_surface: "summary",
+        result_origin: isCached ? "cache" : "generated",
+        output_language: outputLanguageProperty,
+        transcription_seconds: data.transcriptionTime,
+        summary_seconds: data.summaryTime,
+        total_seconds: data.transcriptionTime + data.summaryTime,
+      });
+    }
+  }, [
+    data,
+    dataUpdatedAt,
+    errorUpdatedAt,
+    isAnonymous,
+    isCached,
+    outputLanguage,
+    queryError,
+    streamError,
+    streamingProgress?.stage,
+  ]);
 
   // data.transcriptionTime/summaryTime only land with the terminal
   // `summary` event; tick wall-clock until then.

@@ -183,7 +183,6 @@ function HeroDemoInner() {
     setActiveId(id);
     posthog?.capture("hero_demo_sample_selected", {
       sample_id: next.id,
-      sample_title: next.title,
     });
   };
 
@@ -291,6 +290,7 @@ function HeroDemoInner() {
             youtubeUrl={sampleUrl}
             active={true}
             className="h-full"
+            analyticsSurface="hero_demo"
             // Always pass a non-undefined override so the hero demo
             // never triggers a `/api/chat/suggestions` fetch. While the
             // per-(id, lang) summary module is mid-lazy-load, fall back

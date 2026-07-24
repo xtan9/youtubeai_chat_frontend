@@ -10,9 +10,11 @@ import {
   ChatSseEventSchema,
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 interface UseChatStreamArgs {
   readonly youtubeUrl: string | null;
+  readonly sourceSurface?: "summary" | "hero_demo";
 }
 
 export interface ChatStreamApi {
@@ -71,7 +73,10 @@ function parseSseLine(
  * query so the next render reads the canonical row from the server and
  * the draft is cleared.
  */
-export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi {
+export function useChatStream({
+  youtubeUrl,
+  sourceSurface = "summary",
+}: UseChatStreamArgs): ChatStreamApi {
   const { session } = useUser();
   const queryClient = useQueryClient();
   const [streaming, setStreaming] = useState(false);
@@ -81,6 +86,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
   const [error, setError] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<UpgradeRequiredError | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const chatStartedVideoKeysRef = useRef(new Set<string>());
 
   const abort = useCallback(() => {
     abortRef.current?.abort();
@@ -106,12 +112,14 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
       // session lookup fails or returns nothing, surface a clear "wait"
       // error rather than firing an unauthenticated fetch and showing
       // a generic 401 toast.
-      let accessToken = session?.access_token ?? null;
+      let resolvedSession = session;
+      let accessToken = resolvedSession?.access_token ?? null;
       if (!accessToken) {
         try {
           const supabase = createClient();
           const { data } = await supabase.auth.getSession();
-          accessToken = data.session?.access_token ?? null;
+          resolvedSession = data.session;
+          accessToken = resolvedSession?.access_token ?? null;
         } catch (err) {
           // Auth client itself failed — log so a Sentry breadcrumb ties
           // the user-visible "wait" message back to the underlying
@@ -209,6 +217,15 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
         if (!receivedAny) {
           throw new Error("No response received.");
         }
+        if (!chatStartedVideoKeysRef.current.has(youtubeUrl)) {
+          captureAnalyticsEvent("chat_started", {
+            account_type: resolvedSession?.user?.is_anonymous
+              ? "anonymous"
+              : "registered",
+            source_surface: sourceSurface,
+          });
+          chatStartedVideoKeysRef.current.add(youtubeUrl);
+        }
       } catch (err) {
         // AbortError from our own controller is expected when the user
         // pressed Stop — keep whatever we already streamed visible and
@@ -238,7 +255,7 @@ export function useChatStream({ youtubeUrl }: UseChatStreamArgs): ChatStreamApi 
         setDraft(null);
       }
     },
-    [youtubeUrl, session, queryClient]
+    [youtubeUrl, sourceSurface, session, queryClient]
   );
 
   return { send, abort, streaming, draft, error, upgradeError };

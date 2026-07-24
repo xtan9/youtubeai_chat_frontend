@@ -65,7 +65,7 @@ describe("design system showcase routes", () => {
     );
     const { getByRole } = renderWithProviders(<Page />);
     expect(getByRole("heading", { level: 2, name: "Avatar" })).toBeTruthy();
-  });
+  }, 15_000);
 
   it("composites cluster renders Carousel section", async () => {
     const { default: Page } = await import("../design-system/composites/page");

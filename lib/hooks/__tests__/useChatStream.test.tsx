@@ -24,6 +24,13 @@ import {
 } from "@/tests-utils/chat-test-helpers";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 
+const analyticsMocks = vi.hoisted(() => ({
+  capture: vi.fn(),
+}));
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analyticsMocks.capture,
+}));
+
 // Mock UserContext at module load — every test then dictates session state
 // via `(useUser as Mock).mockReturnValue(...)` instead of mounting the real
 // provider (which would require a Supabase env at module init).
@@ -49,6 +56,7 @@ vi.mock("@/lib/supabase/client", () => ({
 }));
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+const SECOND_VALID_URL = "https://www.youtube.com/watch?v=9bZkp7q19f0";
 
 afterEach(() => {
   cleanup();
@@ -99,7 +107,7 @@ function setAnonFallback(token = "anon-token") {
     error: null,
   });
   supabaseAuthMock.getSession.mockResolvedValue({
-    data: { session: fakeSession(token) },
+    data: { session: fakeSession(token, true) },
     error: null,
   });
 }
@@ -133,6 +141,7 @@ beforeEach(() => {
   vi.mocked(createClient).mockReturnValue(
     { auth: supabaseAuthMock } as unknown as ReturnType<typeof createClient>,
   );
+  analyticsMocks.capture.mockReset();
 });
 
 describe("useChatStream", () => {
@@ -168,6 +177,10 @@ describe("useChatStream", () => {
       message: "what is this video about?",
     });
     expect(supabaseAuthMock.getSession).not.toHaveBeenCalled();
+    expect(analyticsMocks.capture).toHaveBeenCalledWith("chat_started", {
+      account_type: "registered",
+      source_surface: "summary",
+    });
   });
 
   it("accumulates delta text into draft.assistant during streaming", async () => {
@@ -358,6 +371,43 @@ describe("useChatStream", () => {
     expect(supabaseAuthMock.getSession).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0]!;
     expect(init.headers.Authorization).toBe("Bearer anon-token");
+    expect(analyticsMocks.capture).toHaveBeenCalledWith("chat_started", {
+      account_type: "anonymous",
+      source_surface: "summary",
+    });
+  });
+
+  it("captures chat_started only once per video across A to B to A navigation", async () => {
+    setLiveSession();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        sseResponse([{ type: "delta", text: "ok" }, { type: "done" }]),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(
+      ({ youtubeUrl }) => useChatStream({ youtubeUrl }),
+      {
+        initialProps: { youtubeUrl: VALID_URL },
+        wrapper: wrapper(freshQueryClient()),
+      },
+    );
+
+    await act(async () => {
+      await result.current.send("first video");
+    });
+    rerender({ youtubeUrl: SECOND_VALID_URL });
+    await act(async () => {
+      await result.current.send("second video");
+    });
+    rerender({ youtubeUrl: VALID_URL });
+    await act(async () => {
+      await result.current.send("first video again");
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(analyticsMocks.capture).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces a 'Setting up your session' message and skips fetch when getSession throws", async () => {

@@ -17,6 +17,17 @@ import { useCallback } from "react";
 const debugLog: (...args: unknown[]) => void =
   process.env.NODE_ENV === "production" ? () => {} : console.log;
 
+export class SummaryRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly errorCode?: string,
+  ) {
+    super(message);
+    this.name = "SummaryRequestError";
+  }
+}
+
 // `outputLanguage = null` means "use the video's own language" — matches the
 // server's cache-key convention. Adding it to the queryKey means switching
 // languages auto-invalidates the cached query and re-fetches without us
@@ -119,8 +130,10 @@ export function useYouTubeSummarizer(
       if (response.status === 401 || response.status === 403) {
         handleAuthError(response.status, errorData.message ?? "");
       }
-      throw new Error(
-        errorData.message || "Failed to start streaming summarization"
+      throw new SummaryRequestError(
+        errorData.message || "Failed to start streaming summarization",
+        response.status,
+        errorData.errorCode,
       );
     }
 
@@ -186,7 +199,8 @@ export function useYouTubeSummarizer(
 
   return {
     summarizationQuery: streamingSummarizationQuery,
-    isAnonymous: !session && !!anonSession,
+    isAnonymous:
+      session?.user?.is_anonymous === true || (!session && !!anonSession),
     isAuthLoading: isLoading,
   };
 }

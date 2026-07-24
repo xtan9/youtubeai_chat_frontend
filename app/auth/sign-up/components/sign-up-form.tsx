@@ -16,6 +16,7 @@ import { GoogleIcon } from "@/components/ui/google-icon";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 export function SignUpForm({
   className,
@@ -41,7 +42,7 @@ export function SignUpForm({
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -49,6 +50,16 @@ export function SignUpForm({
         },
       });
       if (error) throw error;
+      // Supabase can return an obfuscated user for an already-registered
+      // address when email enumeration protection is enabled. A real identity
+      // is the authoritative signal that this request created an account.
+      if ((data.user?.identities?.length ?? 0) > 0) {
+        captureAnalyticsEvent("signup_completed", {
+          auth_method: "email",
+          email_confirmation_required: !data.session,
+          source_surface: "sign_up_form",
+        });
+      }
       router.push("/auth/sign-up-success");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
