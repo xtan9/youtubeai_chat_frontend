@@ -24,14 +24,3 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
     });
   }
 }
-
-export function resetAnalyticsIdentity(): void {
-  try {
-    posthog.reset();
-  } catch (err) {
-    console.error("[analytics] identity reset failed", {
-      errorId: "ANALYTICS_IDENTITY_RESET_FAILED",
-      err,
-    });
-  }
-}

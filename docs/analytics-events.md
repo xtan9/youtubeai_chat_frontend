@@ -36,9 +36,13 @@ signup-intent state. Do not count OAuth initiation as completion.
   quota, auth, rate-limit, request, and processing failures reported
   separately.
 
-Client events use the same stable Supabase user ID that
-`PostHogUserIdentifier` identifies. Server-side subscription events use that
-ID as PostHog's `distinctId`, linking the activation to the same person.
+Before registration, client events use PostHog's anonymous visitor identity;
+Supabase anonymous user IDs are not identified. When the visitor registers,
+`PostHogUserIdentifier` identifies the registered Supabase user without a
+preceding reset, preserving the pre-signup funnel on the same PostHog person.
+Server-side subscription events use that registered Supabase ID as PostHog's
+`distinctId`, linking paid activation to the same person. Logout and a switch
+between registered accounts reset the client identity.
 
 ## Privacy rules
 

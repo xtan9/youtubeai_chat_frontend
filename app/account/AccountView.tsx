@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/contexts/user-context";
 import { useEntitlements, type EntitlementsData } from "@/lib/hooks/useEntitlements";
 import { createClient } from "@/lib/supabase/client";
-import { resetAnalyticsIdentity } from "@/lib/analytics/client";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -155,10 +154,7 @@ export function AccountView() {
   const subscription = entitlements.data?.subscription ?? null;
 
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (!error) {
-      resetAnalyticsIdentity();
-    }
+    await supabase.auth.signOut();
     router.push("/");
   };
 

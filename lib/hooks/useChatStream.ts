@@ -86,7 +86,7 @@ export function useChatStream({
   const [error, setError] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<UpgradeRequiredError | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const chatStartedForUrlRef = useRef<string | null>(null);
+  const chatStartedVideoKeysRef = useRef(new Set<string>());
 
   const abort = useCallback(() => {
     abortRef.current?.abort();
@@ -112,12 +112,14 @@ export function useChatStream({
       // session lookup fails or returns nothing, surface a clear "wait"
       // error rather than firing an unauthenticated fetch and showing
       // a generic 401 toast.
-      let accessToken = session?.access_token ?? null;
+      let resolvedSession = session;
+      let accessToken = resolvedSession?.access_token ?? null;
       if (!accessToken) {
         try {
           const supabase = createClient();
           const { data } = await supabase.auth.getSession();
-          accessToken = data.session?.access_token ?? null;
+          resolvedSession = data.session;
+          accessToken = resolvedSession?.access_token ?? null;
         } catch (err) {
           // Auth client itself failed — log so a Sentry breadcrumb ties
           // the user-visible "wait" message back to the underlying
@@ -215,14 +217,14 @@ export function useChatStream({
         if (!receivedAny) {
           throw new Error("No response received.");
         }
-        if (chatStartedForUrlRef.current !== youtubeUrl) {
+        if (!chatStartedVideoKeysRef.current.has(youtubeUrl)) {
           captureAnalyticsEvent("chat_started", {
-            account_type: session?.user?.is_anonymous
+            account_type: resolvedSession?.user?.is_anonymous
               ? "anonymous"
               : "registered",
             source_surface: sourceSurface,
           });
-          chatStartedForUrlRef.current = youtubeUrl;
+          chatStartedVideoKeysRef.current.add(youtubeUrl);
         }
       } catch (err) {
         // AbortError from our own controller is expected when the user

@@ -58,4 +58,46 @@ describe("PostHogUserIdentifier", () => {
     render(<PostHogUserIdentifier />);
     expect(state.reset).not.toHaveBeenCalled();
   });
+
+  it("preserves visitor continuity when an anonymous user registers", () => {
+    state.user = {
+      id: "anonymous-user-1",
+      is_anonymous: true,
+    };
+    const { rerender } = render(<PostHogUserIdentifier />);
+
+    expect(state.identify).not.toHaveBeenCalled();
+    expect(state.reset).not.toHaveBeenCalled();
+
+    state.user = {
+      id: "registered-user-1",
+      is_anonymous: false,
+    };
+    rerender(<PostHogUserIdentifier />);
+
+    expect(state.reset).not.toHaveBeenCalled();
+    expect(state.identify).toHaveBeenCalledTimes(1);
+    expect(state.identify).toHaveBeenCalledWith("registered-user-1", {
+      account_type: "registered",
+    });
+  });
+
+  it("resets before identifying a different registered account", () => {
+    state.user = {
+      id: "registered-user-1",
+      is_anonymous: false,
+    };
+    const { rerender } = render(<PostHogUserIdentifier />);
+
+    state.user = {
+      id: "registered-user-2",
+      is_anonymous: false,
+    };
+    rerender(<PostHogUserIdentifier />);
+
+    expect(state.reset).toHaveBeenCalledTimes(1);
+    expect(state.identify).toHaveBeenLastCalledWith("registered-user-2", {
+      account_type: "registered",
+    });
+  });
 });

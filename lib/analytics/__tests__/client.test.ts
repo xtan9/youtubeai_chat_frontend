@@ -3,24 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
-  reset: vi.fn(),
 }));
 
 vi.mock("posthog-js", () => ({
   default: {
     capture: mocks.capture,
-    reset: mocks.reset,
   },
 }));
 
-import {
-  captureAnalyticsEvent,
-  resetAnalyticsIdentity,
-} from "../client";
+import { captureAnalyticsEvent } from "../client";
 
 beforeEach(() => {
   mocks.capture.mockReset();
-  mocks.reset.mockReset();
 });
 
 describe("client analytics", () => {
@@ -39,10 +33,5 @@ describe("client analytics", () => {
       plan: "yearly",
       billing_interval: "yearly",
     });
-  });
-
-  it("resets the PostHog identity", () => {
-    resetAnalyticsIdentity();
-    expect(mocks.reset).toHaveBeenCalledTimes(1);
   });
 });

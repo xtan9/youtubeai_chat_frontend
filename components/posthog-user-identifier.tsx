@@ -7,28 +7,31 @@ import { useUser } from "@/lib/contexts/user-context";
 export function PostHogUserIdentifier() {
   const posthog = usePostHog();
   const { user } = useUser();
-  const previousUserIdRef = useRef<string | null>(null);
+  const previousRegisteredUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!posthog) return;
 
-    const previousUserId = previousUserIdRef.current;
-    if (!user) {
-      if (previousUserId) {
+    const previousRegisteredUserId = previousRegisteredUserIdRef.current;
+    if (!user || user.is_anonymous) {
+      if (previousRegisteredUserId) {
         posthog.reset();
-        previousUserIdRef.current = null;
+        previousRegisteredUserIdRef.current = null;
       }
       return;
     }
 
-    if (previousUserId && previousUserId !== user.id) {
+    if (
+      previousRegisteredUserId &&
+      previousRegisteredUserId !== user.id
+    ) {
       posthog.reset();
     }
 
     posthog.identify(user.id, {
-      account_type: user.is_anonymous ? "anonymous" : "registered",
+      account_type: "registered",
     });
-    previousUserIdRef.current = user.id;
+    previousRegisteredUserIdRef.current = user.id;
   }, [posthog, user]);
 
   return null;

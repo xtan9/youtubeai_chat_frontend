@@ -7,7 +7,13 @@ import React from "react";
 const mockPush = vi.fn();
 const mockGetSession = vi.fn();
 const mockSignInAnonymously = vi.fn();
-let mockUserCtx: { user: unknown; session: { access_token: string } | null };
+let mockUserCtx: {
+  user: unknown;
+  session: {
+    access_token: string;
+    user?: { is_anonymous?: boolean };
+  } | null;
+};
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
@@ -106,6 +112,26 @@ describe("useYouTubeSummarizer", () => {
     );
     await waitFor(() => expect(result.current.isAuthLoading).toBe(false));
     expect(result.current.isAnonymous).toBe(false);
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockSignInAnonymously).not.toHaveBeenCalled();
+  });
+
+  it("classifies a live Supabase anonymous session as anonymous", async () => {
+    mockUserCtx = {
+      user: { id: "anon-1", is_anonymous: true },
+      session: {
+        access_token: "live-anon-token",
+        user: { is_anonymous: true },
+      },
+    };
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    await waitFor(() => expect(result.current.isAuthLoading).toBe(false));
+    expect(result.current.isAnonymous).toBe(true);
     expect(mockGetSession).not.toHaveBeenCalled();
     expect(mockSignInAnonymously).not.toHaveBeenCalled();
   });

@@ -32,7 +32,10 @@ export function freshQueryClient(): QueryClient {
  * `as Session`) so a future SDK upgrade that adds a required field fails
  * the build here instead of silently shipping a partially-valid fixture.
  */
-export function fakeSession(accessToken = "test-access-token") {
+export function fakeSession(
+  accessToken = "test-access-token",
+  isAnonymous = false,
+) {
   return {
     access_token: accessToken,
     token_type: "bearer",
@@ -45,6 +48,7 @@ export function fakeSession(accessToken = "test-access-token") {
       user_metadata: {},
       aud: "authenticated",
       created_at: "2026-01-01T00:00:00Z",
+      is_anonymous: isAnonymous,
     },
   } satisfies Session;
 }

@@ -199,7 +199,8 @@ export function useYouTubeSummarizer(
 
   return {
     summarizationQuery: streamingSummarizationQuery,
-    isAnonymous: !session && !!anonSession,
+    isAnonymous:
+      session?.user?.is_anonymous === true || (!session && !!anonSession),
     isAuthLoading: isLoading,
   };
 }
