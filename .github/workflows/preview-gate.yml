@@ -121,8 +121,20 @@ jobs:
           --retries=0
           --forbid-only
 
-      - name: Upload Playwright evidence
+      - name: Sanitize Playwright evidence
+        id: sanitize
         if: always()
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          PREVIEW_TEST_USER_EMAIL: ${{ secrets.PREVIEW_TEST_USER_EMAIL }}
+          PREVIEW_TEST_USER_PASSWORD: ${{ secrets.PREVIEW_TEST_USER_PASSWORD }}
+        run: >-
+          node scripts/sanitize-playwright-artifacts.mjs
+          playwright-report
+          test-results
+
+      - name: Upload Playwright evidence
+        if: always() && steps.sanitize.outcome == 'success'
         uses: actions/upload-artifact@v5
         with:
           name: preview-critical-${{ github.event.deployment.sha }}
