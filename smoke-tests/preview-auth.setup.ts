@@ -40,26 +40,37 @@ function requireRunnerTemporaryStateDirectory(): string {
   return stateDirectory;
 }
 
-export function assertBypassOnlyState(state: BrowserStorageState) {
+export function assertBypassOnlyState(
+  state: BrowserStorageState,
+  baseUrl: string,
+) {
   if (state.origins.length !== 0) {
     throw new Error(
       "Bypass-only state must not contain application origin storage",
     );
   }
 
-  const bypassCookies = state.cookies.filter(
-    (cookie) => cookie.name === "__vercel_bypass",
-  );
-  const applicationCookies = state.cookies.filter(
-    (cookie) => cookie.name !== "__vercel_bypass",
-  );
+  if (state.cookies.length !== 1) {
+    throw new Error(
+      "Bypass-only state must contain exactly one cookie and no application auth cookies",
+    );
+  }
+
+  const cookie = state.cookies[0];
+  const previewHostname = new URL(baseUrl).hostname;
+  const cookieDomain = cookie.domain.replace(/^\./, "");
+  const appliesToPreview =
+    previewHostname === cookieDomain ||
+    previewHostname.endsWith(`.${cookieDomain}`);
   if (
-    bypassCookies.length !== 1 ||
-    bypassCookies[0].value.length === 0 ||
-    applicationCookies.length !== 0
+    cookie.value.length === 0 ||
+    !cookie.httpOnly ||
+    !cookie.secure ||
+    cookie.path !== "/" ||
+    !appliesToPreview
   ) {
     throw new Error(
-      "Bypass-only state must contain exactly one Vercel bypass cookie and no application auth cookies",
+      "Bypass-only state cookie must be non-empty, secure, HTTP-only, root-scoped, and valid for the preview",
     );
   }
 }
@@ -102,7 +113,18 @@ export default async function previewAuthenticationSetup() {
     }
 
     const publicState = await context.storageState();
-    assertBypassOnlyState(publicState);
+    assertBypassOnlyState(publicState, baseUrl);
+
+    const cookieOnlyResponse = await context.request.get("/");
+    if (cookieOnlyResponse.status() !== 200) {
+      throw new Error(
+        `Preview protection cookie returned HTTP ${cookieOnlyResponse.status()}`,
+      );
+    }
+    if (new URL(cookieOnlyResponse.url()).origin !== baseUrl) {
+      throw new Error("Preview protection cookie left the deployed origin");
+    }
+
     await context.storageState({ path: publicStatePath });
 
     const page = await context.newPage();
