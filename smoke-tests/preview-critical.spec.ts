@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 const DEMO_VIDEO_URL =
@@ -36,24 +37,43 @@ function parseChatEvents(body: string): ChatEvent[] {
 }
 
 test("public entry → controlled signed-in state → real chat response", async ({
+  browser,
   page,
 }) => {
   test.setTimeout(180_000);
 
   const baseUrl = requirePreviewUrl();
+  const publicStorageStatePath = path.join(
+    requireEnv("PREVIEW_STORAGE_STATE_DIR"),
+    "public-storage-state.json",
+  );
 
-  await test.step("render the public cached summary and transcript", async () => {
-    await page.goto(`${baseUrl}/`);
-    await expect(
-      page.getByRole("heading", { name: /Will Nvidia.*moat persist/i }),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Jensen Huang argues/).first()).toBeVisible();
+  await test.step("render the anonymous public cached summary and transcript", async () => {
+    const publicContext = await browser.newContext({
+      baseURL: baseUrl,
+      storageState: publicStorageStatePath,
+    });
+    try {
+      const publicPage = await publicContext.newPage();
+      await publicPage.goto("/");
+      await expect(
+        publicPage.getByRole("heading", {
+          name: /Will Nvidia.*moat persist/i,
+        }),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(
+        publicPage.getByText(/Jensen Huang argues/).first(),
+      ).toBeVisible();
 
-    await page.getByRole("tab", { name: /Transcript/i }).click();
-    await expect(page.getByText(/^00:0\d$/).first()).toBeVisible();
+      await publicPage.getByRole("tab", { name: /Transcript/i }).click();
+      await expect(publicPage.getByText(/^00:0\d$/).first()).toBeVisible();
+    } finally {
+      await publicContext.close();
+    }
   });
 
   await test.step("confirm the controlled signed-in state", async () => {
+    await page.goto(`${baseUrl}/`);
     await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible({
       timeout: 30_000,
     });

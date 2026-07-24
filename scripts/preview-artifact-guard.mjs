@@ -4,7 +4,6 @@ import {
   mkdir,
   readFile,
   readdir,
-  rmdir,
   rm,
 } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -27,7 +26,7 @@ const EVIDENCE_EXTENSIONS = new Set([".png", ".webm"]);
 const FORBIDDEN_PATH_PATTERNS = [
   /(?:^|\/)trace(?:\.zip)?$/i,
   /(?:^|\/)index\.html$/i,
-  /(?:^|\/)storage[-_.]?state(?:\.json)?$/i,
+  /(?:^|\/)(?:.*[-_.])?storage[-_.]?state(?:[-_.].*)?\.json$/i,
   /\.zip$/i,
 ];
 const FORBIDDEN_CONTENT_MARKERS = [
@@ -70,6 +69,11 @@ async function pathExists(path) {
 }
 
 async function listFiles(root) {
+  const rootStats = await lstat(root);
+  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
+    throw new Error(`Refusing non-directory artifact root: ${root}`);
+  }
+
   const files = [];
 
   async function visit(directory) {
@@ -176,39 +180,44 @@ function classifySourceFile(relativePath) {
   throw new Error(`Artifact is outside the preview evidence allowlist: ${relativePath}`);
 }
 
-export async function removePreviewStorageState(storageStatePath, runnerTemp) {
-  const statePath = assertDescendant(
-    storageStatePath,
+export async function removePreviewStorageStateDirectory(
+  storageStateDirectory,
+  runnerTemp,
+) {
+  const stateDirectory = assertDescendant(
+    storageStateDirectory,
     runnerTemp,
-    "Preview storage state",
+    "Preview storage state directory",
   );
 
-  await rm(statePath, { force: true });
-  if (await pathExists(statePath)) {
-    throw new Error(`Preview storage state still exists after cleanup: ${statePath}`);
-  }
-
-  try {
-    await rmdir(dirname(statePath));
-  } catch (error) {
-    if (!["ENOENT", "ENOTEMPTY"].includes(error?.code)) {
-      throw error;
+  if (await pathExists(stateDirectory)) {
+    const stateStats = await lstat(stateDirectory);
+    if (stateStats.isSymbolicLink() || !stateStats.isDirectory()) {
+      throw new Error(
+        `Refusing non-directory preview storage state root: ${stateDirectory}`,
+      );
     }
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+  if (await pathExists(stateDirectory)) {
+    throw new Error(
+      `Preview storage state directory still exists after cleanup: ${stateDirectory}`,
+    );
   }
 }
 
 export async function collectPreviewEvidence({
   sourceDir,
   evidenceDir,
-  storageStatePath,
+  storageStateDirectory,
   secrets,
 }) {
   const sourceRoot = resolve(sourceDir);
   const evidenceRoot = resolve(evidenceDir);
 
-  if (await pathExists(storageStatePath)) {
+  if (await pathExists(storageStateDirectory)) {
     throw new Error(
-      `Preview storage state exists at evidence collection time: ${storageStatePath}`,
+      `Preview storage state directory exists at evidence collection time: ${storageStateDirectory}`,
     );
   }
   if (!(await pathExists(sourceRoot))) {
@@ -269,14 +278,14 @@ function requireSecret(name) {
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === "cleanup" && args.length === 2) {
-    await removePreviewStorageState(args[0], args[1]);
+    await removePreviewStorageStateDirectory(args[0], args[1]);
     return;
   }
   if (command === "collect" && args.length === 3) {
     const files = await collectPreviewEvidence({
       sourceDir: args[0],
       evidenceDir: args[1],
-      storageStatePath: args[2],
+      storageStateDirectory: args[2],
       secrets: [
         requireSecret("VERCEL_AUTOMATION_BYPASS_SECRET"),
         requireSecret("PREVIEW_TEST_USER_EMAIL"),
@@ -288,7 +297,7 @@ async function main() {
   }
 
   throw new Error(
-    "Usage: preview-artifact-guard.mjs cleanup <state> <runner-temp> | collect <source> <evidence> <state>",
+    "Usage: preview-artifact-guard.mjs cleanup <state-directory> <runner-temp> | collect <source> <evidence> <state-directory>",
   );
 }
 

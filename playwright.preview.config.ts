@@ -10,7 +10,11 @@ function requireEnv(name: string): string {
 }
 
 const outputRoot = requireEnv("PREVIEW_PLAYWRIGHT_OUTPUT_DIR");
-const storageStatePath = requireEnv("PREVIEW_STORAGE_STATE_PATH");
+const storageStateDirectory = requireEnv("PREVIEW_STORAGE_STATE_DIR");
+const authenticatedStorageStatePath = path.join(
+  storageStateDirectory,
+  "authenticated-storage-state.json",
+);
 
 export default defineConfig({
   testDir: "./smoke-tests",
@@ -30,7 +34,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: requireEnv("BASE_URL"),
-    storageState: storageStatePath,
+    storageState: authenticatedStorageStatePath,
     trace: "off",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

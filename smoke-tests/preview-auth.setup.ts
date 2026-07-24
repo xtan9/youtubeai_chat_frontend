@@ -1,6 +1,10 @@
-import { chromium } from "@playwright/test";
+import { chromium, type BrowserContext } from "@playwright/test";
 import { mkdir, rm } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+
+type BrowserStorageState = Awaited<
+  ReturnType<BrowserContext["storageState"]>
+>;
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -19,10 +23,10 @@ function requirePreviewUrl(): string {
   return url.origin;
 }
 
-function requireRunnerTemporaryState(): string {
+function requireRunnerTemporaryStateDirectory(): string {
   const runnerTemp = resolve(requireEnv("RUNNER_TEMP"));
-  const statePath = resolve(requireEnv("PREVIEW_STORAGE_STATE_PATH"));
-  const stateRelative = relative(runnerTemp, statePath);
+  const stateDirectory = resolve(requireEnv("PREVIEW_STORAGE_STATE_DIR"));
+  const stateRelative = relative(runnerTemp, stateDirectory);
   if (
     !stateRelative ||
     stateRelative === ".." ||
@@ -30,21 +34,53 @@ function requireRunnerTemporaryState(): string {
     isAbsolute(stateRelative)
   ) {
     throw new Error(
-      `PREVIEW_STORAGE_STATE_PATH must be inside RUNNER_TEMP (${runnerTemp})`,
+      `PREVIEW_STORAGE_STATE_DIR must be inside RUNNER_TEMP (${runnerTemp})`,
     );
   }
-  return statePath;
+  return stateDirectory;
+}
+
+export function assertBypassOnlyState(state: BrowserStorageState) {
+  if (state.origins.length !== 0) {
+    throw new Error(
+      "Bypass-only state must not contain application origin storage",
+    );
+  }
+
+  const bypassCookies = state.cookies.filter(
+    (cookie) => cookie.name === "__vercel_bypass",
+  );
+  const applicationCookies = state.cookies.filter(
+    (cookie) => cookie.name !== "__vercel_bypass",
+  );
+  if (
+    bypassCookies.length !== 1 ||
+    bypassCookies[0].value.length === 0 ||
+    applicationCookies.length !== 0
+  ) {
+    throw new Error(
+      "Bypass-only state must contain exactly one Vercel bypass cookie and no application auth cookies",
+    );
+  }
 }
 
 export default async function previewAuthenticationSetup() {
   const baseUrl = requirePreviewUrl();
-  const storageStatePath = requireRunnerTemporaryState();
+  const stateDirectory = requireRunnerTemporaryStateDirectory();
+  const publicStatePath = resolve(
+    stateDirectory,
+    "public-storage-state.json",
+  );
+  const authenticatedStatePath = resolve(
+    stateDirectory,
+    "authenticated-storage-state.json",
+  );
   const bypassSecret = requireEnv("VERCEL_AUTOMATION_BYPASS_SECRET");
   const email = requireEnv("PREVIEW_TEST_USER_EMAIL");
   const password = requireEnv("PREVIEW_TEST_USER_PASSWORD");
 
-  await mkdir(dirname(storageStatePath), { recursive: true });
-  await rm(storageStatePath, { force: true });
+  await rm(stateDirectory, { recursive: true, force: true });
+  await mkdir(stateDirectory, { recursive: true });
 
   const browser = await chromium.launch();
   const context = await browser.newContext({ baseURL: baseUrl });
@@ -65,6 +101,10 @@ export default async function previewAuthenticationSetup() {
       throw new Error("Preview protection bypass left the deployed origin");
     }
 
+    const publicState = await context.storageState();
+    assertBypassOnlyState(publicState);
+    await context.storageState({ path: publicStatePath });
+
     const page = await context.newPage();
     await page.goto("/auth/login");
     await page.getByLabel("Email").fill(email);
@@ -74,7 +114,7 @@ export default async function previewAuthenticationSetup() {
       state: "visible",
       timeout: 30_000,
     });
-    await context.storageState({ path: storageStatePath });
+    await context.storageState({ path: authenticatedStatePath });
   } finally {
     await context.close();
     await browser.close();

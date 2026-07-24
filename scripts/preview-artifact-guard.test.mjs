@@ -3,6 +3,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,13 +12,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   collectPreviewEvidence,
-  removePreviewStorageState,
+  removePreviewStorageStateDirectory,
 } from "./preview-artifact-guard.mjs";
 
 const SECRETS = [
   "preview-bypass-secret",
   "preview-user@example.test",
-  "preview-password-value",
+  "preview-<password&\"value'>",
 ];
 const temporaryRoots = [];
 
@@ -38,14 +39,18 @@ async function baseFixture() {
   const root = await createTemporaryRoot();
   const sourceDir = join(root, "source");
   const evidenceDir = join(root, "evidence");
-  const storageStatePath = join(root, "runner-temp", "auth", "state.json");
+  const storageStateDirectory = join(
+    root,
+    "runner-temp",
+    "preview-critical-state",
+  );
   await writeFixture(sourceDir, "results.xml", "<testsuites tests=\"1\" />");
   await writeFixture(
     sourceDir,
     "artifacts/.last-run.json",
     "{\"status\":\"passed\"}",
   );
-  return { root, sourceDir, evidenceDir, storageStatePath };
+  return { root, sourceDir, evidenceDir, storageStateDirectory };
 }
 
 afterEach(async () => {
@@ -106,8 +111,13 @@ describe("preview artifact guard", () => {
       "<script>playwrightReportBase64=\"UEsDBAo\"</script>",
     ],
     [
-      "storage state",
-      "artifacts/storage-state.json",
+      "public storage state",
+      "artifacts/public-storage-state.json",
+      "{\"cookies\":[]}",
+    ],
+    [
+      "authenticated storage state",
+      "artifacts/authenticated-storage-state.json",
       "{\"cookies\":[]}",
     ],
     [
@@ -134,6 +144,32 @@ describe("preview artifact guard", () => {
     ).rejects.toThrow();
   });
 
+  it.each([
+    ["percent-encoded secret", encodeURIComponent(SECRETS[1])],
+    ["base64 secret", Buffer.from(SECRETS[2]).toString("base64")],
+    ["base64url secret", Buffer.from(SECRETS[2]).toString("base64url")],
+    [
+      "HTML-escaped secret",
+      SECRETS[2]
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;"),
+    ],
+  ])("rejects a supplied %s", async (_name, encodedSecret) => {
+    const fixture = await baseFixture();
+    await writeFixture(
+      fixture.sourceDir,
+      "results.xml",
+      `<testsuite error="${encodedSecret}" />`,
+    );
+
+    await expect(
+      collectPreviewEvidence({ ...fixture, secrets: SECRETS }),
+    ).rejects.toThrow(/Supplied secret found/);
+  });
+
   it("rejects unknown Playwright output instead of silently omitting it", async () => {
     const fixture = await baseFixture();
     await writeFixture(
@@ -147,46 +183,84 @@ describe("preview artifact guard", () => {
     ).rejects.toThrow(/outside the preview evidence allowlist/);
   });
 
+  it("rejects symbolic links anywhere in the Playwright output", async () => {
+    const fixture = await baseFixture();
+    const target = await writeFixture(
+      fixture.root,
+      "linked-screenshot.png",
+      "safe screenshot",
+    );
+    const linkPath = join(
+      fixture.sourceDir,
+      "artifacts",
+      "critical",
+      "linked-screenshot.png",
+    );
+    await mkdir(dirname(linkPath), { recursive: true });
+    await symlink(target, linkPath, "file");
+
+    await expect(
+      collectPreviewEvidence({ ...fixture, secrets: SECRETS }),
+    ).rejects.toThrow(/symbolic link/);
+  });
+
   it("rejects collection until the runner storage state is deleted", async () => {
     const fixture = await baseFixture();
     await writeFixture(
-      dirname(fixture.storageStatePath),
-      "state.json",
+      fixture.storageStateDirectory,
+      "public-storage-state.json",
+      "{\"cookies\":[{\"name\":\"__vercel_bypass\"}]}",
+    );
+    await writeFixture(
+      fixture.storageStateDirectory,
+      "authenticated-storage-state.json",
       "{\"cookies\":[{\"value\":\"derived-session\"}]}",
     );
 
     await expect(
       collectPreviewEvidence({ ...fixture, secrets: SECRETS }),
-    ).rejects.toThrow(/exists at evidence collection time/);
+    ).rejects.toThrow(/directory exists at evidence collection time/);
   });
 
-  it("deletes storage state inside the runner temporary directory", async () => {
+  it("deletes both storage states inside the runner temporary directory", async () => {
     const root = await createTemporaryRoot();
     const runnerTemp = join(root, "runner-temp");
-    const statePath = await writeFixture(
-      runnerTemp,
-      "preview-auth/state.json",
+    const stateDirectory = join(runnerTemp, "preview-critical-state");
+    const publicStatePath = await writeFixture(
+      stateDirectory,
+      "public-storage-state.json",
+      "{\"cookies\":[{\"name\":\"__vercel_bypass\"}]}",
+    );
+    const authenticatedStatePath = await writeFixture(
+      stateDirectory,
+      "authenticated-storage-state.json",
       "{\"cookies\":[{\"value\":\"session-token\"}]}",
     );
 
     await expect(
-      removePreviewStorageState(statePath, runnerTemp),
+      removePreviewStorageStateDirectory(stateDirectory, runnerTemp),
     ).resolves.toBeUndefined();
-    await expect(readFile(statePath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(publicStatePath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(readFile(authenticatedStatePath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
-  it("refuses to delete storage state outside the runner temporary directory", async () => {
+  it("refuses to delete a storage state directory outside runner temp", async () => {
     const root = await createTemporaryRoot();
     const runnerTemp = join(root, "runner-temp");
+    const outsideStateDirectory = join(root, "outside-state");
     const outsideState = await writeFixture(
-      root,
-      "outside-state.json",
+      outsideStateDirectory,
+      "authenticated-storage-state.json",
       "{\"cookies\":[]}",
     );
     await mkdir(runnerTemp, { recursive: true });
 
     await expect(
-      removePreviewStorageState(outsideState, runnerTemp),
+      removePreviewStorageStateDirectory(outsideStateDirectory, runnerTemp),
     ).rejects.toThrow(/must be inside/);
     await expect(readFile(outsideState, "utf8")).resolves.toContain("cookies");
   });
