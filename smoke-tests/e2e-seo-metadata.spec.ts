@@ -137,11 +137,22 @@ test.describe("SEO metadata contract", () => {
     expect(snap.robots ?? "").toMatch(/noindex/i);
   });
 
-  for (const path of ["/terms", "/privacy", "/auth/login", "/auth/sign-up"]) {
+  for (const path of ["/terms", "/privacy"]) {
     test(`${path} self-canonicalizes and is indexable`, async ({ page }) => {
       const snap = await snapshot(page, path);
       expect(snap.canonical).toContain(path);
       expect(snap.robots ?? "").not.toMatch(/noindex/i);
+    });
+  }
+
+  for (const path of ["/auth/login", "/auth/sign-up"]) {
+    test(`${path} self-canonicalizes and is noindex,nofollow`, async ({
+      page,
+    }) => {
+      const snap = await snapshot(page, path);
+      expect(snap.canonical).toContain(path);
+      expect(snap.robots ?? "").toMatch(/noindex/i);
+      expect(snap.robots ?? "").toMatch(/nofollow/i);
     });
   }
 
