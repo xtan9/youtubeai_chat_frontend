@@ -1,8 +1,6 @@
-import { createWriteStream } from "node:fs";
 import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const localRequire = createRequire(import.meta.url);
@@ -12,6 +10,12 @@ const playwrightRequire = createRequire(
 const { yauzl, yazl } = playwrightRequire("playwright-core/lib/zipBundle");
 
 export const REDACTED = "[REDACTED]";
+
+const EMBEDDED_REPORT_MARKER_PATTERN =
+  /<template\b[^>]*\bid=(?:"playwrightReportBase64"|'playwrightReportBase64')[^>]*>/gi;
+const EMBEDDED_REPORT_PATTERN =
+  /(<template\b[^>]*\bid=(?:"playwrightReportBase64"|'playwrightReportBase64')[^>]*>\s*data:application\/zip;base64,)([A-Za-z0-9+/=\r\n]+)(\s*<\/template>)/gi;
+const MAX_EMBEDDED_REPORT_DEPTH = 4;
 
 const SENSITIVE_FIELD_NAMES = new Set([
   "__playwright_value_",
@@ -208,9 +212,9 @@ export function sanitizeBuffer(buffer, secrets) {
   );
 }
 
-async function readZipEntries(zipPath) {
+function collectZipEntries(openZip) {
   return new Promise((resolvePromise, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (openError, zipFile) => {
+    openZip((openError, zipFile) => {
       if (openError) {
         reject(openError);
         return;
@@ -248,19 +252,43 @@ async function readZipEntries(zipPath) {
   });
 }
 
-async function writeZipEntries(zipPath, entries) {
-  const temporaryPath = `${zipPath}.sanitized`;
+async function readZipEntries(zipPath) {
+  return collectZipEntries((callback) =>
+    yauzl.open(zipPath, { lazyEntries: true }, callback),
+  );
+}
+
+async function readZipEntriesFromBuffer(buffer) {
+  return collectZipEntries((callback) =>
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, callback),
+  );
+}
+
+async function writeZipEntriesToBuffer(entries) {
   const archive = new yazl.ZipFile();
-  const output = createWriteStream(temporaryPath, { flags: "wx" });
-  archive.outputStream.pipe(output);
+  const chunks = [];
+  const outputComplete = new Promise((resolvePromise, reject) => {
+    archive.outputStream.on("data", (chunk) => chunks.push(chunk));
+    archive.outputStream.on("error", reject);
+    archive.outputStream.on("end", resolvePromise);
+  });
 
   for (const entry of entries) {
     archive.addBuffer(entry.buffer, entry.fileName);
   }
   archive.end();
+  await outputComplete;
+  return Buffer.concat(chunks);
+}
 
+async function writeZipEntries(zipPath, entries) {
+  const temporaryPath = `${zipPath}.sanitized`;
   try {
-    await finished(output);
+    await writeFile(
+      temporaryPath,
+      await writeZipEntriesToBuffer(entries),
+      { flag: "wx" },
+    );
     await rename(temporaryPath, zipPath);
   } catch (error) {
     await unlink(temporaryPath).catch(() => {});
@@ -286,35 +314,126 @@ async function listFiles(root) {
   return files;
 }
 
+function embeddedReportMatches(text, location) {
+  const markers = [...text.matchAll(EMBEDDED_REPORT_MARKER_PATTERN)];
+  const reports = [...text.matchAll(EMBEDDED_REPORT_PATTERN)];
+  if (markers.length !== reports.length) {
+    throw new Error(
+      `Unable to parse embedded Playwright report in ${location}`,
+    );
+  }
+  return reports;
+}
+
+function decodeBase64Archive(value, location) {
+  const normalized = value.replace(/\s/g, "");
+  const archive = Buffer.from(normalized, "base64");
+  if (
+    !normalized ||
+    archive
+      .toString("base64")
+      .replace(/=+$/, "") !== normalized.replace(/=+$/, "")
+  ) {
+    throw new Error(`Invalid embedded Playwright report Base64 in ${location}`);
+  }
+  return archive;
+}
+
+async function sanitizeEmbeddedReports(buffer, secrets, location, depth = 0) {
+  if (!isUtf8Text(buffer)) return { buffer, zipEntries: 0 };
+  if (depth > MAX_EMBEDDED_REPORT_DEPTH) {
+    throw new Error(`Embedded Playwright report nesting is too deep in ${location}`);
+  }
+
+  const text = buffer.toString("utf8");
+  const reports = embeddedReportMatches(text, location);
+  if (!reports.length) return { buffer, zipEntries: 0 };
+
+  const output = [];
+  let cursor = 0;
+  let zipEntries = 0;
+
+  for (const report of reports) {
+    output.push(text.slice(cursor, report.index), report[1]);
+    const entries = await readZipEntriesFromBuffer(
+      decodeBase64Archive(report[2], location),
+    );
+    const sanitizedEntries = [];
+
+    for (const entry of entries) {
+      const sanitized = sanitizeBuffer(entry.buffer, secrets);
+      const nested = await sanitizeEmbeddedReports(
+        sanitized,
+        secrets,
+        `${location}:${entry.fileName}`,
+        depth + 1,
+      );
+      sanitizedEntries.push({ ...entry, buffer: nested.buffer });
+      zipEntries += nested.zipEntries;
+    }
+
+    output.push(
+      (await writeZipEntriesToBuffer(sanitizedEntries)).toString("base64"),
+      report[3],
+    );
+    zipEntries += entries.length;
+    cursor = report.index + report[0].length;
+  }
+
+  output.push(text.slice(cursor));
+  return { buffer: Buffer.from(output.join(""), "utf8"), zipEntries };
+}
+
 async function sanitizeZip(zipPath, secrets) {
   const entries = await readZipEntries(zipPath);
-  const sanitizedEntries = entries.map((entry) => ({
-    ...entry,
-    buffer: sanitizeBuffer(entry.buffer, secrets),
-  }));
+  const sanitizedEntries = [];
+  let embeddedZipEntries = 0;
+
+  for (const entry of entries) {
+    const sanitized = sanitizeBuffer(entry.buffer, secrets);
+    const embedded = await sanitizeEmbeddedReports(
+      sanitized,
+      secrets,
+      `${zipPath}:${entry.fileName}`,
+    );
+    sanitizedEntries.push({ ...entry, buffer: embedded.buffer });
+    embeddedZipEntries += embedded.zipEntries;
+  }
+
   await writeZipEntries(zipPath, sanitizedEntries);
-  return entries.length;
+  return { zipEntries: entries.length, embeddedZipEntries };
 }
 
 export async function sanitizeArtifactTree(roots, secrets) {
   let files = 0;
   let zipEntries = 0;
+  let embeddedZipEntries = 0;
 
   for (const root of roots) {
     for (const path of await listFiles(root)) {
       files += 1;
       if (path.toLowerCase().endsWith(".zip")) {
-        zipEntries += await sanitizeZip(path, secrets);
+        const sanitized = await sanitizeZip(path, secrets);
+        zipEntries += sanitized.zipEntries;
+        embeddedZipEntries += sanitized.embeddedZipEntries;
         continue;
       }
 
       const original = await readFile(path);
-      const sanitized = sanitizeBuffer(original, secrets);
-      if (!sanitized.equals(original)) await writeFile(path, sanitized);
+      const plain = sanitizeBuffer(original, secrets);
+      const embedded = await sanitizeEmbeddedReports(
+        plain,
+        secrets,
+        path,
+      );
+      embeddedZipEntries += embedded.zipEntries;
+      if (!embedded.buffer.equals(original)) {
+        await writeFile(path, embedded.buffer);
+      }
     }
   }
 
-  return { files, zipEntries };
+  return { files, zipEntries, embeddedZipEntries };
 }
 
 function assertBufferHasNoSecrets(buffer, secrets, location) {
@@ -388,6 +507,40 @@ async function assertZipHasNoSecrets(zipPath, secrets) {
       secrets,
       `${zipPath}:${entry.fileName}`,
     );
+    await assertEmbeddedReportsHaveNoSecrets(
+      entry.buffer,
+      secrets,
+      `${zipPath}:${entry.fileName}`,
+    );
+  }
+}
+
+async function assertEmbeddedReportsHaveNoSecrets(
+  buffer,
+  secrets,
+  location,
+  depth = 0,
+) {
+  if (!isUtf8Text(buffer)) return;
+  if (depth > MAX_EMBEDDED_REPORT_DEPTH) {
+    throw new Error(`Embedded Playwright report nesting is too deep in ${location}`);
+  }
+
+  const text = buffer.toString("utf8");
+  for (const report of embeddedReportMatches(text, location)) {
+    const entries = await readZipEntriesFromBuffer(
+      decodeBase64Archive(report[2], location),
+    );
+    for (const entry of entries) {
+      const entryLocation = `${location}:${entry.fileName}`;
+      assertBufferHasNoSecrets(entry.buffer, secrets, entryLocation);
+      await assertEmbeddedReportsHaveNoSecrets(
+        entry.buffer,
+        secrets,
+        entryLocation,
+        depth + 1,
+      );
+    }
   }
 }
 
@@ -397,7 +550,9 @@ export async function assertArtifactTreeHasNoSecrets(roots, secrets) {
       if (path.toLowerCase().endsWith(".zip")) {
         await assertZipHasNoSecrets(path, secrets);
       } else {
-        assertBufferHasNoSecrets(await readFile(path), secrets, path);
+        const buffer = await readFile(path);
+        assertBufferHasNoSecrets(buffer, secrets, path);
+        await assertEmbeddedReportsHaveNoSecrets(buffer, secrets, path);
       }
     }
   }
@@ -421,7 +576,9 @@ async function main() {
   const result = await sanitizeArtifactTree(roots, secrets);
   await assertArtifactTreeHasNoSecrets(roots, secrets);
   console.log(
-    `Sanitized ${result.files} Playwright artifact files (${result.zipEntries} archive entries)`,
+    `Sanitized ${result.files} Playwright artifact files ` +
+      `(${result.zipEntries} standalone and ` +
+      `${result.embeddedZipEntries} embedded archive entries)`,
   );
 }
 

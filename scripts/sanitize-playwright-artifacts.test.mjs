@@ -1,8 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createWriteStream } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -27,20 +25,29 @@ afterEach(async () => {
     ),
   );
 });
-async function createZip(path, entries) {
+async function createZipBuffer(entries) {
   const archive = new yazl.ZipFile();
-  const output = createWriteStream(path);
-  archive.outputStream.pipe(output);
+  const chunks = [];
+  const outputComplete = new Promise((resolve, reject) => {
+    archive.outputStream.on("data", (chunk) => chunks.push(chunk));
+    archive.outputStream.on("error", reject);
+    archive.outputStream.on("end", resolve);
+  });
   for (const [name, content] of Object.entries(entries)) {
     archive.addBuffer(Buffer.from(content, "utf8"), name);
   }
   archive.end();
-  await finished(output);
+  await outputComplete;
+  return Buffer.concat(chunks);
 }
 
-async function readZip(path) {
+async function createZip(path, entries) {
+  await writeFile(path, await createZipBuffer(entries));
+}
+
+async function readZipBuffer(buffer) {
   return new Promise((resolve, reject) => {
-    yauzl.open(path, { lazyEntries: true }, (openError, zipFile) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (openError, zipFile) => {
       if (openError) {
         reject(openError);
         return;
@@ -67,6 +74,18 @@ async function readZip(path) {
       zipFile.readEntry();
     });
   });
+}
+
+async function readZip(path) {
+  return readZipBuffer(await readFile(path));
+}
+
+function embeddedReportArchive(html) {
+  const match = html.match(
+    /<template id="playwrightReportBase64">data:application\/zip;base64,([^<]+)<\/template>/,
+  );
+  if (!match) throw new Error("Embedded Playwright report not found");
+  return Buffer.from(match[1], "base64");
 }
 
 describe("sanitizeArtifactTree", () => {
@@ -182,5 +201,109 @@ describe("sanitizeArtifactTree", () => {
     );
     expect(report).not.toContain(password);
     expect(report).not.toContain(encodeURIComponent(password));
+  });
+
+  it("rewrites and verifies the ZIP embedded in Playwright index.html", async () => {
+    const root = await mkdtemp(join(tmpdir(), "playwright-html-redaction-"));
+    temporaryRoots.push(root);
+    const reportDirectory = join(root, "playwright-report");
+    await mkdir(reportDirectory);
+
+    const bypassSecret = "embedded-bypass-secret";
+    const email = "embedded-preview@example.test";
+    const password = "embedded-password";
+    const secrets = [bypassSecret, email, password];
+    const embeddedArchive = await createZipBuffer({
+      "test-result.json": JSON.stringify({
+        fileId: "test-result",
+        fileName: "preview-critical.spec.ts",
+        tests: [
+          {
+            results: [
+              {
+                steps: [
+                  { title: `Fill "${email}"` },
+                  { title: `Fill "${password}"` },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      "report.json": JSON.stringify({
+        metadata: { bypassSecret },
+        stats: { total: 1, unexpected: 1 },
+      }),
+    });
+    const reportPath = join(reportDirectory, "index.html");
+    await writeFile(
+      reportPath,
+      [
+        "<!doctype html><html><body>",
+        '<template id="playwrightReportBase64">',
+        "data:application/zip;base64,",
+        embeddedArchive.toString("base64"),
+        "</template></body></html>",
+      ].join(""),
+    );
+
+    await expect(
+      assertArtifactTreeHasNoSecrets([reportDirectory], secrets),
+    ).rejects.toThrow(/Secret material remains/);
+
+    const result = await sanitizeArtifactTree(
+      [reportDirectory],
+      secrets,
+    );
+    expect(result).toEqual({
+      files: 1,
+      zipEntries: 0,
+      embeddedZipEntries: 2,
+    });
+    await expect(
+      assertArtifactTreeHasNoSecrets([reportDirectory], secrets),
+    ).resolves.toBeUndefined();
+
+    const sanitizedHtml = await readFile(reportPath, "utf8");
+    const sanitizedEntries = await readZipBuffer(
+      embeddedReportArchive(sanitizedHtml),
+    );
+    expect(Object.keys(sanitizedEntries).sort()).toEqual([
+      "report.json",
+      "test-result.json",
+    ]);
+    expect(() => JSON.parse(sanitizedEntries["report.json"])).not.toThrow();
+    expect(() =>
+      JSON.parse(sanitizedEntries["test-result.json"]),
+    ).not.toThrow();
+    expect(Object.values(sanitizedEntries).join("\n")).not.toContain(email);
+    expect(Object.values(sanitizedEntries).join("\n")).not.toContain(password);
+    expect(Object.values(sanitizedEntries).join("\n")).not.toContain(
+      bypassSecret,
+    );
+    expect(sanitizedEntries["test-result.json"]).toContain(REDACTED);
+  });
+
+  it("fails closed when an embedded Playwright report is not a readable ZIP", async () => {
+    const root = await mkdtemp(join(tmpdir(), "playwright-html-corrupt-"));
+    temporaryRoots.push(root);
+    const reportPath = join(root, "index.html");
+    await writeFile(
+      reportPath,
+      [
+        '<template id="playwrightReportBase64">',
+        "data:application/zip;base64,",
+        Buffer.from("not a ZIP archive", "utf8").toString("base64"),
+        "</template>",
+      ].join(""),
+    );
+
+    await expect(
+      sanitizeArtifactTree([root], [
+        "corrupt-bypass",
+        "corrupt@example.test",
+        "corrupt-password",
+      ]),
+    ).rejects.toThrow();
   });
 });
