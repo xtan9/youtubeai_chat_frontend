@@ -148,7 +148,7 @@ jobs:
             supabase projects create "$STAGING_PROJECT_NAME" \
               --org-id "$staging_org_id" \
               --region "$STAGING_REGION" \
-              --size nano \
+              --size pico \
               --db-password "$db_password" \
               --output json
           )
