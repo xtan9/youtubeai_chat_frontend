@@ -35,12 +35,18 @@ jobs:
         run: |
           set -euo pipefail
           organizations=$(supabase orgs list --output json)
-          organization_count=$(jq 'length' <<<"$organizations")
+          organization_count=$(
+            jq '[.[] | select(.name == "XT Software")] | length' \
+              <<<"$organizations"
+          )
           if [[ "$organization_count" -ne 1 ]]; then
-            echo "::error::Expected exactly one Supabase organization; found $organization_count"
+            echo "::error::Expected exactly one XT Software production organization; found $organization_count"
             exit 1
           fi
-          organization_id=$(jq -r '.[0].id' <<<"$organizations")
+          organization_id=$(
+            jq -r '.[] | select(.name == "XT Software") | .id' \
+              <<<"$organizations"
+          )
           echo "Organizations:"
           jq '[.[] | {id, name}]' <<<"$organizations"
           echo "Organization plan:"
