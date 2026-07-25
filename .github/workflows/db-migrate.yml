@@ -15,6 +15,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  discover-staging:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/msh/provision-preview-staging'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.72.7
+
+      - name: List available staging targets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Organizations:"
+          supabase orgs list --output json |
+            jq '[.[] | {id, name}]'
+          echo "Projects:"
+          supabase projects list --output json |
+            jq '[.[] | {id, name, organization_id, region, status}]'
+
   migrate:
     # Only run when CI passed on main, or when manually dispatched ON main.
     # workflow_dispatch on a feature branch would otherwise bypass CI.
