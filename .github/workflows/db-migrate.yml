@@ -71,6 +71,8 @@ jobs:
       STAGING_ORGANIZATION_NAME: XT Software Staging
       STAGING_PROJECT_NAME: YouTubeAI Preview
       STAGING_REGION: us-west-1
+      STAGING_PLAN: pro
+      STAGING_COMPUTE_SIZE: micro
 
     steps:
       - name: Checkout provisioning controls
@@ -127,8 +129,8 @@ jobs:
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" |
               jq -er '.plan'
           )
-          if [[ "$staging_plan" != "free" ]]; then
-            echo "::error::Refusing project creation in a non-Free staging organization"
+          if [[ "$staging_plan" != "$STAGING_PLAN" ]]; then
+            echo "::error::Staging organization must be on the explicitly approved $STAGING_PLAN plan"
             exit 1
           fi
 
@@ -154,7 +156,7 @@ jobs:
             supabase projects create "$STAGING_PROJECT_NAME" \
               --org-id "$staging_org_id" \
               --region "$STAGING_REGION" \
-              --size pico \
+              --size "$STAGING_COMPUTE_SIZE" \
               --db-password "$db_password" \
               --output json
           )
@@ -218,13 +220,16 @@ jobs:
             --arg organization_name "$STAGING_ORGANIZATION_NAME" \
             --arg project_name "$STAGING_PROJECT_NAME" \
             --arg region "$STAGING_REGION" \
+            --arg plan "$STAGING_PLAN" \
+            --arg compute_size "$STAGING_COMPUTE_SIZE" \
             '{
               candidate_sha: $candidate_sha,
               organization_id: $organization_id,
               organization_name: $organization_name,
               project_name: $project_name,
               region: $region,
-              plan: "free",
+              plan: $plan,
+              compute_size: $compute_size,
               encrypted_fields: [
                 "project_ref",
                 "project_url",
@@ -320,8 +325,9 @@ jobs:
           PROJECT_REF: ${{ steps.provision.outputs.project_ref }}
           PROJECT_URL: ${{ steps.provision.outputs.project_url }}
         run: |
-          echo "Staging organization: $STAGING_ORGANIZATION_NAME (Free)"
+          echo "Staging organization: $STAGING_ORGANIZATION_NAME ($STAGING_PLAN)"
           echo "Staging project: $STAGING_PROJECT_NAME ($PROJECT_REF)"
+          echo "Compute size: $STAGING_COMPUTE_SIZE"
           echo "Staging URL: $PROJECT_URL"
           echo "Candidate migrations: $CANDIDATE_SHA"
           echo "Auth fixture: confirmed"
