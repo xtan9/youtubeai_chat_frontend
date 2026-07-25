@@ -34,9 +34,20 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
+          organizations=$(supabase orgs list --output json)
+          organization_count=$(jq 'length' <<<"$organizations")
+          if [[ "$organization_count" -ne 1 ]]; then
+            echo "::error::Expected exactly one Supabase organization; found $organization_count"
+            exit 1
+          fi
+          organization_id=$(jq -r '.[0].id' <<<"$organizations")
           echo "Organizations:"
-          supabase orgs list --output json |
-            jq '[.[] | {id, name}]'
+          jq '[.[] | {id, name}]' <<<"$organizations"
+          echo "Organization plan:"
+          curl --fail --silent --show-error \
+            "https://api.supabase.com/v1/organizations/$organization_id" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" |
+            jq '{id, name, plan}'
           echo "Projects:"
           supabase projects list --output json |
             jq '[.[] | {id, name, organization_id, region, status}]'
