@@ -52,6 +52,275 @@ jobs:
           supabase projects list --output json |
             jq '[.[] | {id, name, organization_id, region, status}]'
 
+  provision-staging:
+    needs: discover-staging
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/msh/provision-preview-staging'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CANDIDATE_SHA: 836eaa0db10557190776868facd9476aba4d75fa
+      STAGING_ORGANIZATION_NAME: XT Software Staging
+      STAGING_PROJECT_NAME: YouTubeAI Preview
+      STAGING_REGION: us-west-1
+
+    steps:
+      - name: Checkout provisioning controls
+        uses: actions/checkout@v5
+        with:
+          path: ops
+
+      - name: Checkout exact release candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.72.7
+
+      - name: Provision isolated Preview backend
+        id: provision
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          organizations=$(supabase orgs list --output json)
+          staging_org_count=$(
+            jq --arg name "$STAGING_ORGANIZATION_NAME" \
+              '[.[] | select(.name == $name)] | length' <<<"$organizations"
+          )
+          if [[ "$staging_org_count" -gt 1 ]]; then
+            echo "::error::Multiple staging organizations match the required name"
+            exit 1
+          fi
+          if [[ "$staging_org_count" -eq 0 ]]; then
+            staging_org=$(
+              curl --fail --silent --show-error \
+                -X POST "https://api.supabase.com/v1/organizations" \
+                -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+                -H "Content-Type: application/json" \
+                --data "$(jq -nc --arg name "$STAGING_ORGANIZATION_NAME" '{name: $name}')"
+            )
+          else
+            staging_org=$(
+              jq -c --arg name "$STAGING_ORGANIZATION_NAME" \
+                '.[] | select(.name == $name)' <<<"$organizations"
+            )
+          fi
+          staging_org_id=$(jq -er '.id' <<<"$staging_org")
+          staging_org_slug=$(jq -er '.slug // .id' <<<"$staging_org")
+          staging_plan=$(
+            curl --fail --silent --show-error \
+              "https://api.supabase.com/v1/organizations/$staging_org_slug" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" |
+              jq -er '.plan'
+          )
+          if [[ "$staging_plan" != "free" ]]; then
+            echo "::error::Refusing project creation in a non-Free staging organization"
+            exit 1
+          fi
+
+          projects=$(supabase projects list --output json)
+          existing_project_count=$(
+            jq --arg org "$staging_org_id" --arg name "$STAGING_PROJECT_NAME" \
+              '[.[] | select(.organization_id == $org and .name == $name)] | length' \
+              <<<"$projects"
+          )
+          if [[ "$existing_project_count" -ne 0 ]]; then
+            echo "::error::Staging project already exists; refusing to overwrite its credentials"
+            exit 1
+          fi
+
+          db_password=$(openssl rand -hex 32)
+          test_email="preview-critical-e2e@staging.youtubeai.chat"
+          test_password=$(openssl rand -hex 32)
+          echo "::add-mask::$db_password"
+          echo "::add-mask::$test_email"
+          echo "::add-mask::$test_password"
+
+          project_json=$(
+            supabase projects create "$STAGING_PROJECT_NAME" \
+              --org-id "$staging_org_id" \
+              --region "$STAGING_REGION" \
+              --size nano \
+              --db-password "$db_password" \
+              --output json
+          )
+          project_ref=$(jq -er '.ref // .id' <<<"$project_json")
+          project_url="https://$project_ref.supabase.co"
+
+          for attempt in {1..60}; do
+            project_status=$(
+              supabase projects list --output json |
+                jq -r --arg ref "$project_ref" \
+                  '.[] | select((.ref // .id) == $ref) | .status'
+            )
+            if [[ "$project_status" == "ACTIVE_HEALTHY" ]]; then
+              break
+            fi
+            if [[ "$attempt" -eq 60 ]]; then
+              echo "::error::Staging project did not become healthy within 10 minutes"
+              exit 1
+            fi
+            sleep 10
+          done
+
+          keys_json=$(
+            curl --fail --silent --show-error \
+              "https://api.supabase.com/v1/projects/$project_ref/api-keys?reveal=true" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          )
+          anon_key=$(
+            jq -er '.[] | select(.name == "anon") | .api_key' <<<"$keys_json"
+          )
+          service_role_key=$(
+            jq -er '.[] | select(.name == "service_role") | .api_key' <<<"$keys_json"
+          )
+          echo "::add-mask::$anon_key"
+          echo "::add-mask::$service_role_key"
+
+          bundle_dir="$RUNNER_TEMP/staging-credentials"
+          mkdir -p "$bundle_dir"
+          public_key="$GITHUB_WORKSPACE/ops/.github/staging-provision-recipient.pem"
+          encrypt_field() {
+            local field_name="$1"
+            local field_value="$2"
+            printf '%s' "$field_value" |
+              openssl pkeyutl -encrypt \
+                -pubin \
+                -inkey "$public_key" \
+                -pkeyopt rsa_padding_mode:oaep \
+                -pkeyopt rsa_oaep_md:sha256 \
+                -out "$bundle_dir/$field_name.bin"
+          }
+          encrypt_field project_ref "$project_ref"
+          encrypt_field project_url "$project_url"
+          encrypt_field anon_key "$anon_key"
+          encrypt_field service_role_key "$service_role_key"
+          encrypt_field db_password "$db_password"
+          encrypt_field test_email "$test_email"
+          encrypt_field test_password "$test_password"
+          jq -n \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg organization_id "$staging_org_id" \
+            --arg organization_name "$STAGING_ORGANIZATION_NAME" \
+            --arg project_name "$STAGING_PROJECT_NAME" \
+            --arg region "$STAGING_REGION" \
+            '{
+              candidate_sha: $candidate_sha,
+              organization_id: $organization_id,
+              organization_name: $organization_name,
+              project_name: $project_name,
+              region: $region,
+              plan: "free",
+              encrypted_fields: [
+                "project_ref",
+                "project_url",
+                "anon_key",
+                "service_role_key",
+                "db_password",
+                "test_email",
+                "test_password"
+              ]
+            }' >"$bundle_dir/manifest.json"
+          echo "bundle_dir=$bundle_dir" >>"$GITHUB_OUTPUT"
+          echo "project_ref=$project_ref" >>"$GITHUB_OUTPUT"
+          echo "project_url=$project_url" >>"$GITHUB_OUTPUT"
+
+          pushd candidate >/dev/null
+          SUPABASE_DB_PASSWORD="$db_password" \
+            supabase link --project-ref "$project_ref"
+          SUPABASE_DB_PASSWORD="$db_password" \
+            supabase db push --include-all
+          popd >/dev/null
+
+          auth_user=$(
+            curl --fail --silent --show-error \
+              -X POST "$project_url/auth/v1/admin/users" \
+              -H "apikey: $service_role_key" \
+              -H "Authorization: Bearer $service_role_key" \
+              -H "Content-Type: application/json" \
+              --data "$(
+                jq -nc \
+                  --arg email "$test_email" \
+                  --arg password "$test_password" \
+                  '{
+                    email: $email,
+                    password: $password,
+                    email_confirm: true,
+                    user_metadata: {purpose: "preview-critical-e2e"}
+                  }'
+              )"
+          )
+          test_user_id=$(jq -er '.id' <<<"$auth_user")
+
+          curl --fail --silent --show-error \
+            -X POST "$project_url/rest/v1/user_subscriptions" \
+            -H "apikey: $service_role_key" \
+            -H "Authorization: Bearer $service_role_key" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            --data "$(
+              jq -nc \
+                --arg user_id "$test_user_id" \
+                --arg customer_id "staging-preview-$test_user_id" \
+                '{
+                  user_id: $user_id,
+                  stripe_customer_id: $customer_id,
+                  tier: "free",
+                  status: "staging_fixture"
+                }'
+            )"
+
+          rate_limit_result=$(
+            window_start=$(date -u +"%Y-%m-%dT%H:%M:00Z")
+            curl --fail --silent --show-error \
+              -X POST "$project_url/rest/v1/rpc/increment_rate_limit" \
+              -H "apikey: $service_role_key" \
+              -H "Authorization: Bearer $service_role_key" \
+              -H "Content-Type: application/json" \
+              --data "$(
+                jq -nc \
+                  --arg user_id "$test_user_id" \
+                  --arg window_start "$window_start" \
+                  '{
+                    p_user_id: $user_id,
+                    p_window_start: $window_start
+                  }'
+              )"
+          )
+          if ! jq -e 'type == "number" and . == 1' >/dev/null <<<"$rate_limit_result"; then
+            echo "::error::Staging rate-limit RPC did not return the expected first count"
+            exit 1
+          fi
+
+      - name: Upload encrypted staging credentials
+        if: always() && steps.provision.outputs.bundle_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-staging-credentials-${{ github.run_id }}
+          path: ${{ steps.provision.outputs.bundle_dir }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report non-secret staging state
+        env:
+          PROJECT_REF: ${{ steps.provision.outputs.project_ref }}
+          PROJECT_URL: ${{ steps.provision.outputs.project_url }}
+        run: |
+          echo "Staging organization: $STAGING_ORGANIZATION_NAME (Free)"
+          echo "Staging project: $STAGING_PROJECT_NAME ($PROJECT_REF)"
+          echo "Staging URL: $PROJECT_URL"
+          echo "Candidate migrations: $CANDIDATE_SHA"
+          echo "Auth fixture: confirmed"
+          echo "Rate-limit RPC: confirmed"
+
   migrate:
     # Only run when CI passed on main, or when manually dispatched ON main.
     # workflow_dispatch on a feature branch would otherwise bypass CI.
