@@ -1,15 +1,12 @@
 name: production-smoke
 
-# Three triggers:
+# Two triggers:
 #  - schedule: catches external drift (YouTube HTML changes, LLM gateway
-#    outages) that a post-deploy hook would miss on days we don't push
-#  - push: main: fast feedback on regressions we ship
+#    outages) that the deploy health check would miss
 #  - workflow_dispatch: manual runs for debugging
 on:
   schedule:
     - cron: "0 * * * *"
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
