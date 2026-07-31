@@ -10,8 +10,8 @@ function makeSupabase(opts: {
 }) {
   const calls: { op: string; payload: unknown }[] = [];
   const select = {
-    select(_cols: string) { return select; },
-    eq(_c: string, _v: string) { return select; },
+    select() { return select; },
+    eq() { return select; },
     order() { return select; },
     range(start: number, end: number) {
       calls.push({ op: "range", payload: { start, end } });
@@ -32,7 +32,7 @@ function makeSupabase(opts: {
     },
   };
   return {
-    client: { from: (_t: string) => ({ ...select, ...del }) } as unknown as Parameters<typeof enforceFreeHistoryCap>[0],
+    client: { from: () => ({ ...select, ...del }) } as unknown as Parameters<typeof enforceFreeHistoryCap>[0],
     calls,
   };
 }
