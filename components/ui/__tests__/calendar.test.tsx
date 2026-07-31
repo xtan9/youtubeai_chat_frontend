@@ -31,6 +31,18 @@ describe("Calendar", () => {
       expect(dayButtons.length).toBeGreaterThanOrEqual(30);
     });
 
+    it("uses a locale-independent date key for day buttons", () => {
+      const { container } = renderWithProviders(
+        <Calendar month={FIXED_MONTH} mode="single" />,
+      );
+
+      const june15 = Array.from(
+        container.querySelectorAll<HTMLButtonElement>('button[data-day]'),
+      ).find((button) => button.textContent?.trim() === "15");
+
+      expect(june15?.getAttribute("data-day")).toBe("2024-06-15");
+    });
+
     it("renders previous/next month nav buttons", () => {
       const { container } = renderWithProviders(
         <Calendar month={FIXED_MONTH} />,
@@ -60,12 +72,11 @@ describe("Calendar", () => {
       const days = container.querySelectorAll<HTMLButtonElement>(
         'button[data-day]',
       );
-      // Pick the 5th day in the picker (some are outside-days; just take
-      // the one labelled 2024-06-10 by data-day if present).
-      const target =
-        Array.from(days).find((d) => d.getAttribute("data-day")?.includes("6/10/2024")) ??
-        days[Math.min(15, days.length - 1)];
-      fireEvent.click(target);
+      const target = Array.from(days).find(
+        (day) => day.getAttribute("data-day") === "2024-06-10",
+      );
+      expect(target).toBeDefined();
+      fireEvent.click(target!);
       expect(onSelect).toHaveBeenCalled();
     });
   });
