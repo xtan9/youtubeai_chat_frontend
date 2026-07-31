@@ -1,4 +1,4 @@
-name: smoke
+name: production-smoke
 
 # Three triggers:
 #  - schedule: catches external drift (YouTube HTML changes, LLM gateway
