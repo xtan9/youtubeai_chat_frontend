@@ -29,7 +29,10 @@ test("admin /users renders rows by default and supports sort + tab + drilldown",
   await page.fill("#email", creds.email);
   await page.fill("#password", creds.password);
   await Promise.all([
-    page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 }),
+    page.waitForURL(
+      (url) => url.pathname === "/" || url.pathname === "/dashboard",
+      { timeout: 15_000 },
+    ),
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
 
