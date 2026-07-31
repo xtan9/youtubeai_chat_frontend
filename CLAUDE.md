@@ -1,9 +1,8 @@
 # youtubeai_chat_frontend — Claude guidance
 
-Frontend-specific guidance for Claude (and other AI agents) working in this
-package. Inherits everything from the higher-level
-[`youtubeai_chat/CLAUDE.md`](../CLAUDE.md) and adds the design-system
-contract.
+Repository-specific guidance for Claude (and other AI agents). Pair this
+design-system contract with the testing policy in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Design system contract
 
@@ -89,7 +88,7 @@ vocabulary.
 
 ## Testing UI changes
 
-Per the higher-level CLAUDE.md, every UI change must run a Playwright
-e2e test before being reported done. The `/design-system` showcase
+Every UI change must run a Playwright e2e test before being reported done.
+The `/design-system` showcase
 route is the cheapest place to capture screenshots if you're verifying
 that a token sweep or component change preserved visuals.
