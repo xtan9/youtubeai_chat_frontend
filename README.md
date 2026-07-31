@@ -1,6 +1,6 @@
 # YouTube AI Chat — Frontend
 
-Next.js 15 + TypeScript + React 19 app that summarizes YouTube videos. All server work runs in Vercel API routes; the only external service we still operate is a small transcription microservice used for caption extraction + Whisper fallback.
+Next.js 16 + TypeScript + React 19 app that summarizes YouTube videos. All server work runs in Vercel API routes; the only external service we still operate is a small transcription microservice used for caption extraction + Whisper fallback.
 
 ## Architecture
 
