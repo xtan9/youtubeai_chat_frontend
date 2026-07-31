@@ -42,10 +42,12 @@ test("CLI deploys fail-open when comparison SHAs are invalid", () => {
   const scriptPath = fileURLToPath(
     new URL("./vercel-deployment-policy.mjs", import.meta.url),
   );
+  const childEnv = { ...process.env };
+  delete childEnv.GITHUB_OUTPUT;
   const result = spawnSync(
     process.execPath,
     [scriptPath, "definitely-not-a-commit", "HEAD"],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: childEnv },
   );
 
   assert.equal(result.status, 0);

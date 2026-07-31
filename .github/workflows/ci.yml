@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - run: node --test scripts/vercel-deployment-policy.test.mjs
+      - run: node --test scripts/vercel-deployment-policy.policy.mjs
 
   lint:
     runs-on: ubuntu-latest
