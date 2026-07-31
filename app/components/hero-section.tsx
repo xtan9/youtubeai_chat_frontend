@@ -7,12 +7,12 @@ export function HeroSection() {
     <section className="w-full max-w-6xl mx-auto py-16 text-center">
       <div className="relative">
         {/* Animated gradient background */}
-        <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-brand-soft rounded-full blur-3xl opacity-50 animate-pulse"></div>
+        <div className="pointer-events-none absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-brand-soft rounded-full blur-3xl opacity-50 animate-pulse"></div>
 
         {/* Small decorative elements */}
-        <div className="absolute top-10 left-10 w-8 h-8 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float"></div>
-        <div className="absolute top-20 right-20 w-6 h-6 bg-accent-brand-secondary/20 dark:bg-accent-brand-secondary/30 rounded-full blur-lg animate-float-delay"></div>
-        <div className="absolute bottom-10 left-20 w-10 h-10 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float-slow"></div>
+        <div className="pointer-events-none absolute top-10 left-10 w-8 h-8 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float"></div>
+        <div className="pointer-events-none absolute top-20 right-20 w-6 h-6 bg-accent-brand-secondary/20 dark:bg-accent-brand-secondary/30 rounded-full blur-lg animate-float-delay"></div>
+        <div className="pointer-events-none absolute bottom-10 left-20 w-10 h-10 bg-accent-brand/20 dark:bg-accent-brand/30 rounded-full blur-lg animate-float-slow"></div>
 
         {/* Main content */}
         <div className="relative z-10">

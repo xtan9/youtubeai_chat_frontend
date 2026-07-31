@@ -3,8 +3,8 @@
  * consumers depend on this list staying in lockstep:
  *   - app/components/hero-demo-data/index.ts (the SAMPLES registry,
  *     which asserts its ids equal this tuple at module-eval time).
- *   - app/api/chat/stream/route.ts (which lifts the anon-chat 402
- *     for these ids only).
+ *   - app/api/chat/stream/route.ts (which loads bundled summary and
+ *     transcript data for signed-in chat on these ids).
  *
  * Keep this tuple sorted in the visible-grid order — the registry
  * iterates in this order to render the 2x3 thumbnail grid.
