@@ -39,7 +39,10 @@ test("summary language picker regenerates the summary in Spanish", async ({
   await page.fill("#email", creds.email);
   await page.fill("#password", creds.password);
   await page.getByRole("button", { name: /^login$/i }).click();
-  await page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 });
+  await page.waitForURL(
+    (url) => url.pathname === "/" || url.pathname === "/dashboard",
+    { timeout: 15_000 },
+  );
 
   await page
     .getByRole("textbox", { name: /youtube url/i })

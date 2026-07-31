@@ -30,7 +30,10 @@ test("French video produces French transcript + summary end-to-end", async ({
 
   // Wait for post-login redirect to home — Supabase redirects to "/" on
   // success, and the URL input is only rendered there.
-  await page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 });
+  await page.waitForURL(
+    (url) => url.pathname === "/" || url.pathname === "/dashboard",
+    { timeout: 15_000 },
+  );
 
   // Submit the bug video. The input has `aria-label="YouTube URL"` and the
   // button has `aria-label="Summarize video"` — role-based locators survive

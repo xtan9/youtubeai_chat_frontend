@@ -50,7 +50,9 @@ jobs:
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-      - uses: actions/upload-artifact@v5
+          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
+          TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: playwright-report

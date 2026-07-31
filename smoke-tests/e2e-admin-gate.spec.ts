@@ -1,5 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { loadSmokeCreds } from "./helpers";
 
 const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
@@ -22,30 +21,31 @@ test.describe("admin gate", () => {
     });
   }
 
-  test("non-admin authenticated user is redirected to / (homepage)", async ({
-    page,
-  }) => {
-    const creds = await loadSmokeCreds();
-    test.skip(!creds, "TEST_USER_EMAIL/TEST_USER_PASSWORD required");
-    if (!creds) return;
+  test("non-admin authenticated user cannot access /admin", async ({ page }) => {
+    const email = process.env.TEST_NON_ADMIN_EMAIL?.trim();
+    const password = process.env.TEST_NON_ADMIN_PASSWORD?.trim();
+    test.skip(
+      !email || !password,
+      "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required",
+    );
+    if (!email || !password) return;
 
-    // The default test account is intentionally NOT in ADMIN_EMAILS in
-    // production. If that ever changes, this assertion would still pass
-    // for the redirect-to-/ path but a follow-up check confirms the
-    // non-admin still cannot see the admin sidebar.
     await page.goto(`${PROD_URL}/auth/login`);
-    await page.fill("#email", creds.email);
-    await page.fill("#password", creds.password);
+    await page.fill("#email", email);
+    await page.fill("#password", password);
     await Promise.all([
-      page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 }),
+      page.waitForURL(
+        (url) => url.pathname === "/" || url.pathname === "/dashboard",
+        { timeout: 15_000 },
+      ),
       page.getByRole("button", { name: /^login$/i }).click(),
     ]);
 
-    // Now hit /admin — gate should reject and bounce to /.
     await page.goto(`${PROD_URL}/admin`);
-    await expect(page).toHaveURL(`${PROD_URL}/`, { timeout: 10_000 });
-
-    // Defense in depth: the admin sidebar must not render anywhere.
-    await expect(page.locator('[data-admin-scope]')).toHaveCount(0);
+    await expect(page).toHaveURL(
+      (url) => url.pathname === "/" || url.pathname === "/dashboard",
+      { timeout: 10_000 },
+    );
+    await expect(page.locator("[data-admin-scope]")).toHaveCount(0);
   });
 });

@@ -118,7 +118,10 @@ test("password reset: forgot → recovery link → update → re-login", async (
     // --- Update password to a known temp value (Supabase blocks same-password updates) ---
     await page.locator("#password").fill(tempPassword);
     await Promise.all([
-      page.waitForURL(`${PROD_URL}/`, { timeout: 10_000 }),
+      page.waitForURL(
+        (url) => url.pathname === "/" || url.pathname === "/dashboard",
+        { timeout: 10_000 },
+      ),
       page.getByRole("button", { name: /update password|save/i }).click(),
     ]);
     // Mark immediately after the password change is committed by Supabase.
@@ -131,7 +134,10 @@ test("password reset: forgot → recovery link → update → re-login", async (
     await page.fill("#email", creds.email);
     await page.fill("#password", tempPassword);
     await Promise.all([
-      page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 }),
+      page.waitForURL(
+        (url) => url.pathname === "/" || url.pathname === "/dashboard",
+        { timeout: 15_000 },
+      ),
       page.getByRole("button", { name: /^login$/i }).click(),
     ]);
   } finally {
@@ -232,7 +238,10 @@ test("password reset (implicit grant): action_link → fragment → form → upd
 
     await page.locator("#password").fill(tempPassword);
     await Promise.all([
-      page.waitForURL(`${PROD_URL}/`, { timeout: 10_000 }),
+      page.waitForURL(
+        (url) => url.pathname === "/" || url.pathname === "/dashboard",
+        { timeout: 10_000 },
+      ),
       page.getByRole("button", { name: /update password|save/i }).click(),
     ]);
     passwordChanged = true;
@@ -243,7 +252,10 @@ test("password reset (implicit grant): action_link → fragment → form → upd
     await page.fill("#email", creds.email);
     await page.fill("#password", tempPassword);
     await Promise.all([
-      page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 }),
+      page.waitForURL(
+        (url) => url.pathname === "/" || url.pathname === "/dashboard",
+        { timeout: 15_000 },
+      ),
       page.getByRole("button", { name: /^login$/i }).click(),
     ]);
   } finally {

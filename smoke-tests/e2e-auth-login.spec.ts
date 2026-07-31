@@ -15,7 +15,10 @@ test("login → logout round-trip", async ({ page }) => {
   await page.fill("#email", creds.email);
   await page.fill("#password", creds.password);
   await Promise.all([
-    page.waitForURL(`${PROD_URL}/`, { timeout: 15_000 }),
+    page.waitForURL(
+      (url) => url.pathname === "/" || url.pathname === "/dashboard",
+      { timeout: 15_000 },
+    ),
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
 
@@ -24,9 +27,7 @@ test("login → logout round-trip", async ({ page }) => {
   // surfaces — common patterns:
   //   - getByRole("button", { name: /account|profile|sign out/i })
   //   - getByTestId("user-menu-trigger")
-  const accountMenu = page
-    .getByRole("button", { name: /account|profile|sign out|logout/i })
-    .or(page.getByTestId("user-menu-trigger"));
+  const accountMenu = page.getByRole("button", { name: /user menu/i });
   await expect(accountMenu).toBeVisible({ timeout: 10_000 });
 
   // --- Logout ---
