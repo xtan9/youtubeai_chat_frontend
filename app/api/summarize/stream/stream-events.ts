@@ -4,6 +4,7 @@ import type {
 } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import type { ClientStage } from "@/lib/stages";
+import { logAppEvent } from "@/lib/observability";
 
 export type SseEvent =
   | { type: "status"; message: string; stage: ClientStage }
@@ -47,7 +48,9 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
     default: {
       // Compile-time exhaustiveness via `never`; runtime log in case a future
       // LlmEvent variant reaches here without this file being updated.
-      console.error("[stream-events] unknown LlmEvent variant", { event });
+      logAppEvent("error", "[stream-events] unknown LlmEvent variant", {
+        errorId: "LLM_EVENT_UNKNOWN",
+      });
       const _exhaustive: never = event;
       return _exhaustive;
     }

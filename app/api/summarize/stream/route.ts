@@ -62,6 +62,8 @@ import {
   type SendEvent,
 } from "./stream-events";
 import type { LogStage } from "@/lib/stages";
+import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
+import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
 export const maxDuration = 300;
 
@@ -87,11 +89,19 @@ const USER_ERROR_EMPTY_SUMMARY =
 function jsonError(
   status: number,
   message: string,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  requestId?: string,
+  errorId?: string
 ) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
+    ...(errorId ? { "X-Error-ID": errorId } : {}),
+    ...extraHeaders,
+  };
   return new Response(JSON.stringify({ message }), {
     status,
-    headers: { "Content-Type": "application/json", ...extraHeaders },
+    headers,
   });
 }
 
@@ -181,16 +191,23 @@ function vpsMetadataErrorForLog(
 }
 
 export async function POST(request: Request) {
+  const requestId = resolveRequestId(request.headers.get(REQUEST_ID_HEADER));
   let rawBody: unknown;
   try {
     rawBody = await request.json();
   } catch {
-    return jsonError(400, "Invalid JSON body");
+    return jsonError(400, "Invalid JSON body", undefined, requestId, "INVALID_JSON");
   }
 
   const parsed = RequestBodySchema.safeParse(rawBody);
   if (!parsed.success) {
-    return jsonError(400, `Invalid request body: ${parsed.error.message}`);
+    return jsonError(
+      400,
+      "Invalid request body",
+      undefined,
+      requestId,
+      "INVALID_REQUEST"
+    );
   }
   const {
     youtube_url,
@@ -210,22 +227,35 @@ export async function POST(request: Request) {
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error && !AUTH_CLIENT_ERROR_STATUSES.has(error.status ?? -1)) {
-      console.error("[summarize/stream] auth failed", {
+      logAppEvent("error", "[summarize/stream] auth failed", {
         stage: "auth" satisfies LogStage,
         status: error.status ?? null,
-        message: error.message,
+        requestId,
       });
-      return jsonError(503, "Auth service temporarily unavailable.");
+      return jsonError(
+        503,
+        "Auth service temporarily unavailable.",
+        undefined,
+        requestId,
+        "AUTH_SERVICE_UNAVAILABLE"
+      );
     }
     user = data.user;
   } catch (err) {
-    console.error("[summarize/stream] auth threw", {
+    logAppEvent("error", "[summarize/stream] auth threw", {
       stage: "auth" satisfies LogStage,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
+      requestId,
     });
-    return jsonError(503, "Auth service temporarily unavailable.");
+    return jsonError(
+      503,
+      "Auth service temporarily unavailable.",
+      undefined,
+      requestId,
+      "AUTH_SERVICE_UNAVAILABLE"
+    );
   }
-  if (!user) return jsonError(401, "Unauthorized");
+  if (!user) return jsonError(401, "Unauthorized", undefined, requestId, "AUTH_REQUIRED");
 
   const authedUser = user;
   const isAnonymous = authedUser.is_anonymous ?? false;
@@ -236,17 +266,18 @@ export async function POST(request: Request) {
   // surface this distinction in the HTTP response — exposing fail_open to
   // clients tells abusers exactly when our abuse wall is down.
   if (rateLimit.reason === "fail_open") {
-    console.error("[summarize/stream] rate-limit bypassed (fail-open)", {
+    logAppEvent("error", "[summarize/stream] rate-limit bypassed (fail-open)", {
       stage: "unknown" satisfies LogStage,
       errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
       userId: authedUser.id,
-      youtubeUrl: youtube_url,
+      videoId: videoIdForLog(youtube_url),
+      requestId,
     });
   }
   if (!rateLimit.allowed) {
     return jsonError(429, "Rate limit exceeded. Please try again later.", {
       "X-RateLimit-Remaining": String(rateLimit.remaining),
-    });
+    }, requestId, "RATE_LIMITED");
   }
   const remaining = rateLimit.remaining;
 
@@ -279,11 +310,12 @@ export async function POST(request: Request) {
       // logged ANON_COOKIE_SECRET_MISSING. Fail-open as anon (allow this
       // request, log the bypass) instead of debiting the signed-in monthly
       // counter, which would silently grant 10/month to anon users.
-      console.error("[summarize/stream] anon entitlement bypassed — secret missing", {
+      logAppEvent("error", "[summarize/stream] anon entitlement bypassed - secret missing", {
         stage: "unknown" satisfies LogStage,
         errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET",
         userId: authedUser.id,
-        youtubeUrl: youtube_url,
+        videoId: videoIdForLog(youtube_url),
+        requestId,
       });
       entitlement = {
         tier: "anon",
@@ -297,12 +329,13 @@ export async function POST(request: Request) {
   }
 
   if (entitlement.reason === "fail_open") {
-    console.error("[summarize/stream] entitlement bypassed (fail-open)", {
+    logAppEvent("error", "[summarize/stream] entitlement bypassed (fail-open)", {
       stage: "unknown" satisfies LogStage,
       errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
       userId: authedUser.id,
       isAnonymous,
-      youtubeUrl: youtube_url,
+      videoId: videoIdForLog(youtube_url),
+      requestId,
     });
   }
   if (!entitlement.allowed) {
@@ -311,6 +344,8 @@ export async function POST(request: Request) {
       : "free_quota_exceeded";
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      [REQUEST_ID_HEADER]: requestId,
+      "X-Error-ID": "QUOTA_EXCEEDED",
     };
     if (setAnonCookie) {
       headers["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;
@@ -345,9 +380,10 @@ export async function POST(request: Request) {
         } catch (err) {
           // If we still reach here, the controller died outside our control
           // — log unconditionally so the bug is visible.
-          console.error("[summarize/stream] enqueue failed", {
-            err,
+          logAppEvent("error", "[summarize/stream] enqueue failed", {
+            errorName: err instanceof Error ? err.name : typeof err,
             aborted: request.signal.aborted,
+            requestId,
           });
         }
       };
@@ -369,19 +405,14 @@ export async function POST(request: Request) {
           : isCaptionTyped
             ? captionErrorId(err.status)
             : undefined;
-        const bodyExcerpt = isVpsTyped
-          ? err.bodyExcerpt
-          : isCaptionTyped
-            ? err.bodyExcerpt
-            : undefined;
-        console.error(`[summarize/stream] ${stage} failed`, {
+        logAppEvent("error", `[summarize/stream] ${stage} failed`, {
           stage,
-          youtubeUrl: youtube_url,
+          videoId: videoIdForLog(youtube_url),
           userId: authedUser.id,
-          err,
+          requestId,
           ...(status !== undefined && { status }),
           ...(errorId !== undefined && { errorId }),
-          ...(bodyExcerpt && { bodyExcerpt }),
+          ...(err instanceof Error && { errorName: err.name }),
         });
       };
 
@@ -513,7 +544,11 @@ export async function POST(request: Request) {
         // timeout) produces `detectedLang = null` and the whole chain
         // falls back to the legacy "no hint" flow. The feature is
         // strictly additive — never fatal.
-        const vpsMeta = await fetchVpsMetadata(youtube_url, request.signal);
+        const vpsMeta = await fetchVpsMetadata(
+          youtube_url,
+          request.signal,
+          requestId
+        );
         if (isCallerAbort(request.signal)) return;
         if (vpsMeta.ok) {
           // Normalize to primary subtag so the "zh" short-circuit below
@@ -529,10 +564,11 @@ export async function POST(request: Request) {
           // before the backend), every request would fire a false alarm.
           // Other non_ok statuses (500, etc.) still log at error level.
           if (vpsMeta.reason === "non_ok" && vpsMeta.status === 404) {
-            console.warn("[summarize/stream] metadata endpoint unavailable", {
+            logAppEvent("warn", "[summarize/stream] metadata endpoint unavailable", {
               errorId: "VPS_METADATA_404",
               status: 404,
-              youtubeUrl: youtube_url,
+              videoId: videoIdForLog(youtube_url),
+              requestId,
             });
           } else {
             logStageError("metadata", vpsMetadataErrorForLog(vpsMeta));
@@ -544,7 +580,8 @@ export async function POST(request: Request) {
           captions = await extractCaptions(
             youtube_url,
             request.signal,
-            detectedLang ?? undefined
+            detectedLang ?? undefined,
+            requestId
           );
           if (isCallerAbort(request.signal)) return;
         } catch (err) {
@@ -571,7 +608,8 @@ export async function POST(request: Request) {
             captions = await extractCaptions(
               youtube_url,
               request.signal,
-              "en"
+              "en",
+              requestId
             );
             if (isCallerAbort(request.signal)) return;
           } catch (err) {
@@ -610,7 +648,8 @@ export async function POST(request: Request) {
             const vpsResult = await transcribeViaVps(
               youtube_url,
               request.signal,
-              detectedLang ?? undefined
+              detectedLang ?? undefined,
+              requestId
             );
             segments = vpsResult.segments;
             transcriptSource = "whisper";
@@ -690,10 +729,11 @@ export async function POST(request: Request) {
           title: title || undefined,
           channelName: channelName || undefined,
         }).catch((err) =>
-          console.error("[summarize/stream] transcript cache write failed", {
+          logAppEvent("error", "[summarize/stream] transcript cache write failed", {
             errorId: "TRANSCRIPT_WRITE_FAILED",
-            youtubeUrl: youtube_url,
-            err,
+            videoId: videoIdForLog(youtube_url),
+            requestId,
+            errorName: err instanceof Error ? err.name : typeof err,
           })
         );
         } // end !reusedCachedTranscript
@@ -786,10 +826,11 @@ export async function POST(request: Request) {
         if (isCallerAbort(request.signal)) return;
         const decision = chooseModel(metadata, classifier);
 
-        console.log("[summarize/stream] routing_decision", {
+        logAppEvent("info", "[summarize/stream] routing_decision", {
           event: "routing_decision",
-          youtubeUrl: youtube_url,
+          videoId: videoIdForLog(youtube_url),
           userId: authedUser.id,
+          requestId,
           model: decision.model,
           reason: decision.reason,
           tokens: metadata.tokens,
@@ -867,7 +908,8 @@ export async function POST(request: Request) {
         if (!title || !channelName) {
           const payload = {
             errorId: "CACHE_SKIP_EMPTY_HEADER",
-            youtubeUrl: youtube_url,
+            videoId: videoIdForLog(youtube_url),
+            requestId,
             source: transcriptSource,
             hasTitle: !!title,
             hasChannel: !!channelName,
@@ -877,9 +919,9 @@ export async function POST(request: Request) {
           // every request. Same incident class as rate-limit / cache-creds
           // fail-open — error severity in prod, warn in dev.
           if (process.env.NODE_ENV === "production") {
-            console.error("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
+            logAppEvent("error", "[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
           } else {
-            console.warn("[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
+            logAppEvent("warn", "[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
           }
           return;
         }
@@ -944,14 +986,15 @@ export async function POST(request: Request) {
                 err && typeof err === "object" && "code" in err
                   ? (err as { code: unknown }).code
                   : undefined;
-              console.error("[summarize/stream] CACHE_WRITE_FAILED", {
+              logAppEvent("error", "[summarize/stream] CACHE_WRITE_FAILED", {
                 errorId: "CACHE_WRITE_FAILED",
                 stage: "cache" satisfies LogStage,
                 pgCode,
-                youtubeUrl: youtube_url,
+                videoId: videoIdForLog(youtube_url),
+                requestId,
                 userId: authedUser.id,
                 outputLanguage: outputLanguageCode ?? null,
-                err,
+                errorName: err instanceof Error ? err.name : typeof err,
               });
             }
           });
@@ -963,13 +1006,14 @@ export async function POST(request: Request) {
           // already has their summary; emitting a generic error event
           // here would land AFTER the terminal `summary` event and look
           // to the client like a failed run despite a complete answer.
-          console.error("[summarize/stream] CACHE_WRITE_SCHEDULE_FAILED", {
+          logAppEvent("error", "[summarize/stream] CACHE_WRITE_SCHEDULE_FAILED", {
             errorId: "CACHE_WRITE_SCHEDULE_FAILED",
             stage: "cache" satisfies LogStage,
-            youtubeUrl: youtube_url,
+            videoId: videoIdForLog(youtube_url),
+            requestId,
             userId: authedUser.id,
             outputLanguage: outputLanguageCode ?? null,
-            err,
+            errorName: err instanceof Error ? err.name : typeof err,
           });
         }
       } catch (err) {
@@ -991,7 +1035,10 @@ export async function POST(request: Request) {
             err instanceof TypeError &&
             /closed|invalid state/i.test(err.message);
           if (!isAlreadyClosed) {
-            console.error("[summarize/stream] close failed", { err });
+            logAppEvent("error", "[summarize/stream] close failed", {
+              errorName: err instanceof Error ? err.name : typeof err,
+              requestId,
+            });
           }
         }
       }
@@ -1013,6 +1060,7 @@ export async function POST(request: Request) {
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
     "X-RateLimit-Remaining": String(remaining),
+    [REQUEST_ID_HEADER]: requestId,
   };
   if (setAnonCookie) {
     streamHeaders["Set-Cookie"] = `${ANON_COOKIE_NAME}=${setAnonCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ANON_COOKIE_MAX_AGE_SECONDS}`;

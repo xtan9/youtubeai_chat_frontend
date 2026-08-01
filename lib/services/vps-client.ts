@@ -8,6 +8,9 @@ import {
   isTimeoutError,
   throwCallerAbort,
 } from "./transcription-contract";
+import { REQUEST_ID_HEADER } from "@/lib/request-id";
+import { logAppEvent, redactSensitiveText } from "@/lib/observability";
+import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
 
 // Discriminated error shape so the route's catch can log a structured
 // `status` field that alert tooling can fingerprint. `number` covers
@@ -28,7 +31,9 @@ export class VpsTranscribeError extends Error {
     // Truncate at construction so the bounded-length invariant lives in one
     // place. Consumers (logger, error.message) can read .bodyExcerpt without
     // worrying about whether it's been pre-truncated.
-    const truncated = bodyExcerpt?.slice(0, 200);
+    const truncated = bodyExcerpt
+      ? redactSensitiveText(bodyExcerpt).slice(0, 200)
+      : undefined;
     super(
       `VPS transcription failed (${status})${truncated ? `: ${truncated}` : ""}`
     );
@@ -102,7 +107,8 @@ export function buildTranscribeUrl(baseUrl: string): string {
 export async function transcribeViaVps(
   youtubeUrl: string,
   signal?: AbortSignal,
-  lang?: string
+  lang?: string,
+  requestId?: string
 ): Promise<TranscribeResult> {
   const validatedRequest = TranscriptionRequestSchema.safeParse({
     youtube_url: youtubeUrl,
@@ -114,9 +120,9 @@ export async function transcribeViaVps(
   const requestedLanguage = validatedRequest.data.lang ?? "auto";
 
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
-  const vpsApiKey = process.env.VPS_API_KEY?.trim();
+  const vpsApiKeys = getVpsApiKeys();
 
-  if (!vpsBaseUrl || !vpsApiKey) {
+  if (!vpsBaseUrl || vpsApiKeys.length === 0) {
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
 
@@ -132,6 +138,11 @@ export async function transcribeViaVps(
   // as before.
   const body = validatedRequest.data;
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (requestId) headers[REQUEST_ID_HEADER] = requestId;
+
   // Translate pre-HTTP failures (DNS, connection-reset, internal-timeout)
   // into typed VpsTranscribeErrors so the route's catch can fingerprint
   // them the same way it fingerprints HTTP statuses. Caveat: when the
@@ -143,15 +154,16 @@ export async function transcribeViaVps(
   // AbortSignal.any, or any non-abort throw from fetch).
   let response: Response;
   try {
-    response = await fetch(buildTranscribeUrl(vpsBaseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${vpsApiKey}`,
+    response = await fetchWithVpsKeyRotation(
+      buildTranscribeUrl(vpsBaseUrl),
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: combinedSignal,
       },
-      body: JSON.stringify(body),
-      signal: combinedSignal,
-    });
+      vpsApiKeys
+    );
   } catch (err) {
     // Caller-abort: re-throw the original AbortError. The route's
     // isCallerAbort(request.signal) check picks this up and silently
@@ -263,8 +275,9 @@ export async function transcribeViaVps(
     // Hot path during the deploy crossover: log once with a stable errorId
     // so the cleanup PR has a signal the legacy branch is no longer hit
     // before the alias is dropped.
-    console.warn("[vps-client] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+    logAppEvent("warn", "[vps-client] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
       errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+      requestId,
     });
     segments = [
       { text: parsed.data.transcript, start: 0, duration: 0 },

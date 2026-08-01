@@ -5,6 +5,7 @@ import type { SummaryResult } from "@/lib/types";
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
+import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import {
   QueryFunctionContext,
   useQuery,
@@ -69,8 +70,9 @@ export function useYouTubeSummarizer(
     ]
   >): AsyncIterable<SummaryResult> {
     const [, urlArg, includeTranscriptArg, outputLanguageArg] = queryKey;
+    const requestId = resolveRequestId(undefined);
     debugLog("Fetching streaming summary:", {
-      url: urlArg,
+      requestId,
       includeTranscript: includeTranscriptArg,
       outputLanguage: outputLanguageArg,
     });
@@ -91,6 +93,7 @@ export function useYouTubeSummarizer(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
+          [REQUEST_ID_HEADER]: requestId,
         },
         body: JSON.stringify({
           youtube_url: urlArg,
@@ -105,20 +108,24 @@ export function useYouTubeSummarizer(
       }
     );
 
-    debugLog("Response status:", response.status);
+    debugLog("Response status:", { requestId, status: response.status });
 
     if (!response.ok) {
       let errorData: { message?: string; errorCode?: string; tier?: string; upgradeUrl?: string } = {};
       try {
         errorData = await response.json();
-      } catch (parseErr) {
+      } catch {
         console.error("[summarize-stream] non-JSON error body", {
           errorId: "SUMMARIZE_ERROR_BODY_PARSE_FAIL",
           status: response.status,
-          parseErr,
+          requestId,
         });
       }
-      console.error("Error response:", errorData);
+      console.error("[summarize-stream] request failed", {
+        errorId: response.headers.get("X-Error-ID") ?? "SUMMARIZE_REQUEST_FAILED",
+        status: response.status,
+        requestId: response.headers.get(REQUEST_ID_HEADER) ?? requestId,
+      });
       if (response.status === 402) {
         throw new UpgradeRequiredError({
           errorCode: (errorData.errorCode as UpgradeRequiredError["errorCode"]) ?? "free_quota_exceeded",
@@ -157,7 +164,11 @@ export function useYouTubeSummarizer(
       accumulatedData += chunk;
       chunkCount++;
 
-      debugLog(`Chunk ${chunkCount}:`, chunk);
+      debugLog("Summary stream chunk received", {
+        requestId,
+        chunkCount,
+        chunkBytes: chunk.length,
+      });
 
       // Yield raw accumulated data - let consumer parse it
       yield {

@@ -5,6 +5,9 @@ import type {
   TranscriptSource,
 } from "./summarize-cache";
 import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
+import { REQUEST_ID_HEADER } from "../request-id";
+import { logAppEvent, redactSensitiveText } from "../observability";
+import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
 import { extractVideoId } from "./youtube-url";
 import {
   NonEmptyTranscriptSegmentSchema,
@@ -43,7 +46,9 @@ export class CaptionExtractionError extends Error {
       | "schema",
     bodyExcerpt?: string
   ) {
-    const truncated = bodyExcerpt?.slice(0, 200);
+    const truncated = bodyExcerpt
+      ? redactSensitiveText(bodyExcerpt).slice(0, 200)
+      : undefined;
     super(
       `VPS captions failed (${status})${truncated ? `: ${truncated}` : ""}`
     );
@@ -113,7 +118,8 @@ export function buildCaptionsUrl(baseUrl: string): string {
 export async function extractCaptions(
   youtubeUrl: string,
   signal?: AbortSignal,
-  lang?: string
+  lang?: string,
+  requestId?: string
 ): Promise<CaptionResult | null> {
   const validatedRequest = TranscriptionRequestSchema.safeParse({
     youtube_url: youtubeUrl,
@@ -125,8 +131,8 @@ export async function extractCaptions(
   const videoId = extractVideoId(validatedRequest.data.youtube_url) ?? "unknown";
 
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
-  const vpsApiKey = process.env.VPS_API_KEY?.trim();
-  if (!vpsBaseUrl || !vpsApiKey) {
+  const vpsApiKeys = getVpsApiKeys();
+  if (!vpsBaseUrl || vpsApiKeys.length === 0) {
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
 
@@ -146,15 +152,19 @@ export async function extractCaptions(
 
   let response: Response;
   try {
-    response = await fetch(buildCaptionsUrl(vpsBaseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${vpsApiKey}`,
+    response = await fetchWithVpsKeyRotation(
+      buildCaptionsUrl(vpsBaseUrl),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: combinedSignal,
       },
-      body: JSON.stringify(body),
-      signal: combinedSignal,
-    });
+      vpsApiKeys
+    );
   } catch (err) {
     if (signal?.aborted) throw err;
     if (
@@ -165,9 +175,9 @@ export async function extractCaptions(
         "timeout",
         {
           errorClass: err instanceof Error ? err.constructor.name : typeof err,
-          err,
         },
-        err instanceof Error ? err.message : undefined
+        err instanceof Error ? err.message : undefined,
+        requestId
       );
     }
     return reportUnexpectedFailure(
@@ -175,9 +185,9 @@ export async function extractCaptions(
       "network",
       {
         errorClass: err instanceof Error ? err.constructor.name : typeof err,
-        err,
       },
-      err instanceof Error ? err.message : undefined
+      err instanceof Error ? err.message : undefined,
+      requestId
     );
   }
 
@@ -189,7 +199,8 @@ export async function extractCaptions(
       videoId,
       "timeout",
       { errorClass: "ResponseTimeout" },
-      "VPS captions request timed out"
+      "VPS captions request timed out",
+      requestId
     );
   }
   if (response.status === 404) return null;
@@ -199,12 +210,12 @@ export async function extractCaptions(
     // primary error signal but surface body-read failures via a stable
     // errorId so "empty body" and "body read crashed" are distinguishable
     // in postmortem rather than collapsed into the same silent "".
-    const text = await response.text().catch((err) => {
+    const text = await response.text().catch(() => {
       if (!signal?.aborted) {
-        console.error("[captions] failed to read error response body", {
+        logAppEvent("error", "[captions] failed to read error response body", {
           errorId: "CAPTIONS_GATEWAY_BODY_READ_FAILED",
           status: response.status,
-          err,
+          requestId,
         });
       }
       return "";
@@ -215,7 +226,8 @@ export async function extractCaptions(
         videoId,
         "timeout",
         { errorClass: "ErrorResponseBodyTimeout" },
-        "VPS captions error response timed out"
+        "VPS captions error response timed out",
+        requestId
       );
     }
     return reportUnexpectedFailure(
@@ -225,7 +237,8 @@ export async function extractCaptions(
         status: response.status,
         body: text.slice(0, 200),
       },
-      text
+      text,
+      requestId
     );
   }
 
@@ -240,8 +253,9 @@ export async function extractCaptions(
       return reportUnexpectedFailure(
         videoId,
         "timeout",
-        { errorClass: "ResponseBodyTimeout", err },
-        err instanceof Error ? err.message : undefined
+        { errorClass: "ResponseBodyTimeout" },
+        err instanceof Error ? err.message : undefined,
+        requestId
       );
     }
     return reportUnexpectedFailure(
@@ -251,7 +265,8 @@ export async function extractCaptions(
         errorClass: "JsonParse",
         err,
       },
-      err instanceof Error ? err.message : undefined
+      err instanceof Error ? err.message : undefined,
+      requestId
     );
   }
 
@@ -261,7 +276,8 @@ export async function extractCaptions(
       videoId,
       "timeout",
       { errorClass: "ResponseBodyTimeout" },
-      "VPS captions response timed out"
+      "VPS captions response timed out",
+      requestId
     );
   }
 
@@ -275,7 +291,8 @@ export async function extractCaptions(
         errorClass: "SchemaMismatch",
         issues: parsed.error.issues,
       },
-      parsed.error.message
+      parsed.error.message,
+      requestId
     );
   }
 
@@ -298,8 +315,9 @@ export async function extractCaptions(
     // so the cleanup PR has a signal that the legacy branch is no longer
     // hit before the alias is dropped. Without this, we'd silently keep
     // the fallback alive past its expiry.
-    console.warn("[caption-extractor] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+    logAppEvent("warn", "[caption-extractor] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
       errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+      requestId,
     });
     segments = [
       {
@@ -319,7 +337,8 @@ export async function extractCaptions(
       videoId,
       "schema",
       { errorClass: "EmptySegments" },
-      "no usable segments after parse"
+      "no usable segments after parse",
+      requestId
     );
   }
 
@@ -344,12 +363,14 @@ function reportUnexpectedFailure(
   videoId: string,
   status: CaptionExtractionError["status"],
   extra: Record<string, unknown>,
-  bodyExcerpt?: string
+  bodyExcerpt?: string,
+  requestId?: string
 ): never {
-  console.error("[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
+  logAppEvent("error", "[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
     errorId: "CAPTION_UNEXPECTED_FAILURE",
     videoId,
     status,
+    requestId,
     ...extra,
   });
   throw new CaptionExtractionError(status, bodyExcerpt);

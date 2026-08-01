@@ -11,6 +11,7 @@ import {
   ChatMessagesQuerySchema,
   type ChatSuggestionsResponse,
 } from "@/lib/api-contracts/chat";
+import { logAppEvent } from "@/lib/observability";
 
 const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
 // Tight cap on the LLM call so an upstream stall doesn't block the
@@ -33,10 +34,9 @@ async function authenticate(): Promise<
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      console.error("[chat/suggestions] auth failed", {
+      logAppEvent("error", "[chat/suggestions] auth failed", {
         errorId: "CHAT_SUGGESTIONS_AUTH_FAILED",
         status: error.status ?? null,
-        message: error.message,
       });
       return {
         ok: false,
@@ -48,9 +48,9 @@ async function authenticate(): Promise<
     }
     return { ok: true, user: data.user };
   } catch (err) {
-    console.error("[chat/suggestions] auth threw", {
+    logAppEvent("error", "[chat/suggestions] auth threw", {
       errorId: "CHAT_SUGGESTIONS_AUTH_THREW",
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return {
       ok: false,
@@ -69,11 +69,11 @@ export async function GET(request: Request) {
   const params = Object.fromEntries(url.searchParams.entries());
   const parsed = ChatMessagesQuerySchema.safeParse(params);
   if (!parsed.success) {
-    console.warn("[chat/suggestions] invalid query", {
+    logAppEvent("warn", "[chat/suggestions] invalid query", {
       errorId: "CHAT_SUGGESTIONS_QUERY_INVALID",
-      issues: parsed.error.issues,
+      errorClass: "SchemaMismatch",
     });
-    return jsonError(400, `Invalid query: ${parsed.error.message}`);
+    return jsonError(400, "Invalid query");
   }
 
   const auth = await authenticate();
@@ -100,10 +100,10 @@ export async function GET(request: Request) {
   try {
     cached = await readSuggestedFollowups(videoId);
   } catch (err) {
-    console.error("[chat/suggestions] cache read failed", {
+    logAppEvent("error", "[chat/suggestions] cache read failed", {
       errorId: "CHAT_SUGGESTIONS_READ_FAILED",
       videoId,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     // Don't 503 — fall through to regeneration. Transient infra blips
     // shouldn't block the chat empty state, and the regenerate path
@@ -125,10 +125,10 @@ export async function GET(request: Request) {
       timeoutMs: FOLLOWUPS_TIMEOUT_MS,
     });
   } catch (err) {
-    console.error("[chat/suggestions] generation failed", {
+    logAppEvent("error", "[chat/suggestions] generation failed", {
       errorId: "CHAT_SUGGESTIONS_GENERATE_FAILED",
       videoId,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return emptyResponse();
   }
@@ -138,10 +138,10 @@ export async function GET(request: Request) {
   try {
     await writeSuggestedFollowups(videoId, generated);
   } catch (err) {
-    console.error("[chat/suggestions] cache write failed", {
+    logAppEvent("error", "[chat/suggestions] cache write failed", {
       errorId: "CHAT_SUGGESTIONS_WRITE_FAILED",
       videoId,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
   }
 

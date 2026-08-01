@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import { logAppEvent } from "@/lib/observability";
 import { ChatRoleSchema, type ChatRole } from "@/lib/api-contracts/chat";
 
 export type { ChatRole };
@@ -58,11 +59,11 @@ export async function listChatMessages(
     .order("created_at", { ascending: true });
 
   if (error) {
-    console.error("[chat-store] list failed", {
+    logAppEvent("error", "[chat-store] list failed", {
       errorId: "CHAT_LIST_FAILED",
       userId,
       videoId,
-      error,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
@@ -78,11 +79,11 @@ export async function listChatMessages(
       // with a drifted column would otherwise emit 50 ERRORs and page
       // ops once per row. The aggregate below is the single ERROR-level
       // signal Sentry alerts on.
-      console.warn("[chat-store] row schema mismatch — dropping row", {
+      logAppEvent("warn", "[chat-store] row schema mismatch — dropping row", {
         errorId: "CHAT_ROW_SCHEMA_MISMATCH",
         userId,
         videoId,
-        issues: parsed.error.issues,
+        errorClass: "SchemaMismatch",
       });
       continue;
     }
@@ -97,7 +98,7 @@ export async function listChatMessages(
     // Aggregate ERROR — the single greppable line per request that
     // correlates user complaints ("my chat is missing messages") with
     // schema drift. Pages ops once regardless of how many rows drifted.
-    console.error("[chat-store] dropped rows due to schema mismatch", {
+    logAppEvent("error", "[chat-store] dropped rows due to schema mismatch", {
       errorId: "CHAT_ROW_SCHEMA_MISMATCH_AGGREGATE",
       userId,
       videoId,
@@ -133,11 +134,11 @@ export async function appendChatTurn(
     },
   ]);
   if (error) {
-    console.error("[chat-store] append turn failed", {
+    logAppEvent("error", "[chat-store] append turn failed", {
       errorId: "CHAT_APPEND_TURN_FAILED",
       userId: params.userId,
       videoId: params.videoId,
-      error,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
@@ -163,11 +164,11 @@ export async function appendChatUserMessage(
     content,
   });
   if (error) {
-    console.error("[chat-store] append user-only failed", {
+    logAppEvent("error", "[chat-store] append user-only failed", {
       errorId: "CHAT_APPEND_USER_FAILED",
       userId,
       videoId,
-      error,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
@@ -187,11 +188,11 @@ export async function clearChatMessages(
     .eq("user_id", userId)
     .eq("video_id", videoId);
   if (error) {
-    console.error("[chat-store] clear failed", {
+    logAppEvent("error", "[chat-store] clear failed", {
       errorId: "CHAT_CLEAR_FAILED",
       userId,
       videoId,
-      error,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
