@@ -55,14 +55,14 @@ describe("fetchVpsMetadata", () => {
     // would break the whole pipeline.
     vi.stubEnv("VPS_API_URL", "");
     vi.stubEnv("VPS_API_KEY", "");
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({ ok: false, reason: "config" });
   });
 
   it("treats whitespace-only env as missing", async () => {
     vi.stubEnv("VPS_API_URL", "   \n");
     vi.stubEnv("VPS_API_KEY", "\t");
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({ ok: false, reason: "config" });
   });
 
@@ -70,7 +70,7 @@ describe("fetchVpsMetadata", () => {
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
     vi.stubEnv("VPS_API_KEY", "secret");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(okResponse()));
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({ ok: true, data: validResponse });
   });
 
@@ -79,14 +79,72 @@ describe("fetchVpsMetadata", () => {
     vi.stubEnv("VPS_API_KEY", "secret");
     const fetchMock = vi.fn().mockResolvedValue(okResponse());
     vi.stubGlobal("fetch", fetchMock);
-    await fetchVpsMetadata("https://youtu.be/abc");
+    await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://vps.example.com/metadata");
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer secret"
     );
-    expect(init.body).toBe(JSON.stringify({ youtube_url: "https://youtu.be/abc" }));
+    expect(init.body).toBe(JSON.stringify({ youtube_url: "https://youtu.be/dQw4w9WgXcQ" }));
   });
+
+  it("normalizes a raw YouTube video ID before sending the request", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const fetchMock = vi.fn().mockResolvedValue(okResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchVpsMetadata("dQw4w9WgXcQ");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe(
+      JSON.stringify({
+        youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      })
+    );
+  });
+
+  it("accepts a live-video URL and preserves its request shape", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const fetchMock = vi.fn().mockResolvedValue(okResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchVpsMetadata("https://www.youtube.com/live/dQw4w9WgXcQ");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe(
+      JSON.stringify({
+        youtube_url: "https://www.youtube.com/live/dQw4w9WgXcQ",
+      })
+    );
+  });
+
+  it.each([
+    ["", "empty"],
+    ["not-a-youtube-url", "not a URL or ID"],
+    ["https://example.com/watch?v=dQw4w9WgXcQ", "unsupported host"],
+    ["https://www.youtube.com/watch?v=short", "malformed video ID"],
+  ])(
+    "rejects %s (%s) before making a downstream request",
+    async (youtubeInput) => {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await fetchVpsMetadata(youtubeInput);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("schema");
+        if (result.reason === "schema") {
+          expect(result.issues.length).toBeGreaterThan(0);
+        }
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it("returns { ok: false, reason: 'non_ok', status } when upstream returns 500", async () => {
     vi.stubEnv("VPS_API_URL", "https://vps.example.com");
@@ -95,8 +153,22 @@ describe("fetchVpsMetadata", () => {
       "fetch",
       vi.fn().mockResolvedValue(new Response("boom", { status: 500 }))
     );
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({ ok: false, reason: "non_ok", status: 500 });
+  });
+
+  it("returns reason:error when the upstream response is not valid JSON", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("not json", { status: 200 }))
+    );
+
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("error");
   });
 
   it("returns { ok: false, reason: 'schema', issues } when response shape is wrong", async () => {
@@ -111,7 +183,7 @@ describe("fetchVpsMetadata", () => {
       "fetch",
       vi.fn().mockResolvedValue(okResponse({ language: "fr" }))
     );
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result.ok).toBe(false);
     if (result.ok === false && result.reason === "schema") {
       expect(result.issues.length).toBeGreaterThan(0);
@@ -144,7 +216,7 @@ describe("fetchVpsMetadata", () => {
         })
       )
     );
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result.ok).toBe(false);
     if (result.ok === false) {
       expect(result.reason).toBe("schema");
@@ -167,7 +239,7 @@ describe("fetchVpsMetadata", () => {
         })
       )
     );
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
     expect(result.ok).toBe(false);
   });
 
@@ -180,7 +252,7 @@ describe("fetchVpsMetadata", () => {
         "fetch",
         vi.fn().mockResolvedValue(okResponse({ ...validResponse, language }))
       );
-      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
       expect(result.ok).toBe(true);
     }
   );
@@ -211,7 +283,7 @@ describe("fetchVpsMetadata", () => {
         "fetch",
         vi.fn().mockResolvedValue(okResponse(validResponse))
       );
-      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.duration).toBeUndefined();
     });
@@ -224,7 +296,7 @@ describe("fetchVpsMetadata", () => {
           okResponse({ ...validResponse, duration: null })
         )
       );
-      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.duration).toBeNull();
     });
@@ -239,7 +311,7 @@ describe("fetchVpsMetadata", () => {
             okResponse({ ...validResponse, duration })
           )
         );
-        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
         expect(result.ok).toBe(true);
         if (result.ok) expect(result.data.duration).toBe(duration);
       }
@@ -262,7 +334,7 @@ describe("fetchVpsMetadata", () => {
             okResponse({ ...validResponse, duration })
           )
         );
-        const result = await fetchVpsMetadata("https://youtu.be/abc");
+        const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.reason).toBe("schema");
       }
@@ -278,7 +350,7 @@ describe("fetchVpsMetadata", () => {
         "fetch",
         vi.fn().mockResolvedValue(new Response(wireBody, { status: 200 }))
       );
-      const result = await fetchVpsMetadata("https://youtu.be/abc");
+      const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).toBe("schema");
     });
@@ -301,7 +373,7 @@ describe("fetchVpsMetadata", () => {
       })
     );
     const result = await fetchVpsMetadata(
-      "https://youtu.be/abc",
+      "https://youtu.be/dQw4w9WgXcQ",
       controller.signal
     );
     expect(result).toEqual({ ok: false, reason: "aborted" });
@@ -321,7 +393,61 @@ describe("fetchVpsMetadata", () => {
         }, 5))
       )
     );
-    const result = await fetchVpsMetadata("https://youtu.be/abc");
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+  });
+
+  it("classifies an internally aborted fetch as 'timeout'", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubEnv("VPS_METADATA_TIMEOUT_MS", "5");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            const signal = init.signal!;
+            const rejectAsAbortError = () => {
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            };
+            if (signal.aborted) {
+              rejectAsAbortError();
+              return;
+            }
+            signal.addEventListener("abort", rejectAsAbortError, {
+              once: true,
+            });
+          })
+      )
+    );
+
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
+
+    expect(result).toEqual({ ok: false, reason: "timeout" });
+  });
+
+  it("classifies a timeout while reading the upstream response body", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubEnv("VPS_METADATA_TIMEOUT_MS", "5");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((_, reject) =>
+          setTimeout(() => {
+            const error = new Error("aborted while reading body");
+            error.name = "AbortError";
+            reject(error);
+          }, 10)
+        ),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchVpsMetadata("https://youtu.be/dQw4w9WgXcQ");
+
     expect(result).toEqual({ ok: false, reason: "timeout" });
   });
 });
