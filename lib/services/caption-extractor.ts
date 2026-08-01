@@ -4,9 +4,15 @@ import type {
   TranscriptSegment,
   TranscriptSource,
 } from "./summarize-cache";
-import { TranscriptSegmentSchema } from "@/lib/types";
 import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
 import { extractVideoId } from "./youtube-url";
+import {
+  NonEmptyTranscriptSegmentSchema,
+  NonEmptyTranscriptSchema,
+  TranscriptionRequestSchema,
+  isTimeoutError,
+  throwCallerAbort,
+} from "./transcription-contract";
 
 export { extractVideoId };
 
@@ -55,18 +61,7 @@ export function captionErrorId(
   return `VPS_CAPTIONS_FAILED_${status.toUpperCase()}`;
 }
 
-const LANGUAGE_SENTINELS = new Set(["und", "zxx", "mul", "mis"]);
-const LanguageHintSchema = z
-  .string()
-  .regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/)
-  .refine(
-    (value) => !LANGUAGE_SENTINELS.has(value.toLowerCase().split("-")[0])
-  );
-
-const CaptionSegmentSchema = TranscriptSegmentSchema.refine(
-  (segment) => segment.text.trim().length > 0,
-  "caption segment text must not be empty"
-);
+const CaptionSegmentSchema = NonEmptyTranscriptSegmentSchema;
 
 // Matches the VPS /captions 200 contract. VPS returns `string | null` for
 // title/channelName when video metadata is unavailable; normalize to "" here
@@ -88,10 +83,7 @@ const CaptionsResponseSchema = z
     // `{segments: [], transcript: ""}` after some upstream bug. Without it,
     // an empty array could be mistaken for a healthy "no captions" 404.
     segments: z.array(CaptionSegmentSchema).min(1).optional(),
-    transcript: z
-      .string()
-      .refine((value) => value.trim().length > 0, "transcript must not be empty")
-      .optional(),
+    transcript: NonEmptyTranscriptSchema.optional(),
     source: z.literal("auto_captions"),
     language: z.enum(["en", "zh"]),
     title: z.string().nullable(),
@@ -123,12 +115,14 @@ export async function extractCaptions(
   signal?: AbortSignal,
   lang?: string
 ): Promise<CaptionResult | null> {
-  const videoId = extractVideoId(youtubeUrl);
-  if (!videoId) return null;
-
-  if (lang !== undefined && !LanguageHintSchema.safeParse(lang).success) {
-    throw new CaptionExtractionError("schema", "invalid language hint");
+  const validatedRequest = TranscriptionRequestSchema.safeParse({
+    youtube_url: youtubeUrl,
+    lang,
+  });
+  if (!validatedRequest.success) {
+    throw new CaptionExtractionError("schema", validatedRequest.error.message);
   }
+  const videoId = extractVideoId(validatedRequest.data.youtube_url) ?? "unknown";
 
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
   const vpsApiKey = process.env.VPS_API_KEY?.trim();
@@ -148,8 +142,7 @@ export async function extractCaptions(
   // `{ lang: undefined }` as a schema violation (optional means "absent",
   // not "present-but-undefined"). Back-compat: `lang`-less calls send
   // exactly the pre-PR body.
-  const body: Record<string, unknown> = { youtube_url: youtubeUrl };
-  if (lang) body.lang = lang;
+  const body = validatedRequest.data;
 
   let response: Response;
   try {
@@ -165,17 +158,16 @@ export async function extractCaptions(
   } catch (err) {
     if (signal?.aborted) throw err;
     if (
-      err instanceof Error &&
-      (err.name === "AbortError" || err.name === "TimeoutError")
+      isTimeoutError(err, timeoutSignal)
     ) {
       return reportUnexpectedFailure(
         videoId,
         "timeout",
         {
-          errorClass: err.constructor.name,
+          errorClass: err instanceof Error ? err.constructor.name : typeof err,
           err,
         },
-        err.message
+        err instanceof Error ? err.message : undefined
       );
     }
     return reportUnexpectedFailure(
@@ -191,6 +183,15 @@ export async function extractCaptions(
 
   // 404 is the stable "no captions available" contract — fall through to
   // Whisper without logging.
+  if (signal?.aborted) throwCallerAbort(signal);
+  if (timeoutSignal.aborted) {
+    return reportUnexpectedFailure(
+      videoId,
+      "timeout",
+      { errorClass: "ResponseTimeout" },
+      "VPS captions request timed out"
+    );
+  }
   if (response.status === 404) return null;
 
   if (!response.ok) {
@@ -208,7 +209,15 @@ export async function extractCaptions(
       }
       return "";
     });
-    if (signal?.aborted) return null;
+    if (signal?.aborted) throwCallerAbort(signal);
+    if (timeoutSignal.aborted) {
+      return reportUnexpectedFailure(
+        videoId,
+        "timeout",
+        { errorClass: "ErrorResponseBodyTimeout" },
+        "VPS captions error response timed out"
+      );
+    }
     return reportUnexpectedFailure(
       videoId,
       response.status,
@@ -224,7 +233,17 @@ export async function extractCaptions(
   try {
     raw = await response.json();
   } catch (err) {
-    if (signal?.aborted) return null;
+    if (signal?.aborted) throwCallerAbort(signal, err);
+    if (
+      isTimeoutError(err, timeoutSignal)
+    ) {
+      return reportUnexpectedFailure(
+        videoId,
+        "timeout",
+        { errorClass: "ResponseBodyTimeout", err },
+        err instanceof Error ? err.message : undefined
+      );
+    }
     return reportUnexpectedFailure(
       videoId,
       "schema",
@@ -236,9 +255,19 @@ export async function extractCaptions(
     );
   }
 
+  if (signal?.aborted) throwCallerAbort(signal);
+  if (timeoutSignal.aborted) {
+    return reportUnexpectedFailure(
+      videoId,
+      "timeout",
+      { errorClass: "ResponseBodyTimeout" },
+      "VPS captions response timed out"
+    );
+  }
+
   const parsed = CaptionsResponseSchema.safeParse(raw);
   if (!parsed.success) {
-    if (signal?.aborted) return null;
+    if (signal?.aborted) throwCallerAbort(signal);
     return reportUnexpectedFailure(
       videoId,
       "schema",
@@ -285,7 +314,7 @@ export async function extractCaptions(
     segments.length === 0 ||
     segments.some((segment) => segment.text.trim().length === 0)
   ) {
-    if (signal?.aborted) return null;
+    if (signal?.aborted) throwCallerAbort(signal);
     return reportUnexpectedFailure(
       videoId,
       "schema",
