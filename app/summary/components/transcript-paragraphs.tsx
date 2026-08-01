@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import type { YouTubePlayer } from "react-youtube";
-import type { TranscriptSegment } from "@/lib/types";
+import type { TranscriptSegment, TranscriptSource } from "@/lib/types";
 import {
   formatTimestamp,
   groupSegments,
@@ -21,6 +21,7 @@ import {
 interface TranscriptParagraphsProps {
   segments: readonly TranscriptSegment[];
   playerRef: MutableRefObject<YouTubePlayer | null>;
+  transcriptSource?: TranscriptSource;
 }
 
 // Long-paragraph threshold for the per-paragraph "Read More" toggle. Picked
@@ -48,6 +49,7 @@ const POLL_FAILURE_LOG_THRESHOLD = 8;
 const TranscriptParagraphs = ({
   segments,
   playerRef,
+  transcriptSource,
 }: TranscriptParagraphsProps) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -222,6 +224,7 @@ const TranscriptParagraphs = ({
         // — don't drop on refactor. The smoke waits on this node and reads
         // innerText() to assert transcript-language correctness.
         data-testid="transcript-container"
+        data-transcript-source={transcriptSource}
         className="overflow-y-auto max-h-[600px] pr-2 space-y-4"
       >
         {paragraphs.map((p, i) => {

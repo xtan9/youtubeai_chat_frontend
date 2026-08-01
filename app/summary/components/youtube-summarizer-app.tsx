@@ -97,7 +97,13 @@ export function YouTubeSummarizerApp({
   // effects. The current shape interleaves derivation + state
   // mutation, which is what `react-hooks/set-state-in-render`
   // flags. Refactor is out of scope for B PR 6 (composites cluster).
-  const { data, streamingProgress, isCached, streamError } = useMemo(() => {
+  const {
+    data,
+    streamingProgress,
+    isCached,
+    streamError,
+    streamErrorId,
+  } = useMemo(() => {
     if ((isLoading || isFetching) && !rawData) {
       // eslint-disable-next-line react-hooks/set-state-in-render
       setIsProcessing(true);
@@ -112,6 +118,7 @@ export function YouTubeSummarizerApp({
         } as StreamingProgress,
         isCached: false,
         streamError: null as string | null,
+        streamErrorId: null as string | null,
       };
     }
 
@@ -140,6 +147,7 @@ export function YouTubeSummarizerApp({
           streamingProgress: parsed.progress,
           isCached: parsed.isCached,
           streamError: parsed.streamError,
+          streamErrorId: parsed.streamErrorId,
         };
       }
       return {
@@ -147,6 +155,7 @@ export function YouTubeSummarizerApp({
         streamingProgress: null,
         isCached: false,
         streamError: null as string | null,
+        streamErrorId: null as string | null,
       };
     }
 
@@ -155,6 +164,7 @@ export function YouTubeSummarizerApp({
       streamingProgress: null,
       isCached: false,
       streamError: null as string | null,
+      streamErrorId: null as string | null,
     };
   }, [rawData, isLoading, isFetching]);
 
@@ -171,7 +181,7 @@ export function YouTubeSummarizerApp({
         source_surface: "summary",
         output_language: outputLanguageProperty,
         failure_category: "processing",
-        error_code: "stream_error",
+        error_code: streamErrorId ?? "stream_error",
       });
       return;
     }
@@ -244,6 +254,7 @@ export function YouTubeSummarizerApp({
     outputLanguage,
     queryError,
     streamError,
+    streamErrorId,
     streamingProgress?.stage,
   ]);
 
@@ -363,7 +374,9 @@ export function YouTubeSummarizerApp({
       ) : (
         <AuthErrorBanner authError={queryError?.message} />
       )}
-      {streamError && <StreamErrorBanner message={streamError} />}
+      {streamError && (
+        <StreamErrorBanner message={streamError} errorId={streamErrorId} />
+      )}
       {!streamError && !(queryError instanceof UpgradeRequiredError) && (streamingProgress || isProcessing) && (
         <>
           {!dataWithLiveTimers && (
@@ -421,6 +434,7 @@ export function YouTubeSummarizerApp({
               url={url}
               width={600}
               segments={data?.segments}
+              transcriptSource={data?.transcriptSource}
               streamingComplete={streamingComplete}
             />
           </div>

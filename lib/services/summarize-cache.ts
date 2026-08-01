@@ -11,11 +11,12 @@ import {
 import {
   TranscriptSegmentSchema,
   type TranscriptSegment,
+  type TranscriptSource,
 } from "@/lib/types";
 import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
-export type { TranscriptSegment };
+export type { TranscriptSegment, TranscriptSource };
 export { TranscriptSegmentSchema };
 
 // PromptLocale = the VIDEO's detected language (binary — drives the classifier
@@ -24,8 +25,6 @@ export { TranscriptSegmentSchema };
 // unify: they have different life cycles and one is constrained to what the
 // cache schema accepts, the other to what the picker ships.
 export type PromptLocale = "en" | "zh";
-export type TranscriptSource = "manual_captions" | "auto_captions" | "whisper";
-
 // Output language value that gets written to summaries.output_language.
 // `null` means "this is the video's native-language summary" — the default
 // path that existed before the language-picker feature.
