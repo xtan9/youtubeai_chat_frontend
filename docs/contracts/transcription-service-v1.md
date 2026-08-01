@@ -45,11 +45,19 @@ All data endpoints use `POST` with JSON and
 `Authorization: Bearer <VPS_API_KEY>`. The health endpoint is outside this
 contract and remains an unauthenticated `GET /health`.
 
+The frontend boundary creates a bounded opaque `X-Request-ID` for each
+summary request. A caller-provided ID is accepted only when it matches the
+documented safe character/length contract; invalid or missing IDs are replaced
+with a UUID. The frontend forwards the same ID to the service, and the service
+echoes it on every health/data response. Error responses also include a stable
+`X-Error-ID` header. Service error bodies are generic and bounded:
+`{ "error": string, "errorId": string, "requestId": string }`.
+
 | Endpoint | Request body | Successful response | Stable failure statuses |
 | --- | --- | --- | --- |
-| `/metadata` | `{ "youtube_url": string }` | `{ language, title, description, duration: number \| null, availableCaptions: string[] }` | `400` invalid JSON/fields, `500` provider failure |
-| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `404` no usable captions, `500` unexpected provider failure |
-| `/transcribe` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "whisper", language }` | `400` invalid JSON/fields, `500` unexpected/empty result, `503` temporary capacity/provider failure |
+| `/metadata` | `{ "youtube_url": string }` | `{ language, title, description, duration: number \| null, availableCaptions: string[] }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `500` provider failure |
+| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `404` no usable captions, `500` unexpected provider failure |
+| `/transcribe` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "whisper", language }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `500` unexpected/empty result, `503` temporary capacity/provider failure |
 
 Language hints are constrained BCP-47-style tags. The sentinels `und`, `zxx`,
 `mul`, and `mis` are not processing hints and are rejected at the service
@@ -58,7 +66,20 @@ boundary. Multilingual metadata may contain script or region tags such as
 language list to primary tags for the current frontend prompt contract.
 
 Error bodies are generic and safe for Learners. Provider diagnostics remain in
-bounded structured logs and are never returned as response bodies.
+bounded structured logs and are never returned as response bodies. Logs use an
+allowlist: request/error IDs, status, stage, video ID, bounded provider
+metrics, and error class are permitted; bearer tokens, full YouTube URLs,
+transcript/summary text, and chat content are not.
+
+### Key rotation
+
+The service accepts `VPS_API_KEY` as the current key and optionally accepts
+`VPS_API_KEY_PREVIOUS` during a short rollout overlap. To rotate, deploy the
+new value as `VPS_API_KEY`, keep the old value as `VPS_API_KEY_PREVIOUS` while
+both sides roll, verify requests and logs, then remove the previous value and
+redeploy. The frontend retries a single `401`/`403` response with the previous
+key; provider failures are not retried. Never put either key in a browser
+bundle, request body, logs, or this document.
 
 ## Fixture workflow
 

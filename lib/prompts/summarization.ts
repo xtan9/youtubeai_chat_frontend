@@ -2,6 +2,7 @@ import {
   getLanguage,
   type SupportedLanguageCode,
 } from "@/lib/constants/languages";
+import { logAppEvent } from "@/lib/observability";
 
 export function buildSummarizationPrompt(
   transcript: string,
@@ -13,7 +14,7 @@ export function buildSummarizationPrompt(
   // is model-aware (hundreds of K), this log fires only for genuinely
   // long content that's brushing up against Haiku/Sonnet practical limits.
   if (truncated.length < transcript.length) {
-    console.warn("[summarization] transcript truncated to prompt budget", {
+    logAppEvent("warn", "[summarization] transcript truncated to prompt budget", {
       errorId: "TRANSCRIPT_TRUNCATED",
       originalLength: transcript.length,
       truncatedLength: truncated.length,

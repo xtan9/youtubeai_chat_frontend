@@ -9,6 +9,7 @@ import {
   transcribeViaVps,
   VpsTranscribeError,
 } from "../vps-client";
+import { REQUEST_ID_HEADER } from "@/lib/request-id";
 
 type WireResponse = {
   status: number;
@@ -47,6 +48,7 @@ type ContractFixtures = {
 };
 
 const fixtures = fixturesJson as unknown as ContractFixtures;
+const REQUEST_ID = "fixture-request-id";
 
 function getCase(id: string): FixtureCase {
   const fixture = fixtures.cases.find((candidate) => candidate.id === id);
@@ -127,7 +129,8 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
       const result = await extractCaptions(
         fixture.request.youtube_url ?? fixtures.youtubeUrl,
         undefined,
-        fixture.request.lang
+        fixture.request.lang,
+        REQUEST_ID
       ).catch((error: unknown) => error);
 
       if (fixture.frontend.expect === "success") {
@@ -153,6 +156,9 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(init.body).toBe(JSON.stringify(fixture.request));
+      expect((init.headers as Record<string, string>)[REQUEST_ID_HEADER]).toBe(
+        REQUEST_ID
+      );
     }
   );
 
@@ -180,7 +186,8 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
     const result = await transcribeViaVps(
       fixture.request.youtube_url ?? fixtures.youtubeUrl,
       undefined,
-      fixture.request.lang
+      fixture.request.lang,
+      REQUEST_ID
     ).catch((error: unknown) => error);
 
     if (fixture.frontend.expect === "success") {
@@ -207,6 +214,9 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
     }
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)[REQUEST_ID_HEADER]).toBe(
+      REQUEST_ID
+    );
     expect(init.body).toBe(
       JSON.stringify(
         fixture.request.lang
@@ -229,7 +239,9 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await fetchVpsMetadata(
-      fixture.request.youtube_url ?? fixtures.youtubeUrl
+      fixture.request.youtube_url ?? fixtures.youtubeUrl,
+      undefined,
+      REQUEST_ID
     );
 
     expect(result).toEqual({
@@ -237,6 +249,9 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
       data: fixture.frontend.response.body,
     });
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)[REQUEST_ID_HEADER]).toBe(
+      REQUEST_ID
+    );
     expect(init.body).toBe(
       JSON.stringify({
         youtube_url: fixture.request.youtube_url ?? fixtures.youtubeUrl,

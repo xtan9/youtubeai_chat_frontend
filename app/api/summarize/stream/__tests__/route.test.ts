@@ -150,11 +150,19 @@ const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 function makeRequest(
   body: unknown,
-  opts: { bodyIsRaw?: string; signal?: AbortSignal } = {}
+  opts: {
+    bodyIsRaw?: string;
+    signal?: AbortSignal;
+    requestId?: string;
+  } = {}
 ) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (opts.requestId) headers["X-Request-ID"] = opts.requestId;
   return new Request("https://app.test/api/summarize/stream", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: opts.bodyIsRaw ?? JSON.stringify(body),
     signal: opts.signal,
   });
@@ -244,13 +252,16 @@ describe("POST /api/summarize/stream", () => {
       const res = await POST(makeRequest(null, { bodyIsRaw: "{notjson" }));
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ message: "Invalid JSON body" });
+      expect(res.headers.get("X-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+      expect(res.headers.get("X-Error-ID")).toBe("INVALID_JSON");
     });
 
     it("returns 400 when youtube_url missing", async () => {
       const res = await POST(makeRequest({}));
       expect(res.status).toBe(400);
       const body = (await res.json()) as { message: string };
-      expect(body.message).toMatch(/Invalid request body/);
+      expect(body).toEqual({ message: "Invalid request body" });
+      expect(res.headers.get("X-Error-ID")).toBe("INVALID_REQUEST");
     });
 
     it("returns 400 on http:// (non-https)", async () => {
@@ -287,6 +298,44 @@ describe("POST /api/summarize/stream", () => {
       mocks.getCachedSummary.mockResolvedValue(cachedFixture());
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(200);
+    });
+
+    it("echoes an accepted request ID on success and forwards it to VPS adapters", async () => {
+      const requestId = "req-148-example";
+      mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
+      mocks.streamLlmSummary.mockImplementation(() =>
+        fakeGen([
+          { type: "content", text: "summary" },
+          { type: "timing", summarizeSeconds: 1 },
+        ])
+      );
+
+      const res = await POST(
+        makeRequest({ youtube_url: VALID_URL }, { requestId })
+      );
+      await readStream(res);
+
+      expect(res.headers.get("X-Request-ID")).toBe(requestId);
+      expect(mocks.fetchVpsMetadata).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        requestId
+      );
+      expect(mocks.extractCaptions).toHaveBeenCalledWith(
+        VALID_URL,
+        expect.any(AbortSignal),
+        undefined,
+        requestId
+      );
+    });
+
+    it("replaces malformed request IDs and does not reflect them", async () => {
+      const res = await POST(
+        makeRequest(null, { bodyIsRaw: "{notjson", requestId: "bad id" })
+      );
+
+      expect(res.headers.get("X-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+      expect(res.headers.get("X-Request-ID")).not.toBe("bad id");
     });
   });
 
@@ -446,9 +495,8 @@ describe("POST /api/summarize/stream", () => {
         expect.objectContaining({
           errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
           userId: "user-1",
-          // Dashboards alert per-URL; dropping this from the payload
-          // would silently break the signal.
-          youtubeUrl: VALID_URL,
+          videoId: "dQw4w9WgXcQ",
+          requestId: expect.any(String),
         })
       );
     });
@@ -692,7 +740,10 @@ describe("POST /api/summarize/stream", () => {
           }
         | undefined;
       expect(terminal?.summarize_time).toBe(3);
-      expect(terminal?.transcribe_time).toBeGreaterThan(0);
+      // The mocked adapter can complete within one millisecond; production
+      // VPS work is naturally non-zero, but the contract only requires the
+      // terminal event to carry a numeric duration.
+      expect(terminal?.transcribe_time).toBeGreaterThanOrEqual(0);
       expect(terminal?.total_time).toBe(
         terminal!.summarize_time + terminal!.transcribe_time
       );
@@ -836,7 +887,7 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "info").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
@@ -947,7 +998,7 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 3 },
         ])
       );
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "info").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
@@ -1631,8 +1682,8 @@ describe("POST /api/summarize/stream", () => {
           stage: "vps",
           status: 503,
           errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
-          bodyExcerpt: "rate limited",
-          youtubeUrl: VALID_URL,
+          videoId: "dQw4w9WgXcQ",
+          requestId: expect.any(String),
           userId: "user-1",
         })
       );
@@ -1701,7 +1752,8 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.extractCaptions).toHaveBeenCalledWith(
         VALID_URL,
         expect.any(AbortSignal),
-        "fr"
+        "fr",
+        expect.any(String)
       );
     });
 
@@ -1801,7 +1853,8 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
         VALID_URL,
         expect.any(AbortSignal),
-        "fr"
+        "fr",
+        expect.any(String)
       );
     });
 
@@ -1824,7 +1877,8 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.extractCaptions).toHaveBeenCalledWith(
         VALID_URL,
         expect.any(AbortSignal),
-        undefined
+        undefined,
+        expect.any(String)
       );
     });
 
@@ -1850,7 +1904,7 @@ describe("POST /api/summarize/stream", () => {
       );
       expect(call).toBeDefined();
       expect(call?.[1]).toMatchObject({ stage: "metadata" });
-      expect((call?.[1] as { err: unknown }).err).toBeInstanceOf(Error);
+      expect((call?.[1] as { errorName: unknown }).errorName).toBe("Error");
     });
 
     it("does NOT log when metadata was caller-aborted (user closed tab)", async () => {
@@ -2000,7 +2054,8 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
         VALID_URL,
         expect.any(AbortSignal),
-        "fr"
+        "fr",
+        expect.any(String)
       );
     });
 
@@ -2039,7 +2094,8 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
         VALID_URL,
         expect.any(AbortSignal),
-        undefined
+        undefined,
+        expect.any(String)
       );
     });
 

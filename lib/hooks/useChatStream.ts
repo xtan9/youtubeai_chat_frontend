@@ -11,6 +11,8 @@ import {
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
+import { logAppEvent } from "@/lib/observability";
 
 interface UseChatStreamArgs {
   readonly youtubeUrl: string | null;
@@ -44,10 +46,9 @@ function parseSseLine(
   } catch (err) {
     if (warnState.count < MAX_PARSE_WARNINGS_PER_STREAM) {
       warnState.count++;
-      console.warn("[useChatStream] malformed SSE chunk", {
+      logAppEvent("warn", "[useChatStream] malformed SSE chunk", {
         errorId: "CHAT_SSE_PARSE_FAILED",
-        err,
-        payloadExcerpt: payload.slice(0, 80),
+        errorName: err instanceof Error ? err.name : typeof err,
       });
     }
     return null;
@@ -56,10 +57,9 @@ function parseSseLine(
   if (!parsed.success) {
     if (warnState.count < MAX_PARSE_WARNINGS_PER_STREAM) {
       warnState.count++;
-      console.warn("[useChatStream] unknown SSE event shape", {
+      logAppEvent("warn", "[useChatStream] unknown SSE event shape", {
         errorId: "CHAT_SSE_UNKNOWN_EVENT",
-        issues: parsed.error.issues,
-        payloadExcerpt: payload.slice(0, 80),
+        errorClass: "SchemaMismatch",
       });
     }
     return null;
@@ -100,6 +100,7 @@ export function useChatStream({
 
       const controller = new AbortController();
       abortRef.current = controller;
+      const requestId = resolveRequestId(undefined);
       setError(null);
       setUpgradeError(null);
       setStreaming(true);
@@ -124,9 +125,10 @@ export function useChatStream({
           // Auth client itself failed — log so a Sentry breadcrumb ties
           // the user-visible "wait" message back to the underlying
           // cause without a separate report.
-          console.error("[useChatStream] getSession threw", {
+          logAppEvent("error", "[useChatStream] getSession threw", {
             errorId: "CHAT_GET_SESSION_THREW",
-            err,
+            errorName: err instanceof Error ? err.name : typeof err,
+            requestId,
           });
           accessToken = null;
         }
@@ -147,6 +149,7 @@ export function useChatStream({
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
+            [REQUEST_ID_HEADER]: requestId,
           },
           body: JSON.stringify({ youtube_url: youtubeUrl, message }),
           signal: controller.signal,

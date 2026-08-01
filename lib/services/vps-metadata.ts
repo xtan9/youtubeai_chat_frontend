@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { REQUEST_ID_HEADER } from "../request-id";
+import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
 import { normalizeYouTubeVideoInput } from "./youtube-url";
 
 // Sentinel codes that mean "no linguistic content" or "ambiguous" —
@@ -125,7 +127,8 @@ export function buildMetadataUrl(baseUrl: string): string {
  */
 export async function fetchVpsMetadata(
   youtubeUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestId?: string
 ): Promise<VpsMetadataResult> {
   const validatedRequest = VpsMetadataRequestSchema.safeParse({
     youtube_url: youtubeUrl,
@@ -139,8 +142,8 @@ export async function fetchVpsMetadata(
   }
 
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
-  const vpsApiKey = process.env.VPS_API_KEY?.trim();
-  if (!vpsBaseUrl || !vpsApiKey) {
+  const vpsApiKeys = getVpsApiKeys();
+  if (!vpsBaseUrl || vpsApiKeys.length === 0) {
     return { ok: false, reason: "config" };
   }
 
@@ -154,15 +157,19 @@ export async function fetchVpsMetadata(
 
   let response: Response;
   try {
-    response = await fetch(buildMetadataUrl(vpsBaseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${vpsApiKey}`,
+    response = await fetchWithVpsKeyRotation(
+      buildMetadataUrl(vpsBaseUrl),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
+        },
+        body: JSON.stringify(validatedRequest.data),
+        signal: combinedSignal,
       },
-      body: JSON.stringify(validatedRequest.data),
-      signal: combinedSignal,
-    });
+      vpsApiKeys
+    );
   } catch (err) {
     if (signal?.aborted) return { ok: false, reason: "aborted" };
     if (

@@ -27,6 +27,8 @@ import {
   loadHeroDemoSummary,
   loadHeroDemoTranscript,
 } from "@/lib/services/hero-demo-chat";
+import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
+import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -47,24 +49,29 @@ const USER_ERROR_NO_SUMMARY =
 const USER_ERROR_TRANSCRIPT_TOO_LONG =
   "This video's transcript is too long for chat. Please try a shorter video.";
 
-function jsonError(status: number, message: string) {
+function jsonError(status: number, message: string, requestId: string, errorId: string) {
   return new Response(JSON.stringify({ message }), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      [REQUEST_ID_HEADER]: requestId,
+      "X-Error-ID": errorId,
+    },
   });
 }
 
 export async function POST(request: Request) {
+  const requestId = resolveRequestId(request.headers.get(REQUEST_ID_HEADER));
   let rawBody: unknown;
   try {
     rawBody = await request.json();
   } catch {
-    return jsonError(400, "Invalid JSON body");
+    return jsonError(400, "Invalid JSON body", requestId, "INVALID_JSON");
   }
 
   const parsed = ChatStreamRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
-    return jsonError(400, `Invalid request body: ${parsed.error.message}`);
+    return jsonError(400, "Invalid request body", requestId, "INVALID_REQUEST");
   }
   const { youtube_url, message } = parsed.data;
 
@@ -77,18 +84,31 @@ export async function POST(request: Request) {
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      console.error("[chat/stream] auth failed", {
+      logAppEvent("error", "[chat/stream] auth failed", {
         status: error.status ?? null,
-        message: error.message,
+        requestId,
       });
-      return jsonError(503, "Auth service temporarily unavailable.");
+      return jsonError(
+        503,
+        "Auth service temporarily unavailable.",
+        requestId,
+        "AUTH_SERVICE_UNAVAILABLE"
+      );
     }
     user = data.user;
   } catch (err) {
-    console.error("[chat/stream] auth threw", { err });
-    return jsonError(503, "Auth service temporarily unavailable.");
+    logAppEvent("error", "[chat/stream] auth threw", {
+      errorName: err instanceof Error ? err.name : typeof err,
+      requestId,
+    });
+    return jsonError(
+      503,
+      "Auth service temporarily unavailable.",
+      requestId,
+      "AUTH_SERVICE_UNAVAILABLE"
+    );
   }
-  if (!user) return jsonError(401, "Unauthorized");
+  if (!user) return jsonError(401, "Unauthorized", requestId, "AUTH_REQUIRED");
 
   const userId = user.id;
   const isAnonymous = user.is_anonymous ?? false;
@@ -104,7 +124,14 @@ export async function POST(request: Request) {
         tier: "anon",
         upgradeUrl: "/auth/sign-up",
       }),
-      { status: 402, headers: { "Content-Type": "application/json" } }
+      {
+        status: 402,
+        headers: {
+          "Content-Type": "application/json",
+          [REQUEST_ID_HEADER]: requestId,
+          "X-Error-ID": "CHAT_ANON_BLOCKED",
+        },
+      }
     );
   }
 
@@ -123,14 +150,20 @@ export async function POST(request: Request) {
   // ever reached. Allowlisted via HERO_DEMO_VIDEO_IDS.
   const rateLimit = await checkRateLimit(userId, false);
   if (rateLimit.reason === "fail_open") {
-    console.error("[chat/stream] rate-limit bypassed (fail-open)", {
+    logAppEvent("error", "[chat/stream] rate-limit bypassed (fail-open)", {
       errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
       userId,
-      youtubeUrl: youtube_url,
+      videoId: videoIdForLog(youtube_url),
+      requestId,
     });
   }
   if (!rateLimit.allowed) {
-    return jsonError(429, "Rate limit exceeded. Please try again later.");
+    return jsonError(
+      429,
+      "Rate limit exceeded. Please try again later.",
+      requestId,
+      "RATE_LIMITED"
+    );
   }
 
   // Chat is gated on the video-native summary row already existing for
@@ -153,16 +186,17 @@ export async function POST(request: Request) {
         getCachedTranscript(youtube_url),
       ]);
   if (!cachedSummary || !cachedTranscript) {
-    return jsonError(404, USER_ERROR_NO_SUMMARY);
+    return jsonError(404, USER_ERROR_NO_SUMMARY, requestId, "SUMMARY_NOT_FOUND");
   }
 
   if (!isDemoVideo) {
     const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
     if (entitlement.reason === "fail_open") {
-      console.error("[chat/stream] entitlement bypassed (fail-open)", {
+      logAppEvent("error", "[chat/stream] entitlement bypassed (fail-open)", {
         errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
         userId,
         videoId: cachedSummary.videoId,
+        requestId,
       });
     }
     if (!entitlement.allowed) {
@@ -173,7 +207,14 @@ export async function POST(request: Request) {
           tier: entitlement.tier,
           upgradeUrl: "/pricing",
         }),
-        { status: 402, headers: { "Content-Type": "application/json" } }
+        {
+          status: 402,
+          headers: {
+            "Content-Type": "application/json",
+            [REQUEST_ID_HEADER]: requestId,
+            "X-Error-ID": "CHAT_QUOTA_EXCEEDED",
+          },
+        }
       );
     }
   }
@@ -190,7 +231,12 @@ export async function POST(request: Request) {
     .map((s) => `${formatTimestamp(s.start)} ${s.text}`)
     .join("\n");
   if (transcriptText.length > TRANSCRIPT_HARD_CAP_CHARS) {
-    return jsonError(413, USER_ERROR_TRANSCRIPT_TOO_LONG);
+    return jsonError(
+      413,
+      USER_ERROR_TRANSCRIPT_TOO_LONG,
+      requestId,
+      "TRANSCRIPT_TOO_LONG"
+    );
   }
 
   // Demo path: stateless thread (see top-of-route comment for the FK
@@ -209,13 +255,19 @@ export async function POST(request: Request) {
           ? fullHistory.slice(-MAX_HISTORY_MESSAGES)
           : fullHistory;
     } catch (err) {
-      console.error("[chat/stream] history load failed", {
+      logAppEvent("error", "[chat/stream] history load failed", {
         errorId: "CHAT_HISTORY_LOAD_FAILED",
         userId,
         videoId,
-        err,
+        errorName: err instanceof Error ? err.name : typeof err,
+        requestId,
       });
-      return jsonError(503, "Could not load chat history.");
+      return jsonError(
+        503,
+        "Could not load chat history.",
+        requestId,
+        "CHAT_HISTORY_LOAD_FAILED"
+      );
     }
   }
 
@@ -261,10 +313,11 @@ export async function POST(request: Request) {
           // Tag the eventType so post-incident triage can tell whether
           // a delta was lost (annoying) vs. the terminal `done` was lost
           // (the client falls back to reader-close, but we want to know).
-          console.error("[chat/stream] enqueue failed", {
+          logAppEvent("error", "[chat/stream] enqueue failed", {
             errorId: "CHAT_ENQUEUE_FAILED",
-            eventType: data.type,
-            err,
+            errorClass: data.type,
+            errorName: err instanceof Error ? err.name : typeof err,
+            requestId,
           });
         }
       };
@@ -281,20 +334,22 @@ export async function POST(request: Request) {
             try {
               await appendChatUserMessage(userId, videoId, message);
             } catch (persistErr) {
-              console.error("[chat/stream] user-only persist failed", {
+              logAppEvent("error", "[chat/stream] user-only persist failed", {
                 errorId,
                 userId,
                 videoId,
-                err: persistErr,
+                errorName: persistErr instanceof Error ? persistErr.name : typeof persistErr,
+                requestId,
               });
             }
           });
         } catch (afterErr) {
-          console.error("[chat/stream] user-only persist scheduling failed", {
+          logAppEvent("error", "[chat/stream] user-only persist scheduling failed", {
             errorId: `${errorId}_SCHEDULE`,
             userId,
             videoId,
-            err: afterErr,
+            errorName: afterErr instanceof Error ? afterErr.name : typeof afterErr,
+            requestId,
           });
         }
       };
@@ -332,11 +387,12 @@ export async function POST(request: Request) {
             persistUserOnly("CHAT_ABORT_PERSIST_FAILED");
             return;
           }
-          console.error("[chat/stream] llm failed", {
+          logAppEvent("error", "[chat/stream] llm failed", {
             errorId: "CHAT_LLM_FAILED",
             userId,
             videoId,
-            err,
+            errorName: err instanceof Error ? err.name : typeof err,
+            requestId,
           });
           // The thread is the artifact — preserve the user's question
           // even when the LLM call failed so they can retry without
@@ -351,10 +407,11 @@ export async function POST(request: Request) {
           // Gateway closed without any content — surface it so the
           // client doesn't hang in a "streaming" state forever, but
           // still preserve the user's question for retry.
-          console.error("[chat/stream] empty assistant response", {
+          logAppEvent("error", "[chat/stream] empty assistant response", {
             errorId: "CHAT_EMPTY_RESPONSE",
             userId,
             videoId,
+            requestId,
           });
           persistUserOnly("CHAT_EMPTY_RESPONSE_PERSIST_FAILED");
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
@@ -387,11 +444,12 @@ export async function POST(request: Request) {
           userMessagePersisted = true;
           sendEvent({ type: "done" });
         } catch (persistErr) {
-          console.error("[chat/stream] persist failed", {
+          logAppEvent("error", "[chat/stream] persist failed", {
             errorId: "CHAT_PERSIST_FAILED",
             userId,
             videoId,
-            err: persistErr,
+            errorName: persistErr instanceof Error ? persistErr.name : typeof persistErr,
+            requestId,
           });
           // Best-effort fallback: the joint insert failed, so try a
           // user-only insert so the question survives reload. Both
@@ -422,7 +480,10 @@ export async function POST(request: Request) {
             err instanceof TypeError &&
             /closed|invalid state/i.test(err.message);
           if (!isAlreadyClosed) {
-            console.error("[chat/stream] close failed", { err });
+            logAppEvent("error", "[chat/stream] close failed", {
+              errorName: err instanceof Error ? err.name : typeof err,
+              requestId,
+            });
           }
         }
       }
@@ -442,20 +503,22 @@ export async function POST(request: Request) {
           try {
             await appendChatUserMessage(userId, videoId, message);
           } catch (err) {
-            console.error("[chat/stream] cancel-persist failed", {
+            logAppEvent("error", "[chat/stream] cancel-persist failed", {
               errorId: "CHAT_CANCEL_PERSIST_FAILED",
               userId,
               videoId,
-              err,
+              errorName: err instanceof Error ? err.name : typeof err,
+              requestId,
             });
           }
         });
       } catch (afterErr) {
-        console.error("[chat/stream] cancel persist scheduling failed", {
+        logAppEvent("error", "[chat/stream] cancel persist scheduling failed", {
           errorId: "CHAT_CANCEL_PERSIST_SCHEDULE_FAILED",
           userId,
           videoId,
-          err: afterErr,
+          errorName: afterErr instanceof Error ? afterErr.name : typeof afterErr,
+          requestId,
         });
       }
     },
@@ -466,6 +529,7 @@ export async function POST(request: Request) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      [REQUEST_ID_HEADER]: requestId,
     },
   });
 }
