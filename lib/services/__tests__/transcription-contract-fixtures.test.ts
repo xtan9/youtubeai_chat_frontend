@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fixturesJson from "../../../test-fixtures/transcription-contract/v1/cases.json";
-import { extractCaptions } from "../caption-extractor";
+import {
+  CaptionExtractionError,
+  extractCaptions,
+} from "../caption-extractor";
 import { fetchVpsMetadata } from "../vps-metadata";
 import {
   transcribeViaVps,
@@ -125,7 +128,7 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
         fixture.request.youtube_url ?? fixtures.youtubeUrl,
         undefined,
         fixture.request.lang
-      );
+      ).catch((error: unknown) => error);
 
       if (fixture.frontend.expect === "success") {
         expect(result).toEqual({
@@ -138,8 +141,14 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
           title: "Contract fixture",
           channelName: "Fixture Channel",
         });
-      } else {
+      } else if (
+        fixture.frontend.expect === "null" &&
+        fixture.frontend.response.status === 404
+      ) {
         expect(result).toBeNull();
+      } else {
+        expect(result).toBeInstanceOf(CaptionExtractionError);
+        expect((result as CaptionExtractionError).status).toBe(500);
       }
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -245,16 +254,17 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
       fixtures.youtubeUrl,
       undefined,
       undefined
-    );
+    ).catch((error: unknown) => error);
 
-    expect(result).toBeNull();
+    expect(result).toBeInstanceOf(CaptionExtractionError);
+    expect((result as CaptionExtractionError).status).toBe("schema");
     expect(errorSpy).toHaveBeenCalledWith(
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({ errorClass: "JsonParse" })
     );
   });
 
-  it("passes every invalid language sentinel through the server error contract", async () => {
+  it("rejects every invalid language sentinel before the network call", async () => {
     const fixture = getCase("invalid-language-sentinels");
     const languageValues = fixture.request.langValues ?? [];
     stubVpsEnv();
@@ -263,17 +273,15 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     for (const lang of languageValues) {
-      const result = await extractCaptions(fixtures.youtubeUrl, undefined, lang);
-      expect(result).toBeNull();
+      const result = await extractCaptions(
+        fixtures.youtubeUrl,
+        undefined,
+        lang
+      ).catch((error: unknown) => error);
+      expect(result).toBeInstanceOf(CaptionExtractionError);
+      expect((result as CaptionExtractionError).status).toBe("schema");
     }
 
-    expect(fetchMock).toHaveBeenCalledTimes(languageValues.length);
-    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
-    for (const [index, lang] of languageValues.entries()) {
-      const [, init] = calls[index];
-      expect(init.body).toBe(
-        JSON.stringify({ youtube_url: fixtures.youtubeUrl, lang })
-      );
-    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

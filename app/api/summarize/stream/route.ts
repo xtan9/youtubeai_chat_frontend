@@ -2,7 +2,11 @@ import { z } from "zod";
 import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { extractCaptions } from "@/lib/services/caption-extractor";
+import {
+  CaptionExtractionError,
+  captionErrorId,
+  extractCaptions,
+} from "@/lib/services/caption-extractor";
 import {
   transcribeViaVps,
   VpsTranscribeError,
@@ -352,15 +356,27 @@ export async function POST(request: Request) {
       };
 
       const logStageError = (stage: LogStage, err: unknown) => {
-        // Pull `.status` off typed VPS errors so log-search alerts can
-        // fingerprint failure classes (503-from-VPS = Groq quota /
-        // GROQ_FAILED_NO_FALLBACK gate, 500 = WHISPER_EMPTY_RESULT, the
-        // string-tagged variants = pre-HTTP fetch failures the frontend
-        // saw) without regex-substring-matching on err.message. The
-        // `errorId` is a stable token so dashboards can group by it.
+        // Pull `.status` off typed transcription/caption errors so
+        // log-search alerts can fingerprint upstream failure classes without
+        // regex-substring-matching on err.message. The `errorId` is a stable
+        // token so dashboards can group by it.
         const isVpsTyped = err instanceof VpsTranscribeError;
-        const status = isVpsTyped ? err.status : undefined;
-        const errorId = isVpsTyped ? vpsErrorId(err.status) : undefined;
+        const isCaptionTyped = err instanceof CaptionExtractionError;
+        const status = isVpsTyped
+          ? err.status
+          : isCaptionTyped
+            ? err.status
+            : undefined;
+        const errorId = isVpsTyped
+          ? vpsErrorId(err.status)
+          : isCaptionTyped
+            ? captionErrorId(err.status)
+            : undefined;
+        const bodyExcerpt = isVpsTyped
+          ? err.bodyExcerpt
+          : isCaptionTyped
+            ? err.bodyExcerpt
+            : undefined;
         console.error(`[summarize/stream] ${stage} failed`, {
           stage,
           youtubeUrl: youtube_url,
@@ -368,8 +384,7 @@ export async function POST(request: Request) {
           err,
           ...(status !== undefined && { status }),
           ...(errorId !== undefined && { errorId }),
-          ...(isVpsTyped &&
-            err.bodyExcerpt && { bodyExcerpt: err.bodyExcerpt }),
+          ...(bodyExcerpt && { bodyExcerpt }),
         });
       };
 

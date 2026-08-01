@@ -22,6 +22,52 @@ export interface CaptionResult {
   readonly channelName: string;
 }
 
+// The caption path has one recoverable outcome (HTTP 404: no usable
+// captions) and several failures that must stop the pipeline. Keep those
+// failures typed so the orchestrator cannot accidentally turn a VPS outage
+// into a paid Whisper request.
+export class CaptionExtractionError extends Error {
+  public readonly bodyExcerpt?: string;
+
+  constructor(
+    public readonly status:
+      | number
+      | "network"
+      | "timeout"
+      | "schema",
+    bodyExcerpt?: string
+  ) {
+    const truncated = bodyExcerpt?.slice(0, 200);
+    super(
+      `VPS captions failed (${status})${truncated ? `: ${truncated}` : ""}`
+    );
+    this.bodyExcerpt = truncated;
+    this.name = "CaptionExtractionError";
+  }
+}
+
+export function captionErrorId(
+  status: CaptionExtractionError["status"]
+): string {
+  if (typeof status === "number") {
+    return `VPS_CAPTIONS_FAILED_HTTP_${status}`;
+  }
+  return `VPS_CAPTIONS_FAILED_${status.toUpperCase()}`;
+}
+
+const LANGUAGE_SENTINELS = new Set(["und", "zxx", "mul", "mis"]);
+const LanguageHintSchema = z
+  .string()
+  .regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/)
+  .refine(
+    (value) => !LANGUAGE_SENTINELS.has(value.toLowerCase().split("-")[0])
+  );
+
+const CaptionSegmentSchema = TranscriptSegmentSchema.refine(
+  (segment) => segment.text.trim().length > 0,
+  "caption segment text must not be empty"
+);
+
 // Matches the VPS /captions 200 contract. VPS returns `string | null` for
 // title/channelName when video metadata is unavailable; normalize to "" here
 // so the route's existing string contract holds.
@@ -39,11 +85,13 @@ export interface CaptionResult {
 const CaptionsResponseSchema = z
   .object({
     // `.min(1)` rules out the failure mode where the VPS returns
-    // `{segments: [], transcript: ""}` after some upstream bug. An empty
-    // array would otherwise silently fall through to the Whisper path
-    // with no errorId distinguishing it from a healthy "no captions" 404.
-    segments: z.array(TranscriptSegmentSchema).min(1).optional(),
-    transcript: z.string().optional(),
+    // `{segments: [], transcript: ""}` after some upstream bug. Without it,
+    // an empty array could be mistaken for a healthy "no captions" 404.
+    segments: z.array(CaptionSegmentSchema).min(1).optional(),
+    transcript: z
+      .string()
+      .refine((value) => value.trim().length > 0, "transcript must not be empty")
+      .optional(),
     source: z.literal("auto_captions"),
     language: z.enum(["en", "zh"]),
     title: z.string().nullable(),
@@ -53,18 +101,17 @@ const CaptionsResponseSchema = z
     message: "either `segments` or `transcript` is required",
   });
 
-// Captions path is fast — a slow VPS response here is a signal to fall back
-// to Whisper, not to keep waiting. Keep well under the route's 300s budget.
+// Captions path is fast — bound a slow VPS response so the route can surface
+// a typed failure well under its 300s budget instead of hanging indefinitely.
 const DEFAULT_VPS_CAPTIONS_TIMEOUT_MS = 30_000;
 
 export function buildCaptionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/captions`;
 }
 
-// Returns null for all "no usable captions" outcomes (including unexpected
-// VPS failures) so the caller silently falls back to Whisper. Unexpected
-// failures are logged with a stable errorId so a systematic outage is
-// visible in alerts instead of silently burning the Whisper compute bill.
+// Returns null only for the documented "no usable captions" outcome (404).
+// Unexpected VPS, transport, timeout, and schema failures throw typed errors
+// so the caller cannot silently turn an outage into paid Whisper work.
 //
 // When `lang` is provided, forwarded to the VPS so a specific caption
 // track is selected instead of YouTube's arbitrary `tracks[0]`. A 404
@@ -78,6 +125,10 @@ export async function extractCaptions(
 ): Promise<CaptionResult | null> {
   const videoId = extractVideoId(youtubeUrl);
   if (!videoId) return null;
+
+  if (lang !== undefined && !LanguageHintSchema.safeParse(lang).success) {
+    throw new CaptionExtractionError("schema", "invalid language hint");
+  }
 
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
   const vpsApiKey = process.env.VPS_API_KEY?.trim();
@@ -112,10 +163,30 @@ export async function extractCaptions(
       signal: combinedSignal,
     });
   } catch (err) {
-    return reportUnexpectedFailure(videoId, signal, {
-      errorClass: err instanceof Error ? err.constructor.name : typeof err,
-      err,
-    });
+    if (signal?.aborted) throw err;
+    if (
+      err instanceof Error &&
+      (err.name === "AbortError" || err.name === "TimeoutError")
+    ) {
+      return reportUnexpectedFailure(
+        videoId,
+        "timeout",
+        {
+          errorClass: err.constructor.name,
+          err,
+        },
+        err.message
+      );
+    }
+    return reportUnexpectedFailure(
+      videoId,
+      "network",
+      {
+        errorClass: err instanceof Error ? err.constructor.name : typeof err,
+        err,
+      },
+      err instanceof Error ? err.message : undefined
+    );
   }
 
   // 404 is the stable "no captions available" contract — fall through to
@@ -128,35 +199,55 @@ export async function extractCaptions(
     // errorId so "empty body" and "body read crashed" are distinguishable
     // in postmortem rather than collapsed into the same silent "".
     const text = await response.text().catch((err) => {
-      console.error("[captions] failed to read error response body", {
-        errorId: "CAPTIONS_GATEWAY_BODY_READ_FAILED",
-        status: response.status,
-        err,
-      });
+      if (!signal?.aborted) {
+        console.error("[captions] failed to read error response body", {
+          errorId: "CAPTIONS_GATEWAY_BODY_READ_FAILED",
+          status: response.status,
+          err,
+        });
+      }
       return "";
     });
-    return reportUnexpectedFailure(videoId, signal, {
-      status: response.status,
-      body: text.slice(0, 200),
-    });
+    if (signal?.aborted) return null;
+    return reportUnexpectedFailure(
+      videoId,
+      response.status,
+      {
+        status: response.status,
+        body: text.slice(0, 200),
+      },
+      text
+    );
   }
 
   let raw: unknown;
   try {
     raw = await response.json();
   } catch (err) {
-    return reportUnexpectedFailure(videoId, signal, {
-      errorClass: "JsonParse",
-      err,
-    });
+    if (signal?.aborted) return null;
+    return reportUnexpectedFailure(
+      videoId,
+      "schema",
+      {
+        errorClass: "JsonParse",
+        err,
+      },
+      err instanceof Error ? err.message : undefined
+    );
   }
 
   const parsed = CaptionsResponseSchema.safeParse(raw);
   if (!parsed.success) {
-    return reportUnexpectedFailure(videoId, signal, {
-      errorClass: "SchemaMismatch",
-      issues: parsed.error.issues,
-    });
+    if (signal?.aborted) return null;
+    return reportUnexpectedFailure(
+      videoId,
+      "schema",
+      {
+        errorClass: "SchemaMismatch",
+        issues: parsed.error.issues,
+      },
+      parsed.error.message
+    );
   }
 
   const data = parsed.data;
@@ -181,10 +272,27 @@ export async function extractCaptions(
     console.warn("[caption-extractor] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
       errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
     });
-    segments = [{ text: data.transcript, start: 0, duration: 0 }];
+    segments = [
+      {
+        text: decodeCaptionEntities(data.transcript),
+        start: 0,
+        duration: 0,
+      },
+    ];
   }
 
-  if (segments.length === 0) return null;
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment.text.trim().length === 0)
+  ) {
+    if (signal?.aborted) return null;
+    return reportUnexpectedFailure(
+      videoId,
+      "schema",
+      { errorClass: "EmptySegments" },
+      "no usable segments after parse"
+    );
+  }
 
   return {
     segments,
@@ -195,9 +303,9 @@ export async function extractCaptions(
   };
 }
 
-// Alertable: unexpected failures here silently fall back to paid Whisper
-// transcription. A systematic VPS outage can burn the compute bill with no
-// other signal — errorId is the stable alert key.
+// Alertable: unexpected failures here stop the caption-first pipeline. The
+// stable errorId in the log and typed status on the thrown error let the
+// orchestrator surface the failure without spending on Whisper.
 //
 // Suppresses the log when the caller's own signal aborted: a user closing
 // the tab mid-request will typically surface as a fetch/JSON-parse failure
@@ -205,14 +313,15 @@ export async function extractCaptions(
 // would fire a false alert on every client disconnect.
 function reportUnexpectedFailure(
   videoId: string,
-  signal: AbortSignal | undefined,
-  extra: Record<string, unknown>
-): null {
-  if (signal?.aborted) return null;
+  status: CaptionExtractionError["status"],
+  extra: Record<string, unknown>,
+  bodyExcerpt?: string
+): never {
   console.error("[caption-extractor] CAPTION_UNEXPECTED_FAILURE", {
     errorId: "CAPTION_UNEXPECTED_FAILURE",
     videoId,
+    status,
     ...extra,
   });
-  return null;
+  throw new CaptionExtractionError(status, bodyExcerpt);
 }
