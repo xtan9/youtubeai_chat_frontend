@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeYouTubeVideoInput } from "./youtube-url";
 
 // Sentinel codes that mean "no linguistic content" or "ambiguous" —
 // forwarding them downstream as a `lang` param produces cryptic CLI
@@ -48,6 +49,28 @@ const VpsMetadataResponseSchema = z.object({
   // the schema boundary instead of letting garbage values flow through.
   duration: z.number().finite().nonnegative().nullable().optional(),
   availableCaptions: z.array(LanguageCodeSchema),
+});
+
+// The service's request schema accepts a URL, while product callers may
+// submit the raw 11-character video ID copied from YouTube. Normalize IDs at
+// this boundary so every downstream request still uses the contract's
+// `youtube_url` field and invalid input never reaches the VPS.
+const VpsMetadataRequestSchema = z.object({
+  youtube_url: z
+    .string()
+    .trim()
+    .min(1, "youtube_url is required")
+    .transform((value, ctx) => {
+      const normalized = normalizeYouTubeVideoInput(value);
+      if (normalized === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "youtube_url must be a valid YouTube URL or video ID",
+        });
+        return z.NEVER;
+      }
+      return normalized;
+    }),
 });
 
 export type VpsMetadata = z.infer<typeof VpsMetadataResponseSchema>;
@@ -104,6 +127,17 @@ export async function fetchVpsMetadata(
   youtubeUrl: string,
   signal?: AbortSignal
 ): Promise<VpsMetadataResult> {
+  const validatedRequest = VpsMetadataRequestSchema.safeParse({
+    youtube_url: youtubeUrl,
+  });
+  if (!validatedRequest.success) {
+    return {
+      ok: false,
+      reason: "schema",
+      issues: validatedRequest.error.issues,
+    };
+  }
+
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
   const vpsApiKey = process.env.VPS_API_KEY?.trim();
   if (!vpsBaseUrl || !vpsApiKey) {
@@ -126,12 +160,15 @@ export async function fetchVpsMetadata(
         "Content-Type": "application/json",
         Authorization: `Bearer ${vpsApiKey}`,
       },
-      body: JSON.stringify({ youtube_url: youtubeUrl }),
+      body: JSON.stringify(validatedRequest.data),
       signal: combinedSignal,
     });
   } catch (err) {
     if (signal?.aborted) return { ok: false, reason: "aborted" };
-    if (err instanceof Error && err.name === "TimeoutError") {
+    if (
+      timeoutSignal.aborted ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
       return { ok: false, reason: "timeout" };
     }
     return { ok: false, reason: "error", error: err };
@@ -145,6 +182,13 @@ export async function fetchVpsMetadata(
   try {
     raw = await response.json();
   } catch (err) {
+    if (signal?.aborted) return { ok: false, reason: "aborted" };
+    if (
+      timeoutSignal.aborted ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
+      return { ok: false, reason: "timeout" };
+    }
     return { ok: false, reason: "error", error: err };
   }
 
