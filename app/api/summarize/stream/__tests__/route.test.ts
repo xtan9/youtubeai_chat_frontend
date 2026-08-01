@@ -63,9 +63,16 @@ vi.mock("@/lib/supabase/server", () => ({
     auth: { getUser: mocks.getUser },
   }),
 }));
-vi.mock("@/lib/services/caption-extractor", () => ({
-  extractCaptions: mocks.extractCaptions,
-}));
+vi.mock("@/lib/services/caption-extractor", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/services/caption-extractor")
+  >("@/lib/services/caption-extractor");
+  return {
+    extractCaptions: mocks.extractCaptions,
+    CaptionExtractionError: actual.CaptionExtractionError,
+    captionErrorId: actual.captionErrorId,
+  };
+});
 vi.mock("@/lib/services/vps-client", async () => {
   // Use the real VpsTranscribeError class so the route's
   // `instanceof VpsTranscribeError` branch fires from injected
@@ -716,6 +723,29 @@ describe("POST /api/summarize/stream", () => {
   });
 
   describe("live captions path", () => {
+    it("stops on an unexpected caption failure instead of silently paying for Whisper", async () => {
+      const { CaptionExtractionError } = await import(
+        "@/lib/services/caption-extractor"
+      );
+      mocks.extractCaptions.mockRejectedValue(
+        new CaptionExtractionError(500, "Internal error")
+      );
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const events = parseEvents(await readStream(res));
+
+      expect(events.find((event) => event.type === "error")).toBeDefined();
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledWith(
+        "[summarize/stream] captions failed",
+        expect.objectContaining({
+          status: 500,
+          errorId: "VPS_CAPTIONS_FAILED_HTTP_500",
+        })
+      );
+    });
+
     it("writes cache with separate transcribe/summarize times", async () => {
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
