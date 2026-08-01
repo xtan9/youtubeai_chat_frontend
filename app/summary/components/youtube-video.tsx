@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
-import type { TranscriptSegment } from "@/lib/types";
+import type { TranscriptSegment, TranscriptSource } from "@/lib/types";
 import TranscriptParagraphs from "./transcript-paragraphs";
 import { usePlayerRef } from "@/lib/contexts/player-ref";
 
@@ -18,10 +18,16 @@ interface YoutubeVideoProps {
   url: string;
   width: number; // becomes the maximum width
   segments?: readonly TranscriptSegment[];
+  transcriptSource?: TranscriptSource;
   streamingComplete?: boolean;
 }
 
-const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
+const YoutubeVideo = ({
+  url,
+  width,
+  segments,
+  transcriptSource,
+}: YoutubeVideoProps) => {
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
   // YouTubePlayer instance is captured on the IFrame Player API's `onReady`
@@ -86,7 +92,11 @@ const YoutubeVideo = ({ url, width, segments }: YoutubeVideoProps) => {
         }}
       />
       {segments && segments.length > 0 && (
-        <TranscriptParagraphs segments={segments} playerRef={playerRef} />
+        <TranscriptParagraphs
+          segments={segments}
+          playerRef={playerRef}
+          transcriptSource={transcriptSource}
+        />
       )}
     </div>
   );

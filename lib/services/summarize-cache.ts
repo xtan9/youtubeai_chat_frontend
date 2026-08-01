@@ -11,10 +11,12 @@ import {
 import {
   TranscriptSegmentSchema,
   type TranscriptSegment,
+  type TranscriptSource,
 } from "@/lib/types";
 import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
+import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
-export type { TranscriptSegment };
+export type { TranscriptSegment, TranscriptSource };
 export { TranscriptSegmentSchema };
 
 // PromptLocale = the VIDEO's detected language (binary — drives the classifier
@@ -23,8 +25,6 @@ export { TranscriptSegmentSchema };
 // unify: they have different life cycles and one is constrained to what the
 // cache schema accepts, the other to what the picker ships.
 export type PromptLocale = "en" | "zh";
-export type TranscriptSource = "manual_captions" | "auto_captions" | "whisper";
-
 // Output language value that gets written to summaries.output_language.
 // `null` means "this is the video's native-language summary" — the default
 // path that existed before the language-picker feature.
@@ -199,9 +199,10 @@ export async function getCachedSummary(
       .maybeSingle();
 
     if (videoError) {
-      console.error("[summarize-cache] video lookup failed (fail-open)", {
-        videoKey,
-        error: videoError,
+      logAppEvent("error", "[summarize-cache] video lookup failed (fail-open)", {
+        errorId: "CACHE_VIDEO_LOOKUP_FAILED",
+        videoId: videoIdForLog(youtubeUrl),
+        errorName: videoError.message ? "SupabaseError" : "UnknownError",
       });
       return null;
     }
@@ -209,9 +210,9 @@ export async function getCachedSummary(
 
     const videoParsed = VideoRowSchema.safeParse(videoRaw);
     if (!videoParsed.success) {
-      console.error("[summarize-cache] video row schema mismatch (fail-open)", {
-        videoKey,
-        issues: videoParsed.error.issues,
+      logAppEvent("error", "[summarize-cache] video row schema mismatch (fail-open)", {
+        errorId: "CACHE_VIDEO_SCHEMA_MISMATCH",
+        videoId: videoIdForLog(youtubeUrl),
       });
       return null;
     }
@@ -242,9 +243,14 @@ export async function getCachedSummary(
       await summaryQuery.maybeSingle();
 
     if (summaryError) {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] summary lookup failed (fail-open)",
-        { videoId: video.id, error: summaryError }
+        {
+          errorId: "CACHE_SUMMARY_LOOKUP_FAILED",
+          videoId: video.id,
+          errorName: summaryError.message ? "SupabaseError" : "UnknownError",
+        }
       );
       return null;
     }
@@ -252,10 +258,10 @@ export async function getCachedSummary(
 
     const summaryParsed = SummaryRowSchema.safeParse(summaryRaw);
     if (!summaryParsed.success) {
-      console.error(
-        "[summarize-cache] summary row schema mismatch (fail-open)",
-        { videoId: video.id, issues: summaryParsed.error.issues }
-      );
+      logAppEvent("error", "[summarize-cache] summary row schema mismatch (fail-open)", {
+        errorId: "CACHE_SUMMARY_SCHEMA_MISMATCH",
+        videoId: video.id,
+      });
       return null;
     }
     const s = summaryParsed.data;
@@ -283,9 +289,10 @@ export async function getCachedSummary(
       outputLanguage: s.output_language,
     };
   } catch (err) {
-    console.error("[summarize-cache] read failed (fail-open)", {
-      youtubeUrl,
-      err,
+    logAppEvent("error", "[summarize-cache] read failed (fail-open)", {
+      errorId: "CACHE_READ_FAILED",
+      videoId: videoIdForLog(youtubeUrl),
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
@@ -309,12 +316,14 @@ export async function writeCachedSummary(
       hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     };
     if (process.env.NODE_ENV === "production") {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] write skipped: service-role key not configured (cache disabled in production)",
         payload
       );
     } else {
-      console.warn(
+      logAppEvent(
+        "warn",
         "[summarize-cache] write skipped: service-role key not configured",
         payload
       );
@@ -419,8 +428,10 @@ export async function enforceFreeHistoryCap(
     .range(capacity, capacity + 99);
 
   if (error) {
-    console.error("[summarize-cache] history-cap query failed", {
-      errorId: "HISTORY_CAP_QUERY_FAIL", userId, code: error.code,
+    logAppEvent("error", "[summarize-cache] history-cap query failed", {
+      errorId: "HISTORY_CAP_QUERY_FAIL",
+      userId,
+      errorCode: error.code,
     });
     return;
   }
@@ -429,8 +440,11 @@ export async function enforceFreeHistoryCap(
   const ids = data.map((r: { id: string }) => r.id);
   const del = await supabase.from("user_video_history").delete().in("id", ids);
   if (del.error) {
-    console.error("[summarize-cache] history-cap delete failed", {
-      errorId: "HISTORY_CAP_DELETE_FAIL", userId, ids, code: del.error.code,
+    logAppEvent("error", "[summarize-cache] history-cap delete failed", {
+      errorId: "HISTORY_CAP_DELETE_FAIL",
+      userId,
+      count: ids.length,
+      errorCode: del.error.code,
     });
   }
 }
@@ -477,9 +491,14 @@ export async function getCachedTranscript(
       .maybeSingle();
 
     if (videoError) {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] transcript: video lookup failed (fail-open)",
-        { errorId: "TRANSCRIPT_VIDEO_LOOKUP_ERROR", videoKey, error: videoError }
+        {
+          errorId: "TRANSCRIPT_VIDEO_LOOKUP_ERROR",
+          videoId: videoIdForLog(youtubeUrl),
+          errorName: videoError.message ? "SupabaseError" : "UnknownError",
+        }
       );
       return null;
     }
@@ -487,12 +506,12 @@ export async function getCachedTranscript(
 
     const videoParsed = VideoRowSchema.safeParse(videoRaw);
     if (!videoParsed.success) {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] transcript: video row schema mismatch (fail-open)",
         {
           errorId: "TRANSCRIPT_VIDEO_SCHEMA_MISMATCH",
-          videoKey,
-          issues: videoParsed.error.issues,
+          videoId: videoIdForLog(youtubeUrl),
         }
       );
       return null;
@@ -506,12 +525,13 @@ export async function getCachedTranscript(
       .maybeSingle();
 
     if (transcriptError) {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] transcript: lookup failed (fail-open)",
         {
           errorId: "TRANSCRIPT_LOOKUP_ERROR",
           videoId: video.id,
-          error: transcriptError,
+          errorName: transcriptError.message ? "SupabaseError" : "UnknownError",
         }
       );
       return null;
@@ -520,12 +540,12 @@ export async function getCachedTranscript(
 
     const parsed = TranscriptRowSchema.safeParse(transcriptRaw);
     if (!parsed.success) {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] transcript: row schema mismatch (fail-open)",
         {
           errorId: "TRANSCRIPT_SCHEMA_MISMATCH",
           videoId: video.id,
-          issues: parsed.error.issues,
         }
       );
       return null;
@@ -543,7 +563,8 @@ export async function getCachedTranscript(
     // least one segment, so the false-evict surface is empty in practice.
     const rawSegments = parsed.data.segments;
     if (isNoTimingShape(rawSegments)) {
-      console.warn(
+      logAppEvent(
+        "warn",
         "[summarize-cache] transcript: legacy-backfill row evicted (will re-transcribe)",
         {
           errorId: "TRANSCRIPT_LEGACY_BACKFILL_EVICT",
@@ -574,10 +595,10 @@ export async function getCachedTranscript(
       language: parsed.data.language,
     };
   } catch (err) {
-    console.error("[summarize-cache] transcript read failed (fail-open)", {
+    logAppEvent("error", "[summarize-cache] transcript read failed (fail-open)", {
       errorId: "TRANSCRIPT_READ_THREW",
-      youtubeUrl,
-      err,
+      videoId: videoIdForLog(youtubeUrl),
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
@@ -605,12 +626,14 @@ export async function writeCachedTranscript(
       hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     };
     if (process.env.NODE_ENV === "production") {
-      console.error(
+      logAppEvent(
+        "error",
         "[summarize-cache] transcript write skipped: service-role key not configured (cache disabled in production)",
         payload
       );
     } else {
-      console.warn(
+      logAppEvent(
+        "warn",
         "[summarize-cache] transcript write skipped: service-role key not configured",
         payload
       );
@@ -627,11 +650,12 @@ export async function writeCachedTranscript(
   // the write keeps the user-visible stream working and the cache empty
   // for that video — next visit re-fetches, no loop.
   if (isNoTimingShape(params.segments)) {
-    console.warn(
+    logAppEvent(
+      "warn",
       "[summarize-cache] transcript: refusing to persist no-timing shape",
       {
         errorId: "TRANSCRIPT_LEGACY_SHAPE_NOT_PERSISTED",
-        videoKey,
+        videoId: videoIdForLog(params.youtubeUrl),
       }
     );
     return;

@@ -1,6 +1,17 @@
 import { z } from "zod";
 import type { TranscriptSegment } from "./summarize-cache";
-import { TranscriptSegmentSchema } from "@/lib/types";
+import {
+  EffectiveLanguageSchema,
+  NonEmptyTranscriptSegmentSchema,
+  NonEmptyTranscriptSchema,
+  TranscriptionRequestSchema,
+  isTimeoutError,
+  resolveBoundedTimeoutMs,
+  throwCallerAbort,
+} from "./transcription-contract";
+import { REQUEST_ID_HEADER } from "@/lib/request-id";
+import { logAppEvent, redactSensitiveText } from "@/lib/observability";
+import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
 
 // Discriminated error shape so the route's catch can log a structured
 // `status` field that alert tooling can fingerprint. `number` covers
@@ -21,7 +32,9 @@ export class VpsTranscribeError extends Error {
     // Truncate at construction so the bounded-length invariant lives in one
     // place. Consumers (logger, error.message) can read .bodyExcerpt without
     // worrying about whether it's been pre-truncated.
-    const truncated = bodyExcerpt?.slice(0, 200);
+    const truncated = bodyExcerpt
+      ? redactSensitiveText(bodyExcerpt).slice(0, 200)
+      : undefined;
     super(
       `VPS transcription failed (${status})${truncated ? `: ${truncated}` : ""}`
     );
@@ -63,14 +76,18 @@ export function vpsErrorId(status: VpsTranscribeError["status"]): string {
 // instead of generating a useless empty-prompt LLM call downstream.
 const TranscribeResponseSchema = z
   .object({
-    segments: z.array(TranscriptSegmentSchema).min(1).optional(),
-    transcript: z.string().optional(),
-    language: z.string(),
+    segments: z.array(NonEmptyTranscriptSegmentSchema).min(1).optional(),
+    transcript: NonEmptyTranscriptSchema.optional(),
+    language: EffectiveLanguageSchema,
     source: z.literal("whisper"),
   })
   .refine((data) => data.segments !== undefined || data.transcript !== undefined, {
     message: "either `segments` or `transcript` is required",
-  });
+  })
+  .refine(
+    (data) => data.segments === undefined || data.transcript !== undefined,
+    { message: "`transcript` is required with canonical `segments`" }
+  );
 
 export type TranscribeResult = {
   readonly segments: readonly TranscriptSegment[];
@@ -83,6 +100,7 @@ export type TranscribeResult = {
 // teardown a few seconds, plus slack for the oembed round-trip). If Vercel
 // maxDuration is raised above 300s, bump this proportionally.
 const DEFAULT_VPS_TIMEOUT_MS = 240_000;
+const MAX_VPS_TIMEOUT_MS = 300_000;
 
 export function buildTranscribeUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/transcribe`;
@@ -91,16 +109,32 @@ export function buildTranscribeUrl(baseUrl: string): string {
 export async function transcribeViaVps(
   youtubeUrl: string,
   signal?: AbortSignal,
-  lang?: string
+  lang?: string,
+  requestId?: string
 ): Promise<TranscribeResult> {
-  const vpsBaseUrl = process.env.VPS_API_URL?.trim();
-  const vpsApiKey = process.env.VPS_API_KEY?.trim();
+  const validatedRequest = TranscriptionRequestSchema.safeParse({
+    youtube_url: youtubeUrl,
+    lang,
+  });
+  if (!validatedRequest.success) {
+    throw new VpsTranscribeError("schema", validatedRequest.error.message);
+  }
+  const requestedLanguage = validatedRequest.data.lang ?? "auto";
 
-  if (!vpsBaseUrl || !vpsApiKey) {
+  const vpsBaseUrl = process.env.VPS_API_URL?.trim();
+  const vpsApiKeys = getVpsApiKeys();
+
+  if (!vpsBaseUrl || vpsApiKeys.length === 0) {
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
 
-  const timeoutMs = Number(process.env.VPS_TIMEOUT_MS) || DEFAULT_VPS_TIMEOUT_MS;
+  if (signal?.aborted) throwCallerAbort(signal);
+
+  const timeoutMs = resolveBoundedTimeoutMs(
+    process.env.VPS_TIMEOUT_MS,
+    DEFAULT_VPS_TIMEOUT_MS,
+    MAX_VPS_TIMEOUT_MS
+  );
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
@@ -110,8 +144,12 @@ export async function transcribeViaVps(
   // `{ lang: undefined }` fields and a literal `null` body field. Back-
   // compat: callers that don't pass lang see the exact same request body
   // as before.
-  const body: Record<string, unknown> = { youtube_url: youtubeUrl };
-  if (lang) body.lang = lang;
+  const body = validatedRequest.data;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (requestId) headers[REQUEST_ID_HEADER] = requestId;
 
   // Translate pre-HTTP failures (DNS, connection-reset, internal-timeout)
   // into typed VpsTranscribeErrors so the route's catch can fingerprint
@@ -124,15 +162,16 @@ export async function transcribeViaVps(
   // AbortSignal.any, or any non-abort throw from fetch).
   let response: Response;
   try {
-    response = await fetch(buildTranscribeUrl(vpsBaseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${vpsApiKey}`,
+    response = await fetchWithVpsKeyRotation(
+      buildTranscribeUrl(vpsBaseUrl),
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: combinedSignal,
       },
-      body: JSON.stringify(body),
-      signal: combinedSignal,
-    });
+      vpsApiKeys
+    );
   } catch (err) {
     // Caller-abort: re-throw the original AbortError. The route's
     // isCallerAbort(request.signal) check picks this up and silently
@@ -142,11 +181,11 @@ export async function transcribeViaVps(
     // AbortError but the caller's signal is clean. Surface as a typed
     // "timeout" so log-search alerts can fingerprint frontend-side
     // timeouts vs. upstream-side 504s.
-    if (
-      err instanceof Error &&
-      (err.name === "AbortError" || err.name === "TimeoutError")
-    ) {
-      throw new VpsTranscribeError("timeout", err.message);
+    if (isTimeoutError(err, timeoutSignal)) {
+      throw new VpsTranscribeError(
+        "timeout",
+        err instanceof Error ? err.message : undefined
+      );
     }
     // Everything else (DNS, connection-reset, TLS, "fetch failed") —
     // surface as "network" so 502/503 from the VPS proxy can be told
@@ -177,6 +216,11 @@ export async function transcribeViaVps(
     throw new VpsTranscribeError("network", bodyExcerpt);
   }
 
+  if (signal?.aborted) throwCallerAbort(signal);
+  if (timeoutSignal.aborted) {
+    throw new VpsTranscribeError("timeout", "VPS transcription request timed out");
+  }
+
   if (!response.ok) {
     // Mirror caption-extractor's body-read safety: preserve the status
     // even if `text()` rejects (chunked-transfer break, malformed
@@ -184,13 +228,50 @@ export async function transcribeViaVps(
     // the original status and surfaces as a generic "TypeError: failed
     // to fetch body" — costs an hour in postmortem.
     const text = await response.text().catch(() => "");
+    if (signal?.aborted) throwCallerAbort(signal);
+    if (timeoutSignal.aborted) {
+      throw new VpsTranscribeError(
+        "timeout",
+        "VPS transcription error response timed out"
+      );
+    }
     throw new VpsTranscribeError(response.status, text);
   }
 
-  const raw: unknown = await response.json();
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch (err) {
+    if (signal?.aborted) throwCallerAbort(signal, err);
+    if (isTimeoutError(err, timeoutSignal)) {
+      throw new VpsTranscribeError(
+        "timeout",
+        err instanceof Error ? err.message : undefined
+      );
+    }
+    throw new VpsTranscribeError(
+      "schema",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  if (signal?.aborted) throwCallerAbort(signal);
+  if (timeoutSignal.aborted) {
+    throw new VpsTranscribeError(
+      "timeout",
+      "VPS transcription response timed out"
+    );
+  }
   const parsed = TranscribeResponseSchema.safeParse(raw);
   if (!parsed.success) {
     throw new VpsTranscribeError("schema", parsed.error.message);
+  }
+  if (
+    parsed.data.language.toLowerCase() !== requestedLanguage.toLowerCase()
+  ) {
+    throw new VpsTranscribeError(
+      "schema",
+      `response language ${parsed.data.language} does not match requested language ${requestedLanguage}`
+    );
   }
   // Prefer the new `segments` field; fall through to deriving a single
   // segment from the legacy `transcript` string for the rollout window.
@@ -202,8 +283,9 @@ export async function transcribeViaVps(
     // Hot path during the deploy crossover: log once with a stable errorId
     // so the cleanup PR has a signal the legacy branch is no longer hit
     // before the alias is dropped.
-    console.warn("[vps-client] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
+    logAppEvent("warn", "[vps-client] VPS_LEGACY_TRANSCRIPT_FALLBACK", {
       errorId: "VPS_LEGACY_TRANSCRIPT_FALLBACK",
+      requestId,
     });
     segments = [
       { text: parsed.data.transcript, start: 0, duration: 0 },

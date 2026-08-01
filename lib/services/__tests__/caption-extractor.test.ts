@@ -1,6 +1,8 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   buildCaptionsUrl,
+  CaptionExtractionError,
+  captionErrorId,
   extractCaptions,
 } from "../caption-extractor";
 
@@ -37,14 +39,20 @@ describe("extractCaptions", () => {
     vi.stubEnv("VPS_API_KEY", "secret");
   }
 
-  it("returns null when URL has no video ID (no network call)", async () => {
-    stubEnv();
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const result = await extractCaptions("not-a-youtube-url");
-    expect(result).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+  it.each(["not-a-youtube-url", "https://youtu.be/abc"])(
+    "rejects an invalid YouTube URL (%s) before making a caption request",
+    async (youtubeUrl) => {
+      stubEnv();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await extractCaptions(youtubeUrl).catch((err) => err);
+
+      expect(error).toBeInstanceOf(CaptionExtractionError);
+      expect(error).toMatchObject({ status: "schema" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it("trims whitespace from VPS_API_URL and VPS_API_KEY", async () => {
     vi.stubEnv("VPS_API_URL", "  https://vps.example.com\n");
@@ -202,6 +210,32 @@ describe("extractCaptions", () => {
     );
   });
 
+  it.each([
+    ["und", "undetermined sentinel"],
+    ["zxx", "non-linguistic sentinel"],
+    ["mul", "multiple-languages sentinel"],
+    ["mis", "uncoded-languages sentinel"],
+    ["en_US", "underscore-separated code"],
+    ["--model", "CLI flag"],
+  ])("rejects invalid lang=%s (%s) before the network call", async (lang) => {
+    stubEnv();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      undefined,
+      lang
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "schema" });
+    expect(captionErrorId((error as CaptionExtractionError).status)).toBe(
+      "VPS_CAPTIONS_FAILED_SCHEMA"
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns null on 404 (no_captions) without logging", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -218,7 +252,7 @@ describe("extractCaptions", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("returns null and logs on 500 (paid fallback signal)", async () => {
+  it("throws a typed error on 500 instead of triggering paid fallback", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -227,10 +261,14 @@ describe("extractCaptions", () => {
         .fn()
         .mockResolvedValue(jsonResponse({ error: "Internal error" }, 500))
     );
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({
+      status: 500,
+      bodyExcerpt: '{"error":"Internal error"}',
+    });
     expect(spy).toHaveBeenCalledWith(
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({
@@ -240,17 +278,18 @@ describe("extractCaptions", () => {
     );
   });
 
-  it("returns null and logs when fetch throws (network error)", async () => {
+  it("throws a typed network error when fetch throws", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockRejectedValue(new TypeError("network down"))
     );
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "network" });
     expect(spy).toHaveBeenCalledWith(
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({ errorClass: "TypeError" })
@@ -278,12 +317,13 @@ describe("extractCaptions", () => {
       controller.signal
     );
     controller.abort();
-    const result = await promise;
-    expect(result).toBeNull();
+    const error = await promise.catch((err) => err);
+    expect(error).not.toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ name: "AbortError" });
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("surfaces an internal timeout as a logged failure (not as a silent caller-abort)", async () => {
+  it("surfaces an internal timeout as a typed failure (not as a silent caller-abort)", async () => {
     stubEnv();
     // Internal-timeout aborts must log; only caller-initiated aborts stay
     // silent. 1ms guarantees the timeout fires before the mock fetch resolves.
@@ -308,11 +348,12 @@ describe("extractCaptions", () => {
     );
 
     const callerController = new AbortController();
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       callerController.signal
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "timeout" });
     // Caller's own signal was NOT aborted — the internal timeout fired.
     // This must log so the on-call alert fires on a stuck VPS.
     expect(callerController.signal.aborted).toBe(false);
@@ -322,7 +363,7 @@ describe("extractCaptions", () => {
     );
   });
 
-  it("returns null and logs when 200 response body isn't valid JSON", async () => {
+  it("throws a typed schema error when 200 response body isn't valid JSON", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
@@ -334,37 +375,60 @@ describe("extractCaptions", () => {
         })
       )
     );
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "schema" });
     expect(spy).toHaveBeenCalledWith(
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({ errorClass: "JsonParse" })
     );
   });
 
-  it("returns null and logs on schema mismatch", async () => {
+  it("surfaces a typed timeout when reading a successful response times out", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockRejectedValue(
+          new DOMException("response timed out", "TimeoutError")
+        ),
+      } as unknown as Response)
+    );
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "timeout" });
+  });
+
+  it("throws a typed schema error on schema mismatch", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse({ transcript: "hi" }, 200))
     );
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "schema" });
     expect(spy).toHaveBeenCalledWith(
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({ errorClass: "SchemaMismatch" })
     );
   });
 
-  it("returns null when segments array is empty", async () => {
-    // Mirror of the lib's "no captions available → fall back" semantics:
-    // a 200 response with zero segments must be classified the same as
-    // 404 (no_captions), not as a usable transcript with empty text.
+  it("throws a typed schema error when segments array is empty", async () => {
+    // An empty 200 response is an invalid provider response, not the
+    // documented 404 no_captions result. It must not silently trigger
+    // Whisper or reach the LLM as an empty Transcript.
     stubEnv();
     vi.stubGlobal(
       "fetch",
@@ -378,10 +442,45 @@ describe("extractCaptions", () => {
         })
       )
     );
-    const result = await extractCaptions(
+    const error = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    );
-    expect(result).toBeNull();
+    ).catch((err) => err);
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "schema" });
+  });
+
+  it.each([
+    {
+      segments: [{ text: "   ", start: 0, duration: 1 }],
+      source: "auto_captions",
+      language: "en",
+      title: null,
+      channelName: null,
+    },
+    {
+      transcript: "   ",
+      source: "auto_captions",
+      language: "en",
+      title: null,
+      channelName: null,
+    },
+    {
+      segments: [{ text: "&nbsp;", start: 0, duration: 1 }],
+      source: "auto_captions",
+      language: "en",
+      title: null,
+      channelName: null,
+    },
+  ])("rejects caption responses without visible transcript text", async (body) => {
+    stubEnv();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "schema" });
   });
 
   it("returns shaped CaptionResult on 200, normalizing null title/channel to empty strings", async () => {

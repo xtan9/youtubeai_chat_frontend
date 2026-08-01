@@ -1,6 +1,7 @@
 import "server-only";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
 import { SONNET, type KnownModel } from "./models";
+import { logAppEvent } from "@/lib/observability";
 
 export type ChatLlmEvent =
   | { readonly type: "delta"; readonly text: string }
@@ -91,9 +92,9 @@ export async function* streamChatCompletion(
           }
         } catch (err) {
           if (malformedWarnings < MAX_MALFORMED_WARNINGS) {
-            console.warn("[llm-chat-client] malformed chunk", {
-              err,
-              payloadExcerpt: payload.slice(0, 80),
+            logAppEvent("warn", "[llm-chat-client] malformed chunk", {
+              errorId: "CHAT_LLM_MALFORMED_CHUNK",
+              errorName: err instanceof Error ? err.name : typeof err,
             });
             malformedWarnings++;
           }

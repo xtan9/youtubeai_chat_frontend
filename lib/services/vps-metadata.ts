@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { REQUEST_ID_HEADER } from "../request-id";
+import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
+import { normalizeYouTubeVideoInput } from "./youtube-url";
+import { resolveBoundedTimeoutMs } from "./transcription-contract";
 
 // Sentinel codes that mean "no linguistic content" or "ambiguous" —
 // forwarding them downstream as a `lang` param produces cryptic CLI
@@ -50,6 +54,28 @@ const VpsMetadataResponseSchema = z.object({
   availableCaptions: z.array(LanguageCodeSchema),
 });
 
+// The service's request schema accepts a URL, while product callers may
+// submit the raw 11-character video ID copied from YouTube. Normalize IDs at
+// this boundary so every downstream request still uses the contract's
+// `youtube_url` field and invalid input never reaches the VPS.
+const VpsMetadataRequestSchema = z.object({
+  youtube_url: z
+    .string()
+    .trim()
+    .min(1, "youtube_url is required")
+    .transform((value, ctx) => {
+      const normalized = normalizeYouTubeVideoInput(value);
+      if (normalized === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "youtube_url must be a valid YouTube URL or video ID",
+        });
+        return z.NEVER;
+      }
+      return normalized;
+    }),
+});
+
 export type VpsMetadata = z.infer<typeof VpsMetadataResponseSchema>;
 
 /**
@@ -89,6 +115,7 @@ export type VpsMetadataResult =
 // call doesn't steal the budget from the still-mandatory transcription
 // work that follows.
 const DEFAULT_VPS_METADATA_TIMEOUT_MS = 30_000;
+const MAX_VPS_METADATA_TIMEOUT_MS = 60_000;
 
 export function buildMetadataUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/metadata`;
@@ -102,17 +129,33 @@ export function buildMetadataUrl(baseUrl: string): string {
  */
 export async function fetchVpsMetadata(
   youtubeUrl: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestId?: string
 ): Promise<VpsMetadataResult> {
+  const validatedRequest = VpsMetadataRequestSchema.safeParse({
+    youtube_url: youtubeUrl,
+  });
+  if (!validatedRequest.success) {
+    return {
+      ok: false,
+      reason: "schema",
+      issues: validatedRequest.error.issues,
+    };
+  }
+
   const vpsBaseUrl = process.env.VPS_API_URL?.trim();
-  const vpsApiKey = process.env.VPS_API_KEY?.trim();
-  if (!vpsBaseUrl || !vpsApiKey) {
+  const vpsApiKeys = getVpsApiKeys();
+  if (!vpsBaseUrl || vpsApiKeys.length === 0) {
     return { ok: false, reason: "config" };
   }
 
-  const timeoutMs =
-    Number(process.env.VPS_METADATA_TIMEOUT_MS) ||
-    DEFAULT_VPS_METADATA_TIMEOUT_MS;
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+
+  const timeoutMs = resolveBoundedTimeoutMs(
+    process.env.VPS_METADATA_TIMEOUT_MS,
+    DEFAULT_VPS_METADATA_TIMEOUT_MS,
+    MAX_VPS_METADATA_TIMEOUT_MS
+  );
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
@@ -120,22 +163,32 @@ export async function fetchVpsMetadata(
 
   let response: Response;
   try {
-    response = await fetch(buildMetadataUrl(vpsBaseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${vpsApiKey}`,
+    response = await fetchWithVpsKeyRotation(
+      buildMetadataUrl(vpsBaseUrl),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
+        },
+        body: JSON.stringify(validatedRequest.data),
+        signal: combinedSignal,
       },
-      body: JSON.stringify({ youtube_url: youtubeUrl }),
-      signal: combinedSignal,
-    });
+      vpsApiKeys
+    );
   } catch (err) {
     if (signal?.aborted) return { ok: false, reason: "aborted" };
-    if (err instanceof Error && err.name === "TimeoutError") {
+    if (
+      timeoutSignal.aborted ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
       return { ok: false, reason: "timeout" };
     }
     return { ok: false, reason: "error", error: err };
   }
+
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
 
   if (!response.ok) {
     return { ok: false, reason: "non_ok", status: response.status };
@@ -145,13 +198,26 @@ export async function fetchVpsMetadata(
   try {
     raw = await response.json();
   } catch (err) {
+    if (signal?.aborted) return { ok: false, reason: "aborted" };
+    if (
+      timeoutSignal.aborted ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
+      return { ok: false, reason: "timeout" };
+    }
     return { ok: false, reason: "error", error: err };
   }
+
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
 
   const parsed = VpsMetadataResponseSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, reason: "schema", issues: parsed.error.issues };
   }
+
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
 
   return { ok: true, data: parsed.data };
 }

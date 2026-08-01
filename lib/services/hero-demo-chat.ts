@@ -5,6 +5,7 @@ import {
 } from "@/app/components/hero-demo-data";
 import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
 import { getYoutubeVideoId } from "@/app/summary/utils";
+import { logAppEvent } from "@/lib/observability";
 import {
   SUPPORTED_LANGUAGE_CODES,
   type SupportedLanguageCode,
@@ -59,10 +60,10 @@ export async function loadHeroDemoSummary(
   try {
     base = await sample.loadBase();
   } catch (err) {
-    console.error("[hero-demo-chat] sample base load failed", {
+    logAppEvent("error", "[hero-demo-chat] sample base load failed", {
       errorId: "HERO_DEMO_BASE_LOAD_FAILED",
       videoId: id,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
@@ -82,12 +83,12 @@ export async function loadHeroDemoSummary(
   try {
     summary = await sample.loadSummary(lang);
   } catch (err) {
-    console.error("[hero-demo-chat] sample summary load failed", {
+    logAppEvent("error", "[hero-demo-chat] sample summary load failed", {
       errorId: "HERO_DEMO_SUMMARY_LOAD_FAILED",
       videoId: id,
       lang,
       nativeLanguage: base.nativeLanguage,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
@@ -122,10 +123,10 @@ export async function loadHeroDemoTranscript(
     // Same root cause as HERO_DEMO_BASE_LOAD_FAILED in the summary
     // path; the shared id keeps Sentry triage from chasing two
     // phantom incidents when one base chunk breaks.
-    console.error("[hero-demo-chat] sample base load failed", {
+    logAppEvent("error", "[hero-demo-chat] sample base load failed", {
       errorId: "HERO_DEMO_BASE_LOAD_FAILED",
       videoId: id,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }

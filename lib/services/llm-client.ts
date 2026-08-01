@@ -1,5 +1,6 @@
 import type { ClientStage } from "@/lib/stages";
 import { SONNET, type KnownModel } from "./models";
+import { logAppEvent } from "@/lib/observability";
 
 export type LlmEvent =
   | {
@@ -143,9 +144,10 @@ export async function* streamLlmSummary(
         } catch {
           malformedChunks++;
           if (malformedLogged < MAX_MALFORMED_WARNINGS) {
-            console.warn(
+            logAppEvent(
+              "warn",
               "[llm-client] malformed SSE chunk (suppressing further)",
-              { preview: jsonStr.slice(0, 120) }
+              { errorId: "LLM_MALFORMED_CHUNK" }
             );
             malformedLogged++;
           }
@@ -187,7 +189,7 @@ export async function* streamLlmSummary(
   // meaningful fraction of it. Surface the final count so on-call can alert
   // on the pattern without relying on the suppressed per-chunk logs.
   if (malformedChunks > 0) {
-    console.error("[llm-client] stream completed with malformed chunks", {
+    logAppEvent("error", "[llm-client] stream completed with malformed chunks", {
       errorId: "LLM_MALFORMED_CHUNKS",
       malformedChunks,
       contentReceived: true,
@@ -235,7 +237,7 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
   const isValidTimeout =
     Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs >= 1;
   if (!isValidTimeout) {
-    console.error("[llm-client] invalid timeoutMs — using default", {
+    logAppEvent("error", "[llm-client] invalid timeoutMs - using default", {
       errorId: "LLM_GATEWAY_TIMEOUT_INVALID",
       requestedTimeoutMs,
       appliedTimeoutMs: DEFAULT_CALL_TIMEOUT_MS,
@@ -276,10 +278,10 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
     // with a stable errorId so on-call can alert on the pattern and tell
     // "empty body" from "body read crashed" apart in postmortem.
     const text = await response.text().catch((err) => {
-      console.error("[llm-client] failed to read error response body", {
+      logAppEvent("error", "[llm-client] failed to read error response body", {
         errorId: "LLM_GATEWAY_BODY_READ_FAILED",
         status: response.status,
-        err,
+        errorName: err instanceof Error ? err.name : typeof err,
       });
       return "";
     });

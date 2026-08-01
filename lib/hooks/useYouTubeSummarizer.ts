@@ -5,6 +5,7 @@ import type { SummaryResult } from "@/lib/types";
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
+import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import {
   QueryFunctionContext,
   useQuery,
@@ -26,6 +27,44 @@ export class SummaryRequestError extends Error {
     super(message);
     this.name = "SummaryRequestError";
   }
+}
+
+function isAbortLike(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
+
+function callerAbortError(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error && reason.name === "AbortError") return reason;
+
+  const abortError = new DOMException(
+    reason instanceof Error ? reason.message : "The operation was aborted",
+    "AbortError"
+  );
+  if (reason !== undefined) {
+    Object.defineProperty(abortError, "cause", {
+      configurable: true,
+      value: reason,
+    });
+  }
+  return abortError;
+}
+
+function shouldRetrySummaryRequest(
+  failureCount: number,
+    error: unknown
+): boolean {
+  if (isAbortLike(error)) return false;
+  if (
+    error instanceof SummaryRequestError &&
+    [408, 413, 429, 503, 504].includes(error.status)
+  ) {
+    return false;
+  }
+  return failureCount < 1;
 }
 
 // `outputLanguage = null` means "use the video's own language" — matches the
@@ -69,8 +108,9 @@ export function useYouTubeSummarizer(
     ]
   >): AsyncIterable<SummaryResult> {
     const [, urlArg, includeTranscriptArg, outputLanguageArg] = queryKey;
+    const requestId = resolveRequestId(undefined);
     debugLog("Fetching streaming summary:", {
-      url: urlArg,
+      requestId,
       includeTranscript: includeTranscriptArg,
       outputLanguage: outputLanguageArg,
     });
@@ -84,6 +124,10 @@ export function useYouTubeSummarizer(
       );
     }
 
+    if (signal.aborted) {
+      throw callerAbortError(signal);
+    }
+
     const response = await fetch(
       "/api/summarize/stream",
       {
@@ -91,6 +135,7 @@ export function useYouTubeSummarizer(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
+          [REQUEST_ID_HEADER]: requestId,
         },
         body: JSON.stringify({
           youtube_url: urlArg,
@@ -105,20 +150,28 @@ export function useYouTubeSummarizer(
       }
     );
 
-    debugLog("Response status:", response.status);
+    if (signal.aborted) throw callerAbortError(signal);
+
+    debugLog("Response status:", { requestId, status: response.status });
 
     if (!response.ok) {
       let errorData: { message?: string; errorCode?: string; tier?: string; upgradeUrl?: string } = {};
       try {
         errorData = await response.json();
-      } catch (parseErr) {
+      } catch {
+        if (signal.aborted) throw callerAbortError(signal);
         console.error("[summarize-stream] non-JSON error body", {
           errorId: "SUMMARIZE_ERROR_BODY_PARSE_FAIL",
           status: response.status,
-          parseErr,
+          requestId,
         });
       }
-      console.error("Error response:", errorData);
+      if (signal.aborted) throw callerAbortError(signal);
+      console.error("[summarize-stream] request failed", {
+        errorId: response.headers.get("X-Error-ID") ?? "SUMMARIZE_REQUEST_FAILED",
+        status: response.status,
+        requestId: response.headers.get(REQUEST_ID_HEADER) ?? requestId,
+      });
       if (response.status === 402) {
         throw new UpgradeRequiredError({
           errorCode: (errorData.errorCode as UpgradeRequiredError["errorCode"]) ?? "free_quota_exceeded",
@@ -146,27 +199,48 @@ export function useYouTubeSummarizer(
     let accumulatedData = "";
     let chunkCount = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        debugLog("Streaming finished. Total chunks:", chunkCount);
-        break;
+    try {
+      while (true) {
+        if (signal.aborted) {
+          throw callerAbortError(signal);
+        }
+        const { done, value } = await reader.read();
+        if (done) {
+          debugLog("Streaming finished. Total chunks:", chunkCount);
+          break;
+        }
+        if (signal.aborted) {
+          throw callerAbortError(signal);
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedData += chunk;
+        chunkCount++;
+
+        debugLog("Summary stream chunk received", {
+          requestId,
+          chunkCount,
+          chunkBytes: chunk.length,
+        });
+
+        // Yield raw accumulated data - let consumer parse it
+        yield {
+          title: "Streaming Summary",
+          duration: "Streaming in progress",
+          summary: accumulatedData,
+          transcriptionTime: 0,
+          summaryTime: 0,
+        };
       }
-
-      const chunk = decoder.decode(value, { stream: true });
-      accumulatedData += chunk;
-      chunkCount++;
-
-      debugLog(`Chunk ${chunkCount}:`, chunk);
-
-      // Yield raw accumulated data - let consumer parse it
-      yield {
-        title: "Streaming Summary",
-        duration: "Streaming in progress",
-        summary: accumulatedData,
-        transcriptionTime: 0,
-        summaryTime: 0,
-      };
+    } catch (error) {
+      if (signal.aborted && !isAbortLike(error)) {
+        throw callerAbortError(signal);
+      }
+      throw error;
+    } finally {
+      if (signal.aborted) {
+        await reader.cancel().catch(() => undefined);
+      }
     }
   };
 
@@ -192,7 +266,7 @@ export function useYouTubeSummarizer(
       streamFn: fetchStreamingSummary,
     }),
     enabled: false,
-    retry: 1,
+    retry: shouldRetrySummaryRequest,
   };
 
   const streamingSummarizationQuery = useQuery(queryOptions);

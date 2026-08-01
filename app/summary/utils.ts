@@ -18,6 +18,7 @@ export function parseStreamingData(rawData: string): {
   progress: StreamingProgress | null;
   isCached: boolean;
   streamError: string | null;
+  streamErrorId: string | null;
 } {
   let accumulatedSummary = "";
   let title = "Streaming Summary";
@@ -31,6 +32,8 @@ export function parseStreamingData(rawData: string): {
   // this hook the client silently drops error events and the progress bar
   // stalls at whatever stage was in flight — no feedback to the user.
   let streamError: string | null = null;
+  let streamErrorId: string | null = null;
+  let transcriptSource: SummaryResult["transcriptSource"];
 
   // Parse Server-Sent Events format
   const lines = rawData.split("\n");
@@ -152,6 +155,13 @@ export function parseStreamingData(rawData: string): {
               }
               segments = filtered;
             }
+            if (
+              data.source === "manual_captions" ||
+              data.source === "auto_captions" ||
+              data.source === "whisper"
+            ) {
+              transcriptSource = data.source;
+            }
             break;
 
           case "timing":
@@ -188,6 +198,8 @@ export function parseStreamingData(rawData: string): {
                 ? data.message
                 : "Something went wrong. Please try again.";
             streamError = errorMessage;
+            streamErrorId =
+              typeof data.errorId === "string" ? data.errorId : null;
             currentProgress = {
               stage: "complete",
               message: errorMessage,
@@ -220,10 +232,12 @@ export function parseStreamingData(rawData: string): {
       transcriptionTime,
       summaryTime,
       segments,
+      transcriptSource,
     },
     progress: currentProgress,
     isCached,
     streamError,
+    streamErrorId,
   };
 }
 

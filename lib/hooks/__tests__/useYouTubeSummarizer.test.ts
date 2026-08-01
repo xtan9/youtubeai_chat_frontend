@@ -305,6 +305,40 @@ describe("useYouTubeSummarizer", () => {
     expect(mockPush).toHaveBeenCalledTimes(2);
   });
 
+  it("does not automatically retry a resource-limit response", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: "Too many requests" }), {
+          status: 429,
+          headers: { "X-Error-ID": "RATE_LIMITED" },
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() }
+    );
+
+    let refetchResult: Awaited<
+      ReturnType<typeof result.current.summarizationQuery.refetch>
+    >;
+    await act(async () => {
+      refetchResult = await result.current.summarizationQuery.refetch();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(refetchResult!.isError).toBe(true);
+    expect(refetchResult!.error).toMatchObject({
+      status: 429,
+    });
+  });
+
   it("does NOT redirect on 403 (only 401 redirects per getAuthErrorInfo)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockUserCtx = {

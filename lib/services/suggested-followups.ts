@@ -2,6 +2,7 @@ import "server-only";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { callLlmJson } from "./llm-client";
 import { SONNET, type KnownModel } from "./models";
+import { logAppEvent } from "@/lib/observability";
 // Validated via zod so a future schema-drift in either the LLM output
 // OR a hand-edit of the cached row surfaces as a parse error rather
 // than a silent "render two suggestions" or "render undefined" UX bug.
@@ -57,11 +58,10 @@ export async function readSuggestedFollowups(
     .is("output_language", null)
     .maybeSingle();
   if (error) {
-    console.error("[suggested-followups] read failed", {
+    logAppEvent("error", "[suggested-followups] read failed", {
       errorId: "FOLLOWUPS_READ_FAILED",
       videoId,
-      code: error.code,
-      message: error.message,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
@@ -72,10 +72,10 @@ export async function readSuggestedFollowups(
   if (!parsed.success) {
     // A drifted row (manual edit, future schema change) shouldn't break
     // the empty state — log and fall back to "regenerate".
-    console.error("[suggested-followups] cached row failed schema", {
+    logAppEvent("error", "[suggested-followups] cached row failed schema", {
       errorId: "FOLLOWUPS_SCHEMA_DRIFT",
       videoId,
-      issues: parsed.error.issues,
+      errorClass: "SchemaMismatch",
     });
     return null;
   }
@@ -99,11 +99,10 @@ export async function writeSuggestedFollowups(
     .eq("video_id", videoId)
     .is("output_language", null);
   if (error) {
-    console.error("[suggested-followups] write failed", {
+    logAppEvent("error", "[suggested-followups] write failed", {
       errorId: "FOLLOWUPS_WRITE_FAILED",
       videoId,
-      code: error.code,
-      message: error.message,
+      errorClass: "SupabaseError",
     });
     throw error;
   }
@@ -140,19 +139,17 @@ export async function generateSuggestedFollowups(
   try {
     parsed = JSON.parse(trimmed);
   } catch (err) {
-    console.error("[suggested-followups] LLM emitted non-JSON", {
+    logAppEvent("error", "[suggested-followups] LLM emitted non-JSON", {
       errorId: "FOLLOWUPS_LLM_NON_JSON",
-      preview: trimmed.slice(0, 200),
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     throw new Error("Suggested-followups response was not JSON");
   }
   const validated = SuggestedFollowupsSchema.safeParse(parsed);
   if (!validated.success) {
-    console.error("[suggested-followups] LLM output failed schema", {
+    logAppEvent("error", "[suggested-followups] LLM output failed schema", {
       errorId: "FOLLOWUPS_LLM_SCHEMA",
-      preview: trimmed.slice(0, 200),
-      issues: validated.error.issues,
+      errorClass: "SchemaMismatch",
     });
     throw new Error("Suggested-followups response failed schema");
   }

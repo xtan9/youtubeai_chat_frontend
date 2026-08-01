@@ -10,6 +10,7 @@ import { z } from "zod";
 import { callLlmJson } from "./llm-client";
 import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
 import { HAIKU, SONNET, type KnownModel } from "./models";
+import { logAppEvent } from "@/lib/observability";
 
 // Re-export so existing consumers (route.ts, tests) keep their import path.
 export { HAIKU, SONNET };
@@ -235,10 +236,10 @@ export async function classifyContent(
     // noise and mask real classifier failures. The 5s timeout fires via a
     // different AbortSignal, so timeouts continue to log as CLASSIFIER_FAILED.
     if (options.signal.aborted) return null;
-    console.error("[routing] classifier call failed", {
+    logAppEvent("error", "[routing] classifier call failed", {
       errorId: "CLASSIFIER_FAILED",
       stage: "classify",
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
@@ -247,21 +248,20 @@ export async function classifyContent(
   try {
     parsed = JSON.parse(raw.trim());
   } catch (err) {
-    console.error("[routing] classifier response not valid JSON", {
+    logAppEvent("error", "[routing] classifier response not valid JSON", {
       errorId: "CLASSIFIER_FAILED",
       stage: "classify",
-      preview: raw.slice(0, 200),
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return null;
   }
 
   const validated = ClassifierSchema.safeParse(parsed);
   if (!validated.success) {
-    console.error("[routing] classifier response failed schema", {
+    logAppEvent("error", "[routing] classifier response failed schema", {
       errorId: "CLASSIFIER_FAILED",
       stage: "classify",
-      issues: validated.error.issues,
+      errorClass: "SchemaMismatch",
     });
     return null;
   }

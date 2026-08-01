@@ -9,6 +9,7 @@ import {
   ChatMessagesQuerySchema,
   type ChatMessagesResponse,
 } from "@/lib/api-contracts/chat";
+import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
 function jsonError(status: number, message: string) {
   return new Response(JSON.stringify({ message }), {
@@ -27,9 +28,9 @@ async function authenticate(): Promise<
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      console.error("[chat/messages] auth failed", {
+      logAppEvent("error", "[chat/messages] auth failed", {
         status: error.status ?? null,
-        message: error.message,
+        errorId: "CHAT_MESSAGES_AUTH_FAILED",
       });
       return {
         ok: false,
@@ -41,7 +42,10 @@ async function authenticate(): Promise<
     }
     return { ok: true, user: data.user };
   } catch (err) {
-    console.error("[chat/messages] auth threw", { err });
+    logAppEvent("error", "[chat/messages] auth threw", {
+      errorId: "CHAT_MESSAGES_AUTH_THREW",
+      errorName: err instanceof Error ? err.name : typeof err,
+    });
     return {
       ok: false,
       response: jsonError(503, "Auth service temporarily unavailable."),
@@ -60,11 +64,11 @@ export async function GET(request: Request) {
   if (!parsed.success) {
     // Log so a frontend regression that ships malformed query params
     // surfaces in ops dashboards before users notice 400 banners.
-    console.warn("[chat/messages] invalid query (GET)", {
+    logAppEvent("warn", "[chat/messages] invalid query (GET)", {
       errorId: "CHAT_MESSAGES_QUERY_INVALID",
-      issues: parsed.error.issues,
+      errorClass: "SchemaMismatch",
     });
-    return jsonError(400, `Invalid query: ${parsed.error.message}`);
+    return jsonError(400, "Invalid query");
   }
 
   const auth = await authenticate();
@@ -78,10 +82,10 @@ export async function GET(request: Request) {
     // URL" (expected, brief) from "transcript cache evicted while a chat
     // tab was open" (would point at a cache-policy regression). Without
     // this signal the 200/empty response is silent in production logs.
-    console.info("[chat/messages] empty list — no transcript cached", {
+    logAppEvent("info", "[chat/messages] empty list — no transcript cached", {
       errorId: "CHAT_MESSAGES_NO_TRANSCRIPT",
       userId: auth.user.id,
-      youtubeUrl: parsed.data.youtube_url,
+      videoId: videoIdForLog(parsed.data.youtube_url),
     });
     const empty: ChatMessagesResponse = { messages: [] };
     return Response.json(empty);
@@ -99,10 +103,10 @@ export async function GET(request: Request) {
     };
     return Response.json(body);
   } catch (err) {
-    console.error("[chat/messages] list failed", {
+    logAppEvent("error", "[chat/messages] list failed", {
       errorId: "CHAT_MESSAGES_LIST_FAILED",
       userId: auth.user.id,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return jsonError(503, "Could not load chat history.");
   }
@@ -111,11 +115,11 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
   const parsed = parseQuery(request);
   if (!parsed.success) {
-    console.warn("[chat/messages] invalid query (DELETE)", {
+    logAppEvent("warn", "[chat/messages] invalid query (DELETE)", {
       errorId: "CHAT_MESSAGES_QUERY_INVALID",
-      issues: parsed.error.issues,
+      errorClass: "SchemaMismatch",
     });
-    return jsonError(400, `Invalid query: ${parsed.error.message}`);
+    return jsonError(400, "Invalid query");
   }
 
   const auth = await authenticate();
@@ -124,10 +128,10 @@ export async function DELETE(request: Request) {
   // Same fail-soft as GET: no videos row → nothing to clear, return 204.
   const transcript = await getCachedTranscript(parsed.data.youtube_url);
   if (!transcript) {
-    console.info("[chat/messages] clear no-op — no transcript cached", {
+    logAppEvent("info", "[chat/messages] clear no-op — no transcript cached", {
       errorId: "CHAT_MESSAGES_CLEAR_NO_TRANSCRIPT",
       userId: auth.user.id,
-      youtubeUrl: parsed.data.youtube_url,
+      videoId: videoIdForLog(parsed.data.youtube_url),
     });
     return new Response(null, { status: 204 });
   }
@@ -136,10 +140,10 @@ export async function DELETE(request: Request) {
     await clearChatMessages(auth.user.id, transcript.videoId);
     return new Response(null, { status: 204 });
   } catch (err) {
-    console.error("[chat/messages] clear failed", {
+    logAppEvent("error", "[chat/messages] clear failed", {
       errorId: "CHAT_MESSAGES_CLEAR_FAILED",
       userId: auth.user.id,
-      err,
+      errorName: err instanceof Error ? err.name : typeof err,
     });
     return jsonError(503, "Could not clear chat history.");
   }

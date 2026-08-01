@@ -4,6 +4,7 @@ import type {
 } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import type { ClientStage } from "@/lib/stages";
+import { logAppEvent } from "@/lib/observability";
 
 export type SseEvent =
   | { type: "status"; message: string; stage: ClientStage }
@@ -18,6 +19,7 @@ export type SseEvent =
   | {
       type: "full_transcript";
       segments: readonly TranscriptSegment[];
+      source: CachedSummary["transcriptSource"];
     }
   | {
       type: "summary";
@@ -26,7 +28,7 @@ export type SseEvent =
       summarize_time: number;
       transcribe_time: number;
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; errorId?: string };
 
 export type SendEvent = (data: SseEvent) => void;
 
@@ -47,7 +49,9 @@ export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
     default: {
       // Compile-time exhaustiveness via `never`; runtime log in case a future
       // LlmEvent variant reaches here without this file being updated.
-      console.error("[stream-events] unknown LlmEvent variant", { event });
+      logAppEvent("error", "[stream-events] unknown LlmEvent variant", {
+        errorId: "LLM_EVENT_UNKNOWN",
+      });
       const _exhaustive: never = event;
       return _exhaustive;
     }
@@ -82,7 +86,11 @@ export function streamCached(
   sendEvent({ type: "content", text: cached.summary });
 
   if (opts.includeTranscript && opts.segments && opts.segments.length > 0) {
-    sendEvent({ type: "full_transcript", segments: opts.segments });
+    sendEvent({
+      type: "full_transcript",
+      segments: opts.segments,
+      source: cached.transcriptSource,
+    });
   }
 
   sendEvent({
