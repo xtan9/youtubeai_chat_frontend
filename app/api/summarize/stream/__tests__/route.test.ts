@@ -267,6 +267,13 @@ describe("POST /api/summarize/stream", () => {
       expect(res.status).toBe(400);
     });
 
+    it("returns 400 on a canonical host with a malformed video ID", async () => {
+      const res = await POST(
+        makeRequest({ youtube_url: "https://youtu.be/abc" })
+      );
+      expect(res.status).toBe(400);
+    });
+
     it("returns 400 on host ambiguity (youtube.com@evil.com)", async () => {
       const res = await POST(
         makeRequest({
@@ -723,6 +730,25 @@ describe("POST /api/summarize/stream", () => {
   });
 
   describe("live captions path", () => {
+    it("does not start Whisper when a caption miss races with caller abort", async () => {
+      const controller = new AbortController();
+      mocks.extractCaptions.mockImplementation(async () => {
+        controller.abort();
+        return null;
+      });
+
+      const res = await POST(
+        makeRequest(
+          { youtube_url: VALID_URL },
+          { signal: controller.signal }
+        )
+      );
+      await readStream(res);
+
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
+    });
+
     it("stops on an unexpected caption failure instead of silently paying for Whisper", async () => {
       const { CaptionExtractionError } = await import(
         "@/lib/services/caption-extractor"

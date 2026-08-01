@@ -32,14 +32,15 @@ describe("transcribeViaVps", () => {
       new Response(
         JSON.stringify({
           segments: [{ text: "t", start: 0, duration: 1 }],
-          language: "en",
+          transcript: "t",
+          language: "auto",
           source: "whisper",
         }),
         { status: 200 }
       )
     );
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeViaVps("https://youtu.be/abc");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://vps.example.com/transcribe");
     expect((init.headers as Record<string, string>).Authorization).toBe(
@@ -50,7 +51,7 @@ describe("transcribeViaVps", () => {
   it("treats whitespace-only VPS env vars as unset (throws 'must be configured')", async () => {
     vi.stubEnv("VPS_API_URL", "  \n  ");
     vi.stubEnv("VPS_API_KEY", "\t");
-    await expect(transcribeViaVps("https://youtu.be/abc")).rejects.toThrow(
+    await expect(transcribeViaVps("https://youtu.be/dQw4w9WgXcQ")).rejects.toThrow(
       /VPS_API_URL and VPS_API_KEY must be configured/
     );
   });
@@ -58,7 +59,7 @@ describe("transcribeViaVps", () => {
   it("throws when required env vars are missing", async () => {
     vi.stubEnv("VPS_API_URL", "");
     vi.stubEnv("VPS_API_KEY", "");
-    await expect(transcribeViaVps("https://youtu.be/abc")).rejects.toThrow(
+    await expect(transcribeViaVps("https://youtu.be/dQw4w9WgXcQ")).rejects.toThrow(
       /VPS_API_URL and VPS_API_KEY must be configured/
     );
   });
@@ -74,14 +75,14 @@ describe("transcribeViaVps", () => {
       "fetch",
       vi.fn(() => Promise.resolve(new Response("boom", { status: 502 })))
     );
-    await expect(transcribeViaVps("https://youtu.be/abc")).rejects.toThrow(
+    await expect(transcribeViaVps("https://youtu.be/dQw4w9WgXcQ")).rejects.toThrow(
       /VPS transcription failed \(502\): boom/
     );
     // Also pin the typed shape — a regression to bare `Error` would still
     // satisfy the message regex above, but would silently strip the
     // structured `.status` field the route's catch site logs as
     // `status`.
-    const error = await transcribeViaVps("https://youtu.be/abc").catch(
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
       (e) => e
     );
     expect(error).toBeInstanceOf(VpsTranscribeError);
@@ -102,7 +103,7 @@ describe("transcribeViaVps", () => {
     // Schema-failure path uses the synthetic "schema" status so log-search
     // alerts can branch on the structured field rather than substring-matching
     // the freeform .message.
-    const error = await transcribeViaVps("https://youtu.be/abc").catch(
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
       (e) => e
     );
     expect(error).toBeInstanceOf(VpsTranscribeError);
@@ -110,6 +111,46 @@ describe("transcribeViaVps", () => {
     expect(error.message).toMatch(/VPS transcription failed \(schema\)/);
     expect(error.bodyExcerpt).toBeDefined();
   });
+
+  it.each([
+    "not-a-youtube-url",
+    "https://youtu.be/abc",
+    "https://www.youtube.com/watch?v=abc",
+  ])(
+    "rejects an invalid YouTube URL (%s) before making a transcription request",
+    async (youtubeUrl) => {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await transcribeViaVps(youtubeUrl).catch((e) => e);
+
+      expect(error).toBeInstanceOf(VpsTranscribeError);
+      expect(error).toMatchObject({ status: "schema" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["und", "zxx", "mul", "mis", "en_US", "--model"])(
+    "rejects invalid requested language %s before making a transcription request",
+    async (lang) => {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await transcribeViaVps(
+        "https://youtu.be/dQw4w9WgXcQ",
+        undefined,
+        lang
+      ).catch((e) => e);
+
+      expect(error).toBeInstanceOf(VpsTranscribeError);
+      expect(error).toMatchObject({ status: "schema" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it("throws VpsTranscribeError (not bare Error) so the route can fingerprint upstream status", async () => {
     // Pinning the typed shape: a regression that returned to bare
@@ -123,7 +164,7 @@ describe("transcribeViaVps", () => {
       "fetch",
       vi.fn().mockResolvedValue(new Response("rate limited", { status: 503 }))
     );
-    const error = await transcribeViaVps("https://youtu.be/abc").catch(
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
       (e) => e
     );
     expect(error).toBeInstanceOf(VpsTranscribeError);
@@ -145,16 +186,18 @@ describe("transcribeViaVps", () => {
       new Response(
         JSON.stringify({
           segments: [{ text: "t", start: 0, duration: 1 }],
-          language: "en",
+          transcript: "t",
+          language: "auto",
           source: "whisper",
         }),
         { status: 200 }
       )
     );
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeViaVps("https://youtu.be/abc");
+    const result = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
+    expect(result.language).toBe("auto");
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.body).toBe(JSON.stringify({ youtube_url: "https://youtu.be/abc" }));
+    expect(init.body).toBe(JSON.stringify({ youtube_url: "https://youtu.be/dQw4w9WgXcQ" }));
   });
 
   it("forwards `lang` in body when provided (pins whisper --language)", async () => {
@@ -167,6 +210,7 @@ describe("transcribeViaVps", () => {
       new Response(
         JSON.stringify({
           segments: [{ text: "bonjour", start: 0, duration: 1 }],
+          transcript: "bonjour",
           language: "fr",
           source: "whisper",
         }),
@@ -174,10 +218,10 @@ describe("transcribeViaVps", () => {
       )
     );
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeViaVps("https://youtu.be/abc", undefined, "fr");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ", undefined, "fr");
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.body).toBe(
-      JSON.stringify({ youtube_url: "https://youtu.be/abc", lang: "fr" })
+      JSON.stringify({ youtube_url: "https://youtu.be/dQw4w9WgXcQ", lang: "fr" })
     );
   });
 
@@ -193,20 +237,21 @@ describe("transcribeViaVps", () => {
               { text: "hello", start: 0, duration: 1 },
               { text: "world", start: 1, duration: 1 },
             ],
-            language: "en",
+            transcript: "hello world",
+            language: "auto",
             source: "whisper",
           }),
           { status: 200 }
         )
       )
     );
-    const result = await transcribeViaVps("https://youtu.be/abc");
+    const result = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     expect(result).toEqual({
       segments: [
         { text: "hello", start: 0, duration: 1 },
         { text: "world", start: 1, duration: 1 },
       ],
-      language: "en",
+      language: "auto",
       source: "whisper",
     });
   });
@@ -224,6 +269,54 @@ describe("transcribeViaVps", () => {
           JSON.stringify({
             segments: [{ text: "hi", start: 0, duration: 1 }],
             transcript: "hi",
+            language: "auto",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+    const result = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
+    expect(result.segments).toEqual([
+      { text: "hi", start: 0, duration: 1 },
+    ]);
+  });
+
+  it("rejects canonical segments without the compatibility transcript", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            segments: [{ text: "hi", start: 0, duration: 1 }],
+            language: "auto",
+            source: "whisper",
+          }),
+          { status: 200 }
+        )
+      )
+    );
+
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
+      (e) => e
+    );
+
+    expect(error).toBeInstanceOf(VpsTranscribeError);
+    expect(error).toMatchObject({ status: "schema" });
+  });
+
+  it("rejects a response whose effective language differs from the request", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            segments: [{ text: "bonjour", start: 0, duration: 1 }],
+            transcript: "bonjour",
             language: "en",
             source: "whisper",
           }),
@@ -231,10 +324,15 @@ describe("transcribeViaVps", () => {
         )
       )
     );
-    const result = await transcribeViaVps("https://youtu.be/abc");
-    expect(result.segments).toEqual([
-      { text: "hi", start: 0, duration: 1 },
-    ]);
+
+    const error = await transcribeViaVps(
+      "https://youtu.be/dQw4w9WgXcQ",
+      undefined,
+      "fr"
+    ).catch((e) => e);
+
+    expect(error).toBeInstanceOf(VpsTranscribeError);
+    expect(error).toMatchObject({ status: "schema" });
   });
 
   it("falls back to a single segment when only legacy `transcript` is present (forward-compat)", async () => {
@@ -250,17 +348,70 @@ describe("transcribeViaVps", () => {
         new Response(
           JSON.stringify({
             transcript: "legacy whisper output",
-            language: "en",
+            language: "auto",
             source: "whisper",
           }),
           { status: 200 }
         )
       )
     );
-    const result = await transcribeViaVps("https://youtu.be/abc");
+    const result = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     expect(result.segments).toEqual([
       { text: "legacy whisper output", start: 0, duration: 0 },
     ]);
+  });
+
+  it.each([
+    {
+      segments: [{ text: "", start: 0, duration: 1 }],
+      language: "auto",
+      source: "whisper",
+    },
+    {
+      segments: [{ text: "   ", start: 0, duration: 1 }],
+      language: "auto",
+      source: "whisper",
+    },
+    {
+      transcript: "   ",
+      language: "auto",
+      source: "whisper",
+    },
+  ])(
+    "rejects a successful response without visible transcript text",
+    async (body) => {
+      vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+      vi.stubEnv("VPS_API_KEY", "secret");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(body), { status: 200 })
+        )
+      );
+
+      const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
+        (e) => e
+      );
+
+      expect(error).toBeInstanceOf(VpsTranscribeError);
+      expect(error).toMatchObject({ status: "schema" });
+    }
+  );
+
+  it("translates malformed successful JSON into a typed schema failure", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("not json{", { status: 200 }))
+    );
+
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
+      (e) => e
+    );
+
+    expect(error).toBeInstanceOf(VpsTranscribeError);
+    expect(error).toMatchObject({ status: "schema" });
   });
 
   it("forwards the caller signal to fetch (composed with internal timeout)", async () => {
@@ -270,7 +421,8 @@ describe("transcribeViaVps", () => {
       new Response(
         JSON.stringify({
           segments: [{ text: "t", start: 0, duration: 1 }],
-          language: "en",
+          transcript: "t",
+          language: "auto",
           source: "whisper",
         }),
         { status: 200 }
@@ -279,7 +431,7 @@ describe("transcribeViaVps", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const controller = new AbortController();
-    await transcribeViaVps("https://youtu.be/abc", controller.signal);
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ", controller.signal);
 
     const initArg = fetchMock.mock.calls[0][1] as RequestInit;
     expect(initArg.signal).toBeInstanceOf(AbortSignal);
@@ -315,7 +467,7 @@ describe("transcribeViaVps", () => {
 
     const callerController = new AbortController();
     const error = await transcribeViaVps(
-      "https://youtu.be/abc",
+      "https://youtu.be/dQw4w9WgXcQ",
       callerController.signal
     ).catch((e) => e);
     // Crucially: the caller's own signal was NOT aborted — the internal
@@ -328,6 +480,35 @@ describe("transcribeViaVps", () => {
     // distinguish frontend-side timeouts from upstream-side 504s.
     expect(error).toBeInstanceOf(VpsTranscribeError);
     expect((error as VpsTranscribeError).status).toBe("timeout");
+  });
+
+  it("classifies a timeout that fires while reading a successful response", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    vi.stubEnv("VPS_TIMEOUT_MS", "5");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return {
+            segments: [{ text: "late", start: 0, duration: 1 }],
+            transcript: "late",
+            language: "auto",
+            source: "whisper",
+          };
+        },
+      } as unknown as Response)
+    );
+
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
+      (e) => e
+    );
+
+    expect(error).toBeInstanceOf(VpsTranscribeError);
+    expect(error).toMatchObject({ status: "timeout" });
   });
 
   it("re-throws the original AbortError (untranslated) when the caller signal aborts", async () => {
@@ -356,7 +537,7 @@ describe("transcribeViaVps", () => {
       )
     );
     const promise = transcribeViaVps(
-      "https://youtu.be/abc",
+      "https://youtu.be/dQw4w9WgXcQ",
       callerController.signal
     );
     callerController.abort();
@@ -382,7 +563,7 @@ describe("transcribeViaVps", () => {
       "fetch",
       vi.fn().mockRejectedValue(new TypeError("fetch failed: ECONNRESET"))
     );
-    const error = await transcribeViaVps("https://youtu.be/abc").catch(
+    const error = await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ").catch(
       (e) => e
     );
     expect(error).toBeInstanceOf(VpsTranscribeError);
@@ -412,12 +593,12 @@ describe("transcribeViaVps", () => {
     );
 
     await expect(
-      transcribeViaVps("https://youtu.be/abc", callerController.signal)
+      transcribeViaVps("https://youtu.be/dQw4w9WgXcQ", callerController.signal)
     ).rejects.toBeInstanceOf(TypeError);
     // Most importantly: NOT instanceof VpsTranscribeError — the caller-abort
     // gate must re-throw the original.
     await expect(
-      transcribeViaVps("https://youtu.be/abc", callerController.signal)
+      transcribeViaVps("https://youtu.be/dQw4w9WgXcQ", callerController.signal)
     ).rejects.not.toBeInstanceOf(VpsTranscribeError);
   });
 
@@ -442,7 +623,7 @@ describe("transcribeViaVps", () => {
       );
 
       try {
-        await transcribeViaVps("https://youtu.be/abc");
+        await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
         throw new Error("should have thrown");
       } catch (caught) {
         expect(caught).toBeInstanceOf(VpsTranscribeError);
@@ -460,16 +641,17 @@ describe("transcribeViaVps", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({
-            segments: [{ text: "t", start: 0, duration: 1 }],
-            language: "en",
+        JSON.stringify({
+          segments: [{ text: "t", start: 0, duration: 1 }],
+          transcript: "t",
+          language: "auto",
             source: "whisper",
           }),
           { status: 200 }
         )
       )
     );
-    await transcribeViaVps("https://youtu.be/abc");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     expect(timeoutSpy).toHaveBeenCalledWith(500);
   });
 
@@ -482,16 +664,17 @@ describe("transcribeViaVps", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({
-            segments: [{ text: "t", start: 0, duration: 1 }],
-            language: "en",
+        JSON.stringify({
+          segments: [{ text: "t", start: 0, duration: 1 }],
+          transcript: "t",
+          language: "auto",
             source: "whisper",
           }),
           { status: 200 }
         )
       )
     );
-    await transcribeViaVps("https://youtu.be/abc");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     expect(timeoutSpy).toHaveBeenCalledWith(240_000);
   });
 });

@@ -39,14 +39,20 @@ describe("extractCaptions", () => {
     vi.stubEnv("VPS_API_KEY", "secret");
   }
 
-  it("returns null when URL has no video ID (no network call)", async () => {
-    stubEnv();
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const result = await extractCaptions("not-a-youtube-url");
-    expect(result).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+  it.each(["not-a-youtube-url", "https://youtu.be/abc"])(
+    "rejects an invalid YouTube URL (%s) before making a caption request",
+    async (youtubeUrl) => {
+      stubEnv();
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await extractCaptions(youtubeUrl).catch((err) => err);
+
+      expect(error).toBeInstanceOf(CaptionExtractionError);
+      expect(error).toMatchObject({ status: "schema" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
 
   it("trims whitespace from VPS_API_URL and VPS_API_KEY", async () => {
     vi.stubEnv("VPS_API_URL", "  https://vps.example.com\n");
@@ -378,6 +384,27 @@ describe("extractCaptions", () => {
       "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
       expect.objectContaining({ errorClass: "JsonParse" })
     );
+  });
+
+  it("surfaces a typed timeout when reading a successful response times out", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockRejectedValue(
+          new DOMException("response timed out", "TimeoutError")
+        ),
+      } as unknown as Response)
+    );
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: "timeout" });
   });
 
   it("throws a typed schema error on schema mismatch", async () => {

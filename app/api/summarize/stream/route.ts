@@ -54,6 +54,7 @@ import {
   verifyAnonId,
 } from "@/lib/services/anon-cookie";
 import { checkSummaryEntitlement } from "@/lib/services/entitlements";
+import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 import { randomUUID } from "node:crypto";
 import {
   forwardLlmEvent,
@@ -66,12 +67,8 @@ export const maxDuration = 300;
 
 // Public app → only https URLs on canonical YouTube hosts. Route-level filter
 // is defense-in-depth; the video-id extractor narrows further.
-const YOUTUBE_URL_RE =
-  /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i;
 const RequestBodySchema = z.object({
-  youtube_url: z
-    .url()
-    .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
+  youtube_url: YouTubeUrlSchema,
   include_transcript: z.boolean().optional().default(false),
   // Optional summary-output-language override. Omitted means "video's own
   // language" (current default behavior — matches the video-native cache
@@ -549,6 +546,7 @@ export async function POST(request: Request) {
             request.signal,
             detectedLang ?? undefined
           );
+          if (isCallerAbort(request.signal)) return;
         } catch (err) {
           if (isCallerAbort(request.signal)) return;
           logStageError("captions", err);
@@ -575,6 +573,7 @@ export async function POST(request: Request) {
               request.signal,
               "en"
             );
+            if (isCallerAbort(request.signal)) return;
           } catch (err) {
             if (isCallerAbort(request.signal)) return;
             logStageError("captions", err);
