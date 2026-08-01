@@ -2,6 +2,7 @@ import { z } from "zod";
 import { REQUEST_ID_HEADER } from "../request-id";
 import { fetchWithVpsKeyRotation, getVpsApiKeys } from "./vps-auth";
 import { normalizeYouTubeVideoInput } from "./youtube-url";
+import { resolveBoundedTimeoutMs } from "./transcription-contract";
 
 // Sentinel codes that mean "no linguistic content" or "ambiguous" —
 // forwarding them downstream as a `lang` param produces cryptic CLI
@@ -114,6 +115,7 @@ export type VpsMetadataResult =
 // call doesn't steal the budget from the still-mandatory transcription
 // work that follows.
 const DEFAULT_VPS_METADATA_TIMEOUT_MS = 30_000;
+const MAX_VPS_METADATA_TIMEOUT_MS = 60_000;
 
 export function buildMetadataUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/metadata`;
@@ -147,9 +149,13 @@ export async function fetchVpsMetadata(
     return { ok: false, reason: "config" };
   }
 
-  const timeoutMs =
-    Number(process.env.VPS_METADATA_TIMEOUT_MS) ||
-    DEFAULT_VPS_METADATA_TIMEOUT_MS;
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+
+  const timeoutMs = resolveBoundedTimeoutMs(
+    process.env.VPS_METADATA_TIMEOUT_MS,
+    DEFAULT_VPS_METADATA_TIMEOUT_MS,
+    MAX_VPS_METADATA_TIMEOUT_MS
+  );
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
@@ -181,6 +187,9 @@ export async function fetchVpsMetadata(
     return { ok: false, reason: "error", error: err };
   }
 
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
+
   if (!response.ok) {
     return { ok: false, reason: "non_ok", status: response.status };
   }
@@ -199,10 +208,16 @@ export async function fetchVpsMetadata(
     return { ok: false, reason: "error", error: err };
   }
 
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
+
   const parsed = VpsMetadataResponseSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, reason: "schema", issues: parsed.error.issues };
   }
+
+  if (signal?.aborted) return { ok: false, reason: "aborted" };
+  if (timeoutSignal.aborted) return { ok: false, reason: "timeout" };
 
   return { ok: true, data: parsed.data };
 }

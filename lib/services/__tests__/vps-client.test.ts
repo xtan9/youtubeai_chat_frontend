@@ -677,4 +677,50 @@ describe("transcribeViaVps", () => {
     await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
     expect(timeoutSpy).toHaveBeenCalledWith(240_000);
   });
+
+  it("rejects an already-aborted caller before making a request", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const controller = new AbortController();
+    const reason = new Error("caller cancelled");
+    controller.abort(reason);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      transcribeViaVps("https://youtu.be/dQw4w9WgXcQ", controller.signal)
+    ).rejects.toBe(reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("clamps an excessive timeout and ignores a non-positive timeout", async () => {
+    vi.stubEnv("VPS_API_URL", "https://vps.example.com");
+    vi.stubEnv("VPS_API_KEY", "secret");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              segments: [{ text: "t", start: 0, duration: 1 }],
+              transcript: "t",
+              language: "auto",
+              source: "whisper",
+            }),
+            { status: 200 }
+          )
+        )
+      )
+    );
+
+    vi.stubEnv("VPS_TIMEOUT_MS", "999999999");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
+    expect(timeoutSpy).toHaveBeenLastCalledWith(300_000);
+
+    timeoutSpy.mockClear();
+    vi.stubEnv("VPS_TIMEOUT_MS", "-1");
+    await transcribeViaVps("https://youtu.be/dQw4w9WgXcQ");
+    expect(timeoutSpy).toHaveBeenLastCalledWith(240_000);
+  });
 });

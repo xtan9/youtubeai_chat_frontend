@@ -82,4 +82,22 @@ describe("VPS authentication rotation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await response.text()).toBe("provider failed");
   });
+
+  it("does not rotate keys after the caller has cancelled", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(() => {
+      controller.abort(new Error("caller cancelled"));
+      return Promise.reject(new Error("caller cancelled"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchWithVpsKeyRotation(
+        "https://vps.example.com/transcribe",
+        { method: "POST", signal: controller.signal },
+        ["current-secret", "previous-secret"]
+      )
+    ).rejects.toThrow("caller cancelled");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

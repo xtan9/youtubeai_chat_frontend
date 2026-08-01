@@ -27,7 +27,9 @@ Copy `.env.example` to `.env.local` and fill in:
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Cache writes + rate-limit RPC |
 | `VPS_API_URL` | server only | Whisper microservice base URL |
 | `VPS_API_KEY` | server only | Bearer token for the VPS service |
-| `VPS_TIMEOUT_MS` | server only, optional | Override the 240s VPS call ceiling |
+| `VPS_TIMEOUT_MS` | server only, optional | VPS transcription timeout in milliseconds; values are bounded to a positive 300s maximum |
+| `VPS_METADATA_TIMEOUT_MS` | server only, optional | VPS metadata timeout in milliseconds; values are bounded to a positive 60s maximum |
+| `VPS_CAPTIONS_TIMEOUT_MS` | server only, optional | VPS captions timeout in milliseconds; values are bounded to a positive 60s maximum |
 | `LLM_GATEWAY_URL` | server only | OpenAI-compatible endpoint (e.g. `https://llm.betterr.me/v1`) |
 | `LLM_GATEWAY_API_KEY` | server only | Bearer token for the gateway |
 | `LLM_MODEL` | server only, optional | Legacy fallback for `streamLlmSummary` callers that don't pass an explicit model. The summarize route does NOT use this — see "Model routing" below. |
