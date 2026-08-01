@@ -1,0 +1,119 @@
+name: Vercel Deploy
+
+# Production deploys are chained after the migration workflow, which itself
+# runs only after CI succeeds on main. Manual runs are the explicit backstop
+# and the only way to create a preview deployment.
+on:
+  workflow_run:
+    workflows: [Database Migration]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment environment
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.CONTROLLED_VERCEL_DEPLOYMENTS == 'enabled' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'workflow_run' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+
+    steps:
+      - name: Checkout exact validated commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Classify production changes
+        id: changes
+        if: github.event_name == 'workflow_run'
+        run: node scripts/vercel-deployment-policy.mjs "${DEPLOY_SHA}^" "$DEPLOY_SHA"
+
+      - name: Force explicit manual deployment
+        if: github.event_name == 'workflow_dispatch'
+        id: manual
+        run: echo "deploy=true" >> "$GITHUB_OUTPUT"
+
+      - name: Explain skipped deployment
+        if: >-
+          github.event_name == 'workflow_run' &&
+          steps.changes.outputs.deploy != 'true'
+        run: echo "Skipped Vercel deployment because only non-runtime files changed"
+
+      - name: Pull Vercel environment
+        if: >-
+          steps.changes.outputs.deploy == 'true' ||
+          steps.manual.outputs.deploy == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@58.4.4 pull --yes --environment="$DEPLOY_TARGET"
+
+      # CI already built this exact commit. Vercel performs the provider-
+      # specific packaging remotely, where its dependency cache is available.
+      - name: Deploy through Vercel remote build
+        if: >-
+          steps.changes.outputs.deploy == 'true' ||
+          steps.manual.outputs.deploy == 'true'
+        id: deploy
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [[ "$DEPLOY_TARGET" == "production" ]]; then
+            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes --prod)
+          else
+            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes)
+          fi
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "### Vercel $DEPLOY_TARGET deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "$deployment_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify deployed health endpoint
+        if: steps.deploy.outputs.url
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in {1..12}; do
+            if npx --yes vercel@58.4.4 curl /api/health \
+              --deployment "$DEPLOYMENT_URL" -- --fail --silent --show-error; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Deployment health check did not become ready" >&2
+          exit 1
