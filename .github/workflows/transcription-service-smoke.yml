@@ -1,0 +1,70 @@
+name: Transcription Service Contract Smoke
+
+# This is a paid, live post-deployment check. Keep it explicitly dispatched;
+# it must not join pull_request, push, schedule, or the Vercel deploy chain.
+on:
+  workflow_dispatch:
+    inputs:
+      service_url:
+        description: Optional HTTPS service URL override (defaults to VPS_API_URL variable)
+        required: false
+        type: string
+      captioned_video_url:
+        description: Public captioned Video
+        required: true
+        default: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+        type: string
+      captionless_video_url:
+        description: Public spoken Video with no caption tracks
+        required: true
+        default: https://www.youtube.com/watch?v=R1uK1QPwYfY
+        type: string
+      multilingual_video_url:
+        description: Public multilingual Video
+        required: true
+        default: https://www.youtube.com/watch?v=xMZqTuLWSA4
+        type: string
+      multilingual_language:
+        description: Expected primary BCP-47 language for the multilingual Video
+        required: true
+        default: zh
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transcription-service-contract-smoke
+  cancel-in-progress: false
+
+jobs:
+  contract-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS_API_URL: ${{ inputs.service_url || vars.VPS_API_URL }}
+      VPS_API_KEY: ${{ secrets.VPS_API_KEY }}
+      SMOKE_CAPTIONED_VIDEO_URL: ${{ inputs.captioned_video_url }}
+      SMOKE_CAPTIONLESS_VIDEO_URL: ${{ inputs.captionless_video_url }}
+      SMOKE_MULTILINGUAL_VIDEO_URL: ${{ inputs.multilingual_video_url }}
+      SMOKE_MULTILINGUAL_LANGUAGE: ${{ inputs.multilingual_language }}
+      SMOKE_REPORT_PATH: test-results/transcription-service-smoke.json
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Verify deployed transcription contract
+        run: pnpm exec tsx smoke-tests/transcription-service-smoke.ts
+      - name: Preserve redacted request-ID report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: transcription-service-smoke-report
+          path: test-results/transcription-service-smoke.json
+          if-no-files-found: warn
+          retention-days: 30
