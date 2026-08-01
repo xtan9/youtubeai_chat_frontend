@@ -14,6 +14,7 @@ import {
   NonEmptyTranscriptSchema,
   TranscriptionRequestSchema,
   isTimeoutError,
+  resolveBoundedTimeoutMs,
   throwCallerAbort,
 } from "./transcription-contract";
 
@@ -101,6 +102,7 @@ const CaptionsResponseSchema = z
 // Captions path is fast — bound a slow VPS response so the route can surface
 // a typed failure well under its 300s budget instead of hanging indefinitely.
 const DEFAULT_VPS_CAPTIONS_TIMEOUT_MS = 30_000;
+const MAX_VPS_CAPTIONS_TIMEOUT_MS = 60_000;
 
 export function buildCaptionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/captions`;
@@ -136,9 +138,13 @@ export async function extractCaptions(
     throw new Error("VPS_API_URL and VPS_API_KEY must be configured");
   }
 
-  const timeoutMs =
-    Number(process.env.VPS_CAPTIONS_TIMEOUT_MS) ||
-    DEFAULT_VPS_CAPTIONS_TIMEOUT_MS;
+  if (signal?.aborted) throwCallerAbort(signal);
+
+  const timeoutMs = resolveBoundedTimeoutMs(
+    process.env.VPS_CAPTIONS_TIMEOUT_MS,
+    DEFAULT_VPS_CAPTIONS_TIMEOUT_MS,
+    MAX_VPS_CAPTIONS_TIMEOUT_MS
+  );
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])

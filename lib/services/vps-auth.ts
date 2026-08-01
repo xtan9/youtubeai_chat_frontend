@@ -19,8 +19,15 @@ export async function fetchWithVpsKeyRotation(
   keys: readonly string[]
 ): Promise<Response> {
   let response: Response | undefined;
+  const signal = init.signal;
+  const throwIfAborted = () => {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+    }
+  };
 
   for (let index = 0; index < keys.length; index += 1) {
+    throwIfAborted();
     const headers: Record<string, string> =
       init.headers instanceof Headers
         ? Object.fromEntries(init.headers.entries())
@@ -29,6 +36,7 @@ export async function fetchWithVpsKeyRotation(
           : { ...(init.headers as Record<string, string> | undefined) };
     headers.Authorization = `Bearer ${keys[index]}`;
     response = await fetch(url, { ...init, headers });
+    throwIfAborted();
 
     if (
       (response.status !== 401 && response.status !== 403) ||

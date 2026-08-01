@@ -55,9 +55,9 @@ echoes it on every health/data response. Error responses also include a stable
 
 | Endpoint | Request body | Successful response | Stable failure statuses |
 | --- | --- | --- | --- |
-| `/metadata` | `{ "youtube_url": string }` | `{ language, title, description, duration: number \| null, availableCaptions: string[] }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `500` provider failure |
-| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `404` no usable captions, `500` unexpected provider failure |
-| `/transcribe` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "whisper", language }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `500` unexpected/empty result, `503` temporary capacity/provider failure |
+| `/metadata` | `{ "youtube_url": string }` | `{ language, title, description, duration: number \| null, availableCaptions: string[] }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `413` oversized request, `429` rate limit, `503` limit configuration failure, `504` endpoint timeout, `500` provider failure |
+| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `404` no usable captions, `413` oversized request, `429` rate limit, `503` limit configuration failure, `504` endpoint timeout, `500` unexpected provider failure |
+| `/transcribe` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "whisper", language }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `413` oversized request/media or excessive duration, `429` rate/concurrency limit, `500` unexpected/empty result, `503` unknown media duration or temporary provider failure, `504` endpoint timeout |
 
 Language hints are constrained BCP-47-style tags. The sentinels `und`, `zxx`,
 `mul`, and `mis` are not processing hints and are rejected at the service
@@ -70,6 +70,15 @@ bounded structured logs and are never returned as response bodies. Logs use an
 allowlist: request/error IDs, status, stage, video ID, bounded provider
 metrics, and error class are permitted; bearer tokens, full YouTube URLs,
 transcript/summary text, and chat content are not.
+
+All configured limits are required at service startup/request evaluation and
+are read fail-closed from environment variables: `MAX_REQUEST_BODY_BYTES`,
+`MAX_MEDIA_SIZE_BYTES`, `MAX_MEDIA_DURATION_SECONDS`,
+`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`, `MAX_CONCURRENT_JOBS`,
+`METADATA_TIMEOUT_MS`, `CAPTIONS_TIMEOUT_MS`, and `TRANSCRIBE_TIMEOUT_MS`.
+`/transcribe` rejects unknown media duration rather than treating it as
+unbounded. A timeout response does not release a running transcription slot
+until the underlying request settles.
 
 ### Key rotation
 

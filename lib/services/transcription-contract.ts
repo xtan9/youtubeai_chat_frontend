@@ -51,6 +51,22 @@ export const NonEmptyTranscriptSegmentSchema = TranscriptSegmentSchema.refine(
   "transcript segment text must not be empty"
 );
 
+/**
+ * Keep operator-provided timeout values positive and bounded. A malformed,
+ * negative, or zero value falls back to the known-safe default; an excessive
+ * value is clamped so an env mistake cannot turn a request into an unbounded
+ * provider hold.
+ */
+export function resolveBoundedTimeoutMs(
+  rawValue: string | undefined,
+  fallbackMs: number,
+  maxMs: number
+): number {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackMs;
+  return Math.min(parsed, maxMs);
+}
+
 export function isTimeoutError(
   error: unknown,
   timeoutSignal: AbortSignal
