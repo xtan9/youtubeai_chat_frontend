@@ -23,8 +23,8 @@ Copy `.env.example` to `.env.local` and fill in:
 | Variable | Scope | Purpose |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | browser + server | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | browser + server | Supabase anon key (auth) |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Cache writes + rate-limit RPC |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | browser + server | Supabase publishable key (`sb_publishable_...`; variable name retained for compatibility) |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only | Supabase secret key (`sb_secret_...`; variable name retained for compatibility) for cache writes and rate limiting |
 | `VPS_API_URL` | server only | Whisper microservice base URL |
 | `VPS_API_KEY` | server only | Bearer token for the VPS service |
 | `VPS_TIMEOUT_MS` | server only, optional | VPS transcription timeout in milliseconds; values are bounded to a positive 300s maximum |
