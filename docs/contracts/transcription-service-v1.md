@@ -90,6 +90,14 @@ redeploy. The frontend retries a single `401`/`403` response with the previous
 key; provider failures are not retried. Never put either key in a browser
 bundle, request body, logs, or this document.
 
+## Live post-deployment verification
+
+The live procedure is documented in the
+[transcription service contract smoke runbook](../runbooks/transcription-service-contract-smoke.md).
+It is explicitly dispatched after a service deployment, records a redacted
+request-ID report, and remains outside pull request CI and the frontend
+deployment chain.
+
 ## Fixture workflow
 
 The required deterministic cases are all named in the manifest:
