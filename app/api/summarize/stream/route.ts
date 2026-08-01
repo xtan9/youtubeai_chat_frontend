@@ -683,6 +683,9 @@ export async function POST(request: Request) {
             sendEvent({
               type: "error",
               message: USER_ERROR_PROCESS_FAILED,
+              ...(err instanceof VpsTranscribeError
+                ? { errorId: vpsErrorId(err.status) }
+                : {}),
             });
             return;
           }
@@ -761,7 +764,11 @@ export async function POST(request: Request) {
         }
 
         if (includeTranscript) {
-          sendEvent({ type: "full_transcript", segments });
+          sendEvent({
+            type: "full_transcript",
+            segments,
+            source: transcriptSource,
+          });
         }
 
         // Partial-pipeline shortcut: if the per-language summary cache hit

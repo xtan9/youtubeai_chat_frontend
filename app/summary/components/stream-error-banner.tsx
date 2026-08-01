@@ -2,15 +2,17 @@ import { AlertCircle } from "lucide-react";
 
 interface StreamErrorBannerProps {
   message: string;
+  errorId?: string | null;
 }
 
-export function StreamErrorBanner({ message }: StreamErrorBannerProps) {
+export function StreamErrorBanner({ message, errorId }: StreamErrorBannerProps) {
   return (
     <div
       className="mb-6 bg-accent-danger/10 border border-accent-danger/20 rounded-xl p-4"
       role="alert"
       aria-live="assertive"
       data-testid="stream-error-banner"
+      data-error-id={errorId || undefined}
     >
       <div className="flex items-center gap-3">
         <AlertCircle className="w-5 h-5 text-accent-danger shrink-0" />

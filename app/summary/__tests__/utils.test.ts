@@ -23,6 +23,20 @@ describe("parseStreamingData — error event handling", () => {
     );
   });
 
+  it("preserves a typed service error ID for safe browser diagnostics", () => {
+    const parsed = parseStreamingData(
+      sse([
+        {
+          type: "error",
+          message: "Couldn't process this video.",
+          errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
+        },
+      ])
+    );
+
+    expect(parsed.streamErrorId).toBe("VPS_TRANSCRIBE_FAILED_HTTP_503");
+  });
+
   it("advances progress to stage=complete on error (stops the spinner)", () => {
     const raw = sse([
       { type: "status", message: "Generating summary...", stage: "summarize" },
@@ -85,6 +99,7 @@ describe("parseStreamingData — full_transcript event", () => {
       { type: "metadata", category: "general", cached: false },
       {
         type: "full_transcript",
+        source: "whisper",
         segments: [
           { text: "hello", start: 0, duration: 1.5 },
           { text: "world", start: 1.5, duration: 2 },
@@ -96,6 +111,7 @@ describe("parseStreamingData — full_transcript event", () => {
       { text: "hello", start: 0, duration: 1.5 },
       { text: "world", start: 1.5, duration: 2 },
     ]);
+    expect(parsed.result.transcriptSource).toBe("whisper");
   });
 
   it("filters malformed segment entries instead of crashing", () => {

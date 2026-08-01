@@ -1674,7 +1674,11 @@ describe("POST /api/summarize/stream", () => {
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
-      expect(events.find((e) => e.type === "error")).toBeDefined();
+      expect(events.find((e) => e.type === "error")).toMatchObject({
+        message:
+          "Couldn't process this video. Please try again or try a different URL.",
+        errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
+      });
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
       expect(errSpy).toHaveBeenCalledWith(
         "[summarize/stream] vps failed",

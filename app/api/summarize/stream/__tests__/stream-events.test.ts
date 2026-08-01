@@ -87,6 +87,9 @@ describe("streamCached event ordering contract", () => {
       "full_transcript",
       "summary",
     ]);
+    expect(sent.find((e) => e.type === "full_transcript")).toMatchObject({
+      source: "whisper",
+    });
   });
 
   it("skips full_transcript when no segments are provided (no separate transcript cache hit)", () => {

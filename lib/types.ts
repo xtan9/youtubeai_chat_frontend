@@ -36,6 +36,11 @@ export interface TranscriptSegment {
   readonly duration: number; // seconds
 }
 
+export type TranscriptSource =
+  | "manual_captions"
+  | "auto_captions"
+  | "whisper";
+
 export interface User {
   id: string;
   email?: string;
@@ -52,6 +57,7 @@ export interface SummaryResult {
   transcriptionTime: number;
   summaryTime: number;
   segments?: readonly TranscriptSegment[];
+  transcriptSource?: TranscriptSource;
 }
 
 export interface StreamingStatus {

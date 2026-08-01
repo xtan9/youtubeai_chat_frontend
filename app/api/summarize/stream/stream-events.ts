@@ -19,6 +19,7 @@ export type SseEvent =
   | {
       type: "full_transcript";
       segments: readonly TranscriptSegment[];
+      source: CachedSummary["transcriptSource"];
     }
   | {
       type: "summary";
@@ -27,7 +28,7 @@ export type SseEvent =
       summarize_time: number;
       transcribe_time: number;
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; errorId?: string };
 
 export type SendEvent = (data: SseEvent) => void;
 
@@ -85,7 +86,11 @@ export function streamCached(
   sendEvent({ type: "content", text: cached.summary });
 
   if (opts.includeTranscript && opts.segments && opts.segments.length > 0) {
-    sendEvent({ type: "full_transcript", segments: opts.segments });
+    sendEvent({
+      type: "full_transcript",
+      segments: opts.segments,
+      source: cached.transcriptSource,
+    });
   }
 
   sendEvent({
