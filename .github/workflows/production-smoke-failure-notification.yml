@@ -1,0 +1,96 @@
+name: Production smoke failure notification
+
+# GitHub sends its native notification email when the incident is assigned
+# to or mentions the repository maintainer. This avoids introducing SMTP
+# credentials into the repository while still turning every failed smoke run
+# into a visible, actionable incident.
+on:
+  workflow_run:
+    workflows: ["production-smoke"]
+    types: [completed]
+
+concurrency:
+  group: production-smoke-failure-notification
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'failure' ||
+        github.event.workflow_run.conclusion == 'timed_out'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MAINTAINER: xtan9
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+
+          label="production-smoke-failure"
+          title="Production smoke failure: ${WORKFLOW_NAME} #${RUN_ID}"
+          body_file="$(mktemp)"
+          trap 'rm -f "$body_file"' EXIT
+
+          gh label create "$label" \
+            --repo "$REPOSITORY" \
+            --color B60205 \
+            --description "Automated production smoke failure" \
+            --force >/dev/null
+
+          cat >"$body_file" <<EOF
+          @${MAINTAINER} production smoke detected a ${RUN_CONCLUSION} run.
+
+          ## Run details
+
+          - Workflow: [${WORKFLOW_NAME}](${RUN_URL})
+          - Run: [#${RUN_ID}](${RUN_URL})
+          - Branch: ${HEAD_BRANCH}
+          - Commit: ${HEAD_SHA}
+          - Trigger: ${TRIGGER_EVENT}
+          - Conclusion: ${RUN_CONCLUSION}
+
+          Please inspect the failed job logs and the Playwright artifacts attached to the workflow run.
+
+          This issue is managed automatically by [production-smoke-failure-notification.yml](https://github.com/${REPOSITORY}/blob/main/.github/workflows/production-smoke-failure-notification.yml).
+          EOF
+
+          existing_issue="$(gh issue list \
+            --repo "$REPOSITORY" \
+            --state open \
+            --label "$label" \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [[ -n "$existing_issue" ]]; then
+            gh issue comment "$existing_issue" \
+              --repo "$REPOSITORY" \
+              --body-file "$body_file"
+            gh issue edit "$existing_issue" \
+              --repo "$REPOSITORY" \
+              --add-assignee "$MAINTAINER"
+            echo "Updated existing incident issue #${existing_issue}."
+          else
+            issue_url="$(gh issue create \
+              --repo "$REPOSITORY" \
+              --title "$title" \
+              --body-file "$body_file" \
+              --label "$label" \
+              --assignee "$MAINTAINER")"
+            echo "Created incident issue: ${issue_url}"
+          fi
