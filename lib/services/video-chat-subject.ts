@@ -6,6 +6,8 @@ import {
   heroDemoVideoChatSubjectAdapter,
 } from "./video-chat-subject-adapters";
 import { logAppEvent } from "@/lib/observability";
+import type { CachedSummary, CachedTranscript } from "./summarize-cache";
+import type { SuggestedFollowups } from "./suggested-followups";
 
 export type VideoChatSubjectSource = "hero_demo" | "database";
 
@@ -16,6 +18,25 @@ export interface CanonicalVideoIdentity {
 
 export interface VideoChatCapabilityTarget {
   readonly videoId: string;
+}
+
+export interface VideoGrounding {
+  readonly transcript: CachedTranscript;
+  readonly summary: CachedSummary;
+}
+
+export type VideoGroundingResolution =
+  | { readonly status: "ready"; readonly grounding: VideoGrounding }
+  | { readonly status: "not_ready" }
+  | { readonly status: "unavailable" };
+
+export interface VideoGroundingCapability {
+  load(): Promise<VideoGroundingResolution>;
+}
+
+export interface SuggestionCacheCapability extends VideoChatCapabilityTarget {
+  read(): Promise<SuggestedFollowups | null>;
+  write(followups: SuggestedFollowups): Promise<void>;
 }
 
 /**
@@ -29,7 +50,8 @@ export interface VideoChatSubject {
   readonly source: VideoChatSubjectSource;
   readonly retainedThread?: VideoChatCapabilityTarget;
   readonly entitlement?: VideoChatCapabilityTarget;
-  readonly suggestionCache?: VideoChatCapabilityTarget;
+  readonly suggestionCache?: SuggestionCacheCapability;
+  readonly grounding?: VideoGroundingCapability;
 }
 
 export type VideoChatSubjectAdapterResult =
@@ -47,6 +69,22 @@ export interface VideoChatSubjectAdapter {
 export interface VideoChatSubjectAdapters {
   readonly heroDemo: VideoChatSubjectAdapter;
   readonly database: VideoChatSubjectAdapter;
+}
+
+export function memoizeVideoGroundingLoader(
+  load: () => Promise<VideoGroundingResolution>,
+): VideoGroundingCapability {
+  let loaded: Promise<VideoGroundingResolution> | undefined;
+
+  return {
+    load() {
+      // Promise.resolve().then also memoizes a synchronous throw from a
+      // custom adapter as a rejected promise, preserving the at-most-once
+      // guarantee for every loader implementation.
+      loaded ??= Promise.resolve().then(load);
+      return loaded;
+    },
+  };
 }
 
 export type VideoChatSubjectResolution =

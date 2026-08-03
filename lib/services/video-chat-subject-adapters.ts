@@ -1,18 +1,63 @@
 import "server-only";
 import { z } from "zod";
 import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
+import { TranscriptSegmentSchema } from "@/lib/types";
 import { logAppEvent } from "@/lib/observability";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  readSuggestedFollowups,
+  writeSuggestedFollowups,
+  type SuggestedFollowups,
+} from "./suggested-followups";
 import type {
   CanonicalVideoIdentity,
+  SuggestionCacheCapability,
   VideoChatSubject,
   VideoChatSubjectAdapter,
   VideoChatSubjectAdapterResult,
+  VideoGroundingResolution,
 } from "./video-chat-subject";
+import { memoizeVideoGroundingLoader } from "./video-chat-subject";
 
 const DatabaseVideoRowSchema = z.object({
   id: z.string().min(1),
+  title: z.string().nullable(),
+  channel_name: z.string().nullable(),
+  language: z.enum(["en", "zh"]).nullable(),
 });
+
+const TranscriptSourceSchema = z.enum([
+  "manual_captions",
+  "auto_captions",
+  "whisper",
+]);
+const PromptLocaleSchema = z.enum(["en", "zh"]);
+const OutputLanguageSchema = z.enum(SUPPORTED_LANGUAGE_CODES);
+
+const DatabaseTranscriptRowSchema = z.object({
+  video_id: z.string().min(1),
+  segments: z.array(TranscriptSegmentSchema).min(1),
+  transcript_source: TranscriptSourceSchema,
+  language: PromptLocaleSchema,
+});
+
+const DatabaseSummaryRowSchema = z.object({
+  video_id: z.string().min(1),
+  transcript: z.string().nullable(),
+  summary: z.string(),
+  transcript_source: TranscriptSourceSchema,
+  model: z.string().nullable(),
+  processing_time_seconds: z.number().nullable(),
+  transcribe_time_seconds: z.number().nullable(),
+  summarize_time_seconds: z.number().nullable(),
+  output_language: OutputLanguageSchema.nullable(),
+});
+
+type DatabaseVideoRow = z.infer<typeof DatabaseVideoRowSchema>;
+type DatabaseServiceRoleClient = NonNullable<
+  ReturnType<typeof getServiceRoleClient>
+>;
 
 function statelessHeroDemoSubject(
   identity: CanonicalVideoIdentity,
@@ -25,15 +70,168 @@ function statelessHeroDemoSubject(
 
 function databaseSubject(
   identity: CanonicalVideoIdentity,
-  videoId: string,
+  video: DatabaseVideoRow,
+  supabase: DatabaseServiceRoleClient,
 ): VideoChatSubject {
+  const videoId = video.id;
+  const suggestionCache: SuggestionCacheCapability = {
+    videoId,
+    read: () => readSuggestedFollowups(videoId),
+    write: (followups: SuggestedFollowups) =>
+      writeSuggestedFollowups(videoId, followups),
+  };
+
   return {
     identity,
     source: "database",
     retainedThread: { videoId },
     entitlement: { videoId },
-    suggestionCache: { videoId },
+    suggestionCache,
+    grounding: memoizeVideoGroundingLoader(() =>
+      loadDatabaseGrounding(supabase, video, identity.youtubeVideoId),
+    ),
   };
+}
+
+function groundingUnavailable(
+  event: string,
+  errorId: string,
+  videoId: string,
+  errorClass: string,
+): VideoGroundingResolution {
+  logAppEvent("error", event, { errorId, videoId, errorClass });
+  return { status: "unavailable" };
+}
+
+function isNoTimingShape(
+  segments: ReadonlyArray<{ start: number; duration: number }>,
+): boolean {
+  return (
+    segments.length === 1 &&
+    segments[0].start === 0 &&
+    segments[0].duration === 0
+  );
+}
+
+async function loadDatabaseGrounding(
+  supabase: DatabaseServiceRoleClient,
+  video: DatabaseVideoRow,
+  youtubeVideoId: string,
+): Promise<VideoGroundingResolution> {
+  try {
+    const [transcriptResult, summaryResult] = await Promise.all([
+      supabase
+        .from("video_transcripts")
+        .select("video_id, segments, transcript_source, language")
+        .eq("video_id", video.id)
+        .maybeSingle(),
+      supabase
+        .from("summaries")
+        .select(
+          "video_id, transcript, summary, transcript_source, model, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds, output_language",
+        )
+        .eq("video_id", video.id)
+        .is("output_language", null)
+        .maybeSingle(),
+    ]);
+
+    if (transcriptResult.error) {
+      return groundingUnavailable(
+        "[video-chat-subject] database Transcript lookup failed",
+        "VIDEO_CHAT_SUBJECT_DATABASE_TRANSCRIPT_LOOKUP_FAILED",
+        video.id,
+        "SupabaseError",
+      );
+    }
+    if (summaryResult.error) {
+      return groundingUnavailable(
+        "[video-chat-subject] database Summary lookup failed",
+        "VIDEO_CHAT_SUBJECT_DATABASE_SUMMARY_LOOKUP_FAILED",
+        video.id,
+        "SupabaseError",
+      );
+    }
+
+    if (!transcriptResult.data || !summaryResult.data) {
+      return { status: "not_ready" };
+    }
+
+    const transcript = DatabaseTranscriptRowSchema.safeParse(
+      transcriptResult.data,
+    );
+    const summary = DatabaseSummaryRowSchema.safeParse(summaryResult.data);
+    if (!transcript.success || !summary.success) {
+      return groundingUnavailable(
+        "[video-chat-subject] database Grounding schema mismatch",
+        "VIDEO_CHAT_SUBJECT_DATABASE_GROUNDING_SCHEMA_MISMATCH",
+        video.id,
+        "SchemaMismatch",
+      );
+    }
+
+    if (
+      transcript.data.video_id !== video.id ||
+      summary.data.video_id !== video.id
+    ) {
+      return groundingUnavailable(
+        "[video-chat-subject] database Grounding Video mismatch",
+        "VIDEO_CHAT_SUBJECT_DATABASE_GROUNDING_VIDEO_MISMATCH",
+        youtubeVideoId,
+        "SchemaMismatch",
+      );
+    }
+
+    // The query is scoped to output_language IS NULL. Keep this explicit
+    // after validation so a translated row can never satisfy Grounding if a
+    // mock, proxy, or stale PostgREST schema returns the wrong row.
+    if (summary.data.output_language !== null) {
+      return { status: "not_ready" };
+    }
+
+    if (isNoTimingShape(transcript.data.segments)) {
+      return { status: "not_ready" };
+    }
+
+    const title = video.title ?? "";
+    const channelName = video.channel_name ?? "";
+    const language = video.language ?? transcript.data.language;
+
+    return {
+      status: "ready",
+      grounding: {
+        transcript: {
+          videoId: video.id,
+          title,
+          channelName,
+          segments: transcript.data.segments,
+          transcriptSource: transcript.data.transcript_source,
+          language,
+        },
+        summary: {
+          videoId: video.id,
+          title,
+          channelName,
+          language,
+          transcript: summary.data.transcript ?? "",
+          summary: summary.data.summary,
+          transcriptSource: summary.data.transcript_source,
+          model: summary.data.model ?? "",
+          processingTimeSeconds: summary.data.processing_time_seconds ?? 0,
+          transcribeTimeSeconds:
+            summary.data.transcribe_time_seconds ?? 0,
+          summarizeTimeSeconds: summary.data.summarize_time_seconds ?? 0,
+          outputLanguage: null,
+        },
+      },
+    };
+  } catch (error) {
+    return groundingUnavailable(
+      "[video-chat-subject] database Grounding read threw",
+      "VIDEO_CHAT_SUBJECT_DATABASE_GROUNDING_READ_FAILED",
+      youtubeVideoId,
+      error instanceof Error ? error.name : "DatabaseAdapterError",
+    );
+  }
 }
 
 export function createHeroDemoVideoChatSubjectAdapter(): VideoChatSubjectAdapter {
@@ -73,12 +271,11 @@ export function createDatabaseVideoChatSubjectAdapter(): VideoChatSubjectAdapter
       }
 
       try {
-        // url_hash is the existing canonical cache key. Selecting only the
-        // Video row keeps this history boundary independent of Transcript
-        // and Summary Grounding.
+        // Resolve the Video once. The resulting UUID is captured by every
+        // persistence-backed capability and by the lazy Grounding loader.
         const { data, error } = await supabase
           .from("videos")
-          .select("id")
+          .select("id, title, channel_name, language")
           .eq("url_hash", identity.youtubeVideoId)
           .maybeSingle();
 
@@ -109,7 +306,7 @@ export function createDatabaseVideoChatSubjectAdapter(): VideoChatSubjectAdapter
 
         return {
           status: "resolved",
-          subject: databaseSubject(identity, parsed.data.id),
+          subject: databaseSubject(identity, parsed.data, supabase),
         };
       } catch (error) {
         logAppEvent("error", "[video-chat-subject] database lookup threw", {

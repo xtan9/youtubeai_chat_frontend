@@ -68,6 +68,67 @@ function installVideoLookup(result: unknown) {
   return { from, select, eq, maybeSingle };
 }
 
+function query(result: unknown) {
+  const maybeSingle = vi.fn().mockResolvedValue(result);
+  const is = vi.fn().mockReturnValue({ maybeSingle });
+  const eq = vi.fn().mockReturnValue({ maybeSingle, is });
+  const select = vi.fn().mockReturnValue({ eq });
+  return { select, eq, is, maybeSingle };
+}
+
+function installDatabaseGroundingLookup(overrides: {
+  video?: unknown;
+  transcript?: unknown;
+  summary?: unknown;
+} = {}) {
+  const video = query(
+    overrides.video ?? {
+      data: {
+        id: DATABASE_VIDEO_ID,
+        title: "Database title",
+        channel_name: "Database channel",
+        language: "en",
+      },
+      error: null,
+    },
+  );
+  const transcript = query(
+    overrides.transcript ?? {
+      data: {
+        video_id: DATABASE_VIDEO_ID,
+        segments: [{ text: "Transcript line", start: 1, duration: 2 }],
+        transcript_source: "auto_captions",
+        language: "en",
+      },
+      error: null,
+    },
+  );
+  const summary = query(
+    overrides.summary ?? {
+      data: {
+        video_id: DATABASE_VIDEO_ID,
+        transcript: "Transcript snapshot",
+        summary: "Native summary",
+        transcript_source: "auto_captions",
+        model: "summary-model",
+        processing_time_seconds: 3,
+        transcribe_time_seconds: 1,
+        summarize_time_seconds: 2,
+        output_language: null,
+      },
+      error: null,
+    },
+  );
+  const from = vi.fn((table: string) => {
+    if (table === "videos") return { select: video.select };
+    if (table === "video_transcripts") return { select: transcript.select };
+    if (table === "summaries") return { select: summary.select };
+    throw new Error(`unexpected table ${table}`);
+  });
+  mocks.getServiceRoleClient.mockReturnValue({ from });
+  return { from, video, transcript, summary };
+}
+
 describe("Video Chat Subject resolver", () => {
   beforeEach(() => {
     mocks.getServiceRoleClient.mockReset();
@@ -184,13 +245,18 @@ describe("Video Chat Subject resolver", () => {
 
   it("represents retained-thread, entitlement, and suggestion-cache targets independently", async () => {
     const lookup = installVideoLookup({
-      data: { id: DATABASE_VIDEO_ID },
+      data: {
+        id: DATABASE_VIDEO_ID,
+        title: "Database title",
+        channel_name: "Database channel",
+        language: "en",
+      },
       error: null,
     });
 
     const result = await databaseVideoChatSubjectAdapter.resolve(identity());
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "resolved",
       subject: {
         identity: identity(),
@@ -198,6 +264,7 @@ describe("Video Chat Subject resolver", () => {
         retainedThread: { videoId: DATABASE_VIDEO_ID },
         entitlement: { videoId: DATABASE_VIDEO_ID },
         suggestionCache: { videoId: DATABASE_VIDEO_ID },
+        grounding: { load: expect.any(Function) },
       },
     });
     if (result.status === "resolved") {
@@ -209,8 +276,183 @@ describe("Video Chat Subject resolver", () => {
       );
     }
     expect(lookup.from).toHaveBeenCalledWith("videos");
-    expect(lookup.select).toHaveBeenCalledWith("id");
+    expect(lookup.select).toHaveBeenCalledWith(
+      "id, title, channel_name, language",
+    );
     expect(lookup.eq).toHaveBeenCalledWith("url_hash", VIDEO_ID);
+  });
+
+  it("loads one coherent database Grounding lazily from the shared Video UUID", async () => {
+    const lookup = installDatabaseGroundingLookup();
+
+    const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+    expect(lookup.from).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+
+    expect(result.subject.retainedThread?.videoId).toBe(DATABASE_VIDEO_ID);
+    expect(result.subject.entitlement?.videoId).toBe(DATABASE_VIDEO_ID);
+    expect(result.subject.suggestionCache?.videoId).toBe(DATABASE_VIDEO_ID);
+    expect(result.subject.grounding).toBeDefined();
+
+    const grounding = await result.subject.grounding!.load();
+
+    expect(grounding).toEqual({
+      status: "ready",
+      grounding: {
+        transcript: {
+          videoId: DATABASE_VIDEO_ID,
+          title: "Database title",
+          channelName: "Database channel",
+          segments: [{ text: "Transcript line", start: 1, duration: 2 }],
+          transcriptSource: "auto_captions",
+          language: "en",
+        },
+        summary: {
+          videoId: DATABASE_VIDEO_ID,
+          title: "Database title",
+          channelName: "Database channel",
+          language: "en",
+          transcript: "Transcript snapshot",
+          summary: "Native summary",
+          transcriptSource: "auto_captions",
+          model: "summary-model",
+          processingTimeSeconds: 3,
+          transcribeTimeSeconds: 1,
+          summarizeTimeSeconds: 2,
+          outputLanguage: null,
+        },
+      },
+    });
+    expect(lookup.from).toHaveBeenCalledTimes(3);
+    expect(lookup.transcript.eq).toHaveBeenCalledWith(
+      "video_id",
+      DATABASE_VIDEO_ID,
+    );
+    expect(lookup.summary.eq).toHaveBeenCalledWith(
+      "video_id",
+      DATABASE_VIDEO_ID,
+    );
+    expect(lookup.summary.is).toHaveBeenCalledWith("output_language", null);
+  });
+
+  it("memoizes Grounding reads for a resolved database subject", async () => {
+    const lookup = installDatabaseGroundingLookup();
+    const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+
+    const loads = await Promise.all([
+      result.subject.grounding!.load(),
+      result.subject.grounding!.load(),
+      result.subject.grounding!.load(),
+    ]);
+
+    expect(loads[0]).toBe(loads[1]);
+    expect(loads[1]).toBe(loads[2]);
+    expect(lookup.from).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ["Transcript", { data: null, error: null }, undefined],
+    [
+      "Summary",
+      undefined,
+      { data: null, error: null },
+    ],
+    [
+      "translated-only Summary",
+      undefined,
+      {
+        data: {
+          video_id: DATABASE_VIDEO_ID,
+          transcript: "Transcript snapshot",
+          summary: "Translated summary",
+          transcript_source: "auto_captions",
+          model: "summary-model",
+          processing_time_seconds: 3,
+          transcribe_time_seconds: 1,
+          summarize_time_seconds: 2,
+          output_language: "es",
+        },
+        error: null,
+      },
+    ],
+  ])(
+    "returns not-ready when %s is absent or not the source-language artifact",
+    async (_label, transcript, summary) => {
+      installDatabaseGroundingLookup({ transcript, summary });
+      const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+      expect(result.status).toBe("resolved");
+      if (result.status !== "resolved") return;
+      await expect(result.subject.grounding!.load()).resolves.toEqual({
+        status: "not_ready",
+      });
+    },
+  );
+
+  it.each([
+    ["Transcript read", { data: null, error: { code: "TRANSCRIPT_DOWN" } }, undefined],
+    ["Summary read", undefined, { data: null, error: { code: "SUMMARY_DOWN" } }],
+  ])("returns unavailable when the %s fails", async (_label, transcript, summary) => {
+    installDatabaseGroundingLookup({ transcript, summary });
+    const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
+  it("returns unavailable for a Grounding schema mismatch", async () => {
+    installDatabaseGroundingLookup({
+      transcript: {
+        data: {
+          video_id: DATABASE_VIDEO_ID,
+          segments: [{ text: 123, start: 1, duration: 2 }],
+          transcript_source: "auto_captions",
+          language: "en",
+        },
+        error: null,
+      },
+    });
+    const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
+  it("returns unavailable when the Summary row fails validation", async () => {
+    installDatabaseGroundingLookup({
+      summary: {
+        data: {
+          video_id: DATABASE_VIDEO_ID,
+          transcript: "Transcript snapshot",
+          summary: 123,
+          transcript_source: "auto_captions",
+          model: "summary-model",
+          processing_time_seconds: 3,
+          transcribe_time_seconds: 1,
+          summarize_time_seconds: 2,
+          output_language: null,
+        },
+        error: null,
+      },
+    });
+    const result = await databaseVideoChatSubjectAdapter.resolve(identity());
+
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
   });
 
   it("returns not-ready when the database Video is absent", async () => {
@@ -219,6 +461,22 @@ describe("Video Chat Subject resolver", () => {
     await expect(
       databaseVideoChatSubjectAdapter.resolve(identity()),
     ).resolves.toEqual({ status: "not_ready" });
+  });
+
+  it("returns unavailable when the database Video row fails validation", async () => {
+    installVideoLookup({
+      data: {
+        id: 123,
+        title: "Database title",
+        channel_name: "Database channel",
+        language: "en",
+      },
+      error: null,
+    });
+
+    await expect(
+      databaseVideoChatSubjectAdapter.resolve(identity()),
+    ).resolves.toEqual({ status: "unavailable" });
   });
 
   it("returns unavailable for a database source failure without exposing the error", async () => {

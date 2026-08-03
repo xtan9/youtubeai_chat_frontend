@@ -1,22 +1,23 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedSummary, getCachedTranscript } from "@/lib/services/summarize-cache";
 import {
   generateSuggestedFollowups,
-  readSuggestedFollowups,
-  writeSuggestedFollowups,
   type SuggestedFollowups,
 } from "@/lib/services/suggested-followups";
+import {
+  resolveVideoChatSubject,
+  type VideoGrounding,
+  type VideoGroundingResolution,
+} from "@/lib/services/video-chat-subject";
 import {
   ChatMessagesQuerySchema,
   type ChatSuggestionsResponse,
 } from "@/lib/api-contracts/chat";
-import { logAppEvent } from "@/lib/observability";
+import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
 const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
-// Tight cap on the LLM call so an upstream stall doesn't block the
-// chat tab's empty state for minutes — the client will fall back to
-// the static suggestion list instead.
+// Tight cap on the LLM call so an upstream stall does not block the chat
+// tab's empty state for minutes. The client falls back to static suggestions.
 const FOLLOWUPS_TIMEOUT_MS = 12_000;
 
 function jsonError(status: number, message: string) {
@@ -64,6 +65,70 @@ function emptyResponse(): Response {
   return Response.json(body);
 }
 
+function logSubjectNotReady(videoId: string): void {
+  logAppEvent("info", "[chat/suggestions] subject not ready", {
+    errorId: "CHAT_SUGGESTIONS_SUBJECT_NOT_READY",
+    videoId,
+    reason: "not_ready",
+  });
+}
+
+function logSubjectUnavailable(videoId: string, errorName?: string): void {
+  logAppEvent("error", "[chat/suggestions] subject unavailable", {
+    errorId: "CHAT_SUGGESTIONS_SUBJECT_UNAVAILABLE",
+    videoId,
+    errorName: errorName ?? null,
+    errorClass: "SubjectResolution",
+  });
+}
+
+function logGroundingNotReady(videoId: string): void {
+  logAppEvent("info", "[chat/suggestions] Grounding not ready", {
+    errorId: "CHAT_SUGGESTIONS_GROUNDING_NOT_READY",
+    videoId,
+    reason: "not_ready",
+  });
+}
+
+function logGroundingUnavailable(videoId: string, errorName?: string): void {
+  logAppEvent("error", "[chat/suggestions] Grounding unavailable", {
+    errorId: "CHAT_SUGGESTIONS_GROUNDING_UNAVAILABLE",
+    videoId,
+    errorName: errorName ?? null,
+    errorClass: "GroundingResolution",
+  });
+}
+
+function hasCoherentSuggestionGrounding(
+  grounding: VideoGrounding,
+  videoId: string,
+): boolean {
+  return (
+    grounding.transcript.videoId === videoId &&
+    grounding.summary.videoId === videoId
+  );
+}
+
+function handleGroundingOutcome(
+  outcome: VideoGroundingResolution,
+  targetVideoId: string,
+  logVideoId: string,
+): VideoGrounding | null {
+  if (outcome.status === "ready") {
+    if (!hasCoherentSuggestionGrounding(outcome.grounding, targetVideoId)) {
+      logGroundingUnavailable(logVideoId, "SchemaMismatch");
+      return null;
+    }
+    return outcome.grounding;
+  }
+  if (outcome.status === "not_ready") {
+    logGroundingNotReady(logVideoId);
+    return null;
+  }
+  logGroundingUnavailable(logVideoId);
+  return null;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
@@ -79,68 +144,104 @@ export async function GET(request: Request) {
   const auth = await authenticate();
   if (!auth.ok) return auth.response;
 
-  // No transcript yet → no summary → can't generate. The chat tab
-  // doesn't render its empty state in this case anyway (it's locked
-  // behind the summary), but return a 200/[] so the client query
-  // doesn't trip an error banner if it fires before the lock catches.
-  const transcript = await getCachedTranscript(parsed.data.youtube_url);
-  if (!transcript) return emptyResponse();
+  let resolution;
+  try {
+    resolution = await resolveVideoChatSubject(parsed.data.youtube_url);
+  } catch (err) {
+    logSubjectUnavailable(
+      videoIdForLog(parsed.data.youtube_url),
+      err instanceof Error ? err.name : typeof err,
+    );
+    return emptyResponse();
+  }
 
-  // Native-summary scoping mirrors /api/chat/stream — chat is gated
-  // on the user-native summary existing, and we cache the follow-ups
-  // on that row, so a translated-only state correctly returns [].
-  const cachedSummary = await getCachedSummary(parsed.data.youtube_url, null);
-  if (!cachedSummary) return emptyResponse();
+  if (resolution.status === "invalid") {
+    logAppEvent("warn", "[chat/suggestions] invalid subject", {
+      errorId: "CHAT_SUGGESTIONS_SUBJECT_INVALID",
+      errorClass: "InvalidVideoUrl",
+    });
+    return jsonError(400, "Invalid query");
+  }
+  if (resolution.status === "not_ready") {
+    logSubjectNotReady(resolution.identity.youtubeVideoId);
+    return emptyResponse();
+  }
+  if (resolution.status === "unavailable") {
+    logSubjectUnavailable(resolution.identity.youtubeVideoId);
+    return emptyResponse();
+  }
 
-  const videoId = transcript.videoId;
+  const { subject } = resolution;
+  const suggestionCache = subject.suggestionCache;
+  if (!suggestionCache) {
+    logAppEvent("info", "[chat/suggestions] stateless subject", {
+      errorId: "CHAT_SUGGESTIONS_STATELESS",
+      videoId: subject.identity.youtubeVideoId,
+      reason: "stateless",
+    });
+    return emptyResponse();
+  }
 
-  // Cache hit fast-path. A read failure throws (we want infra issues
-  // visible) but a missing/null column simply resolves to null.
+  if (!subject.grounding) {
+    logGroundingNotReady(subject.identity.youtubeVideoId);
+    return emptyResponse();
+  }
+
+  let grounding: VideoGrounding | null;
+  try {
+    grounding = handleGroundingOutcome(
+      await subject.grounding.load(),
+      suggestionCache.videoId,
+      subject.identity.youtubeVideoId,
+    );
+  } catch (err) {
+    logGroundingUnavailable(
+      subject.identity.youtubeVideoId,
+      err instanceof Error ? err.name : typeof err,
+    );
+    return emptyResponse();
+  }
+  if (!grounding) return emptyResponse();
+
+  // Cache hits avoid the LLM. Cache reads may fail transiently; that is a
+  // generation miss, not a reason to make this non-critical endpoint fail.
   let cached: SuggestedFollowups | null = null;
   try {
-    cached = await readSuggestedFollowups(videoId);
+    cached = await suggestionCache.read();
   } catch (err) {
     logAppEvent("error", "[chat/suggestions] cache read failed", {
       errorId: "CHAT_SUGGESTIONS_READ_FAILED",
-      videoId,
+      videoId: suggestionCache.videoId,
       errorName: err instanceof Error ? err.name : typeof err,
     });
-    // Don't 503 — fall through to regeneration. Transient infra blips
-    // shouldn't block the chat empty state, and the regenerate path
-    // is itself a fallback to "[]".
   }
   if (cached) {
     const body: ChatSuggestionsResponse = { suggestions: [...cached] };
     return Response.json(body);
   }
 
-  // Cache miss — generate inline. The route returns whatever resolves
-  // first; if generation throws (LLM down, schema drift, timeout), we
-  // log and respond with [] so the client falls back to the static
-  // suggestion list. No retry here — the empty state is non-critical.
   let generated: SuggestedFollowups;
   try {
     generated = await generateSuggestedFollowups({
-      summary: cachedSummary.summary,
+      summary: grounding.summary.summary,
       timeoutMs: FOLLOWUPS_TIMEOUT_MS,
     });
   } catch (err) {
     logAppEvent("error", "[chat/suggestions] generation failed", {
       errorId: "CHAT_SUGGESTIONS_GENERATE_FAILED",
-      videoId,
+      videoId: suggestionCache.videoId,
       errorName: err instanceof Error ? err.name : typeof err,
     });
     return emptyResponse();
   }
 
-  // Persist best-effort. A write failure shouldn't block the response
-  // — the user gets their suggestions; the next visit will regenerate.
+  // Persist best-effort. A write failure should not block the response.
   try {
-    await writeSuggestedFollowups(videoId, generated);
+    await suggestionCache.write(generated);
   } catch (err) {
     logAppEvent("error", "[chat/suggestions] cache write failed", {
       errorId: "CHAT_SUGGESTIONS_WRITE_FAILED",
-      videoId,
+      videoId: suggestionCache.videoId,
       errorName: err instanceof Error ? err.name : typeof err,
     });
   }
