@@ -21,11 +21,11 @@ export const AUDIT_PAGE_SIZE_CAP = 200;
 /** Cap on per-page row count returned by `listUsersWithStatsAndSort`. */
 export const USERS_PAGE_SIZE_CAP = 100;
 
-/** Hard cap on distinct videos surfaced by `listVideosWithStats`. */
+/** Hard cap on distinct Videos surfaced by `loadVideosReport`. */
 export const VIDEOS_ROW_CAP = 25_000;
 
 /** Cap on per-video user drilldown — read by the row-expansion banner. */
 export const VIDEO_USERS_DRILLDOWN_CAP = 200;
 
-/** Cap on per-page row count returned by `listVideosWithStats`. */
+/** Cap on per-page row count returned by `loadVideosReport`. */
 export const VIDEOS_PAGE_SIZE_CAP = 50;

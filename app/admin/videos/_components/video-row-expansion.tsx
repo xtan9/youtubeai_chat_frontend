@@ -2,13 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { Btn, Pill } from "../../_components/atoms";
-import type { AdminVideoRow } from "@/lib/admin/queries";
+import type { VideosReport } from "@/lib/admin/videos-report";
 import { VIDEO_USERS_DRILLDOWN_CAP } from "@/lib/admin/admin-constants";
 import {
   viewVideoUsersAction,
   type ViewVideoUsersResult,
 } from "../_actions/view-video-users";
 import { VideoContentModal } from "./video-summary-modal";
+
+type AdminVideoRow = VideosReport["list"]["rows"][number];
 
 interface VideoRowExpansionProps {
   row: AdminVideoRow;
