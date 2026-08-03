@@ -7,6 +7,11 @@ import { getAuthErrorInfo } from "@/lib/utils/youtube";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import {
+  SummaryRequestSchema,
+  SummarySseStreamDecoder,
+  SummaryStreamProtocolError,
+} from "@/lib/api-contracts/summary";
+import {
   QueryFunctionContext,
   useQuery,
   experimental_streamedQuery as streamedQuery,
@@ -58,6 +63,7 @@ function shouldRetrySummaryRequest(
     error: unknown
 ): boolean {
   if (isAbortLike(error)) return false;
+  if (error instanceof SummaryStreamProtocolError) return false;
   if (
     error instanceof SummaryRequestError &&
     [408, 413, 429, 503, 504].includes(error.status)
@@ -128,6 +134,24 @@ export function useYouTubeSummarizer(
       throw callerAbortError(signal);
     }
 
+    const requestBodyResult = SummaryRequestSchema.safeParse({
+      youtube_url: urlArg,
+      include_transcript: includeTranscriptArg,
+      ...(outputLanguageArg !== null
+        ? { output_language: outputLanguageArg }
+        : {}),
+    });
+    if (!requestBodyResult.success) {
+      // Keep local contract failures on the same safe public error shape as
+      // the endpoint's 400 response; do not surface Zod internals to the UI.
+      throw new SummaryRequestError(
+        "Invalid request body",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
+    const requestBody = requestBodyResult.data;
+
     const response = await fetch(
       "/api/summarize/stream",
       {
@@ -137,15 +161,7 @@ export function useYouTubeSummarizer(
           Authorization: `Bearer ${accessToken}`,
           [REQUEST_ID_HEADER]: requestId,
         },
-        body: JSON.stringify({
-          youtube_url: urlArg,
-          include_transcript: includeTranscriptArg,
-          // Only send the field when a translation is requested — the
-          // server treats omitted === video-native (NULL cache row).
-          ...(outputLanguageArg !== null
-            ? { output_language: outputLanguageArg }
-            : {}),
-        }),
+        body: JSON.stringify(requestBody),
         signal,
       }
     );
@@ -196,6 +212,7 @@ export function useYouTubeSummarizer(
     }
 
     const decoder = new TextDecoder();
+    const summaryStreamDecoder = new SummarySseStreamDecoder();
     let accumulatedData = "";
     let chunkCount = 0;
 
@@ -206,6 +223,14 @@ export function useYouTubeSummarizer(
         }
         const { done, value } = await reader.read();
         if (done) {
+          const trailing = decoder.decode();
+          if (trailing) {
+            accumulatedData += trailing;
+            summaryStreamDecoder.push(trailing);
+          }
+          // A final partial frame is a protocol failure, not a silently
+          // truncated summary. Complete frames were validated on arrival.
+          summaryStreamDecoder.finish();
           debugLog("Streaming finished. Total chunks:", chunkCount);
           break;
         }
@@ -215,6 +240,10 @@ export function useYouTubeSummarizer(
 
         const chunk = decoder.decode(value, { stream: true });
         accumulatedData += chunk;
+        // Validate every complete event at the HTTP boundary while retaining
+        // the existing accumulated wire string for the UI parser and its
+        // current rendering behavior.
+        summaryStreamDecoder.push(chunk);
         chunkCount++;
 
         debugLog("Summary stream chunk received", {

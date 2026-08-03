@@ -130,7 +130,7 @@ describe("YouTubeSummarizerApp — 402 upgrade gate", () => {
     const stream = [
       'data: {"type":"metadata","category":"general","cached":true}',
       'data: {"type":"content","text":"A useful summary"}',
-      'data: {"type":"summary","total_time":3,"summarize_time":2,"transcribe_time":1}',
+      'data: {"type":"summary","category":"general","total_time":3,"summarize_time":2,"transcribe_time":1}',
       "",
     ].join("\n");
     mockUseYouTubeSummarizer.mockReturnValue({

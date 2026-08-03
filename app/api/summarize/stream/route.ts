@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
@@ -32,8 +31,7 @@ import {
 } from "@/lib/services/summarize-cache";
 import { detectLocale } from "@/lib/services/language-detect";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
-import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
-import { formatSseEvent, streamLlmSummary } from "@/lib/services/llm-client";
+import { streamLlmSummary } from "@/lib/services/llm-client";
 import {
   CLASSIFIER_EXCERPT_CHARS,
   HAIKU_CHAR_BUDGET,
@@ -54,8 +52,11 @@ import {
   verifyAnonId,
 } from "@/lib/services/anon-cookie";
 import { checkSummaryEntitlement } from "@/lib/services/entitlements";
-import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 import { randomUUID } from "node:crypto";
+import {
+  SummaryRequestSchema,
+  formatSummarySseEvent,
+} from "@/lib/api-contracts/summary";
 import {
   forwardLlmEvent,
   streamCached,
@@ -66,17 +67,6 @@ import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
 export const maxDuration = 300;
-
-// Public app → only https URLs on canonical YouTube hosts. Route-level filter
-// is defense-in-depth; the video-id extractor narrows further.
-const RequestBodySchema = z.object({
-  youtube_url: YouTubeUrlSchema,
-  include_transcript: z.boolean().optional().default(false),
-  // Optional summary-output-language override. Omitted means "video's own
-  // language" (current default behavior — matches the video-native cache
-  // row). An invalid code fails request validation with 400.
-  output_language: z.enum(SUPPORTED_LANGUAGE_CODES).optional(),
-});
 
 // Generic user-facing messages; full error details stay in server logs.
 const USER_ERROR_PROCESS_FAILED =
@@ -199,7 +189,7 @@ export async function POST(request: Request) {
     return jsonError(400, "Invalid JSON body", undefined, requestId, "INVALID_JSON");
   }
 
-  const parsed = RequestBodySchema.safeParse(rawBody);
+  const parsed = SummaryRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
     return jsonError(
       400,
@@ -375,8 +365,12 @@ export async function POST(request: Request) {
       const encoder = new TextEncoder();
       const sendEvent: SendEvent = (data) => {
         if (request.signal.aborted || closed) return;
+        // Validate before entering the enqueue catch. A contract violation
+        // must reach the route's protocol-error path instead of being
+        // mistaken for an ordinary closed-controller race.
+        const encoded = encoder.encode(formatSummarySseEvent(data));
         try {
-          controller.enqueue(encoder.encode(formatSseEvent(data)));
+          controller.enqueue(encoded);
         } catch (err) {
           // If we still reach here, the controller died outside our control
           // — log unconditionally so the bug is visible.
