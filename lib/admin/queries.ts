@@ -17,7 +17,6 @@ export { WHISPER_FLAG_THRESHOLD } from "./constants";
 // at the top of this file. Re-export the pair that callers historically
 // imported from this module so existing import paths stay stable.
 import {
-  SUMMARIES_ROW_CAP,
   HISTORY_ROW_CAP,
   USERS_PAGE_SIZE_CAP,
   VIDEOS_ROW_CAP,
@@ -793,112 +792,6 @@ export async function getUserSummaries(
 }
 
 // ─── Internals ────────────────────────────────────────────────────────────
-
-interface SummaryRow {
-  id: string;
-  video_id: string;
-  transcript_source: string;
-  processing_time_seconds: number | null;
-  transcribe_time_seconds: number | null;
-  summarize_time_seconds: number | null;
-  created_at: string;
-}
-
-async function fetchSummariesIn(
-  client: SupabaseClient,
-  window: TimeWindow,
-): Promise<SummaryRow[]> {
-  const { data, error } = await client
-    .from("summaries")
-    .select(
-      "id, video_id, transcript_source, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds, created_at",
-    )
-    .gte("created_at", window.start.toISOString())
-    .lte("created_at", window.end.toISOString())
-    .limit(SUMMARIES_ROW_CAP);
-  if (error) throw new QueryError("fetchSummariesIn", error.message);
-  if (data && data.length === SUMMARIES_ROW_CAP) {
-    console.warn("[admin-queries] summaries cap hit — KPIs may understate", {
-      cap: SUMMARIES_ROW_CAP,
-      window: { start: window.start.toISOString(), end: window.end.toISOString() },
-    });
-  }
-  return (data ?? []) as SummaryRow[];
-}
-
-interface HistoryRow {
-  user_id: string;
-  video_id: string;
-  created_at: string;
-  /** Populated by fetchHistoryIn enrichment for shared history consumers. */
-  cacheHit?: boolean;
-}
-
-async function fetchHistoryIn(
-  client: SupabaseClient,
-  window: TimeWindow,
-  excludeUserIds: string[] = [],
-): Promise<HistoryRow[]> {
-  // Defensive filter: drop empty/falsy IDs so a future caller passing a
-  // partially-populated array can't break the PostgREST in.() literal
-  // (e.g. `()` or `(,uuid)` would 400 or silently mis-filter).
-  const cleanedExcludes = excludeUserIds.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-
-  // user_video_history's timestamp is `accessed_at` in production (see
-  // aggregateUserActivity comment). Alias on read so HistoryRow's
-  // `created_at` is consistent with how the field is named on every
-  // other admin table.
-  let query = client
-    .from("user_video_history")
-    .select("user_id, video_id, created_at:accessed_at")
-    .gte("accessed_at", window.start.toISOString())
-    .lte("accessed_at", window.end.toISOString());
-
-  if (cleanedExcludes.length > 0) {
-    query = query.not("user_id", "in", `(${cleanedExcludes.join(",")})`);
-  }
-
-  const { data: history, error } = await query.limit(HISTORY_ROW_CAP);
-  if (error) throw new QueryError("fetchHistoryIn:history", error.message);
-  if (history && history.length === HISTORY_ROW_CAP) {
-    console.warn("[admin-queries] history cap hit — DAU/cache-hit may understate", {
-      cap: HISTORY_ROW_CAP,
-      window: { start: window.start.toISOString(), end: window.end.toISOString() },
-    });
-  }
-  if (!history || history.length === 0) return [];
-
-  // Cache hit = an earlier summary for this video already existed before
-  // the user's history entry was recorded (so we served from cache instead
-  // of generating a new one). Compare history.created_at against the
-  // earliest known summary for the same video.
-  const videoIds = Array.from(new Set(history.map((h) => h.video_id as string)));
-  if (videoIds.length === 0) return history as HistoryRow[];
-
-  const { data: summaries, error: sErr } = await client
-    .from("summaries")
-    .select("video_id, created_at")
-    .in("video_id", videoIds);
-  if (sErr) throw new QueryError("fetchHistoryIn:summaries", sErr.message);
-
-  const earliestByVideo = new Map<string, string>();
-  for (const s of summaries ?? []) {
-    const vid = s.video_id as string;
-    const ts = s.created_at as string;
-    const existing = earliestByVideo.get(vid);
-    if (!existing || ts < existing) earliestByVideo.set(vid, ts);
-  }
-
-  return (history as HistoryRow[]).map((h) => {
-    const earliest = earliestByVideo.get(h.video_id);
-    return {
-      ...h,
-      cacheHit: earliest ? earliest < h.created_at : false,
-    };
-  });
-}
 
 // ─── Videos page queries ─────────────────────────────────────────────────
 
