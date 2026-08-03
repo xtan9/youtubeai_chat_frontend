@@ -9,8 +9,13 @@ import { AdminAvatarMenu } from "./avatar-menu";
 import { findNavLabel } from "./nav-config";
 import { useAdmin } from "./admin-context";
 import { useDismissable } from "./use-dismissable";
+import type { ReportCompletenessWarning } from "@/lib/admin/report-completeness";
 
-export function AdminTopbar() {
+export function AdminTopbar({
+  completenessWarnings = [],
+}: {
+  completenessWarnings?: readonly ReportCompletenessWarning[];
+}) {
   const pathname = usePathname() ?? "/admin";
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -34,47 +39,55 @@ export function AdminTopbar() {
   }
 
   return (
-    <div className="topbar">
-      <div className="crumbs">
-        <span>Admin</span>
-        <span className="crumb-sep">/</span>
-        <span className="crumb-cur">{current}</span>
-      </div>
-      <div className="topbar-r">
-        <Btn size="sm" kind="ghost">
-          <Search size={13} /> Search
-          <span className="kbd">
-            <Command size={9} />K
-          </span>
-        </Btn>
-        <div ref={menuWrapperRef} style={{ position: "relative" }}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="btn btn-ghost btn-sm"
-            style={{ padding: "3px 4px" }}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-          >
-            <Avatar idx={1} label={initials} size={22} />
-            <ChevronDown size={12} />
-          </button>
-          {menuOpen && (
-            <div
-              style={{
-                position: "absolute",
-                right: 0,
-                top: "calc(100% + 6px)",
-                zIndex: 50,
-              }}
+    <>
+      <div className="topbar">
+        <div className="crumbs">
+          <span>Admin</span>
+          <span className="crumb-sep">/</span>
+          <span className="crumb-cur">{current}</span>
+        </div>
+        <div className="topbar-r">
+          <Btn size="sm" kind="ghost">
+            <Search size={13} /> Search
+            <span className="kbd">
+              <Command size={9} />K
+            </span>
+          </Btn>
+          <div ref={menuWrapperRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="btn btn-ghost btn-sm"
+              style={{ padding: "3px 4px" }}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
             >
-              <AdminAvatarMenu
-                onSignOut={handleSignOut}
-              />
-            </div>
-          )}
+              <Avatar idx={1} label={initials} size={22} />
+              <ChevronDown size={12} />
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "calc(100% + 6px)",
+                  zIndex: 50,
+                }}
+              >
+                <AdminAvatarMenu onSignOut={handleSignOut} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      {completenessWarnings.length > 0 && (
+        <div className="report-completeness" role="status" aria-live="polite">
+          <span className="report-completeness-title">Report completeness</span>
+          {completenessWarnings.map((warning) => (
+            <span key={warning.code}>{warning.description}</span>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

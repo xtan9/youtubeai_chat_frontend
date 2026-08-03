@@ -1,10 +1,11 @@
 import "server-only";
 
-import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TranscriptSource } from "@/lib/admin/types";
 import { AUDIT_ACTIONS } from "@/lib/admin/audit";
 import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
+import { QueryError } from "./errors";
+import { listUserAccounts, type UserAccount } from "./user-account-directory";
 
 export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
 
@@ -559,7 +560,7 @@ export async function listUsersWithStatsAndSort(
   const page = Math.max(1, opts.page);
   const window = opts.window ?? lastNDays(30);
 
-  const { users: raw, truncated } = await listAllUsers(client, {
+  const { users: raw, truncated } = await listUserAccounts(client, {
     rowCap: opts.rowCap,
   });
 
@@ -631,39 +632,32 @@ export async function listUsersWithStatsAndSort(
 }
 
 function toAdminUserRow(
-  u: AuthUserRecord,
+  u: UserAccount,
   stat: UserActivity | undefined,
 ): AdminUserRow {
   const summaries = stat?.summaries ?? 0;
   const whisper = stat?.whisper ?? 0;
   const whisperPct =
     summaries > 0 ? Math.round((whisper / summaries) * 100) : 0;
-  const providers = Array.from(
-    new Set(
-      (u.identities ?? [])
-        .map((i) => i.provider)
-        .filter((p): p is string => Boolean(p)),
-    ),
-  );
   let isBanned = false;
-  if (u.banned_until) {
-    const t = new Date(u.banned_until).getTime();
+  if (u.bannedUntil) {
+    const t = new Date(u.bannedUntil).getTime();
     if (Number.isNaN(t)) {
       console.error("[admin-queries] toAdminUserRow: invalid banned_until value", {
         userId: u.id,
-        bannedUntil: u.banned_until,
+        bannedUntil: u.bannedUntil,
       });
     } else if (t > Date.now()) {
       isBanned = true;
     }
   }
-  const isDeleted = !!u.deleted_at;
-  const emailVerified = !!u.email_confirmed_at;
+  const isDeleted = !!u.deletedAt;
+  const emailVerified = !!u.emailConfirmedAt;
   const status: UserStatus = isDeleted
     ? "deleted"
     : isBanned
       ? "banned"
-      : u.is_anonymous
+      : u.isAnonymous
         ? "anonymous"
         : emailVerified
           ? "active"
@@ -673,136 +667,22 @@ function toAdminUserRow(
     userId: u.id,
     email: u.email ?? null,
     emailVerified,
-    providers,
+    providers: u.providers,
     status,
-    createdAt: u.created_at,
-    lastSignIn: u.last_sign_in_at ?? null,
+    createdAt: u.createdAt,
+    lastSignIn: u.lastSignInAt,
     lastActivity: stat?.lastSeen ?? null,
     summaries,
     whisper,
     whisperPct,
     flagged: summaries > 0 && whisperPct > WHISPER_FLAG_THRESHOLD,
-    isAnonymous: !!u.is_anonymous,
-    isSsoUser: !!u.is_sso_user,
-    bannedUntil: u.banned_until ?? null,
-    deletedAt: u.deleted_at ?? null,
-    appMetadata: u.app_metadata ?? {},
-    userMetadata: u.user_metadata ?? {},
+    isAnonymous: u.isAnonymous,
+    isSsoUser: u.isSsoUser,
+    bannedUntil: u.bannedUntil,
+    deletedAt: u.deletedAt,
+    appMetadata: u.appMetadata,
+    userMetadata: u.userMetadata,
   };
-}
-
-interface AuthUserRecord {
-  id: string;
-  email: string | null;
-  created_at: string;
-  last_sign_in_at: string | null;
-  email_confirmed_at: string | null;
-  banned_until: string | null;
-  deleted_at: string | null;
-  is_anonymous?: boolean;
-  is_sso_user?: boolean;
-  identities?: Array<{ provider?: string }>;
-  app_metadata?: Record<string, unknown>;
-  user_metadata?: Record<string, unknown>;
-}
-
-const ALL_USERS_ROW_CAP_DEFAULT = 5_000;
-const ALL_USERS_PER_PAGE = 200;
-
-export interface ListAllUsersResult {
-  users: AuthUserRecord[];
-  /** Count reported by the auth service on the first page; may exceed `users.length` when `truncated` is true. */
-  total: number;
-  truncated: boolean;
-}
-
-export interface ListAllUsersOptions {
-  rowCap?: number;
-}
-
-/** Internal worker — paginated `auth.admin.listUsers` aggregator.
- * Wrapped by the exported {@link listAllUsers} via React's `cache()` so
- * `/admin/videos` (which calls it from both the layout's
- * {@link fetchRegisteredUsersTotal} and the page's
- * {@link listAdminUserIds}) only does the pagination once per request. */
-async function listAllUsersUncached(
-  client: SupabaseClient,
-  opts: ListAllUsersOptions = {},
-): Promise<ListAllUsersResult> {
-  const cap = Math.max(1, opts.rowCap ?? ALL_USERS_ROW_CAP_DEFAULT);
-  const collected: AuthUserRecord[] = [];
-  let total = 0;
-  let truncated = false;
-
-  for (let page = 1; ; page++) {
-    const { data, error } = await client.auth.admin.listUsers({
-      page,
-      perPage: ALL_USERS_PER_PAGE,
-    });
-    if (error) throw new QueryError("listAllUsers", error.message);
-    const users = (data?.users ?? []) as AuthUserRecord[];
-    if (page === 1) total = data?.total ?? users.length;
-
-    for (const u of users) {
-      if (collected.length >= cap) {
-        truncated = true;
-        break;
-      }
-      collected.push(u);
-    }
-    if (truncated) break;
-    if (users.length < ALL_USERS_PER_PAGE) break;
-  }
-
-  if (truncated) {
-    console.warn("[admin-queries] listAllUsers cap hit", {
-      cap,
-      total,
-    });
-  }
-  return { users: collected, total, truncated };
-}
-
-/** Request-scoped memoized variant of {@link listAllUsersUncached}.
- * `cache()` keys on the argument identity tuple — `(client, opts)` — so
- * the layout and the page must reuse the same `client` instance and
- * default `opts` shape to share the cached pagination. */
-export const listAllUsers = cache(
-  (
-    client: SupabaseClient,
-    opts: ListAllUsersOptions = {},
-  ): Promise<ListAllUsersResult> => listAllUsersUncached(client, opts),
-);
-
-/**
- * Sidebar badge count: signed-up users excluding the admin allowlist
- * and anonymous Supabase sessions. Pages through {@link listAllUsers}
- * because Supabase's `auth.admin.listUsers` exposes no server-side
- * filter for `is_anonymous = false`.
- *
- * Returns `null` on error so the badge degrades gracefully.
- */
-export async function fetchRegisteredUsersTotal(
-  client: SupabaseClient,
-  allowlist: readonly string[],
-): Promise<number | null> {
-  try {
-    const { users } = await listAllUsers(client);
-    const adminSet = new Set(allowlist.map((e) => e.toLowerCase()));
-    let count = 0;
-    for (const u of users) {
-      if (u.is_anonymous) continue;
-      if (!u.email) continue;
-      if (adminSet.has(u.email.toLowerCase())) continue;
-      count++;
-    }
-    return count;
-  } catch (err) {
-    console.error("[admin-queries] fetchRegisteredUsersTotal failed", {
-      message: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
 }
 
 export interface AdminUserIdLookup {
@@ -821,9 +701,9 @@ export interface AdminUserIdLookup {
  * "no admins configured" from "lookup failed/truncated". Use this when
  * the page's contract depends on the filter actually being applied.
  *
- * Pages through the full user list via `listAllUsers` (capped at 5000
- * by default with a warn on truncation). A previous single-page
- * implementation silently dropped admins past the first 200 rows.
+ * Pages through the full User Account Directory (capped at 5000 by default
+ * with a warn on truncation). A previous single-page implementation silently
+ * dropped administrators past the first 200 rows.
  *
  * Fail-soft: returns ids=[] on error so callers default to "include
  * admins" rather than failing the page; `ok` is the caller's signal.
@@ -832,19 +712,13 @@ export async function listAdminUserIdsWithStatus(
   client: SupabaseClient,
 ): Promise<AdminUserIdLookup> {
   try {
-    const { users, truncated } = await listAllUsers(client);
+    const { users, truncated } = await listUserAccounts(client);
     if (truncated) {
       console.warn(
-        "[admin-queries] listAdminUserIdsWithStatus: user list truncated — admin set may be incomplete",
+        "[admin-queries] listAdminUserIdsWithStatus: User Account Directory truncated — admin set may be incomplete",
       );
     }
-    const ids = users
-      .filter(
-        (u) =>
-          (u.app_metadata as Record<string, unknown> | undefined)
-            ?.is_admin === true,
-      )
-      .map((u) => u.id);
+    const ids = users.filter((u) => u.isAdministrator).map((u) => u.id);
     return { ids, ok: !truncated };
   } catch (err) {
     console.error("[admin-queries] listAdminUserIdsWithStatus failed", {
@@ -2281,11 +2155,4 @@ function decodeCursor(raw: string | null | undefined): KeysetCursor | null {
     });
   }
   return null;
-}
-
-export class QueryError extends Error {
-  constructor(scope: string, detail: string) {
-    super(`[admin-queries:${scope}] ${detail}`);
-    this.name = "QueryError";
-  }
 }

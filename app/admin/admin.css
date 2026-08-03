@@ -175,6 +175,15 @@
 [data-admin-scope] .crumb-cur { color: var(--text); font-weight: 500; }
 [data-admin-scope] .crumb-sep { color: var(--text-4); }
 [data-admin-scope] .topbar-r { display: flex; align-items: center; gap: 8px; }
+[data-admin-scope] .report-completeness {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+}
+[data-admin-scope] .report-completeness-title { font-weight: 600; }
 
 /* Buttons */
 [data-admin-scope] .btn {
