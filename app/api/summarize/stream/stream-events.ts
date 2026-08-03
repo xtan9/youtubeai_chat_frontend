@@ -1,6 +1,7 @@
 import type {
   CachedSummary,
   TranscriptSegment,
+  TranscriptSource,
 } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import { logAppEvent } from "@/lib/observability";
@@ -67,14 +68,20 @@ export function streamCached(
   opts: {
     includeTranscript: boolean;
     segments?: readonly TranscriptSegment[];
+    source?: TranscriptSource;
+    title?: string;
+    channelName?: string;
+    transcribeTimeSeconds?: number;
   }
 ): void {
+  const transcribeTimeSeconds =
+    opts.transcribeTimeSeconds ?? cached.transcribeTimeSeconds;
   emitSummaryEvent(sendEvent, {
     type: "metadata",
     category: "general",
     cached: true,
-    title: cached.title,
-    channel: cached.channelName,
+    title: opts.title ?? cached.title,
+    channel: opts.channelName ?? cached.channelName,
   });
 
   emitSummaryEvent(sendEvent, { type: "content", text: cached.summary });
@@ -83,15 +90,15 @@ export function streamCached(
     emitSummaryEvent(sendEvent, {
       type: "full_transcript",
       segments: opts.segments,
-      source: cached.transcriptSource,
+      source: opts.source ?? cached.transcriptSource,
     });
   }
 
   emitSummaryEvent(sendEvent, {
     type: "summary",
     category: "general",
-    total_time: cached.summarizeTimeSeconds + cached.transcribeTimeSeconds,
+    total_time: cached.summarizeTimeSeconds + transcribeTimeSeconds,
     summarize_time: cached.summarizeTimeSeconds,
-    transcribe_time: cached.transcribeTimeSeconds,
+    transcribe_time: transcribeTimeSeconds,
   });
 }

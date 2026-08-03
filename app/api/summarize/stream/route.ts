@@ -2,34 +2,15 @@ import { after } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import {
-  CaptionExtractionError,
-  captionErrorId,
-  extractCaptions,
-} from "@/lib/services/caption-extractor";
-import {
-  transcribeViaVps,
-  VpsTranscribeError,
-  vpsErrorId,
-} from "@/lib/services/vps-client";
-import {
-  fetchVideoMetadata,
-  type VideoMetadataResult,
-} from "@/lib/services/video-metadata";
-import {
-  fetchVpsMetadata,
-  primarySubtag,
-  type VpsMetadataResult,
-} from "@/lib/services/vps-metadata";
-import {
   getCachedSummary,
-  getCachedTranscript,
   writeCachedSummary,
-  writeCachedTranscript,
-  type TranscriptSegment,
-  type TranscriptSource,
-  type PromptLocale,
 } from "@/lib/services/summarize-cache";
-import { detectLocale } from "@/lib/services/language-detect";
+import {
+  acquireTranscript,
+  type TranscriptAcquisitionOutcome,
+  type TranscriptAcquisitionProgress,
+  type TranscriptAcquisitionSuccess,
+} from "@/lib/services/transcript-acquisition";
 import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import { streamLlmSummary } from "@/lib/services/llm-client";
 import {
@@ -103,81 +84,6 @@ function jsonError(
 // signal fired).
 function isCallerAbort(signal: AbortSignal): boolean {
   return signal.aborted;
-}
-
-// Upstream failures warrant skipping the cache write + logging. Caller-abort
-// is a different class — the user disconnected, it's not an oembed problem.
-function isUpstreamMetadataFailure(
-  result: VideoMetadataResult
-): result is Extract<VideoMetadataResult, { ok: false }> & {
-  reason: Exclude<
-    Extract<VideoMetadataResult, { ok: false }>["reason"],
-    "aborted"
-  >;
-} {
-  return !result.ok && result.reason !== "aborted";
-}
-
-// Synthesize a stable Error for Sentry grouping when there's no underlying
-// thrown error to wrap. Switch is exhaustive via `never` so a new reason
-// in VideoMetadataResult fails compilation here.
-function metadataErrorForLog(
-  result: Extract<VideoMetadataResult, { ok: false }> & {
-    reason: Exclude<
-      Extract<VideoMetadataResult, { ok: false }>["reason"],
-      "aborted"
-    >;
-  }
-): unknown {
-  switch (result.reason) {
-    case "error":
-      return result.error;
-    case "non_ok":
-      return new Error(`oembed non_ok (status ${result.status})`);
-    case "timeout":
-      return new Error("oembed timeout");
-    case "schema":
-      return new Error("oembed schema");
-    default: {
-      const _exhaustive: never = result;
-      return _exhaustive;
-    }
-  }
-}
-
-// Same rationale as metadataErrorForLog but for the VPS /metadata client.
-// Unwraps `reason: "error"` to its inner cause so Sentry groups on the
-// actual thrown error rather than the Result wrapper; synthesizes a
-// stable Error for the no-inner-error reasons. Exhaustive via `never`.
-function vpsMetadataErrorForLog(
-  result: Extract<VpsMetadataResult, { ok: false }> & {
-    reason: Exclude<
-      Extract<VpsMetadataResult, { ok: false }>["reason"],
-      "aborted"
-    >;
-  }
-): unknown {
-  switch (result.reason) {
-    case "error":
-      return result.error;
-    case "non_ok":
-      return new Error(`vps metadata non_ok (status ${result.status})`);
-    case "timeout":
-      return new Error("vps metadata timeout");
-    case "schema":
-      // Embed the first zod issue path for grouping — a pure
-      // "vps metadata schema" would collide across unrelated field
-      // regressions.
-      return new Error(
-        `vps metadata schema (${result.issues[0]?.path.join(".") ?? "?"})`
-      );
-    case "config":
-      return new Error("vps metadata config missing");
-    default: {
-      const _exhaustive: never = result;
-      return _exhaustive;
-    }
-  }
 }
 
 export async function POST(request: Request) {
@@ -383,29 +289,11 @@ export async function POST(request: Request) {
       };
 
       const logStageError = (stage: LogStage, err: unknown) => {
-        // Pull `.status` off typed transcription/caption errors so
-        // log-search alerts can fingerprint upstream failure classes without
-        // regex-substring-matching on err.message. The `errorId` is a stable
-        // token so dashboards can group by it.
-        const isVpsTyped = err instanceof VpsTranscribeError;
-        const isCaptionTyped = err instanceof CaptionExtractionError;
-        const status = isVpsTyped
-          ? err.status
-          : isCaptionTyped
-            ? err.status
-            : undefined;
-        const errorId = isVpsTyped
-          ? vpsErrorId(err.status)
-          : isCaptionTyped
-            ? captionErrorId(err.status)
-            : undefined;
         logAppEvent("error", `[summarize/stream] ${stage} failed`, {
           stage,
           videoId: videoIdForLog(youtube_url),
           userId: authedUser.id,
           requestId,
-          ...(status !== undefined && { status }),
-          ...(errorId !== undefined && { errorId }),
           ...(err instanceof Error && { errorName: err.name }),
         });
       };
@@ -415,344 +303,124 @@ export async function POST(request: Request) {
           youtube_url,
           outputLanguageCode ?? null
         );
-        if (cached) {
-          // The cached summary row stores only the flat string the LLM
-          // consumed; segments (with per-line timing) live on the separate
-          // video_transcripts row. Fetch them only when the client asked
-          // for the transcript so we don't pay an extra DB round-trip on
-          // include_transcript=false requests (the common path for the
-          // production summary flow).
-          let cachedSegments: readonly TranscriptSegment[] | undefined;
-          if (includeTranscript) {
-            const cachedT = await getCachedTranscript(youtube_url);
-            cachedSegments = cachedT?.segments;
-          }
-          // Honor the cache only when the client doesn't need a
-          // transcript, or we have one with real per-line timing.
-          // Synthesizing a single `[{start:0, duration:0}]` from
-          // `cached.transcript` would re-create the exact placeholder
-          // the read-side eviction in summarize-cache.getCachedTranscript
-          // is tearing down — the user keeps seeing one un-clickable
-          // 00:00 paragraph forever. Falling through re-runs the VPS
-          // pipeline; one re-bill per affected video, after which both
-          // caches hold real segments + summary and subsequent visits
-          // are fast.
-          if (!includeTranscript || cachedSegments !== undefined) {
-            streamCached(sendEvent, cached, {
-              includeTranscript,
-              segments: cachedSegments,
-            });
-            return;
-          }
-        }
-
         const overallStart = Date.now();
-        sendEvent({ type: "metadata", category: "general", cached: false });
-        sendEvent({
-          type: "status",
-          message: "Extracting captions...",
-          stage: "transcribe",
-        });
 
-        // Definite-assignment assertions: the transcript-acquisition step
-        // (either the shortcut path or the captions/Whisper pipeline)
-        // assigns all three on every path the code can reach — but TS's
-        // flow analyzer can't correlate the `reusedNativeTranscript` flag
-        // with the nested if/else in the pipeline. Both paths assign;
-        // reaching the use-site with these unset is unreachable at runtime.
-        //
-        // `segments` is the canonical shape; the flat `transcript` string
-        // is derived once below for the LLM/classifier/cache snapshot path.
-        // Storing both representations would let them drift; deriving means
-        // "what we summarized" is provably the concatenation of "what we
-        // showed."
-        let segments!: readonly TranscriptSegment[];
-        let transcriptSource!: TranscriptSource;
-        let language!: PromptLocale;
-        let title = "";
-        let channelName = "";
-        // Populated by the VPS /metadata call inside the transcription
-        // pipeline; stays null on the translation-shortcut path (we have
-        // language from the cached native row, no /metadata round-trip).
-        let detectedLang: string | null = null;
-        let availableCaptions: readonly string[] = [];
-        // Whisper-only. The .catch at construction guards against unhandled
-        // rejection if the LLM path errors before we await the promise.
-        let metadataPromise: Promise<VideoMetadataResult> | null = null;
-
-        const transcribeStart = Date.now();
-
-        // Transcript cache shortcut: any request (any language) for a
-        // video we've already transcribed reuses that transcript and skips
-        // the entire transcription pipeline (VPS metadata + captions +
-        // Whisper). Independent of whether the per-language summary cache
-        // row exists — the transcript is its own first-class artifact, so
-        // a mid-LLM abort or a language switch right after summary completion
-        // both find the cached transcript here.
-        let reusedCachedTranscript = false;
-        const cachedTranscript = await getCachedTranscript(youtube_url);
-        if (isCallerAbort(request.signal)) return;
-        if (cachedTranscript) {
-          segments = cachedTranscript.segments;
-          transcriptSource = cachedTranscript.transcriptSource;
-          language = cachedTranscript.language;
-          title = cachedTranscript.title;
-          channelName = cachedTranscript.channelName;
-          reusedCachedTranscript = true;
-          sendEvent({
-            type: "status",
-            message: "Using cached transcript, summarizing...",
-            stage: "summarize",
-          });
-          // Recovery: a previous Whisper-path request may have written
-          // the videos row with NULL title/channel (transcript cache is
-          // written before oembed resolves) and then aborted before
-          // writeCachedSummary backfilled the metadata. Without this
-          // guard, every subsequent shortcut request would skip oembed,
-          // hit the empty-header guard at end-of-pipeline, and never
-          // write the per-language summary row — re-billing the LLM
-          // forever for a video that's already transcribed. Fetching
-          // oembed here is the only place that re-establishes the
-          // header so the cache write at the bottom can complete.
-          if (!title || !channelName) {
-            metadataPromise = Promise.resolve()
-              .then(() => fetchVideoMetadata(youtube_url, request.signal))
-              .catch(
-                (err): VideoMetadataResult =>
-                  request.signal.aborted
-                    ? { ok: false, reason: "aborted" }
-                    : { ok: false, reason: "error", error: err }
-              );
-          }
-        }
-
-        if (!reusedCachedTranscript) {
-        // Ask the VPS for the video's language + available caption codes
-        // up front. This drives both:
-        //   - which caption track to request from /captions (avoids
-        //     youtube-transcript-plus picking tracks[0], which is
-        //     arbitrarily ordered and produced Arabic-for-French before)
-        //   - the whisper --language pin when we fall back to /transcribe
-        //
-        // Graceful degradation: any failure (config, network, schema,
-        // timeout) produces `detectedLang = null` and the whole chain
-        // falls back to the legacy "no hint" flow. The feature is
-        // strictly additive — never fatal.
-        const vpsMeta = await fetchVpsMetadata(
-          youtube_url,
-          request.signal,
-          requestId
-        );
-        if (isCallerAbort(request.signal)) return;
-        if (vpsMeta.ok) {
-          // Normalize to primary subtag so the "zh" short-circuit below
-          // still fires when the VPS returns `zh-Hans` or similar. Also
-          // the `availableCaptions` list from yt-dlp can contain mixed
-          // tagged/untagged entries; normalizing both sides keeps the
-          // .includes("en") check honest.
-          detectedLang = primarySubtag(vpsMeta.data.language);
-          availableCaptions = vpsMeta.data.availableCaptions.map(primarySubtag);
-        } else if (vpsMeta.reason !== "aborted") {
-          // Suppress alert-level logging when the VPS lacks the new
-          // /metadata endpoint — during the deploy window (frontend ships
-          // before the backend), every request would fire a false alarm.
-          // Other non_ok statuses (500, etc.) still log at error level.
-          if (vpsMeta.reason === "non_ok" && vpsMeta.status === 404) {
-            logAppEvent("warn", "[summarize/stream] metadata endpoint unavailable", {
-              errorId: "VPS_METADATA_404",
-              status: 404,
-              videoId: videoIdForLog(youtube_url),
-              requestId,
-            });
-          } else {
-            logStageError("metadata", vpsMetadataErrorForLog(vpsMeta));
-          }
-        }
-
-        let captions;
-        try {
-          captions = await extractCaptions(
-            youtube_url,
-            request.signal,
-            detectedLang ?? undefined,
-            requestId
-          );
-          if (isCallerAbort(request.signal)) return;
-        } catch (err) {
-          if (isCallerAbort(request.signal)) return;
-          logStageError("captions", err);
-          sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
+        // A cached Summary does not need Transcript Acquisition when the
+        // caller did not request the canonical Transcript payload. Keep the
+        // existing Summary-cache fast path and its stored timing snapshot.
+        if (cached && !includeTranscript) {
+          streamCached(sendEvent, cached, { includeTranscript: false });
           return;
         }
 
-        // If the detected-language caption track isn't available but an
-        // English one is, retry once with `lang="en"`. English captions
-        // are a lower-quality but acceptable fallback per product
-        // decision — preferable to paying for whisper when a usable
-        // track already exists. Skipped when we don't have a detected
-        // language (legacy path), when detected is already English, or
-        // when `availableCaptions` doesn't promise an English track.
-        if (
-          !captions &&
-          detectedLang &&
-          detectedLang !== "en" &&
-          availableCaptions.includes("en")
-        ) {
-          try {
-            captions = await extractCaptions(
-              youtube_url,
-              request.signal,
-              "en",
-              requestId
-            );
-            if (isCallerAbort(request.signal)) return;
-          } catch (err) {
-            if (isCallerAbort(request.signal)) return;
-            logStageError("captions", err);
-            sendEvent({ type: "error", message: USER_ERROR_PROCESS_FAILED });
-            return;
+        const sendAcquisitionProgress = (
+          progress: TranscriptAcquisitionProgress
+        ): void => {
+          switch (progress.type) {
+            case "stored_reuse":
+              sendEvent({
+                type: "status",
+                message: "Using cached transcript, summarizing...",
+                stage: "summarize",
+              });
+              return;
+            case "caption_acquisition":
+              sendEvent({
+                type: "status",
+                message: "Extracting captions...",
+                stage: "transcribe",
+              });
+              return;
+            case "audio_transcription":
+              sendEvent({
+                type: "status",
+                message: "No captions found. Transcribing audio...",
+                stage: "transcribe",
+              });
+              return;
+            case "language_detection":
+              sendEvent({
+                type: "status",
+                message: `Detected language: ${progress.detectedLanguage}`,
+                stage: "summarize",
+              });
+              return;
+            default: {
+              const _exhaustive: never = progress;
+              return _exhaustive;
+            }
           }
-        }
+        };
 
-        if (captions) {
-          segments = captions.segments;
-          transcriptSource = captions.source;
-          language = captions.language;
-          title = captions.title;
-          channelName = captions.channelName;
-        } else {
-          sendEvent({
-            type: "status",
-            message: "No captions found. Transcribing audio...",
-            stage: "transcribe",
+        let acquisitionResult: TranscriptAcquisitionOutcome;
+        let bufferedProgress: TranscriptAcquisitionProgress[] | undefined;
+
+        if (cached) {
+          // A Summary cache hit can still need Transcript Acquisition when
+          // the caller requested the canonical timed Transcript. The
+          // acquisition seam decides whether the stored Transcript is valid
+          // and heals its metadata before this cached Summary is streamed.
+          bufferedProgress = [];
+          acquisitionResult = await acquireTranscript({
+            youtubeUrl: youtube_url,
+            signal: request.signal,
+            requestId,
+            onProgress: (progress) => bufferedProgress!.push(progress),
           });
-          // Wrapping in .then() normalizes any synchronous throw into a
-          // rejection that the downstream .catch can classify, so a
-          // refactor that drops `async` on fetchVideoMetadata can't
-          // bypass the handler.
-          metadataPromise = Promise.resolve()
-            .then(() => fetchVideoMetadata(youtube_url, request.signal))
-            .catch(
-              (err): VideoMetadataResult =>
-                request.signal.aborted
-                  ? { ok: false, reason: "aborted" }
-                  : { ok: false, reason: "error", error: err }
-            );
-          try {
-            const vpsResult = await transcribeViaVps(
-              youtube_url,
-              request.signal,
-              detectedLang ?? undefined,
-              requestId
-            );
-            segments = vpsResult.segments;
-            transcriptSource = "whisper";
-            // PromptLocale stays binary (en|zh). If we pinned zh, trust
-            // that; for every other detected language we still run
-            // detectLocale on the transcript to catch CJK output from
-            // mis-detection (or legacy "no hint" calls). Slice the first
-            // ~500 chars of the joined text rather than streaming all
-            // segments through detectLocale — the heuristic only needs a
-            // sample.
-            language =
-              detectedLang === "zh"
-                ? "zh"
-                : detectLocale(
-                    segments
-                      .map((s) => s.text)
-                      .join(" ")
-                      .slice(0, 500)
-                  );
-          } catch (err) {
-            if (isCallerAbort(request.signal)) return;
-            // logStageError extracts `.status` and stamps a stable
-            // `errorId: VPS_TRANSCRIBE_FAILED_<status>` when err is a
-            // VpsTranscribeError, so log-search alerts can fingerprint
-            // 503 (Groq quota / GROQ_FAILED_NO_FALLBACK gate) vs. 500
-            // (WHISPER_EMPTY_RESULT) vs. timeout/network without
-            // regex-matching err.message. User-visible behavior is
-            // unchanged — still emits the generic
-            // USER_ERROR_PROCESS_FAILED SSE event.
-            logStageError("vps", err);
-            sendEvent({
-              type: "error",
-              message: USER_ERROR_PROCESS_FAILED,
-              ...(err instanceof VpsTranscribeError
-                ? { errorId: vpsErrorId(err.status) }
-                : {}),
+
+          if (
+            acquisitionResult.outcome === "success" &&
+            acquisitionResult.reusedStoredTranscript
+          ) {
+            streamCached(sendEvent, cached, {
+              includeTranscript,
+              segments: acquisitionResult.segments,
+              source: acquisitionResult.transcriptSource,
+              title: acquisitionResult.title,
+              channelName: acquisitionResult.channelName,
+              transcribeTimeSeconds:
+                acquisitionResult.acquisitionDurationSeconds,
             });
             return;
           }
-        }
 
-        // Whisper path only: resolve oembed BEFORE writing the transcript
-        // cache. The captions path already has title/channel; the Whisper
-        // path doesn't (oembed was kicked off in parallel and not yet
-        // awaited). Resolving here means the videos row written by
-        // writeCachedTranscript carries real title/channel — eliminating
-        // the race where a late transcript-cache write could clobber
-        // values that writeCachedSummary already populated, and the
-        // permanent-cache-disable bug if this request aborts before
-        // end-of-pipeline. Re-awaiting the same promise at line ~533
-        // is a no-op (resolved promises return their cached value).
-        if (metadataPromise) {
-          const result = await metadataPromise;
-          if (result.ok) {
-            title = result.data.title;
-            channelName = result.data.channelName;
-          }
-          // Don't set metadataSkipCache here — the lower await still runs
-          // and handles the failure-classification + log. We just want
-          // title/channel for the transcript-cache write; if oembed
-          // failed, we proceed with empty strings (writeCachedTranscript
-          // skips the column rather than nulling out an existing value).
-        }
-
-        // Persist transcript NOW, before the LLM call. If this request
-        // aborts mid-LLM (caller disconnect, language switch, gateway
-        // error), the next request still finds the transcript and skips
-        // re-transcription. Both the captions and Whisper paths now have
-        // title/channel resolved by this point; writeCachedTranscript
-        // sparsely upserts so empty/undefined values won't overwrite an
-        // existing populated videos row.
-        // Fire-and-forget: a transcript-cache write failure must not
-        // delay the user-visible summary stream — but the failure is
-        // alertable since it disables the cache for that video.
-        writeCachedTranscript({
-          youtubeUrl: youtube_url,
-          segments,
-          transcriptSource,
-          language,
-          title: title || undefined,
-          channelName: channelName || undefined,
-        }).catch((err) =>
-          logAppEvent("error", "[summarize/stream] transcript cache write failed", {
-            errorId: "TRANSCRIPT_WRITE_FAILED",
-            videoId: videoIdForLog(youtube_url),
+          sendEvent({ type: "metadata", category: "general", cached: false });
+          bufferedProgress.forEach(sendAcquisitionProgress);
+        } else {
+          sendEvent({ type: "metadata", category: "general", cached: false });
+          acquisitionResult = await acquireTranscript({
+            youtubeUrl: youtube_url,
+            signal: request.signal,
             requestId,
-            errorName: err instanceof Error ? err.name : typeof err,
-          })
-        );
-        } // end !reusedCachedTranscript
-        // Only measure real transcription time. On the shortcut path we
-        // didn't do transcription — attributing the cache-lookup duration
-        // here poisons `transcribe_time_seconds` on the translation cache
-        // row (and shows the user "Transcription: 0.02s" which is a lie).
-        const transcribeSeconds = reusedCachedTranscript
-          ? 0
-          : (Date.now() - transcribeStart) / 1000;
+            onProgress: sendAcquisitionProgress,
+          });
+        }
 
-        // Surface the BCP-47 detectedLang when we have it — PromptLocale is
-        // binary (en|zh) and tells the user "en" for every non-CJK video,
-        // which reads as "we think your French video is English." Skipped
-        // entirely on the shortcut path because `detectedLang` is never set
-        // there (we'd just print the PromptLocale fallback and regress the
-        // very UX this event exists to fix). The user already saw the
-        // detection on their first render.
-        if (!reusedCachedTranscript) {
+        if (acquisitionResult.outcome === "caller_aborted") return;
+        if (acquisitionResult.outcome === "acquisition_failed") {
+          sendEvent({
+            type: "error",
+            message: USER_ERROR_PROCESS_FAILED,
+            errorId: acquisitionResult.failure.errorId,
+          });
+          return;
+        }
+
+        const acquired: TranscriptAcquisitionSuccess = acquisitionResult;
+        const segments = acquired.segments;
+        const transcriptSource = acquired.transcriptSource;
+        const language = acquired.promptLocale;
+        const title = acquired.title ?? "";
+        const channelName = acquired.channelName ?? "";
+        const transcribeSeconds = acquired.acquisitionDurationSeconds;
+
+        // A metadata endpoint outage is intentionally non-fatal. Acquisition
+        // still returns the prompt locale inferred from the canonical
+        // Transcript, so the existing product status remains truthful.
+        if (!acquired.reusedStoredTranscript && !acquired.detectedLanguage) {
           sendEvent({
             type: "status",
-            message: `Detected language: ${detectedLang ?? language}`,
+            message: `Detected language: ${language}`,
             stage: "summarize",
           });
         }
@@ -765,14 +433,10 @@ export async function POST(request: Request) {
           });
         }
 
-        // Partial-pipeline shortcut: if the per-language summary cache hit
-        // earlier but we re-transcribed because segments were missing
-        // (read-side eviction in summarize-cache or never persisted),
-        // stream the cached summary verbatim instead of re-billing the
-        // LLM. The transcript cache write already happened above on the
-        // !reusedCachedTranscript branch, so the next request hits both
-        // shortcuts. Skipping the LLM also avoids clobbering the existing
-        // summary row with a non-deterministic re-run.
+        // Partial-pipeline shortcut: if the per-language Summary cache hit
+        // earlier but Transcript Acquisition had to repair or acquire the
+        // canonical Transcript, stream the cached Summary without re-billing
+        // the LLM.
         if (cached) {
           sendEvent({ type: "content", text: cached.summary });
           sendEvent({
@@ -783,22 +447,6 @@ export async function POST(request: Request) {
             transcribe_time: transcribeSeconds,
           });
           return;
-        }
-
-        // Resolve oembed metadata NOW (not after the LLM call) so the
-        // classifier sees a real title on the Whisper path. By this point
-        // VPS transcription already took minutes, so the oembed fetch has
-        // almost always resolved — the await is effectively free.
-        let metadataSkipCache = false;
-        if (metadataPromise) {
-          const result = await metadataPromise;
-          if (result.ok) {
-            title = result.data.title;
-            channelName = result.data.channelName;
-          } else if (isUpstreamMetadataFailure(result)) {
-            metadataSkipCache = true;
-            logStageError("metadata", metadataErrorForLog(result));
-          }
         }
 
         // Derive the flat transcript string ONCE here for everything
@@ -905,7 +553,7 @@ export async function POST(request: Request) {
         // Both title and channel drive the cached UI header. Either one
         // blank makes the cached row user-visibly broken, so skip the
         // write — a re-run is better than a headerless cache hit.
-        if (metadataSkipCache || request.signal.aborted) return;
+        if (request.signal.aborted) return;
         if (!title || !channelName) {
           const payload = {
             errorId: "CACHE_SKIP_EMPTY_HEADER",
