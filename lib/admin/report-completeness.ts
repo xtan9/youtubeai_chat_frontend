@@ -8,6 +8,7 @@ export const REPORT_COMPLETENESS_WARNING_CODES = {
   dashboardSummariesTruncated: "DASHBOARD_SUMMARIES_TRUNCATED",
   dashboardActivityTruncated: "DASHBOARD_ACTIVITY_TRUNCATED",
   dashboardCacheHitUnavailable: "DASHBOARD_CACHE_HIT_UNAVAILABLE",
+  administratorTouchedVideosTruncated: "ADMINISTRATOR_TOUCHED_VIDEOS_TRUNCATED",
   performanceSummariesTruncated: "PERFORMANCE_SUMMARIES_TRUNCATED",
   performanceActivityUnavailable: "PERFORMANCE_ACTIVITY_UNAVAILABLE",
   performanceActivityTruncated: "PERFORMANCE_ACTIVITY_TRUNCATED",
@@ -40,6 +41,8 @@ export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
     "Dashboard activity data may be incomplete because the activity row cap was reached.",
   DASHBOARD_CACHE_HIT_UNAVAILABLE:
     "Cache-hit metrics are unavailable because summary enrichment failed.",
+  ADMINISTRATOR_TOUCHED_VIDEOS_TRUNCATED:
+    "Administrator filtering may be incomplete because administrator-touched Video detection reached its row cap.",
   PERFORMANCE_SUMMARIES_TRUNCATED:
     "Performance summary data may be incomplete because the summary row cap was reached.",
   PERFORMANCE_ACTIVITY_UNAVAILABLE:

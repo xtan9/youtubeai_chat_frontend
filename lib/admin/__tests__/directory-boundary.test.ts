@@ -79,6 +79,41 @@ describe("Dashboard Report boundaries", () => {
   });
 });
 
+describe("Videos Report boundaries", () => {
+  it("keeps the loader server-only and the route at one loader boundary", () => {
+    const loader = source("lib/admin/videos-report.ts");
+    const page = source("app/admin/videos/page.tsx");
+
+    expect(loader).toMatch(/^import "server-only";/m);
+    expect(page).toContain("@/lib/admin/videos-report");
+    expect(page).not.toContain("@/lib/admin/queries");
+    expect(page).not.toMatch(
+      /\b(listVideosWithStats|getVideoInsights|listAdminUserIdsWithStatus|lastNDays)\b/,
+    );
+    expect(page.match(/\bloadVideosReport\(/g)).toHaveLength(1);
+  });
+
+  it("keeps Videos production code and tests off the retired query surface", () => {
+    const videosFiles = [
+      "app/admin/videos/page.tsx",
+      "app/admin/videos/_components/filter.ts",
+      "app/admin/videos/_components/videos-insights.tsx",
+      "app/admin/videos/_components/videos-table.tsx",
+      "app/admin/videos/_components/video-row-expansion.tsx",
+      "lib/admin/videos-report.ts",
+      "lib/admin/__tests__/videos-report.test.ts",
+    ];
+
+    for (const file of videosFiles) {
+      const contents = source(file);
+      expect(contents, file).not.toContain("@/lib/admin/queries");
+      expect(contents, file).not.toContain("../queries");
+      expect(contents, file).not.toContain("listVideosWithStats");
+      expect(contents, file).not.toContain("getVideoInsights");
+    }
+  });
+});
+
 describe("User Accounts Report boundaries", () => {
   it("keeps the report server-only and the route at one loader boundary", () => {
     const loader = source("lib/admin/user-accounts-report.ts");

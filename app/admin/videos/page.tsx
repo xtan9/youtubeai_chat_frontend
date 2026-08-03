@@ -1,14 +1,11 @@
-import { AlertTriangle, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { requireAdminPage } from "../_components/admin-gate";
+import { ReportCompletenessNotice } from "../_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
-  listVideosWithStats,
-  getVideoInsights,
-  listAdminUserIdsWithStatus,
-  lastNDays,
-  type VideoListOptions,
-  type TimeWindow,
-} from "@/lib/admin/queries";
+  loadVideosReport,
+  type VideosReportInput,
+} from "@/lib/admin/videos-report";
 import {
   isTranscriptSource as isTranscriptSourceValue,
   type TranscriptSource,
@@ -39,64 +36,33 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
 
   const raw = await searchParams;
   const parsed = parseVideoSearchParams(raw);
-  const adminLookup = await listAdminUserIdsWithStatus(client);
-  // Degraded when the auth.users paginate failed or was truncated AND the
-  // env-allowlist says admins should exist. A genuinely empty allowlist
-  // (e.g. dev/staging with no admins) is not degraded — it just means
-  // there's nothing to filter.
-  const adminFilterDegraded =
-    !adminLookup.ok && principal.allowlist.size > 0;
-
-  const window: TimeWindow | undefined =
-    parsed.mode === "trending" ? lastNDays(parsed.windowDays) : undefined;
-
   const sourceParam =
     parsed.source && isTranscriptSource(parsed.source) ? parsed.source : null;
 
-  const listOpts: VideoListOptions = {
+  const reportInput: VideosReportInput = {
     mode: parsed.mode,
-    window,
-    sort: parsed.sort,
-    dir: parsed.dir,
+    windowDays: parsed.windowDays,
     search: parsed.search,
-    language: parsed.language,
-    source: sourceParam,
-    channel: parsed.channel,
-    model: parsed.model,
+    filters: {
+      language: parsed.language,
+      source: sourceParam,
+      channel: parsed.channel,
+      model: parsed.model,
+    },
+    dateBounds: {
+      from: parsed.firstSummarizedFrom,
+      to: parsed.firstSummarizedTo,
+    },
+    sort: parsed.sort,
+    direction: parsed.dir,
+    pagination: {
+      page: parsed.page,
+      pageSize: parsed.pageSize || DEFAULT_PAGE_SIZE,
+    },
     flaggedOnly: parsed.flaggedOnly,
-    firstSummarizedFrom: parsed.firstSummarizedFrom,
-    firstSummarizedTo: parsed.firstSummarizedTo,
-    page: parsed.page,
-    pageSize: parsed.pageSize || DEFAULT_PAGE_SIZE,
-    excludeAdminUserIds: adminLookup.ids,
+    expandedVideoId: parsed.expandedVideoId,
   };
-
-  const [list, insights] = await Promise.all([
-    listVideosWithStats(client, listOpts),
-    getVideoInsights(client, {
-      mode: parsed.mode,
-      window,
-      excludeAdminUserIds: adminLookup.ids,
-    }),
-  ]);
-
-  // Single banner covers both degraded admin lookup AND incomplete
-  // admin-touched-video pre-fetch — both result in admin/QA traffic
-  // potentially appearing in the table, so the operator gets one signal
-  // either way (with text spelling out which case applied).
-  const adminFilterIncomplete =
-    list.adminFilterIncomplete || insights.adminFilterIncomplete;
-  const filterWarning = adminFilterDegraded
-    ? "Admin user list unavailable — table may include admin/QA traffic that wasn't filtered."
-    : adminFilterIncomplete
-      ? "Admin filter incomplete — admin history exceeded the row cap and some admin-touched videos may appear below."
-      : null;
-
-  const expandedVideoId =
-    parsed.expandedVideoId &&
-    list.rows.some((r) => r.videoId === parsed.expandedVideoId)
-      ? parsed.expandedVideoId
-      : null;
+  const report = await loadVideosReport(client, reportInput);
 
   return (
     <div className="surface-anim">
@@ -104,9 +70,9 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
         <div>
           <h1 className="page-title">Videos</h1>
           <p className="page-sub">
-            {insights.totalUniqueVideos.toLocaleString("en-US")} videos
+            {report.insights.totalUniqueVideos.toLocaleString("en-US")} videos
             summarized · across{" "}
-            {insights.totalSummaries.toLocaleString("en-US")} views
+            {report.insights.totalSummaries.toLocaleString("en-US")} views
             {parsed.mode === "trending" && (
               <span className="muted">
                 {" "}
@@ -139,35 +105,17 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
       </div>
 
       <div className="page-body">
-        {filterWarning && (
-          <div
-            role="alert"
-            className="row gap-8"
-            style={{
-              alignItems: "center",
-              padding: "8px 12px",
-              marginBottom: 12,
-              background: "var(--state-warning-soft, #fffbeb)",
-              border: "1px solid var(--state-warning, #d97706)",
-              borderRadius: 6,
-              color: "var(--state-warning, #d97706)",
-              fontSize: 12,
-            }}
-          >
-            <AlertTriangle size={14} aria-hidden />
-            <span>{filterWarning}</span>
-          </div>
-        )}
-        <VideosInsights insights={insights} />
+        <ReportCompletenessNotice warnings={report.warnings} />
+        <VideosInsights insights={report.insights} />
         <VideosTable
-          rows={list.rows}
-          total={list.total}
-          page={list.page}
-          pageCount={list.pageCount}
-          truncated={list.truncated}
+          rows={report.list.rows}
+          total={report.list.total}
+          page={report.list.page}
+          pageCount={report.list.pageCount}
+          truncated={report.list.truncated}
           activeSort={parsed.sort}
           activeDir={parsed.dir}
-          expandedVideoId={expandedVideoId}
+          expandedVideoId={report.expandedVideoId}
         />
       </div>
     </div>

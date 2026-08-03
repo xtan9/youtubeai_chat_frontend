@@ -9,13 +9,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Pill } from "../../_components/atoms";
-import type {
-  AdminVideoRow,
-  VideoSortKey,
-  SortDir,
-} from "@/lib/admin/queries";
+import type { VideosReport, VideosReportInput } from "@/lib/admin/videos-report";
 import type { TranscriptSource } from "@/lib/admin/types";
 import { VideoRowExpansion } from "./video-row-expansion";
+
+type AdminVideoRow = VideosReport["list"]["rows"][number];
+type VideoSortKey = VideosReportInput["sort"];
+type SortDir = VideosReportInput["direction"];
 
 interface ColumnDef {
   key: VideoSortKey | "title";
