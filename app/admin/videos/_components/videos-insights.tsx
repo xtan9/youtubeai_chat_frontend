@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { BarChart, Donut } from "../../_components/atoms";
-import type { VideoInsights } from "@/lib/admin/queries";
+import type { VideosReport } from "@/lib/admin/videos-report";
 import type { TranscriptSource } from "@/lib/admin/types";
 
 const SOURCE_COLOR: Record<TranscriptSource, string> = {
@@ -15,7 +15,7 @@ const SOURCE_LABEL: Record<TranscriptSource, string> = {
 };
 
 interface VideosInsightsProps {
-  insights: VideoInsights;
+  insights: VideosReport["insights"];
 }
 
 export function VideosInsights({ insights }: VideosInsightsProps) {

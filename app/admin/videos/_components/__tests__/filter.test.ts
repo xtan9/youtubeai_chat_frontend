@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-// `filter.ts` re-exports MAX_PAGE_SIZE from `lib/admin/queries.ts`,
+// `filter.ts` re-exports MAX_PAGE_SIZE from `lib/admin/admin-constants.ts`,
 // which marks itself `import "server-only"`. Vitest doesn't ship that
 // shim, so mock it before the import chain resolves.
 vi.mock("server-only", () => ({}));
