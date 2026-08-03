@@ -51,7 +51,7 @@ test("upstream summary failure (intercepted) surfaces error UI", async ({
     route.fulfill({
       status: 502,
       contentType: "application/json",
-      body: JSON.stringify({ message: "intercepted: simulated upstream 502" }),
+      body: JSON.stringify({ message: "intercepted: simulated upstream secret" }),
     })
   );
 
@@ -60,9 +60,10 @@ test("upstream summary failure (intercepted) surfaces error UI", async ({
     { waitUntil: "domcontentloaded" }
   );
 
-  // Match the specific intercepted message text we just mocked. Avoids
-  // false-positives on unrelated "error/failed" copy that may appear
-  // elsewhere on the page (e.g. error-state headers).
-  const errorBanner = page.getByText(/intercepted.*simulated upstream 502/i);
+  // The intercepted upstream payload must not cross the lifecycle boundary.
+  const errorBanner = page.getByText(
+    /summary request could not be completed\. please try again/i,
+  );
   await expect(errorBanner).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/intercepted: simulated upstream secret/i)).toHaveCount(0);
 });

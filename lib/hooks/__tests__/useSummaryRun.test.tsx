@@ -62,4 +62,93 @@ describe("useSummaryRun", () => {
       });
     },
   );
+
+  it("forwards only explicit retry with the terminal run's exact captured inputs", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        responseFor([
+          JSON.stringify({
+            type: "metadata",
+            category: "general",
+            cached: false,
+          }),
+          JSON.stringify({ type: "content", text: "incomplete draft" }),
+          JSON.stringify({
+            type: "error",
+            message: "private server exception",
+            errorId: "PRIVATE_SERVER_ERROR",
+          }),
+        ]),
+      )
+      .mockResolvedValueOnce(
+        responseFor([
+          JSON.stringify({ type: "metadata", category: "general", cached: true }),
+          JSON.stringify({ type: "content", text: "retried Summary" }),
+          JSON.stringify({
+            type: "summary",
+            category: "general",
+            total_time: 1,
+            transcribe_time: 0,
+            summarize_time: 1,
+          }),
+        ]),
+      );
+    const { result } = renderHook(() =>
+      useSummaryRun({
+        fetch: fetchMock,
+        getAccessToken: () => "token",
+        createRunId: vi
+          .fn()
+          .mockReturnValueOnce("failed-run")
+          .mockReturnValueOnce("retried-run"),
+      }),
+    );
+    const mutableInput = {
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: "es" as const,
+      includeTranscript: true,
+    };
+
+    await act(async () => {
+      await result.current.start(mutableInput);
+    });
+    mutableInput.video.youtubeUrl = "https://www.youtube.com/watch?v=mutated";
+
+    expect(result.current.snapshot).toMatchObject({
+      status: "failed",
+      runId: "failed-run",
+      input: {
+        video: { youtubeUrl: VIDEO_URL },
+        outputLanguage: "es",
+        includeTranscript: true,
+      },
+      error: {
+        kind: "processing",
+        code: "PROCESSING_FAILURE",
+        message:
+          "Couldn't process this video. Please try again or try a different URL.",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.retry();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.snapshot).toMatchObject({
+      status: "succeeded",
+      runId: "retried-run",
+      summary: { summary: "retried Summary" },
+    });
+    for (const call of fetchMock.mock.calls) {
+      const [, init] = call as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).toEqual({
+        youtube_url: VIDEO_URL,
+        include_transcript: true,
+        output_language: "es",
+      });
+    }
+  });
 });
