@@ -22,6 +22,7 @@ const SAFE_FIELDS = new Set([
   "classifierRan",
   "dimensions",
   "source",
+  "phase",
   "transcriptSource",
   "nativeLanguage",
   "lang",
