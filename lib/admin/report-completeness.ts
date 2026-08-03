@@ -2,6 +2,9 @@
 export const REPORT_COMPLETENESS_WARNING_CODES = {
   userAccountDirectoryUnavailable: "USER_ACCOUNT_DIRECTORY_UNAVAILABLE",
   userAccountDirectoryTruncated: "USER_ACCOUNT_DIRECTORY_TRUNCATED",
+  performanceSummariesTruncated: "PERFORMANCE_SUMMARIES_TRUNCATED",
+  performanceActivityUnavailable: "PERFORMANCE_ACTIVITY_UNAVAILABLE",
+  performanceActivityTruncated: "PERFORMANCE_ACTIVITY_TRUNCATED",
 } as const;
 
 export type ReportCompletenessWarningCode =
@@ -19,6 +22,12 @@ export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
     "User Account total is unavailable because account enumeration failed.",
   USER_ACCOUNT_DIRECTORY_TRUNCATED:
     "User Account total may be incomplete because account enumeration reached its row cap.",
+  PERFORMANCE_SUMMARIES_TRUNCATED:
+    "Performance data may be incomplete because the summary row cap was reached.",
+  PERFORMANCE_ACTIVITY_UNAVAILABLE:
+    "Administrator exclusion may be incomplete because activity lookup failed.",
+  PERFORMANCE_ACTIVITY_TRUNCATED:
+    "Administrator exclusion may be incomplete because activity lookup reached its row cap.",
 };
 
 export function reportCompletenessWarning(

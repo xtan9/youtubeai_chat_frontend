@@ -9,7 +9,6 @@ import {
   filterUsers,
   sortUsers,
   getDashboardKPIs,
-  getPerformanceStats,
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
@@ -238,44 +237,6 @@ describe("getDashboardKPIs", () => {
     expect(kpis.topUsers[0].userId).toBe("u-broken");
     expect(kpis.topUsers[0].email).toBeNull();
     expect(kpis.topUsers[0].emailLookupOk).toBe(false);
-  });
-});
-
-// ─── getPerformanceStats ─────────────────────────────────────────────────
-
-describe("getPerformanceStats", () => {
-  it("computes p50/p95 plus per-day buckets", async () => {
-    const window = lastNDays(2);
-    const today = window.end.toISOString();
-    const client = buildClient([
-      {
-        table: "summaries",
-        response: {
-          data: [
-            { id: "s1", video_id: "v1", transcript_source: "whisper", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
-            { id: "s2", video_id: "v2", transcript_source: "auto_captions", processing_time_seconds: 5, transcribe_time_seconds: 3, summarize_time_seconds: 2, created_at: today },
-            { id: "s3", video_id: "v3", transcript_source: "auto_captions", processing_time_seconds: 12, transcribe_time_seconds: 9, summarize_time_seconds: 3, created_at: today },
-          ],
-          error: null,
-        },
-      },
-      { table: "summaries", response: { data: [], error: null } },
-    ]);
-    const stats = await getPerformanceStats(client, window);
-    expect(stats.p50Seconds).toBeGreaterThan(0);
-    expect(stats.p95Seconds).toBeGreaterThanOrEqual(stats.p50Seconds!);
-    expect(stats.latencyByBucket.length).toBeGreaterThan(0);
-  });
-
-  it("returns null percentiles when there's no data", async () => {
-    const window = lastNDays(2);
-    const client = buildClient([
-      { table: "summaries", response: { data: [], error: null } },
-      { table: "summaries", response: { data: [], error: null } },
-    ]);
-    const stats = await getPerformanceStats(client, window);
-    expect(stats.p50Seconds).toBeNull();
-    expect(stats.p95Seconds).toBeNull();
   });
 });
 
@@ -1368,118 +1329,6 @@ describe("getDashboardKPIs with excludeAdminUserIds", () => {
     });
     // The defensive filter dropped both empty strings, so .not() must not have been called.
     expect(captured).toEqual([]);
-  });
-});
-
-describe("getPerformanceStats with excludeAdminUserIds", () => {
-  it("excludes summaries whose video was only watched by admin users", async () => {
-    const window = lastNDays(7);
-    const today = window.end.toISOString();
-    const client = buildClient([
-      // current summaries: 2 videos, v-real (real users) and v-admin (admins only)
-      {
-        table: "summaries",
-        response: {
-          data: [
-            { id: "s1", video_id: "v-real", transcript_source: "auto_captions", processing_time_seconds: 5, transcribe_time_seconds: 3, summarize_time_seconds: 2, created_at: today },
-            { id: "s2", video_id: "v-admin", transcript_source: "whisper", processing_time_seconds: 100, transcribe_time_seconds: 90, summarize_time_seconds: 10, created_at: today },
-          ],
-          error: null,
-        },
-      },
-      // previous summaries: empty
-      { table: "summaries", response: { data: [], error: null } },
-      // current history (admin filtered out): only v-real left
-      {
-        table: "user_video_history",
-        response: { data: [{ user_id: "u-real", video_id: "v-real", created_at: today }], error: null },
-      },
-      // previous history: empty
-      { table: "user_video_history", response: { data: [], error: null } },
-      // history's cache-hit enrichment summaries lookup (curr history non-empty)
-      { table: "summaries", response: { data: [], error: null } },
-    ]);
-    const stats = await getPerformanceStats(client, window, {
-      excludeAdminUserIds: ["u-admin-1"],
-    });
-    // The 100s admin-only summary must be filtered out — only s1 (5s) remains.
-    expect(stats.p50Seconds).toBe(5);
-    expect(stats.p95Seconds).toBe(5);
-  });
-
-  it("falls back to all summaries when excludeAdminUserIds is empty (no history fetch)", async () => {
-    const window = lastNDays(7);
-    const today = window.end.toISOString();
-    const client = buildClient([
-      {
-        table: "summaries",
-        response: {
-          data: [
-            { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
-          ],
-          error: null,
-        },
-      },
-      { table: "summaries", response: { data: [], error: null } },
-    ]);
-    const stats = await getPerformanceStats(client, window, {
-      excludeAdminUserIds: [],
-    });
-    expect(stats.p95Seconds).toBe(10);
-  });
-
-  it("non-empty exclude with empty history → null percentiles (honest empty)", async () => {
-    const window = lastNDays(7);
-    const today = window.end.toISOString();
-    const client = buildClient([
-      {
-        table: "summaries",
-        response: {
-          data: [
-            { id: "s1", video_id: "v-1", transcript_source: "auto_captions", processing_time_seconds: 10, transcribe_time_seconds: 8, summarize_time_seconds: 2, created_at: today },
-          ],
-          error: null,
-        },
-      },
-      { table: "summaries", response: { data: [], error: null } },
-      { table: "user_video_history", response: { data: [], error: null } },
-      { table: "user_video_history", response: { data: [], error: null } },
-    ]);
-    const stats = await getPerformanceStats(client, window, {
-      excludeAdminUserIds: ["u-admin-1"],
-    });
-    expect(stats.p50Seconds).toBeNull();
-    expect(stats.p95Seconds).toBeNull();
-  });
-
-  it("retains video watched by both admin and non-admin", async () => {
-    // The DB-side .not() filter drops admin history rows, but a video also
-    // watched by a non-admin still appears in the filtered history → its
-    // summary contributes to the latency stats.
-    const window = lastNDays(7);
-    const today = window.end.toISOString();
-    const client = buildClient([
-      {
-        table: "summaries",
-        response: {
-          data: [
-            { id: "s-shared", video_id: "v-shared", transcript_source: "auto_captions", processing_time_seconds: 7, transcribe_time_seconds: 5, summarize_time_seconds: 2, created_at: today },
-          ],
-          error: null,
-        },
-      },
-      { table: "summaries", response: { data: [], error: null } },
-      {
-        table: "user_video_history",
-        response: { data: [{ user_id: "u-real", video_id: "v-shared", created_at: today }], error: null },
-      },
-      { table: "user_video_history", response: { data: [], error: null } },
-      { table: "summaries", response: { data: [], error: null } }, // cache-hit enrichment for curr history
-    ]);
-    const stats = await getPerformanceStats(client, window, {
-      excludeAdminUserIds: ["u-admin-1"],
-    });
-    expect(stats.p95Seconds).toBe(7);
   });
 });
 

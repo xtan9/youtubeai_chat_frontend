@@ -69,13 +69,6 @@ function p95(values: (number | null | undefined)[]): number | null {
   return percentile(filtered, 0.95);
 }
 
-function p50(values: (number | null | undefined)[]): number | null {
-  const filtered = values
-    .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-    .sort((a, b) => a - b);
-  return percentile(filtered, 0.5);
-}
-
 // Window descriptor used by all KPI queries. Keeping it explicit (vs.
 // always defaulting to 30d) makes the intent obvious in callers and
 // prevents accidental "compared to itself" deltas.
@@ -381,7 +374,7 @@ export interface VideoListOptions {
   /** Drop every video that any of these user IDs has ever touched (all-time,
    * window-independent — a video the admin tested last year shouldn't
    * re-enter trending this month). Stricter than the user-id history filter
-   * used by getDashboardKPIs/getPerformanceStats: there, only admin views
+   * used by getDashboardKPIs: there, only admin views
    * are excluded but mixed videos still appear. The videos page uses the
    * stricter video-level filter to keep admin/QA traffic from inflating
    * what otherwise looks like organic catalog growth. */
@@ -931,90 +924,9 @@ export async function getDashboardKPIs(
   };
 }
 
-// ─── Performance stats ────────────────────────────────────────────────────
-
-export interface PerformanceStats {
-  window: TimeWindow;
-  p50Seconds: number | null;
-  p95Seconds: number | null;
-  transcribeP95Seconds: number | null;
-  summarizeP95Seconds: number | null;
-  prev: {
-    p50Seconds: number | null;
-    p95Seconds: number | null;
-    transcribeP95Seconds: number | null;
-    summarizeP95Seconds: number | null;
-  };
-  /** Daily buckets keyed by UTC day (YYYY-MM-DD). */
-  latencyByBucket: { day: string; p95Seconds: number | null }[];
-}
-
-export async function getPerformanceStats(
-  client: SupabaseClient,
-  window: TimeWindow = lastNDays(30),
-  opts: KpiOptions = {},
-): Promise<PerformanceStats> {
-  const exclude = opts.excludeAdminUserIds ?? [];
-  const days =
-    Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
-  const prevWindow: TimeWindow = {
-    start: new Date(window.start.getTime() - days * 86_400_000),
-    end: new Date(window.start.getTime() - 86_400_000),
-  };
-
-  const wantFilter = exclude.length > 0;
-  const [current, previous, history, prevHistory] = await Promise.all([
-    fetchSummariesIn(client, window),
-    fetchSummariesIn(client, prevWindow),
-    wantFilter
-      ? fetchHistoryForExclusion(client, window, exclude)
-      : Promise.resolve([] as HistoryRow[]),
-    wantFilter
-      ? fetchHistoryForExclusion(client, prevWindow, exclude)
-      : Promise.resolve([] as HistoryRow[]),
-  ]);
-
   // When excluding admins, intersect latency samples with admin-filtered
   // history. Empty real-user history means null percentiles — the toggle
   // promises filtering, not fallback to all-activity numbers.
-  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
-  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
-
-  const byDay = new Map<string, number[]>();
-  for (const s of filteredCurrent) {
-    if (!s.created_at || s.processing_time_seconds == null) continue;
-    const day = isoDay(new Date(s.created_at));
-    const arr = byDay.get(day) ?? [];
-    arr.push(s.processing_time_seconds);
-    byDay.set(day, arr);
-  }
-  const latencyByBucket: { day: string; p95Seconds: number | null }[] = [];
-  const cursor = new Date(window.start);
-  while (cursor <= window.end) {
-    const key = isoDay(cursor);
-    latencyByBucket.push({
-      day: key,
-      p95Seconds: p95(byDay.get(key) ?? []),
-    });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return {
-    window,
-    p50Seconds: p50(filteredCurrent.map((s) => s.processing_time_seconds)),
-    p95Seconds: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
-    transcribeP95Seconds: p95(filteredCurrent.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(filteredCurrent.map((s) => s.summarize_time_seconds)),
-    prev: {
-      p50Seconds: p50(filteredPrev.map((s) => s.processing_time_seconds)),
-      p95Seconds: p95(filteredPrev.map((s) => s.processing_time_seconds)),
-      transcribeP95Seconds: p95(filteredPrev.map((s) => s.transcribe_time_seconds)),
-      summarizeP95Seconds: p95(filteredPrev.map((s) => s.summarize_time_seconds)),
-    },
-    latencyByBucket,
-  };
-}
-
 // ─── Internals ────────────────────────────────────────────────────────────
 
 interface SummaryRow {
@@ -1057,32 +969,7 @@ interface HistoryRow {
   cacheHit?: boolean;
 }
 
-/** Used by getPerformanceStats: a history-fetch error logs and returns []
- * so the perf page renders instead of 500-ing. With honest filtering, []
- * now zeroes the filtered metrics — that's preferable to crashing the
- * page on a transient read failure. */
-async function fetchHistoryForExclusion(
-  client: SupabaseClient,
-  window: TimeWindow,
-  exclude: string[],
-): Promise<HistoryRow[]> {
-  try {
-    return await fetchHistoryIn(client, window, exclude);
-  } catch (err) {
-    console.error(
-      "[admin-queries] getPerformanceStats: history fetch failed; filtered metrics will be empty",
-      {
-        message: err instanceof Error ? err.message : String(err),
-        window: {
-          start: window.start.toISOString(),
-          end: window.end.toISOString(),
-        },
-      },
-    );
-    return [];
-  }
-}
-
+/** Intersect Dashboard summaries with the activity rows retained by policy. */
 function restrictSummariesToHistory<T extends { video_id: string }>(
   summaries: T[],
   history: HistoryRow[],
@@ -1299,7 +1186,7 @@ interface AdminTouchedVideoLookup {
  * admin's stale test from outside the trending window re-enter the list.
  *
  * Throws on query error rather than fail-soft (unlike `listAdminUserIds`
- * and `fetchHistoryForExclusion` elsewhere in this file): a silent fail
+ * and other secondary filtering elsewhere in this file): a silent fail
  * here would degrade the videos page to *less* filtering than pre-PR,
  * which is exactly the failure mode the strict-filter contract is meant
  * to prevent. The caller should let the page-level error boundary render.
