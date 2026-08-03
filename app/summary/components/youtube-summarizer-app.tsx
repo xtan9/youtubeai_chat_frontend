@@ -226,6 +226,10 @@ export function YouTubeSummarizerApp({
     currentSnapshot?.status === "succeeded"
       ? currentSnapshot.summary
       : undefined;
+  const completedTranscript =
+    currentSnapshot?.status === "succeeded"
+      ? currentSnapshot.transcript
+      : undefined;
 
   return (
     <PlayerRefProvider>
@@ -237,7 +241,11 @@ export function YouTubeSummarizerApp({
               chatPermanentlyLocked={chatPermanentlyLocked}
               summaryContent={summaryContent}
               chatContent={
-                <ChatTab youtubeUrl={url || null} active={!chatLocked} />
+                <ChatTab
+                  youtubeUrl={url || null}
+                  active={!chatLocked}
+                  transcriptTimingStatus={completedTranscript?.status}
+                />
               }
             />
           </div>
@@ -247,6 +255,7 @@ export function YouTubeSummarizerApp({
               width={600}
               segments={completedSummary?.segments}
               transcriptSource={completedSummary?.transcriptSource}
+              transcriptState={completedTranscript}
               streamingComplete={currentSnapshot?.status === "succeeded"}
             />
           </div>

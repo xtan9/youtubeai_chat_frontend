@@ -22,6 +22,34 @@ export const TranscriptSegmentSchema = z.object({
 });
 
 /**
+ * Runtime contract for the subset of Transcript segments that can support
+ * seeking. Legacy whole-Transcript backfills intentionally use a zero
+ * duration sentinel, so they remain valid Transcript data but are not valid
+ * timed data for the Summary UI.
+ */
+export const TimedTranscriptSegmentSchema = TranscriptSegmentSchema
+  .refine(
+    (segment) => segment.text.trim().length > 0,
+    "timed Transcript segment text must not be empty",
+  )
+  .refine(
+    (segment) => segment.duration > 0,
+    "timed Transcript segment duration must be positive",
+  );
+
+export function isTimedTranscriptSegment(
+  value: unknown,
+): value is TranscriptSegment {
+  return TimedTranscriptSegmentSchema.safeParse(value).success;
+}
+
+export function hasTimedTranscriptSegments(
+  value: readonly unknown[],
+): value is readonly TranscriptSegment[] {
+  return value.length > 0 && value.every(isTimedTranscriptSegment);
+}
+
+/**
  * One transcript line with its playback timing. Used to render clickable
  * timestamps that seek the embedded YouTube player.
  *

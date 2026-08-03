@@ -5,6 +5,7 @@ import type {
 } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import { logAppEvent } from "@/lib/observability";
+import { hasTimedTranscriptSegments } from "@/lib/types";
 import {
   SummarySseEventSchema,
   type SummarySseEvent,
@@ -86,7 +87,11 @@ export function streamCached(
 
   emitSummaryEvent(sendEvent, { type: "content", text: cached.summary });
 
-  if (opts.includeTranscript && opts.segments && opts.segments.length > 0) {
+  if (
+    opts.includeTranscript &&
+    opts.segments &&
+    hasTimedTranscriptSegments(opts.segments)
+  ) {
     emitSummaryEvent(sendEvent, {
       type: "full_transcript",
       segments: opts.segments,

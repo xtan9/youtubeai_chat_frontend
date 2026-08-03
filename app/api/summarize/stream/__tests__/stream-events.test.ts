@@ -137,6 +137,15 @@ describe("streamCached event ordering contract", () => {
     expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
   });
 
+  it("skips legacy no-timing segments while still emitting the cached Summary", () => {
+    const sent: Record<string, unknown>[] = [];
+    streamCached((d) => sent.push(d), baseCached(), {
+      includeTranscript: true,
+      segments: [{ text: "legacy transcript", start: 0, duration: 0 }],
+    });
+    expect(sent.map((e) => e.type)).toEqual(["metadata", "content", "summary"]);
+  });
+
   it("metadata event carries cached:true + title + channel", () => {
     const sent: Record<string, unknown>[] = [];
     streamCached(

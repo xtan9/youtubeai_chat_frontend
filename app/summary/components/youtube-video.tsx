@@ -4,9 +4,15 @@ import { useRef, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
-import type { TranscriptSegment, TranscriptSource } from "@/lib/types";
+import {
+  hasTimedTranscriptSegments,
+  type TranscriptSegment,
+  type TranscriptSource,
+} from "@/lib/types";
+import type { SummaryTranscriptState } from "@/lib/summary-run";
 import TranscriptParagraphs from "./transcript-paragraphs";
 import { usePlayerRef } from "@/lib/contexts/player-ref";
+import { TranscriptTimingNotice } from "./transcript-timing-notice";
 
 // next/dynamic with ssr:false because react-youtube touches `window` and
 // PropTypes during render; importing it server-side trips the Next.js
@@ -19,6 +25,7 @@ interface YoutubeVideoProps {
   width: number; // becomes the maximum width
   segments?: readonly TranscriptSegment[];
   transcriptSource?: TranscriptSource;
+  transcriptState?: SummaryTranscriptState;
   streamingComplete?: boolean;
 }
 
@@ -27,6 +34,7 @@ const YoutubeVideo = ({
   width,
   segments,
   transcriptSource,
+  transcriptState,
 }: YoutubeVideoProps) => {
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +52,27 @@ const YoutubeVideo = ({
   // for the height — that's the default YouTube embed contract.
   const height = Math.floor((containerWidth / 16) * 9);
   const videoId = getYoutubeVideoId(url);
+  const inferredTimingAvailable =
+    segments !== undefined && hasTimedTranscriptSegments(segments);
+  const transcriptTimingStatus =
+    transcriptState?.status ??
+    (segments === undefined
+      ? undefined
+      : inferredTimingAvailable
+        ? "available"
+        : "unavailable");
+  const displaySegments =
+    transcriptState?.status === "available"
+      ? transcriptState.segments
+      : segments;
+  const canRenderTranscript =
+    transcriptTimingStatus === "available" &&
+    displaySegments !== undefined &&
+    hasTimedTranscriptSegments(displaySegments);
+  const displayTranscriptSource =
+    transcriptState?.status === "available"
+      ? transcriptState.source
+      : transcriptSource;
 
   useEffect(() => {
     const updateWidth = () => {
@@ -91,11 +120,14 @@ const YoutubeVideo = ({
           });
         }}
       />
-      {segments && segments.length > 0 && (
+      {transcriptTimingStatus && transcriptTimingStatus !== "available" && (
+        <TranscriptTimingNotice status={transcriptTimingStatus} />
+      )}
+      {canRenderTranscript && displaySegments && (
         <TranscriptParagraphs
-          segments={segments}
+          segments={displaySegments}
           playerRef={playerRef}
-          transcriptSource={transcriptSource}
+          transcriptSource={displayTranscriptSource}
         />
       )}
     </div>

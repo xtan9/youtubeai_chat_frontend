@@ -3,11 +3,13 @@
 import { useEffect, useRef } from "react";
 import { ChatMessage } from "./chat-message";
 import type { ChatMessage as ChatMessageRow } from "@/lib/hooks/useChatThread";
+import type { TranscriptTimingStatus } from "./transcript-timing-notice";
 
 interface ChatMessageListProps {
   readonly messages: readonly ChatMessageRow[];
   readonly draft: { user: string; assistant: string } | null;
   readonly streaming: boolean;
+  readonly transcriptTimingStatus?: TranscriptTimingStatus;
 }
 
 /**
@@ -20,6 +22,7 @@ export function ChatMessageList({
   messages,
   draft,
   streaming,
+  transcriptTimingStatus = "available",
 }: ChatMessageListProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -39,13 +42,26 @@ export function ChatMessageList({
       data-testid="chat-message-list"
     >
       {messages.map((m) => (
-        <ChatMessage key={m.id} role={m.role} content={m.content} />
+        <ChatMessage
+          key={m.id}
+          role={m.role}
+          content={m.content}
+          transcriptTimingStatus={transcriptTimingStatus}
+        />
       ))}
       {draft && (
         <>
-          <ChatMessage role="user" content={draft.user} />
+          <ChatMessage
+            role="user"
+            content={draft.user}
+            transcriptTimingStatus={transcriptTimingStatus}
+          />
           {draft.assistant.length > 0 ? (
-            <ChatMessage role="assistant" content={draft.assistant} />
+            <ChatMessage
+              role="assistant"
+              content={draft.assistant}
+              transcriptTimingStatus={transcriptTimingStatus}
+            />
           ) : streaming ? (
             <ThinkingIndicator />
           ) : null}

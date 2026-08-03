@@ -17,6 +17,8 @@ type TranscriptScenario = {
   }[];
 };
 
+type TranscriptWireMode = "valid" | "missing" | "malformed";
+
 const CAPTION_SUCCESS: TranscriptScenario = {
   source: "auto_captions",
   statusMessage: "Processing captions...",
@@ -66,19 +68,32 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
 function summaryEvents(
   scenario: TranscriptScenario,
   cached = false,
+  transcriptMode: TranscriptWireMode = "valid",
 ): string {
-  return [
+  const events: Record<string, unknown>[] = [
     { type: "metadata", category: "general", cached },
     {
       type: "status",
       stage: "transcribe",
       message: scenario.statusMessage,
     },
-    {
+  ];
+
+  if (transcriptMode === "valid") {
+    events.push({
       type: "full_transcript",
       segments: scenario.segments,
       source: scenario.source,
-    },
+    });
+  } else if (transcriptMode === "malformed") {
+    events.push({
+      type: "full_transcript",
+      segments: [{ text: "legacy transcript", start: 0, duration: 0 }],
+      source: scenario.source,
+    });
+  }
+
+  events.push(
     { type: "content", text: scenario.summary },
     {
       type: "summary",
@@ -87,7 +102,9 @@ function summaryEvents(
       summarize_time: 2,
       transcribe_time: 1,
     },
-  ]
+  );
+
+  return events
     .map((event) => `data: ${JSON.stringify(event)}\n\n`)
     .join("");
 }
@@ -138,7 +155,10 @@ async function submitVideoUrl(page: Page) {
 async function mockSuccessfulJourney(
   page: Page,
   scenario: TranscriptScenario,
-  options: { readonly cached?: boolean } = {},
+  options: {
+    readonly cached?: boolean;
+    readonly transcriptMode?: TranscriptWireMode;
+  } = {},
 ) {
   let chatCompleted = false;
 
@@ -157,7 +177,11 @@ async function mockSuccessfulJourney(
       status: 200,
       contentType: "text/event-stream",
       headers: { "cache-control": "no-cache" },
-      body: summaryEvents(scenario, options.cached ?? false),
+      body: summaryEvents(
+        scenario,
+        options.cached ?? false,
+        options.transcriptMode ?? "valid",
+      ),
     });
   });
   await page.route("**/api/chat/messages?*", (route) =>
@@ -424,6 +448,46 @@ test("cached Summary Run success uses the API metadata and unlocks completed act
   await expect(
     page.getByRole("button", { name: /copy summary/i }),
   ).toBeVisible();
+});
+
+test("a successful Summary without timed Transcript data explains that seeking is unavailable", async ({
+  page,
+}) => {
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS, {
+    transcriptMode: "missing",
+  });
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expect(page.getByTestId("transcript-container")).toHaveCount(0);
+  const videoNotice = page.getByTestId("transcript-timing-notice");
+  await expect(videoNotice).toHaveAttribute(
+    "data-transcript-status",
+    "unavailable",
+  );
+  await expect(videoNotice).toContainText(/timestamp seeking is unavailable/i);
+
+  await page.getByRole("tab", { name: "Chat" }).click();
+  await expect(page.getByTestId("chat-transcript-timing-notice")).toContainText(
+    /timestamp seeking is unavailable/i,
+  );
+});
+
+test("malformed timed Transcript data does not discard an otherwise valid Summary", async ({
+  page,
+}) => {
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS, {
+    transcriptMode: "malformed",
+  });
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expect(page.getByText(/Reliable browser checks protect/)).toBeVisible();
+  await expect(page.getByTestId("transcript-container")).toHaveCount(0);
+  await expect(page.getByTestId("transcript-timing-notice")).toHaveAttribute(
+    "data-transcript-status",
+    "unavailable",
+  );
 });
 
 test("typed transcription failure shows safe messaging without partial output", async ({
