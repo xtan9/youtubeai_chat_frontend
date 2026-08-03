@@ -6,10 +6,8 @@ import {
   TRANSCRIPT_SOURCES,
   type TranscriptSource,
 } from "@/lib/domain/transcript-source";
-import { AUDIT_ACTIONS } from "@/lib/admin/audit";
-import type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
-
-export type { AuditAction, AuditResourceType } from "@/lib/admin/audit";
+import { mapAuditRow, type AuditRow } from "./audit-row";
+import { QueryError } from "./errors";
 
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 export { WHISPER_FLAG_THRESHOLD } from "./constants";
@@ -21,7 +19,6 @@ export { WHISPER_FLAG_THRESHOLD } from "./constants";
 import {
   SUMMARIES_ROW_CAP,
   HISTORY_ROW_CAP,
-  AUDIT_PAGE_SIZE_CAP,
   USERS_PAGE_SIZE_CAP,
   VIDEOS_ROW_CAP,
   VIDEOS_PAGE_SIZE_CAP,
@@ -34,7 +31,6 @@ type DailyPoint = { day: string; value: number };
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-
 function daysAgo(n: number): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -96,112 +92,8 @@ export function lastNDays(n: number): TimeWindow {
 
 // ─── Audit log ────────────────────────────────────────────────────────────
 
-// `AUDIT_ACTIONS` is imported from `./audit` — the single source of
-// truth for the audited-action vocabulary. A previous duplicate here
-// invited drift between the runtime validator and the writer's type.
-
-const AUDIT_RESOURCE_TYPES: readonly AuditResourceType[] = [
-  "summary",
-  "user",
-  "video",
-  "rate_limit",
-] as const;
-
-function isAuditAction(value: string): value is AuditAction {
-  return (AUDIT_ACTIONS as readonly string[]).includes(value);
-}
-
-function isAuditResourceType(value: string): value is AuditResourceType {
-  return (AUDIT_RESOURCE_TYPES as readonly string[]).includes(value);
-}
-
-export interface AuditRow {
-  id: string;
-  createdAt: string;
-  adminId: string;
-  adminEmail: string;
-  /** Validated against the AuditAction union at read time; rows with an
-   * unknown value (e.g. after a future expansion lands in the DB before
-   * this code is redeployed) are surfaced as a string so the operator
-   * still sees them. */
-  action: AuditAction | string;
-  resourceType: AuditResourceType | string;
-  resourceId: string;
-  metadata: Record<string, unknown>;
-}
-
-export interface AuditListResult {
-  rows: AuditRow[];
-  nextCursor: string | null;
-}
-
-export interface ListAuditLogOptions {
-  pageSize?: number;
-  cursor?: string | null;
-}
-
-export async function listAuditLog(
-  client: SupabaseClient,
-  opts: ListAuditLogOptions = {},
-): Promise<AuditListResult> {
-  const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), AUDIT_PAGE_SIZE_CAP);
-  let query = client
-    .from("admin_audit_log")
-    .select(
-      "id, created_at, admin_id, admin_email, action, resource_type, resource_id, metadata",
-    )
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(pageSize + 1);
-
-  const decoded = decodeCursor(opts.cursor);
-  if (decoded) {
-    // Keyset pagination: rows with same created_at use id as the tiebreaker.
-    query = query.or(
-      `created_at.lt.${decoded.created_at},and(created_at.eq.${decoded.created_at},id.lt.${decoded.id})`,
-    );
-  }
-
-  const { data, error } = await query;
-  if (error) throw new QueryError("listAuditLog", error.message);
-
-  const rows = (data ?? []).slice(0, pageSize).map(toAuditRow);
-  const nextCursor =
-    (data?.length ?? 0) > pageSize
-      ? encodeCursor({
-          created_at: rows[rows.length - 1].createdAt,
-          id: rows[rows.length - 1].id,
-        })
-      : null;
-
-  return { rows, nextCursor };
-}
-
-function toAuditRow(row: Record<string, unknown>): AuditRow {
-  const action = String(row.action);
-  const resourceType = String(row.resource_type);
-  if (!isAuditAction(action)) {
-    console.error("[admin-queries] unknown audit action persisted", { action });
-  }
-  if (!isAuditResourceType(resourceType)) {
-    console.error("[admin-queries] unknown audit resource_type persisted", {
-      resourceType,
-    });
-  }
-  return {
-    id: String(row.id),
-    createdAt: String(row.created_at),
-    adminId: String(row.admin_id),
-    adminEmail: String(row.admin_email),
-    action,
-    resourceType,
-    resourceId: String(row.resource_id),
-    metadata:
-      row.metadata && typeof row.metadata === "object"
-        ? (row.metadata as Record<string, unknown>)
-        : {},
-  };
-}
+// Per-user audit history remains a legacy query consumed by the User Accounts
+// surface; the page-facing Audit Report lives in `audit-report.ts`.
 
 const PER_USER_AUDIT_DEFAULT_LIMIT = 10;
 const PER_USER_AUDIT_LIMIT_CAP = 50;
@@ -238,7 +130,7 @@ export async function getUserAuditEvents(
     });
     return [];
   }
-  return (data ?? []).map(toAuditRow);
+  return (data ?? []).map(mapAuditRow);
 }
 
 // ─── Users + per-user stats ───────────────────────────────────────────────
@@ -662,7 +554,6 @@ function toAdminUserRow(
     userMetadata: u.user_metadata ?? {},
   };
 }
-
 interface AuthUserRecord {
   id: string;
   email: string | null;
@@ -2089,46 +1980,4 @@ export async function getVideoInsights(
     trendingPerDay,
     adminFilterIncomplete: adminLookup.truncated,
   };
-}
-
-// ─── Cursors ──────────────────────────────────────────────────────────────
-
-interface KeysetCursor {
-  created_at: string;
-  id: string;
-}
-
-function encodeCursor(c: KeysetCursor): string {
-  return Buffer.from(JSON.stringify(c)).toString("base64url");
-}
-
-function decodeCursor(raw: string | null | undefined): KeysetCursor | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof parsed.created_at === "string" &&
-      typeof parsed.id === "string"
-    ) {
-      return parsed;
-    }
-    console.warn("[admin-queries] invalid cursor shape — falling back to first page", {
-      cursorPrefix: raw.slice(0, 16),
-    });
-  } catch (err) {
-    console.warn("[admin-queries] cursor base64/json decode failed — falling back to first page", {
-      cursorPrefix: raw.slice(0, 16),
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return null;
-}
-
-export class QueryError extends Error {
-  constructor(scope: string, detail: string) {
-    super(`[admin-queries:${scope}] ${detail}`);
-    this.name = "QueryError";
-  }
 }

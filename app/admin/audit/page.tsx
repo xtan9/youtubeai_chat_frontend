@@ -3,7 +3,7 @@ import { ChevronRight, Download, RefreshCcw } from "lucide-react";
 import { Avatar, Btn, Pill } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import { listAuditLog, type AuditRow } from "@/lib/admin/queries";
+import { loadAuditReport, type AuditRow } from "@/lib/admin/audit-report";
 import type { Tone } from "@/lib/admin/types";
 
 const PAGE_SIZE = 50;
@@ -21,7 +21,7 @@ export default async function AdminAuditPage({ searchParams }: PageProps) {
     principal.allowlist,
   );
   const { cursor } = await searchParams;
-  const { rows, nextCursor } = await listAuditLog(client, {
+  const { rows, nextCursor } = await loadAuditReport(client, {
     cursor: cursor ?? null,
     pageSize: PAGE_SIZE,
   });

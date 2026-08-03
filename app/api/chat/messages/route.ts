@@ -1,10 +1,14 @@
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedTranscript } from "@/lib/services/summarize-cache";
 import {
   clearChatMessages,
   listChatMessages,
 } from "@/lib/services/chat-store";
+import {
+  resolveVideoChatSubject,
+  type CanonicalVideoIdentity,
+  type VideoChatSubject,
+} from "@/lib/services/video-chat-subject";
 import {
   ChatMessagesQuerySchema,
   type ChatMessagesResponse,
@@ -59,11 +63,110 @@ function parseQuery(request: Request) {
   return ChatMessagesQuerySchema.safeParse(params);
 }
 
+type HistorySubjectResult =
+  | {
+      readonly ok: true;
+      readonly subject: VideoChatSubject | null;
+      readonly identity: CanonicalVideoIdentity;
+    }
+  | { readonly ok: false; readonly response: Response };
+
+function subjectUnavailableResponse(
+  operation: "GET" | "DELETE",
+  videoId: string,
+): Response {
+  logAppEvent(
+    "error",
+    `[chat/messages] subject resolution unavailable (${operation})`,
+    {
+      errorId: "CHAT_MESSAGES_SUBJECT_UNAVAILABLE",
+      videoId,
+      errorClass: "SubjectResolution",
+    },
+  );
+  return jsonError(
+    503,
+    operation === "GET"
+      ? "Could not load chat history."
+      : "Could not clear chat history.",
+  );
+}
+
+async function resolveHistorySubject(
+  youtubeUrl: string,
+  operation: "GET" | "DELETE",
+): Promise<HistorySubjectResult> {
+  try {
+    const resolution = await resolveVideoChatSubject(youtubeUrl);
+    if (resolution.status === "invalid") {
+      logAppEvent("warn", `[chat/messages] invalid subject (${operation})`, {
+        errorId: "CHAT_MESSAGES_SUBJECT_INVALID",
+        errorClass: "InvalidVideoUrl",
+      });
+      return { ok: false, response: jsonError(400, "Invalid query") };
+    }
+    if (resolution.status === "unavailable") {
+      return {
+        ok: false,
+        response: subjectUnavailableResponse(
+          operation,
+          resolution.identity.youtubeVideoId,
+        ),
+      };
+    }
+    if (resolution.status === "not_ready") {
+      return {
+        ok: true,
+        subject: null,
+        identity: resolution.identity,
+      };
+    }
+    return {
+      ok: true,
+      subject: resolution.subject,
+      identity: resolution.subject.identity,
+    };
+  } catch {
+    return {
+      ok: false,
+      response: subjectUnavailableResponse(operation, videoIdForLog(youtubeUrl)),
+    };
+  }
+}
+
+function noRetainedThreadReason(
+  subject: VideoChatSubject | null,
+): "stateless" | "not_ready" {
+  return subject?.source === "hero_demo" ? "stateless" : "not_ready";
+}
+
+function logNoRetainedThread(
+  operation: "GET" | "DELETE",
+  userId: string,
+  identity: CanonicalVideoIdentity,
+  subject: VideoChatSubject | null,
+): void {
+  const reason = noRetainedThreadReason(subject);
+  logAppEvent(
+    "info",
+    operation === "GET"
+      ? "[chat/messages] empty list - no retained thread"
+      : "[chat/messages] clear no-op - no retained thread",
+    {
+      errorId:
+        operation === "GET"
+          ? "CHAT_MESSAGES_NO_RETAINED_THREAD"
+          : "CHAT_MESSAGES_CLEAR_NO_RETAINED_THREAD",
+      userId,
+      videoId: identity.youtubeVideoId,
+      reason,
+    },
+  );
+}
+
 export async function GET(request: Request) {
   const parsed = parseQuery(request);
   if (!parsed.success) {
-    // Log so a frontend regression that ships malformed query params
-    // surfaces in ops dashboards before users notice 400 banners.
     logAppEvent("warn", "[chat/messages] invalid query (GET)", {
       errorId: "CHAT_MESSAGES_QUERY_INVALID",
       errorClass: "SchemaMismatch",
@@ -74,25 +177,29 @@ export async function GET(request: Request) {
   const auth = await authenticate();
   if (!auth.ok) return auth.response;
 
-  // No videos row yet → no thread possible. Return an empty list rather
-  // than 404 so the chat tab can render its empty state without a banner.
-  const transcript = await getCachedTranscript(parsed.data.youtube_url);
-  if (!transcript) {
-    // Log so ops can distinguish "user navigated to chat for a brand-new
-    // URL" (expected, brief) from "transcript cache evicted while a chat
-    // tab was open" (would point at a cache-policy regression). Without
-    // this signal the 200/empty response is silent in production logs.
-    logAppEvent("info", "[chat/messages] empty list — no transcript cached", {
-      errorId: "CHAT_MESSAGES_NO_TRANSCRIPT",
-      userId: auth.user.id,
-      videoId: videoIdForLog(parsed.data.youtube_url),
-    });
+  const subjectResult = await resolveHistorySubject(
+    parsed.data.youtube_url,
+    "GET",
+  );
+  if (!subjectResult.ok) return subjectResult.response;
+
+  const retainedThread = subjectResult.subject?.retainedThread;
+  if (!retainedThread) {
+    logNoRetainedThread(
+      "GET",
+      auth.user.id,
+      subjectResult.identity,
+      subjectResult.subject,
+    );
     const empty: ChatMessagesResponse = { messages: [] };
     return Response.json(empty);
   }
 
   try {
-    const messages = await listChatMessages(auth.user.id, transcript.videoId);
+    const messages = await listChatMessages(
+      auth.user.id,
+      retainedThread.videoId,
+    );
     const body: ChatMessagesResponse = {
       messages: messages.map((m) => ({
         id: m.id,
@@ -125,19 +232,25 @@ export async function DELETE(request: Request) {
   const auth = await authenticate();
   if (!auth.ok) return auth.response;
 
-  // Same fail-soft as GET: no videos row → nothing to clear, return 204.
-  const transcript = await getCachedTranscript(parsed.data.youtube_url);
-  if (!transcript) {
-    logAppEvent("info", "[chat/messages] clear no-op — no transcript cached", {
-      errorId: "CHAT_MESSAGES_CLEAR_NO_TRANSCRIPT",
-      userId: auth.user.id,
-      videoId: videoIdForLog(parsed.data.youtube_url),
-    });
+  const subjectResult = await resolveHistorySubject(
+    parsed.data.youtube_url,
+    "DELETE",
+  );
+  if (!subjectResult.ok) return subjectResult.response;
+
+  const retainedThread = subjectResult.subject?.retainedThread;
+  if (!retainedThread) {
+    logNoRetainedThread(
+      "DELETE",
+      auth.user.id,
+      subjectResult.identity,
+      subjectResult.subject,
+    );
     return new Response(null, { status: 204 });
   }
 
   try {
-    await clearChatMessages(auth.user.id, transcript.videoId);
+    await clearChatMessages(auth.user.id, retainedThread.videoId);
     return new Response(null, { status: 204 });
   } catch (err) {
     logAppEvent("error", "[chat/messages] clear failed", {

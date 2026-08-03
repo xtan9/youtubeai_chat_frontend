@@ -19,9 +19,9 @@ import {
   type TranscriptModalTarget,
 } from "../../_components/transcript-modal";
 import type { TranscriptSource } from "@/lib/admin/types";
+import type { AuditRow } from "@/lib/admin/audit-report";
 import type {
   AdminUserRow,
-  AuditRow,
   SortDir,
   SortKey,
   UserSummaryRow,

@@ -15,7 +15,7 @@ export const SUMMARIES_ROW_CAP = 50_000;
 /** Hard cap on rows pulled from `user_video_history` for in-process aggregation. */
 export const HISTORY_ROW_CAP = 100_000;
 
-/** Cap on per-page row count returned by `listAuditLog`. */
+/** Cap on per-page row count returned by `loadAuditReport`. */
 export const AUDIT_PAGE_SIZE_CAP = 200;
 
 /** Cap on per-page row count returned by `listUsersWithStatsAndSort`. */
