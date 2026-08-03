@@ -4,6 +4,7 @@ import type {
   CachedSummary,
   CacheWriteParams,
 } from "@/lib/services/summarize-cache";
+import { SummarySseEventSchema } from "@/lib/api-contracts/summary";
 
 // Default implementation for the next/server after() proxy — invokes the
 // callback synchronously so existing assertions on writeCachedSummary
@@ -112,8 +113,6 @@ vi.mock("@/lib/prompts/summarization", () => ({
 }));
 vi.mock("@/lib/services/llm-client", () => ({
   streamLlmSummary: mocks.streamLlmSummary,
-  formatSseEvent: (d: Record<string, unknown>) =>
-    `data: ${JSON.stringify(d)}\n\n`,
 }));
 vi.mock("@/lib/services/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
@@ -184,7 +183,12 @@ async function readStream(res: Response): Promise<string[]> {
 }
 
 function parseEvents(lines: string[]): Array<Record<string, unknown>> {
-  return lines.map((l) => JSON.parse(l));
+  return lines.map((l) => {
+    const event: unknown = JSON.parse(l);
+    // Every live and cached route assertion now crosses the same runtime
+    // contract that the production emitter uses before enqueueing bytes.
+    return SummarySseEventSchema.parse(event) as Record<string, unknown>;
+  });
 }
 
 async function* fakeGen(events: LlmEvent[]): AsyncGenerator<LlmEvent> {

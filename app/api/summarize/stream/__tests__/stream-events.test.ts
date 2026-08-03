@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { forwardLlmEvent, streamCached } from "../stream-events";
+import {
+  forwardLlmEvent,
+  streamCached,
+  validateSummarySseEvent,
+} from "../stream-events";
 import type { CachedSummary } from "@/lib/services/summarize-cache";
+import { SummarySseEventSchema } from "@/lib/api-contracts/summary";
 
 function baseCached(overrides: Partial<CachedSummary> = {}): CachedSummary {
   return {
@@ -20,6 +25,12 @@ function baseCached(overrides: Partial<CachedSummary> = {}): CachedSummary {
 }
 
 describe("forwardLlmEvent", () => {
+  it("fails fast when a server event violates the shared contract", () => {
+    expect(() =>
+      validateSummarySseEvent({ type: "content", text: 123 }),
+    ).toThrow();
+  });
+
   it("does NOT emit SSE for timing events (route owns terminal summary)", () => {
     const sent: Record<string, unknown>[] = [];
     forwardLlmEvent({ type: "timing", summarizeSeconds: 7 }, (d) =>
@@ -63,6 +74,19 @@ describe("forwardLlmEvent", () => {
 });
 
 describe("streamCached event ordering contract", () => {
+  it("emits only events accepted by the shared runtime contract", () => {
+    const sent: Record<string, unknown>[] = [];
+    streamCached((d) => sent.push(d), baseCached(), {
+      includeTranscript: true,
+      segments: [{ text: "timed transcript", start: 0, duration: 1 }],
+    });
+
+    expect(sent).toHaveLength(4);
+    for (const event of sent) {
+      expect(SummarySseEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+
   it("emits metadata → content → summary in the minimal case", () => {
     const sent: Record<string, unknown>[] = [];
     streamCached((d) => sent.push(d), baseCached(), {

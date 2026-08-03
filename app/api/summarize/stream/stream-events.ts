@@ -3,42 +3,36 @@ import type {
   TranscriptSegment,
 } from "@/lib/services/summarize-cache";
 import type { LlmEvent } from "@/lib/services/llm-client";
-import type { ClientStage } from "@/lib/stages";
 import { logAppEvent } from "@/lib/observability";
+import {
+  SummarySseEventSchema,
+  type SummarySseEvent,
+} from "@/lib/api-contracts/summary";
 
-export type SseEvent =
-  | { type: "status"; message: string; stage: ClientStage }
-  | { type: "content"; text: string }
-  | {
-      type: "metadata";
-      category: "general";
-      cached: boolean;
-      title?: string;
-      channel?: string;
-    }
-  | {
-      type: "full_transcript";
-      segments: readonly TranscriptSegment[];
-      source: CachedSummary["transcriptSource"];
-    }
-  | {
-      type: "summary";
-      category: "general";
-      total_time: number;
-      summarize_time: number;
-      transcribe_time: number;
-    }
-  | { type: "error"; message: string; errorId?: string };
+export type SseEvent = SummarySseEvent;
 
 export type SendEvent = (data: SseEvent) => void;
+
+/** Validate before handing an event to the route's wire emitter. */
+export function validateSummarySseEvent(event: unknown): SseEvent {
+  return SummarySseEventSchema.parse(event);
+}
+
+function emitSummaryEvent(sendEvent: SendEvent, event: unknown): void {
+  sendEvent(validateSummarySseEvent(event));
+}
 
 export function forwardLlmEvent(event: LlmEvent, sendEvent: SendEvent): void {
   switch (event.type) {
     case "status":
-      sendEvent({ type: "status", message: event.message, stage: event.stage });
+      emitSummaryEvent(sendEvent, {
+        type: "status",
+        message: event.message,
+        stage: event.stage,
+      });
       return;
     case "content":
-      sendEvent({ type: "content", text: event.text });
+      emitSummaryEvent(sendEvent, { type: "content", text: event.text });
       return;
     case "timing":
       // Intentionally no SSE emit. The route owns the single terminal
@@ -75,7 +69,7 @@ export function streamCached(
     segments?: readonly TranscriptSegment[];
   }
 ): void {
-  sendEvent({
+  emitSummaryEvent(sendEvent, {
     type: "metadata",
     category: "general",
     cached: true,
@@ -83,17 +77,17 @@ export function streamCached(
     channel: cached.channelName,
   });
 
-  sendEvent({ type: "content", text: cached.summary });
+  emitSummaryEvent(sendEvent, { type: "content", text: cached.summary });
 
   if (opts.includeTranscript && opts.segments && opts.segments.length > 0) {
-    sendEvent({
+    emitSummaryEvent(sendEvent, {
       type: "full_transcript",
       segments: opts.segments,
       source: cached.transcriptSource,
     });
   }
 
-  sendEvent({
+  emitSummaryEvent(sendEvent, {
     type: "summary",
     category: "general",
     total_time: cached.summarizeTimeSeconds + cached.transcribeTimeSeconds,

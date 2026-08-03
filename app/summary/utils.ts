@@ -1,4 +1,9 @@
 import type { SummaryResult, TranscriptSegment } from "@/lib/types";
+import {
+  parseSummarySsePayload,
+  SummaryStreamProtocolError,
+  type SummarySseEvent,
+} from "@/lib/api-contracts/summary";
 
 // Define the StreamingProgress interface
 export interface StreamingProgress {
@@ -35,72 +40,61 @@ export function parseStreamingData(rawData: string): {
   let streamErrorId: string | null = null;
   let transcriptSource: SummaryResult["transcriptSource"];
 
-  // Parse Server-Sent Events format
-  const lines = rawData.split("\n");
+  // Parse only complete SSE data lines. React Query yields the accumulated
+  // wire buffer after every network chunk, so the final `data:` line can be
+  // incomplete during an otherwise healthy stream.
+  const lastFrameEnd = rawData.lastIndexOf("\n");
+  const completeData =
+    lastFrameEnd >= 0 ? rawData.slice(0, lastFrameEnd + 1) : "";
+  const lines = completeData.split("\n");
 
   for (const line of lines) {
-    if (line.startsWith("data: ")) {
+    if (line.startsWith("data:")) {
       try {
-        const jsonStr = line.slice(6).trim(); // Remove 'data: ' prefix and trim whitespace
-        if (!jsonStr) continue; // Skip empty lines
+        const jsonStr = line.slice("data:".length).trim();
 
-        const data = JSON.parse(jsonStr);
-
-        // Normalize data type to handle variations
-        const type = (data.type || "").toLowerCase();
+        const data: SummarySseEvent = parseSummarySsePayload(jsonStr);
 
         // Check for cached flag in metadata
-        if (type === "metadata" && data.cached === true) {
+        if (data.type === "metadata" && data.cached) {
           isCached = true;
         }
 
-        // Determine progress based on multiple possible indicators
-        const determineProgress = () => {
-          const message = (data.message || "").toLowerCase();
-          const stage = data.stage || "";
-
-          if (message.includes("caption") || message.includes("subtitle")) {
-            return {
-              stage: "transcribing" as const,
-              message: data.message || "Processing captions...",
-              progress: 30,
-            };
-          }
-
-          if (message.includes("transcrib") || stage === "transcribe") {
-            return {
-              stage: "transcribing" as const,
-              message: data.message || "Transcribing audio...",
-              progress: 40,
-            };
-          }
-
-          if (message.includes("summar") || stage === "summarize") {
-            return {
-              stage: "summarizing" as const,
-              message: data.message || "Generating summary...",
-              progress: 70,
-            };
-          }
-
-          return null;
-        };
-
-        // Handle different types of streaming data
-        switch (type) {
+        // Handle only variants accepted by the shared runtime contract.
+        switch (data.type) {
           case "metadata":
             title = data.category
               ? `${data.category} Summary`
               : "Video Summary";
             break;
 
-          case "status":
-          case "progress":
-            const progressUpdate = determineProgress();
+          case "status": {
+            const message = data.message.toLowerCase();
+            const progressUpdate =
+              message.includes("caption") || message.includes("subtitle")
+                ? {
+                    stage: "transcribing" as const,
+                    message: data.message || "Processing captions...",
+                    progress: 30,
+                  }
+                : message.includes("transcrib") || data.stage === "transcribe"
+                  ? {
+                      stage: "transcribing" as const,
+                      message: data.message || "Transcribing audio...",
+                      progress: 40,
+                    }
+                  : message.includes("summar") || data.stage === "summarize"
+                    ? {
+                        stage: "summarizing" as const,
+                        message: data.message || "Generating summary...",
+                        progress: 70,
+                      }
+                    : null;
             if (progressUpdate) {
               currentProgress = progressUpdate;
             }
             break;
+          }
 
           case "content":
             if (data.text) {
@@ -114,75 +108,18 @@ export function parseStreamingData(rawData: string): {
             break;
 
           case "full_transcript":
-            // Server emits `{ segments: [...] }` per stream-events.ts. Guard
-            // against malformed entries because parseStreamingData runs on
-            // raw SSE text that might be partially buffered or — across a
-            // future protocol drift — newly shaped.
-            if (Array.isArray(data.segments)) {
-              const raw = data.segments;
-              const filtered = raw.filter(
-                (s: unknown): s is TranscriptSegment =>
-                  typeof s === "object" &&
-                  s !== null &&
-                  typeof (s as TranscriptSegment).text === "string" &&
-                  typeof (s as TranscriptSegment).start === "number" &&
-                  typeof (s as TranscriptSegment).duration === "number"
-              );
-              // A silent filter could turn a server-side protocol drift
-              // (renamed field, type change) into "transcript card empty,
-              // no error visible." Loud-log when ANY entries got dropped
-              // so the regression is alertable; if 100% got dropped,
-              // synthesize a streamError so the user sees a banner
-              // instead of a stuck-empty card.
-              if (filtered.length < raw.length) {
-                const sample = raw.find(
-                  (s: unknown) =>
-                    !filtered.includes(s as TranscriptSegment)
-                );
-                console.error("[parseStreamingData] TRANSCRIPT_SEGMENT_FILTERED", {
-                  errorId: "TRANSCRIPT_SEGMENT_FILTERED",
-                  totalCount: raw.length,
-                  droppedCount: raw.length - filtered.length,
-                  sampleKeys:
-                    sample && typeof sample === "object"
-                      ? Object.keys(sample)
-                      : typeof sample,
-                });
-                if (filtered.length === 0 && raw.length > 0) {
-                  streamError =
-                    "Transcript couldn't be displayed. Please refresh.";
-                }
-              }
-              segments = filtered;
-            }
-            if (
-              data.source === "manual_captions" ||
-              data.source === "auto_captions" ||
-              data.source === "whisper"
-            ) {
-              transcriptSource = data.source;
-            }
-            break;
-
-          case "timing":
-            if (data.stage === "total" || data.total_time) {
-              duration = `${data.total_time?.toFixed(1) || 0}s total`;
-              currentProgress = {
-                stage: "complete",
-                message: data.performance || "Summary complete!",
-                progress: 100,
-              };
-            }
+            segments = data.segments;
+            transcriptSource = data.source;
             break;
 
           case "summary":
             // Final summary with timing info
-            duration = `${data.total_time?.toFixed(1) || 0}s total`;
-            transcriptionTime = data.transcribe_time || 0;
-            summaryTime = data.summarize_time || 0;
+            duration = `${data.total_time.toFixed(1)}s total`;
+            transcriptionTime = data.transcribe_time;
+            summaryTime = data.summarize_time;
             currentProgress = {
               stage: "complete",
-              message: data.performance || "Summary complete!",
+              message: "Summary complete!",
               progress: 100,
             };
             break;
@@ -193,13 +130,10 @@ export function parseStreamingData(rawData: string): {
             // spinning. Without this the UI hangs at whatever stage
             // fired last (classically the 70% "Generating summary..."
             // state when the LLM call throws).
-            const errorMessage: string =
-              typeof data.message === "string" && data.message
-                ? data.message
-                : "Something went wrong. Please try again.";
+            const errorMessage =
+              data.message || "Something went wrong. Please try again.";
             streamError = errorMessage;
-            streamErrorId =
-              typeof data.errorId === "string" ? data.errorId : null;
+            streamErrorId = data.errorId ?? null;
             currentProgress = {
               stage: "complete",
               message: errorMessage,
@@ -209,6 +143,7 @@ export function parseStreamingData(rawData: string): {
           }
         }
       } catch (e) {
+        if (e instanceof SummaryStreamProtocolError) throw e;
         // Skip invalid JSON lines
         console.warn("Failed to parse streaming data:", e);
       }

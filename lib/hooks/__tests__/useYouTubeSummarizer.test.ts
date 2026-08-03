@@ -32,7 +32,11 @@ vi.mock("@/lib/supabase/client", () => ({
   }),
 }));
 
-import { useYouTubeSummarizer } from "../useYouTubeSummarizer";
+import {
+  SummaryRequestError,
+  useYouTubeSummarizer,
+} from "../useYouTubeSummarizer";
+import { SummaryStreamProtocolError } from "@/lib/api-contracts/summary";
 
 function makeWrapper() {
   const qc = new QueryClient({
@@ -59,6 +63,8 @@ function sseStream(chunks: string[]): Response {
   return new Response(body, { status: 200 });
 }
 
+const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
 describe("useYouTubeSummarizer", () => {
   beforeEach(() => {
     mockPush.mockReset();
@@ -82,7 +88,7 @@ describe("useYouTubeSummarizer", () => {
       error: null,
     });
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
     await waitFor(() => expect(result.current.isAnonymous).toBe(true));
@@ -94,7 +100,7 @@ describe("useYouTubeSummarizer", () => {
       data: { session: { access_token: "existing-anon" } },
     });
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
     await waitFor(() => expect(result.current.isAnonymous).toBe(true));
@@ -107,7 +113,7 @@ describe("useYouTubeSummarizer", () => {
       session: { access_token: "user-token" },
     };
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
     await waitFor(() => expect(result.current.isAuthLoading).toBe(false));
@@ -126,7 +132,7 @@ describe("useYouTubeSummarizer", () => {
     };
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -143,7 +149,7 @@ describe("useYouTubeSummarizer", () => {
     };
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    renderHook(() => useYouTubeSummarizer("https://youtu.be/x"), {
+    renderHook(() => useYouTubeSummarizer(VALID_URL), {
       wrapper: makeWrapper(),
     });
     // Give react-query a microtask tick
@@ -156,13 +162,21 @@ describe("useYouTubeSummarizer", () => {
       user: { id: "u1" },
       session: { access_token: "user-token" },
     };
+    const firstChunk = `data: ${JSON.stringify({
+      type: "content",
+      text: "partial-1 ",
+    })}\n\n`;
+    const secondChunk = `data: ${JSON.stringify({
+      type: "content",
+      text: "partial-2",
+    })}\n\n`;
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(sseStream(["partial-1 ", "partial-2"]));
+      .mockResolvedValue(sseStream([firstChunk, secondChunk]));
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x", true, null),
+      () => useYouTubeSummarizer(VALID_URL, true, null),
       { wrapper: makeWrapper() }
     );
 
@@ -182,7 +196,7 @@ describe("useYouTubeSummarizer", () => {
     );
     const body = JSON.parse(init.body as string);
     expect(body).toEqual({
-      youtube_url: "https://youtu.be/x",
+      youtube_url: VALID_URL,
       include_transcript: true,
       // outputLanguage=null must NOT serialize the field
     });
@@ -190,11 +204,11 @@ describe("useYouTubeSummarizer", () => {
     // Use refetch result directly since the hook re-render may be async
     const data = refetchResult!.data;
     expect(Array.isArray(data)).toBe(true);
-    expect(data!.at(-1)?.summary).toBe("partial-1 partial-2");
+    expect(data!.at(-1)?.summary).toContain('"text":"partial-2"');
     // Two chunks → two intermediate yields (catches a regression to
     // batch-yielding the full string at the end).
     expect(data).toHaveLength(2);
-    expect(data![0].summary).toBe("partial-1 ");
+    expect(data![0].summary).toContain('"text":"partial-1 "');
     // signal must thread through to fetch — drops would silently break abort.
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
@@ -204,13 +218,17 @@ describe("useYouTubeSummarizer", () => {
       user: { id: "u1" },
       session: { access_token: "user-token" },
     };
+    const contentChunk = `data: ${JSON.stringify({
+      type: "content",
+      text: "x",
+    })}\n\n`;
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(sseStream(["x"]));
+      .mockResolvedValue(sseStream([contentChunk]));
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x", true, "es"),
+      () => useYouTubeSummarizer(VALID_URL, true, "es"),
       { wrapper: makeWrapper() }
     );
 
@@ -235,7 +253,7 @@ describe("useYouTubeSummarizer", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -271,7 +289,7 @@ describe("useYouTubeSummarizer", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -321,7 +339,7 @@ describe("useYouTubeSummarizer", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -358,7 +376,7 @@ describe("useYouTubeSummarizer", () => {
     );
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -389,7 +407,7 @@ describe("useYouTubeSummarizer", () => {
     );
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -413,7 +431,7 @@ describe("useYouTubeSummarizer", () => {
     );
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -447,7 +465,7 @@ describe("useYouTubeSummarizer", () => {
     );
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -486,7 +504,7 @@ describe("useYouTubeSummarizer", () => {
     );
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -519,7 +537,7 @@ describe("useYouTubeSummarizer", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -549,7 +567,7 @@ describe("useYouTubeSummarizer", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { result } = renderHook(
-      () => useYouTubeSummarizer("https://youtu.be/x"),
+      () => useYouTubeSummarizer(VALID_URL),
       { wrapper: makeWrapper() }
     );
 
@@ -559,5 +577,70 @@ describe("useYouTubeSummarizer", () => {
       "Anonymous sign-in error:",
       expect.any(Error)
     );
+  });
+
+  it("rejects invalid request fields through the shared contract before fetch", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer("https://youtu.be/x"),
+      { wrapper: makeWrapper() },
+    );
+
+    let refetchResult: Awaited<
+      ReturnType<typeof result.current.summarizationQuery.refetch>
+    >;
+    await act(async () => {
+      refetchResult = await result.current.summarizationQuery.refetch();
+    });
+
+    expect(refetchResult!.error).toBeInstanceOf(SummaryRequestError);
+    expect(refetchResult!.error).toMatchObject({
+      status: 400,
+      errorCode: "INVALID_REQUEST",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["malformed JSON", "data: {not-json\n\n", "malformed_json"],
+    ["unknown variants", `data: ${JSON.stringify({ type: "future_event" })}\n\n`, "unknown_event_variant"],
+    ["type-invalid events", `data: ${JSON.stringify({ type: "content", text: 42 })}\n\n`, "invalid_event"],
+    [
+      "type-invalid full transcripts",
+      `data: ${JSON.stringify({ type: "full_transcript", segments: "bad" })}\n\n`,
+      "invalid_full_transcript",
+    ],
+  ])("surfaces %s as a non-retryable protocol error", async (_label, body, code) => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(sseStream([body])),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useYouTubeSummarizer(VALID_URL),
+      { wrapper: makeWrapper() },
+    );
+
+    let refetchResult: Awaited<
+      ReturnType<typeof result.current.summarizationQuery.refetch>
+    >;
+    await act(async () => {
+      refetchResult = await result.current.summarizationQuery.refetch();
+    });
+
+    expect(refetchResult!.isError).toBe(true);
+    expect(refetchResult!.error).toBeInstanceOf(SummaryStreamProtocolError);
+    expect((refetchResult!.error as SummaryStreamProtocolError).code).toBe(code);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
