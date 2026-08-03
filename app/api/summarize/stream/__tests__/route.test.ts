@@ -666,9 +666,9 @@ describe("POST /api/summarize/stream", () => {
       ]);
       expect(events[0]).toMatchObject({ cached: true, title: "Cached Vid" });
       expect(events.at(-1)).toMatchObject({
-        total_time: 5,
+        total_time: 3,
         summarize_time: 3,
-        transcribe_time: 2,
+        transcribe_time: 0,
       });
 
       expect(mocks.extractCaptions).not.toHaveBeenCalled();
@@ -819,8 +819,9 @@ describe("POST /api/summarize/stream", () => {
       expect(events.find((event) => event.type === "error")).toBeDefined();
       expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
       expect(errSpy).toHaveBeenCalledWith(
-        "[summarize/stream] captions failed",
+        "[transcript-acquisition] acquisition failed",
         expect.objectContaining({
+          stage: "captions",
           status: 500,
           errorId: "VPS_CAPTIONS_FAILED_HTTP_500",
         })
@@ -1231,15 +1232,18 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
 
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
-      expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining("metadata failed"),
-        expect.objectContaining({ stage: "metadata" })
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[transcript-acquisition] metadata recovery failed",
+        expect.objectContaining({
+          errorId: "TRANSCRIPT_METADATA_RECOVERY_FAILED",
+          reason: "timeout",
+        })
       );
       // Terminal summary still emits so the client accumulator closes.
       expect(events.at(-1)?.type).toBe("summary");
@@ -1298,14 +1302,17 @@ describe("POST /api/summarize/stream", () => {
           { type: "timing", summarizeSeconds: 1 },
         ])
       );
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       await readStream(res);
 
-      expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining("metadata failed"),
-        expect.objectContaining({ stage: "metadata" })
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[transcript-acquisition] metadata recovery failed",
+        expect.objectContaining({
+          errorId: "TRANSCRIPT_METADATA_RECOVERY_FAILED",
+          reason: "error",
+        })
       );
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
     });
@@ -1653,7 +1660,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
     });
 
-    it("stamps status + errorId on the vps log when VPS rejects with a typed VpsTranscribeError", async () => {
+    it("stamps status + errorId on the acquisition outcome when VPS rejects with a typed VpsTranscribeError", async () => {
       // The binding contract this PR creates: a 503 from the VPS's
       // GROQ_FAILED_NO_FALLBACK gate must surface as a top-level
       // `status: 503` + `errorId: VPS_TRANSCRIBE_FAILED_HTTP_503` log
@@ -1684,17 +1691,17 @@ describe("POST /api/summarize/stream", () => {
         errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
       });
       expect(mocks.streamLlmSummary).not.toHaveBeenCalled();
-      expect(errSpy).toHaveBeenCalledWith(
-        "[summarize/stream] vps failed",
-        expect.objectContaining({
-          stage: "vps",
-          status: 503,
-          errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
-          videoId: "dQw4w9WgXcQ",
-          requestId: expect.any(String),
-          userId: "user-1",
-        })
+      const acquisitionLog = errSpy.mock.calls.find(
+        (call) => call[0] === "[transcript-acquisition] acquisition failed"
       );
+      expect(acquisitionLog).toBeDefined();
+      expect(acquisitionLog?.[1]).toMatchObject({
+        stage: "transcription",
+        status: 503,
+        errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
+        videoId: "dQw4w9WgXcQ",
+        requestId: expect.any(String),
+      });
     });
 
     it("does not stamp status/errorId for non-VpsTranscribeError rejections", async () => {
@@ -1716,12 +1723,16 @@ describe("POST /api/summarize/stream", () => {
       const events = parseEvents(await readStream(res));
       expect(events.find((e) => e.type === "error")).toBeDefined();
       const vpsCall = errSpy.mock.calls.find(
-        (c) => c[0] === "[summarize/stream] vps failed"
+        (c) => c[0] === "[transcript-acquisition] acquisition failed"
       );
       expect(vpsCall).toBeDefined();
       const payload = vpsCall![1] as Record<string, unknown>;
+      expect(payload).toHaveProperty("stage", "transcription");
       expect(payload).not.toHaveProperty("status");
-      expect(payload).not.toHaveProperty("errorId");
+      expect(payload).toHaveProperty(
+        "errorId",
+        "TRANSCRIPT_ACQUISITION_TRANSCRIPTION_FAILED"
+      );
       expect(payload).not.toHaveProperty("bodyExcerpt");
     });
   });
@@ -1890,10 +1901,7 @@ describe("POST /api/summarize/stream", () => {
       );
     });
 
-    it("logs metadata failures (non-aborted, non-404) at the metadata stage with a synthesized Error", async () => {
-      // Sentry groups on Error type+message. Passing the raw Result
-      // object as `err` would produce per-request noise fingerprints;
-      // the synthesized Error keeps incident counts honest.
+    it("logs language-detection degradation without invalidating acquisition", async () => {
       mocks.fetchVpsMetadata.mockResolvedValue({ ok: false, reason: "non_ok", status: 500 });
       mocks.extractCaptions.mockResolvedValue(CAPTIONS_FIXTURE);
       mocks.streamLlmSummary.mockImplementation(() =>
@@ -1908,11 +1916,14 @@ describe("POST /api/summarize/stream", () => {
       await readStream(res);
 
       const call = errSpy.mock.calls.find((c) =>
-        String(c[0]).includes("metadata failed")
+        String(c[0]).includes("language detection degraded")
       );
       expect(call).toBeDefined();
-      expect(call?.[1]).toMatchObject({ stage: "metadata" });
-      expect((call?.[1] as { errorName: unknown }).errorName).toBe("Error");
+      expect(call?.[1]).toMatchObject({
+        errorId: "TRANSCRIPT_LANGUAGE_DETECTION_DEGRADED",
+        reason: "non_ok",
+        status: 500,
+      });
     });
 
     it("does NOT log when metadata was caller-aborted (user closed tab)", async () => {
