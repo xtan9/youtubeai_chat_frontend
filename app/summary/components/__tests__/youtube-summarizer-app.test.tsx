@@ -23,8 +23,17 @@ vi.mock("@/lib/hooks/useClipboard", () => ({
   useClipboard: () => ({ copied: false, copyToClipboard: vi.fn() }),
 }));
 vi.mock("../results-display", () => ({
-  ResultsDisplay: ({ data }: { data: { summary: string } }) => (
-    <div data-testid="summary-results">{data.summary}</div>
+  ResultsDisplay: ({
+    data,
+    onSelectLanguage,
+  }: {
+    data: { summary: string };
+    onSelectLanguage: (code: "es") => void;
+  }) => (
+    <>
+      <div data-testid="summary-results">{data.summary}</div>
+      <button onClick={() => onSelectLanguage("es")}>switch language</button>
+    </>
   ),
 }));
 vi.mock("../chat-tab", () => ({ ChatTab: () => <div>chat</div> }));
@@ -102,6 +111,19 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
     expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /copy summary/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /new summary/i })).toBeNull();
+  });
+
+  it("exposes the controller's explicit cancellation command while running", () => {
+    const commands = commonCommands();
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commands,
+      snapshot: runningSnapshot(),
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel summary/i }));
+    expect(commands.cancel).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -288,4 +310,83 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
       expect(retry).toHaveBeenCalledTimes(1);
     },
   );
+  it("renders cancellation as a non-failure Draft without completed actions", () => {
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      snapshot: {
+        status: "cancelled",
+        runId: "run-cancelled",
+        input: {
+          video: { youtubeUrl: "https://youtu.be/x" },
+          outputLanguage: null,
+          includeTranscript: true,
+        },
+        draft: { text: "A retained cancelled draft." },
+        progress: {
+          stage: "summarizing",
+          message: "Generating summary...",
+          elapsedSeconds: 1.5,
+        },
+        origin: "generated",
+        transcript: { status: "unavailable", diagnostic: "not_received" },
+      } satisfies SummaryRunSnapshot,
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+    expect(screen.getByTestId("summary-draft")).not.toBeNull();
+    expect(screen.getByText("A retained cancelled draft.")).not.toBeNull();
+    expect(screen.queryByTestId("summary-results")).toBeNull();
+    expect(screen.queryByTestId("stream-error-banner")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /copy summary/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /new summary/i })).toBeNull();
+  });
+
+  it("hides a previous-language Summary and locks Chat before its replacement starts", () => {
+    const start = vi.fn();
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      start,
+      snapshot: {
+        status: "succeeded",
+        runId: "native-run",
+        input: {
+          video: { youtubeUrl: "https://youtu.be/x" },
+          outputLanguage: null,
+          includeTranscript: true,
+        },
+        summary: {
+          title: "Video Summary",
+          duration: "3.0s total",
+          summary: "Native-language Summary that must disappear.",
+          transcriptionTime: 1,
+          summaryTime: 2,
+          origin: "generated",
+        },
+        origin: "generated",
+        progress: {
+          stage: "complete",
+          message: "Summary complete",
+          elapsedSeconds: 3,
+        },
+        transcript: { status: "not_requested" },
+      } satisfies SummaryRunSnapshot,
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+    expect(screen.getByTestId("summary-results").textContent).toContain(
+      "Native-language Summary",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "switch language" }));
+
+    expect(screen.queryByTestId("summary-results")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
+    expect(start).toHaveBeenLastCalledWith({
+      video: { youtubeUrl: "https://youtu.be/x" },
+      outputLanguage: "es",
+      includeTranscript: true,
+    });
+  });
 });

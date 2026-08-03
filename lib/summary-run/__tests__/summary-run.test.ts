@@ -6,6 +6,7 @@ import {
 } from "../summary-run";
 
 const VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+const SECOND_VIDEO_URL = "https://www.youtube.com/watch?v=abcdefghijk";
 
 function streamResponse(wire: string, chunkSize = 7): Response {
   const bytes = new TextEncoder().encode(wire);
@@ -24,6 +25,29 @@ function streamResponse(wire: string, chunkSize = 7): Response {
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
+}
+
+function controlledResponse() {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+    null;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
+
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    }),
+    enqueue(wire: string) {
+      streamController?.enqueue(new TextEncoder().encode(wire));
+    },
+    close() {
+      streamController?.close();
+    },
+  };
 }
 
 function event(type: string, payload: Record<string, unknown>): string {
@@ -666,6 +690,170 @@ describe("Summary Run public controller", () => {
       status: "succeeded",
       summary: { summary: "second run" },
     });
+  });
+
+  it("keeps late events isolated when a run identity source repeats", async () => {
+    const first = controlledResponse();
+    const second = controlledResponse();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(first.response)
+      .mockResolvedValueOnce(second.response);
+    const observed: SummaryRunSnapshot[] = [];
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+      createRunId: () => "reused-id",
+    });
+    controller.subscribe((snapshot) => observed.push(snapshot));
+
+    const firstStart = controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+    await Promise.resolve();
+
+    const secondStart = controller.start({
+      video: { youtubeUrl: SECOND_VIDEO_URL },
+      outputLanguage: "es",
+      includeTranscript: false,
+    });
+    await Promise.resolve();
+
+    const replacement = controller.getSnapshot();
+    expect(replacement).toMatchObject({
+      status: "running",
+      input: {
+        video: { youtubeUrl: SECOND_VIDEO_URL },
+        outputLanguage: "es",
+      },
+    });
+    if (replacement.status !== "running") {
+      throw new Error("expected the replacement run to be active");
+    }
+    expect(replacement.runId).not.toBe("reused-id");
+
+    first.enqueue(
+      event("metadata", { category: "general", cached: false }) +
+        event("content", { text: "stale output" }),
+    );
+    await Promise.resolve();
+
+    expect(controller.getSnapshot()).toEqual(replacement);
+    expect(
+      observed.some(
+        (snapshot) =>
+          snapshot.status === "running" &&
+          snapshot.input.video.youtubeUrl === VIDEO_URL &&
+          snapshot.draft.text === "stale output",
+      ),
+    ).toBe(false);
+
+    controller.cancel();
+    second.close();
+    first.close();
+    await Promise.all([firstStart, secondStart]);
+    expect(controller.getSnapshot().status).toBe("cancelled");
+  });
+
+  it("invalidates a succeeded Summary before a replacement can produce output", async () => {
+    const replacement = controlledResponse();
+    const controller = createSummaryRunController({
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce(streamResponse(successfulWire()))
+        .mockResolvedValueOnce(replacement.response),
+      getAccessToken: () => "token",
+      createRunId: vi
+        .fn()
+        .mockReturnValueOnce("native-run")
+        .mockReturnValueOnce("spanish-run"),
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      runId: "native-run",
+    });
+
+    const replacementStart = controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: "es",
+      includeTranscript: false,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "running",
+      runId: "spanish-run",
+      input: { outputLanguage: "es" },
+      draft: { text: "" },
+    });
+    expect("summary" in controller.getSnapshot()).toBe(false);
+
+    controller.cancel();
+    replacement.close();
+    await replacementStart;
+    expect(controller.getSnapshot().status).toBe("cancelled");
+  });
+
+  it("keeps the replacement timer alive when an observer starts it synchronously", async () => {
+    vi.useFakeTimers();
+    let currentTime = 1_000;
+    const first = controlledResponse();
+    const second = controlledResponse();
+    let firstRunId: string | null = null;
+    let replacementStart: Promise<void> | undefined;
+    const controller = createSummaryRunController({
+      fetch: vi
+        .fn()
+        .mockResolvedValueOnce(first.response)
+        .mockResolvedValueOnce(second.response),
+      getAccessToken: () => "token",
+      now: () => currentTime,
+      createRunId: vi
+        .fn()
+        .mockReturnValueOnce("first-run")
+        .mockReturnValueOnce("second-run"),
+    });
+    controller.subscribe((snapshot) => {
+      if (snapshot.status !== "running" || firstRunId !== null) return;
+      firstRunId = snapshot.runId;
+      replacementStart = controller.start({
+        video: { youtubeUrl: SECOND_VIDEO_URL },
+        outputLanguage: "es",
+        includeTranscript: false,
+      });
+    });
+
+    const firstStart = controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+    expect(replacementStart).toBeDefined();
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "running",
+      runId: "second-run",
+    });
+
+    currentTime = 2_000;
+    vi.advanceTimersByTime(100);
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "running",
+      runId: "second-run",
+      progress: { elapsedSeconds: 1 },
+    });
+
+    controller.cancel();
+    first.close();
+    second.close();
+    await Promise.all([firstStart, replacementStart!]);
+    vi.useRealTimers();
   });
 
   it("owns elapsed time in the running snapshot and freezes it on cancellation", async () => {

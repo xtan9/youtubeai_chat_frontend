@@ -13,6 +13,26 @@ function responseFor(events: string[]): Response {
   });
 }
 
+function controlledResponse() {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+    null;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
+
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    }),
+    close() {
+      streamController?.close();
+    },
+  };
+}
+
 describe("useSummaryRun", () => {
   it.each([
     { cached: false, origin: "generated" as const },
@@ -150,5 +170,47 @@ describe("useSummaryRun", () => {
         output_language: "es",
       });
     }
+  });
+
+  it("forwards explicit cancellation to a terminal cancelled snapshot", async () => {
+    const pendingResponse = controlledResponse();
+    const fetchMock = vi.fn().mockResolvedValue(pendingResponse.response);
+    const { result } = renderHook(() =>
+      useSummaryRun({
+        fetch: fetchMock,
+        getAccessToken: () => "token",
+      }),
+    );
+
+    let pendingStart!: Promise<void>;
+    await act(async () => {
+      pendingStart = result.current.start({
+        video: { youtubeUrl: VIDEO_URL },
+        outputLanguage: null,
+        includeTranscript: false,
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.snapshot.status).toBe("running");
+
+    await act(async () => {
+      result.current.cancel();
+    });
+
+    expect(result.current.snapshot).toMatchObject({
+      status: "cancelled",
+      draft: { text: "" },
+      input: {
+        video: { youtubeUrl: VIDEO_URL },
+        outputLanguage: null,
+      },
+    });
+
+    pendingResponse.close();
+    await act(async () => {
+      await pendingStart;
+    });
+    expect(result.current.snapshot.status).toBe("cancelled");
   });
 });
