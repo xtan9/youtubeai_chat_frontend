@@ -22,6 +22,8 @@ import {
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import YoutubeVideo from "./youtube-video";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { Button } from "@/components/ui/button";
+import { getSummaryRunFailureMessage } from "@/lib/summary-run";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -49,7 +51,7 @@ export function YouTubeSummarizerApp({
     setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
   }, []);
 
-  const { snapshot, start, isAnonymous, isAuthLoading } =
+  const { snapshot, start, retry, isAnonymous, isAuthLoading } =
     useYouTubeSummarizer();
 
   // Each effect execution is one explicit Summary Run start. The controller
@@ -130,6 +132,9 @@ export function YouTubeSummarizerApp({
   };
 
   const failure = snapshot.status === "failed" ? snapshot.error : null;
+  const failureMessage = failure
+    ? getSummaryRunFailureMessage(failure)
+    : undefined;
   const draftText =
     snapshot.status === "running" ||
     snapshot.status === "failed" ||
@@ -152,10 +157,26 @@ export function YouTubeSummarizerApp({
       {failure?.kind === "quota" ? (
         <UpgradeCard variant="summary-cap" />
       ) : failure?.kind === "authentication" ? (
-        <AuthErrorBanner authError={failure.message} />
+        <AuthErrorBanner authError={failureMessage} />
       ) : failure ? (
-        <StreamErrorBanner message={failure.message} errorId={failure.code} />
+        <StreamErrorBanner
+          message={failureMessage ?? ""}
+          errorId={failure.code}
+        />
       ) : null}
+
+      {failure && (
+        <div className="mb-5 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="summary-retry"
+            onClick={() => void retry()}
+          >
+            Retry summary
+          </Button>
+        </div>
+      )}
 
       {(snapshot.status === "running" ||
         snapshot.status === "failed" ||

@@ -335,7 +335,7 @@ test("typed transcription failure shows safe messaging without partial output", 
       body: `data: ${JSON.stringify({
         type: "error",
         errorId: "VPS_TRANSCRIBE_FAILED_HTTP_503",
-        message: "Couldn't process this video. Please try again or try a different URL.",
+        message: "private VPS exception with upstream payload",
       })}\n\n`,
     })
   );
@@ -345,11 +345,65 @@ test("typed transcription failure shows safe messaging without partial output", 
   const failure = page.getByTestId("stream-error-banner");
   await expect(failure).toContainText("Summary failed");
   await expect(failure).toContainText("Couldn't process this video");
+  await expect(failure).not.toContainText("private VPS exception");
   await expect(failure).toHaveAttribute(
     "data-error-id",
-    "VPS_TRANSCRIBE_FAILED_HTTP_503"
+    "PROCESSING_FAILURE"
   );
+  await expect(page.getByRole("button", { name: /retry summary/i })).toBeVisible();
   await expect(page.getByTestId("transcript-container")).toHaveCount(0);
   await expect(page.getByText("AI-Generated Video Summary")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Chat" })).toBeDisabled();
+});
+
+test("failed Summary Run retries only after an explicit click with the original request inputs", async ({
+  page,
+}) => {
+  await mockSharedBrowserBoundaries(page);
+  let requestCount = 0;
+  await page.route("**/api/summarize/stream", async (route) => {
+    requestCount += 1;
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      youtube_url: VIDEO_URL,
+      include_transcript: true,
+    });
+
+    if (requestCount === 1) {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: [
+          { type: "metadata", category: "general", cached: false },
+          { type: "content", text: "Retained draft" },
+          {
+            type: "error",
+            message: "private failure payload",
+            errorId: "PRIVATE_FAILURE",
+          },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join(""),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: summaryEvents(CAPTION_SUCCESS),
+    });
+  });
+
+  await submitVideoUrl(page);
+  await expect(page.getByTestId("stream-error-banner")).toBeVisible();
+  await expect.poll(() => requestCount).toBe(1);
+  await expect(page.getByTestId("summary-draft")).toContainText("Retained draft");
+  await expect(page.getByTestId("summary-results")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /retry summary/i }).click();
+  await expect.poll(() => requestCount).toBe(2);
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
+  await expect(page.getByTestId("summary-draft")).toHaveCount(0);
 });

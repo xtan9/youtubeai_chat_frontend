@@ -136,8 +136,16 @@ describe("useYouTubeSummarizer", () => {
 
     expect(result.current.snapshot).toMatchObject({
       status: "failed",
-      error: { kind: "authentication", status: 401 },
+      error: {
+        kind: "authentication",
+        code: "AUTHENTICATION_FAILED",
+        status: 401,
+        message: "Authentication failed. Please sign in again.",
+      },
     });
+    expect(JSON.stringify(result.current.snapshot)).not.toContain(
+      "session expired",
+    );
     await act(async () => {
       vi.advanceTimersByTime(3_000);
     });

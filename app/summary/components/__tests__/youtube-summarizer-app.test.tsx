@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SummaryRunSnapshot } from "@/lib/summary-run/summary-run";
 
@@ -189,7 +189,7 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
         transcript: { status: "unavailable", diagnostic: "not_received" },
         error: {
           kind: "quota",
-          code: "free_quota_exceeded",
+          code: "QUOTA_EXCEEDED",
           message: "Monthly summary limit reached",
           status: 402,
         },
@@ -202,4 +202,90 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
     expect(screen.queryByTestId("summary-results")).toBeNull();
     expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
   });
+
+  it.each([
+    {
+      kind: "authentication" as const,
+      code: "AUTHENTICATION_FAILED" as const,
+      message: "private authentication payload",
+      safeMessage: "Authentication failed. Please sign in again.",
+    },
+    {
+      kind: "rate_limit" as const,
+      code: "RATE_LIMITED" as const,
+      message: "private rate limit payload",
+      safeMessage: "Too many summary requests. Please wait a moment and try again.",
+    },
+    {
+      kind: "request" as const,
+      code: "REQUEST_FAILED" as const,
+      message: "private request payload",
+      safeMessage: "The summary request could not be completed. Please try again.",
+    },
+    {
+      kind: "network" as const,
+      code: "NETWORK_FAILURE" as const,
+      message: "private network payload",
+      safeMessage: "Couldn't connect to the summary service. Please try again.",
+    },
+    {
+      kind: "processing" as const,
+      code: "PROCESSING_FAILURE" as const,
+      message: "private processing payload",
+      safeMessage:
+        "Couldn't process this video. Please try again or try a different URL.",
+    },
+    {
+      kind: "protocol" as const,
+      code: "PROTOCOL_FAILURE" as const,
+      message: "private protocol payload",
+      safeMessage: "The summary stream was invalid. Please try again.",
+    },
+  ])(
+    "renders safe $kind recovery copy, keeps the Draft non-actionable, and retries only on explicit action",
+    ({ kind, code, message, safeMessage }) => {
+      const retry = vi.fn();
+      mockUseYouTubeSummarizer.mockReturnValue({
+        ...commonCommands(),
+        retry,
+        snapshot: {
+          status: "failed",
+          runId: `run-${kind}`,
+          input: {
+            video: { youtubeUrl: "https://youtu.be/x" },
+            outputLanguage: null,
+            includeTranscript: true,
+          },
+          draft: { text: "Retained but incomplete draft" },
+          progress: {
+            stage: "summarizing",
+            message: "Generating summary...",
+            elapsedSeconds: 4,
+          },
+          origin: "generated",
+          transcript: { status: "unavailable", diagnostic: "not_received" },
+          error: { kind, code, message },
+        } satisfies SummaryRunSnapshot,
+      });
+
+      render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+      const failureSurface =
+        kind === "authentication"
+          ? screen.getByText(safeMessage)
+          : screen.getByTestId("stream-error-banner");
+      expect(failureSurface.textContent).toContain(safeMessage);
+      expect(screen.queryByText(message)).toBeNull();
+      expect(screen.getByTestId("summary-draft").textContent).toContain(
+        "Not ready for actions",
+      );
+      expect(screen.queryByTestId("summary-results")).toBeNull();
+      expect(
+        screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled"),
+      ).not.toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: /retry summary/i }));
+      expect(retry).toHaveBeenCalledTimes(1);
+    },
+  );
 });

@@ -30,6 +30,13 @@ function event(type: string, payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify({ type, ...payload })}\n\n`;
 }
 
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 function successfulWire(): string {
   return [
     event("metadata", { category: "general", cached: false, title: "Video" }),
@@ -180,6 +187,16 @@ describe("Summary Run public controller", () => {
       code: "EMPTY_SUMMARY",
     },
     {
+      name: "unknown non-Transcript event",
+      wire: event("future_event", { privatePayload: "must not render" }),
+      code: "unknown_event_variant",
+    },
+    {
+      name: "malformed non-Transcript event",
+      wire: event("content", { text: 123 }),
+      code: "invalid_event",
+    },
+    {
       name: "event after terminal Summary",
       wire: successfulWire() + event("content", { text: "late" }),
       code: "EVENT_AFTER_TERMINATION",
@@ -200,6 +217,384 @@ describe("Summary Run public controller", () => {
       status: "failed",
       error: { kind: "protocol", code },
     });
+  });
+
+  it.each([
+    {
+      name: "authentication",
+      fetchResult: jsonResponse(401, {
+        message: "private upstream auth details",
+      }),
+      expected: {
+        kind: "authentication",
+        code: "AUTHENTICATION_FAILED",
+        message: "Authentication failed. Please sign in again.",
+      },
+    },
+    {
+      name: "quota",
+      fetchResult: jsonResponse(402, {
+        message: "private billing payload",
+        errorCode: "free_quota_exceeded",
+        tier: "free",
+        upgradeUrl: "/pricing",
+      }),
+      expected: {
+        kind: "quota",
+        code: "QUOTA_EXCEEDED",
+        message: "You've reached your summary limit. Upgrade to continue.",
+        quota: {
+          errorCode: "free_quota_exceeded",
+          tier: "free",
+          upgradeUrl: "/pricing",
+        },
+      },
+    },
+    {
+      name: "rate limit",
+      fetchResult: jsonResponse(429, {
+        message: "private rate limiter payload",
+      }),
+      expected: {
+        kind: "rate_limit",
+        code: "RATE_LIMITED",
+        message: "Too many summary requests. Please wait a moment and try again.",
+      },
+    },
+    {
+      name: "request",
+      fetchResult: jsonResponse(400, {
+        message: "private validation payload",
+      }),
+      expected: {
+        kind: "request",
+        code: "INVALID_REQUEST",
+        message: "Please check the YouTube URL and try again.",
+      },
+    },
+  ])("exposes safe $name request failure information", async ({
+    fetchResult,
+    expected,
+  }) => {
+    const fetchMock = vi.fn().mockResolvedValue(fetchResult);
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "failed",
+      error: expected,
+    });
+    expect(JSON.stringify(controller.getSnapshot())).not.toContain("private");
+  });
+
+  it("exposes a safe authentication-required failure when no session token exists", async () => {
+    const fetchMock = vi.fn();
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => null,
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "failed",
+      error: {
+        kind: "authentication",
+        code: "AUTH_REQUIRED",
+        message:
+          "Authentication is required to summarize this video. Please sign in again.",
+        status: 401,
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("classifies processing, network, protocol, and premature-EOF failures without promoting a draft", async () => {
+    const cases = [
+      {
+        name: "processing",
+        fetchMock: vi.fn().mockResolvedValue(
+          streamResponse(
+            event("metadata", { category: "general", cached: false }) +
+              event("content", { text: "retained draft" }) +
+              event("error", {
+                message: "private model exception",
+                errorId: "PRIVATE_UPSTREAM_ERROR",
+              }),
+          ),
+        ),
+        expected: {
+          kind: "processing",
+          code: "PROCESSING_FAILURE",
+          message:
+            "Couldn't process this video. Please try again or try a different URL.",
+        },
+      },
+      {
+        name: "network",
+        fetchMock: vi
+          .fn()
+          .mockRejectedValue(new Error("private socket exception")),
+        expected: {
+          kind: "network",
+          code: "NETWORK_FAILURE",
+          message: "Couldn't connect to the summary service. Please try again.",
+        },
+      },
+      {
+        name: "protocol",
+        fetchMock: vi.fn().mockResolvedValue(
+          streamResponse("data: {private malformed payload\n\n"),
+        ),
+        expected: {
+          kind: "protocol",
+          code: "malformed_json",
+          message: "The summary stream was invalid. Please try again.",
+        },
+      },
+      {
+        name: "premature EOF",
+        fetchMock: vi.fn().mockResolvedValue(
+          streamResponse(
+            event("metadata", { category: "general", cached: false }) +
+              event("content", { text: "retained draft" }),
+          ),
+        ),
+        expected: {
+          kind: "protocol",
+          code: "PREMATURE_EOF",
+          message:
+            "The summary stream ended before the Summary was complete. Please try again.",
+        },
+      },
+    ];
+
+    for (const { name, fetchMock, expected } of cases) {
+      const controller = createSummaryRunController({
+        fetch: fetchMock,
+        getAccessToken: () => "token",
+      });
+
+      await controller.start({
+        video: { youtubeUrl: VIDEO_URL },
+        outputLanguage: null,
+        includeTranscript: false,
+      });
+
+      expect(controller.getSnapshot(), name).toMatchObject({
+        status: "failed",
+        error: expected,
+      });
+      expect(controller.getSnapshot()).not.toHaveProperty("summary");
+    }
+  });
+
+  it("terminates a run on a broken response connection and retains only a non-actionable draft", async () => {
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(streamController) {
+        if (!sent) {
+          sent = true;
+          streamController.enqueue(
+            new TextEncoder().encode(
+              event("metadata", { category: "general", cached: false }) +
+                event("content", { text: "draft before disconnect" }),
+            ),
+          );
+          return;
+        }
+        streamController.error(new Error("private connection failure"));
+      },
+    });
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(new Response(body, { status: 200 })),
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "failed",
+      draft: { text: "draft before disconnect" },
+      error: {
+        kind: "network",
+        code: "NETWORK_FAILURE",
+        message: "Couldn't connect to the summary service. Please try again.",
+      },
+    });
+    expect(controller.getSnapshot()).not.toHaveProperty("summary");
+  });
+
+  it("does not automatically replay a failed request, while explicit retry creates a run with exact immutable inputs", async () => {
+    const firstInput = {
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: "es" as const,
+      includeTranscript: true,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        streamResponse(
+          event("metadata", { category: "general", cached: false }) +
+            event("content", { text: "failed draft" }) +
+            event("error", {
+              message: "private failure payload",
+              errorId: "PRIVATE_FAILURE",
+            }),
+        ),
+      )
+      .mockResolvedValueOnce(streamResponse(successfulWire()));
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+      createRunId: vi
+        .fn()
+        .mockReturnValueOnce("failed-run")
+        .mockReturnValueOnce("retried-run"),
+    });
+    const mutableInput = {
+      video: { youtubeUrl: firstInput.video.youtubeUrl },
+      outputLanguage: firstInput.outputLanguage,
+      includeTranscript: firstInput.includeTranscript,
+    };
+
+    await controller.start(mutableInput);
+    mutableInput.video.youtubeUrl = "https://www.youtube.com/watch?v=mutated";
+
+    const failed = controller.getSnapshot();
+    expect(failed).toMatchObject({
+      status: "failed",
+      runId: "failed-run",
+      input: firstInput,
+    });
+    if (failed.status !== "failed") {
+      throw new Error("expected a failed snapshot");
+    }
+    expect(Object.isFrozen(failed.input)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await controller.retry();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      runId: "retried-run",
+    });
+    for (const call of fetchMock.mock.calls) {
+      const [, init] = call as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).toEqual({
+        youtube_url: VIDEO_URL,
+        include_transcript: true,
+        output_language: "es",
+      });
+    }
+  });
+
+  it("only retries the terminal failed run and does not retry a success or cancellation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse(successfulWire()));
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+    });
+    const input: SummaryRunInput = {
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    };
+
+    await controller.start(input);
+    await controller.retry();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const pending = controller.start(input);
+    controller.cancel();
+    await pending;
+    await controller.retry();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps retried run identities distinct even when the injected ID factory repeats", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        streamResponse(
+          event("metadata", { category: "general", cached: false }) +
+            event("error", { message: "private failure" }),
+        ),
+      )
+      .mockResolvedValueOnce(streamResponse(successfulWire()));
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+      createRunId: () => "same-run-id",
+    });
+    const input: SummaryRunInput = {
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    };
+
+    await controller.start(input);
+    const failedSnapshot = controller.getSnapshot();
+    const failedRunId = failedSnapshot.status === "failed"
+      ? failedSnapshot.runId
+      : null;
+    await controller.retry();
+    const retriedSnapshot = controller.getSnapshot();
+    const retriedRunId = retriedSnapshot.status === "succeeded"
+      ? retriedSnapshot.runId
+      : null;
+
+    expect(failedRunId).toBe("same-run-id");
+    expect(retriedRunId).toBe("same-run-id-retry-1");
+  });
+
+  it("keeps every run identity distinct across repeated retries", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        streamResponse(
+          event("metadata", { category: "general", cached: false }) +
+            event("error", { message: "private failure" }),
+        ),
+      );
+    const controller = createSummaryRunController({
+      fetch: fetchMock,
+      getAccessToken: () => "token",
+      createRunId: () => "same-run-id",
+    });
+    const input: SummaryRunInput = {
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    };
+
+    await controller.start(input);
+    await controller.retry();
+    await controller.retry();
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("failed");
+    if (snapshot.status === "failed") {
+      expect(snapshot.runId).toBe("same-run-id-retry-2");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("treats an invalid transcript payload as unavailable while preserving a valid Summary", async () => {
