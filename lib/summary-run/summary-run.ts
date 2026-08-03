@@ -590,6 +590,9 @@ export function createSummaryRunController(
   const allocatedRunIds = new Set<string>();
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
+  const isCurrentRun = (run: ActiveRun): boolean =>
+    activeRun === run && !run.controller.signal.aborted;
+
   const notify = () => {
     for (const listener of [...listeners]) listener(snapshot);
   };
@@ -609,7 +612,7 @@ export function createSummaryRunController(
   const startElapsedTimer = (run: ActiveRun) => {
     stopElapsedTimer();
     elapsedTimer = setInterval(() => {
-      if (activeRun?.id !== run.id) return;
+      if (!isCurrentRun(run)) return;
       setSnapshot(makeRunningSnapshot(run, now()));
     }, elapsedTickMs);
   };
@@ -632,12 +635,12 @@ export function createSummaryRunController(
   };
 
   const failRun = (run: ActiveRun, error: unknown) => {
-    if (activeRun?.id !== run.id || run.controller.signal.aborted) return;
+    if (!isCurrentRun(run)) return;
     stopElapsedTimer();
     const failure = toFailure(error);
-    run.controller.abort();
     activeRun = null;
     lastFailedInput = run.input;
+    run.controller.abort();
     setSnapshot(
       Object.freeze({
         status: "failed" as const,
@@ -658,7 +661,7 @@ export function createSummaryRunController(
   };
 
   const succeedRun = (run: ActiveRun, terminal: TerminalSummaryEvent) => {
-    if (activeRun?.id !== run.id || run.controller.signal.aborted) return;
+    if (!isCurrentRun(run)) return;
     stopElapsedTimer();
     const summary = summaryFromRun(run, terminal);
     if (summary.origin !== "cache" && summary.origin !== "generated") {
@@ -684,6 +687,7 @@ export function createSummaryRunController(
     items: SummarySseDecodeItem[],
   ) => {
     for (const item of items) {
+      if (!isCurrentRun(run)) return;
       if (item.kind === "error") {
         if (run.terminal !== null) {
           throw new SummaryRunProtocolFailure("EVENT_AFTER_TERMINATION");
@@ -693,7 +697,7 @@ export function createSummaryRunController(
             status: "unavailable",
             diagnostic: item.error.code,
           };
-          if (activeRun?.id === run.id) {
+          if (isCurrentRun(run)) {
             setSnapshot(makeRunningSnapshot(run, now()));
           }
           continue;
@@ -702,7 +706,7 @@ export function createSummaryRunController(
       }
 
       reduceEvent(run, item.event);
-      if (activeRun?.id === run.id) {
+      if (isCurrentRun(run)) {
         setSnapshot(makeRunningSnapshot(run, now()));
       }
     }
@@ -720,7 +724,7 @@ export function createSummaryRunController(
           "AUTH_REQUIRED",
         );
       }
-      if (run.controller.signal.aborted) return;
+      if (!isCurrentRun(run)) return;
 
       const requestBodyResult = SummaryRequestSchema.safeParse({
         youtube_url: run.input.video.youtubeUrl,
@@ -745,7 +749,7 @@ export function createSummaryRunController(
         signal: run.controller.signal,
       });
 
-      if (run.controller.signal.aborted) return;
+      if (!isCurrentRun(run)) return;
       if (!response.ok) {
         let errorData: unknown;
         try {
@@ -754,7 +758,7 @@ export function createSummaryRunController(
           // The status code remains sufficient to classify the failure. The
           // body is never used as user-facing copy.
         }
-        if (run.controller.signal.aborted) return;
+        if (!isCurrentRun(run)) return;
         if (response.status === 402) {
           throw new SummaryQuotaRequestFailure(
             quotaInfoFromResponse(errorData),
@@ -779,8 +783,9 @@ export function createSummaryRunController(
       const textDecoder = new TextDecoder();
       const sseDecoder = new SummarySseStreamDecoder();
       while (true) {
-        if (run.controller.signal.aborted) return;
+        if (!isCurrentRun(run)) return;
         const { done, value } = await reader.read();
+        if (!isCurrentRun(run)) return;
         if (done) {
           const trailingText = textDecoder.decode();
           if (trailingText) {
@@ -796,16 +801,17 @@ export function createSummaryRunController(
       const terminal = validateCompletedRun(run);
       succeedRun(run, terminal);
     } catch (error) {
-      if (run.controller.signal.aborted) return;
+      if (!isCurrentRun(run)) return;
       failRun(run, error);
     }
   };
 
   const start = (input: SummaryRunInput): Promise<void> => {
     if (activeRun) {
-      activeRun.controller.abort();
+      const previousRun = activeRun;
       activeRun = null;
       stopElapsedTimer();
+      previousRun.controller.abort();
     }
 
     const capturedInput = freezeInput(input);
@@ -825,8 +831,8 @@ export function createSummaryRunController(
       terminalSummary: null,
     };
     activeRun = run;
-    setSnapshot(makeRunningSnapshot(run, now()));
     startElapsedTimer(run);
+    setSnapshot(makeRunningSnapshot(run, now()));
     return execute(run);
   };
 
@@ -840,9 +846,9 @@ export function createSummaryRunController(
     cancel: () => {
       if (!activeRun) return;
       const run = activeRun;
-      run.controller.abort();
       activeRun = null;
       stopElapsedTimer();
+      run.controller.abort();
       setSnapshot(
         Object.freeze({
           status: "cancelled" as const,

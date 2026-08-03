@@ -226,6 +226,63 @@ async function mockDeferredSummaryJourney(
   return release;
 }
 
+const RACE_NATIVE_SUMMARY =
+  "STALE NATIVE SUMMARY MUST NEVER REPLACE THE NEW LANGUAGE RESULT.";
+const RACE_SPANISH_SUMMARY =
+  "RESUMEN ESPAÑOL ACTUAL: ESTE ES EL RESULTADO DE LA NUEVA EJECUCIÓN.";
+
+async function mockRacingLanguageJourney(page: Page): Promise<{
+  readonly releaseFirst: () => void;
+  readonly firstResponseFulfilled: Promise<void>;
+}> {
+  await mockSharedBrowserBoundaries(page);
+  let releaseFirst!: () => void;
+  let markFirstResponseFulfilled!: () => void;
+  const firstResponseGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const firstResponseFulfilled = new Promise<void>((resolve) => {
+    markFirstResponseFulfilled = resolve;
+  });
+
+  await page.route("**/api/summarize/stream", async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      output_language?: string;
+    };
+    const isReplacement = requestBody.output_language === "es";
+
+    if (!isReplacement) {
+      await firstResponseGate;
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "cache-control": "no-cache" },
+          body: summaryEvents(
+            { ...CAPTION_SUCCESS, summary: RACE_NATIVE_SUMMARY },
+            false,
+          ),
+        });
+      } finally {
+        markFirstResponseFulfilled();
+      }
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      headers: { "cache-control": "no-cache" },
+      body: summaryEvents(
+        { ...CAPTION_SUCCESS, summary: RACE_SPANISH_SUMMARY },
+        false,
+      ),
+    });
+  });
+
+  return { releaseFirst, firstResponseFulfilled };
+}
+
 async function expectUsableTranscript(
   page: Page,
   scenario: TranscriptScenario
@@ -303,6 +360,55 @@ test("live Summary Run renders a non-actionable Draft until the terminal Summary
   await expect(page.getByTestId("summary-results")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
   await expect(page.getByTestId("summary-draft")).toHaveCount(0);
+});
+
+test("explicit cancellation keeps a Draft non-actionable after a late response", async ({
+  page,
+}) => {
+  const release = await mockDeferredSummaryJourney(page, CAPTION_SUCCESS);
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-draft")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /cancel summary/i }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /cancel summary/i }).click();
+
+  await expect(page.getByTestId("summary-draft")).toBeVisible();
+  await expect(page.getByTestId("stream-error-banner")).toHaveCount(0);
+  await expect(page.getByTestId("summary-results")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeDisabled();
+
+  release();
+  await expect(page.getByTestId("summary-results")).toHaveCount(0);
+  await expect(page.getByTestId("stream-error-banner")).toHaveCount(0);
+});
+
+test("in-flight language replacement ignores stale output from the old run", async ({
+  page,
+}) => {
+  const { releaseFirst, firstResponseFulfilled } =
+    await mockRacingLanguageJourney(page);
+
+  await submitVideoUrl(page);
+  await expect(page.getByTestId("summary-draft")).toBeVisible();
+
+  const replacementRequest = page.waitForRequest((request) => {
+    if (!request.url().includes("/api/summarize/stream")) return false;
+    const body = request.postDataJSON() as { output_language?: string };
+    return body.output_language === "es";
+  });
+  await page.getByRole("button", { name: /summary language:/i }).click();
+  await page.getByRole("menuitem", { name: /Español/i }).click();
+  await replacementRequest;
+
+  await expect(page.getByText(RACE_SPANISH_SUMMARY)).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
+
+  releaseFirst();
+  await firstResponseFulfilled;
+  await expect(page.getByText(RACE_NATIVE_SUMMARY)).toHaveCount(0);
+  await expect(page.getByText(RACE_SPANISH_SUMMARY)).toBeVisible();
 });
 
 test("cached Summary Run success uses the API metadata and unlocks completed actions", async ({

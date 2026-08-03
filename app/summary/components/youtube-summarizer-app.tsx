@@ -51,8 +51,15 @@ export function YouTubeSummarizerApp({
     setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
   }, []);
 
-  const { snapshot, start, retry, isAnonymous, isAuthLoading } =
+  const { snapshot, start, retry, cancel, isAnonymous, isAuthLoading } =
     useYouTubeSummarizer();
+
+  const snapshotMatchesCurrentInput =
+    snapshot.status === "idle" ||
+    (snapshot.input.video.youtubeUrl === url &&
+      snapshot.input.outputLanguage === outputLanguage &&
+      snapshot.input.includeTranscript === true);
+  const currentSnapshot = snapshotMatchesCurrentInput ? snapshot : null;
 
   // Each effect execution is one explicit Summary Run start. The controller
   // captures the URL, language, and transcript preference before any async
@@ -70,11 +77,13 @@ export function YouTubeSummarizerApp({
     const accountType = isAnonymous ? "anonymous" : "registered";
     const outputLanguageProperty = outputLanguage ?? "video_native";
 
-    if (snapshot.status === "failed") {
-      const outcomeKey = `failed:${snapshot.runId}`;
+    if (!currentSnapshot) return;
+
+    if (currentSnapshot.status === "failed") {
+      const outcomeKey = `failed:${currentSnapshot.runId}`;
       if (analyticsOutcomeRef.current === outcomeKey) return;
       analyticsOutcomeRef.current = outcomeKey;
-      const { error } = snapshot;
+      const { error } = currentSnapshot;
       captureAnalyticsEvent("summary_failed", {
         account_type: accountType,
         source_surface: "summary",
@@ -95,29 +104,30 @@ export function YouTubeSummarizerApp({
       return;
     }
 
-    if (snapshot.status === "succeeded") {
-      const outcomeKey = `succeeded:${snapshot.runId}`;
+    if (currentSnapshot.status === "succeeded") {
+      const outcomeKey = `succeeded:${currentSnapshot.runId}`;
       if (analyticsOutcomeRef.current === outcomeKey) return;
       analyticsOutcomeRef.current = outcomeKey;
       captureAnalyticsEvent("summary_succeeded", {
         account_type: accountType,
         source_surface: "summary",
-        result_origin: snapshot.origin,
+        result_origin: currentSnapshot.origin,
         output_language: outputLanguageProperty,
-        transcription_seconds: snapshot.summary.transcriptionTime,
-        summary_seconds: snapshot.summary.summaryTime,
+        transcription_seconds: currentSnapshot.summary.transcriptionTime,
+        summary_seconds: currentSnapshot.summary.summaryTime,
         total_seconds:
-          snapshot.summary.transcriptionTime + snapshot.summary.summaryTime,
+          currentSnapshot.summary.transcriptionTime +
+          currentSnapshot.summary.summaryTime,
       });
     }
-  }, [isAnonymous, outputLanguage, snapshot]);
+  }, [currentSnapshot, isAnonymous, outputLanguage]);
 
   const { copied, copyToClipboard } = useClipboard();
 
   const handleCopySummary = async () => {
-    if (snapshot.status !== "succeeded") return;
+    if (currentSnapshot?.status !== "succeeded") return;
     await copyToClipboard(
-      `${snapshot.summary.title}\n\n${snapshot.summary.summary}`,
+      `${currentSnapshot.summary.title}\n\n${currentSnapshot.summary.summary}`,
     );
   };
 
@@ -131,15 +141,16 @@ export function YouTubeSummarizerApp({
     setOutputLanguage(code);
   };
 
-  const failure = snapshot.status === "failed" ? snapshot.error : null;
+  const failure =
+    currentSnapshot?.status === "failed" ? currentSnapshot.error : null;
   const failureMessage = failure
     ? getSummaryRunFailureMessage(failure)
     : undefined;
   const draftText =
-    snapshot.status === "running" ||
-    snapshot.status === "failed" ||
-    snapshot.status === "cancelled"
-      ? snapshot.draft.text
+    currentSnapshot?.status === "running" ||
+    currentSnapshot?.status === "failed" ||
+    currentSnapshot?.status === "cancelled"
+      ? currentSnapshot.draft.text
       : null;
 
   const languagePicker = (
@@ -178,20 +189,23 @@ export function YouTubeSummarizerApp({
         </div>
       )}
 
-      {(snapshot.status === "running" ||
-        snapshot.status === "failed" ||
-        snapshot.status === "cancelled") &&
+      {(currentSnapshot?.status === "running" ||
+        currentSnapshot?.status === "failed" ||
+        currentSnapshot?.status === "cancelled") &&
         url && <div className="mb-4 flex justify-end">{languagePicker}</div>}
 
-      {snapshot.status === "running" && (
-        <StreamingProgressIndicator progress={snapshot.progress} />
+      {currentSnapshot?.status === "running" && (
+        <StreamingProgressIndicator
+          progress={currentSnapshot.progress}
+          onCancel={cancel}
+        />
       )}
 
       {draftText !== null && <SummaryDraft text={draftText} />}
 
-      {snapshot.status === "succeeded" && (
+      {currentSnapshot?.status === "succeeded" && (
         <ResultsDisplay
-          data={snapshot.summary}
+          data={currentSnapshot.summary}
           copied={copied}
           onCopySummary={handleCopySummary}
           onNewSummary={handleNewSummary}
@@ -204,11 +218,14 @@ export function YouTubeSummarizerApp({
     </>
   );
 
-  const chatLocked = snapshot.status !== "succeeded";
+  const chatLocked = currentSnapshot?.status !== "succeeded";
   const chatPermanentlyLocked =
-    snapshot.status === "failed" || snapshot.status === "cancelled";
+    currentSnapshot?.status === "failed" ||
+    currentSnapshot?.status === "cancelled";
   const completedSummary =
-    snapshot.status === "succeeded" ? snapshot.summary : undefined;
+    currentSnapshot?.status === "succeeded"
+      ? currentSnapshot.summary
+      : undefined;
 
   return (
     <PlayerRefProvider>
@@ -230,7 +247,7 @@ export function YouTubeSummarizerApp({
               width={600}
               segments={completedSummary?.segments}
               transcriptSource={completedSummary?.transcriptSource}
-              streamingComplete={snapshot.status === "succeeded"}
+              streamingComplete={currentSnapshot?.status === "succeeded"}
             />
           </div>
         </div>
