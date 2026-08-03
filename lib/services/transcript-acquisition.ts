@@ -2,6 +2,7 @@ import {
   CaptionExtractionError,
   captionErrorId,
   extractCaptions,
+  type CaptionResult,
 } from "./caption-extractor";
 import {
   getCachedTranscript,
@@ -185,6 +186,58 @@ function logAcquisitionFailure(
     requestId: input.requestId,
     ...(failure.errorName ? { errorName: failure.errorName } : {}),
   });
+}
+
+type CaptionAttemptFailure = Extract<
+  TranscriptAcquisitionOutcome,
+  { readonly outcome: "caller_aborted" | "acquisition_failed" }
+>;
+
+type CaptionAttemptResult =
+  | { readonly ok: true; readonly captions: CaptionResult | null }
+  | { readonly ok: false; readonly outcome: CaptionAttemptFailure };
+
+async function acquireCaptionAttempt(
+  input: TranscriptAcquisitionInput,
+  language: string | undefined
+): Promise<CaptionAttemptResult> {
+  try {
+    const captions = await extractCaptions(
+      input.youtubeUrl,
+      input.signal,
+      language,
+      input.requestId
+    );
+
+    // A null result after cancellation is not a genuine absence: the caller
+    // owns the outcome, and no later caption or audio work may start.
+    if (input.signal.aborted && captions === null) {
+      return { ok: false, outcome: { outcome: "caller_aborted" } };
+    }
+
+    return { ok: true, captions };
+  } catch (error) {
+    if (input.signal.aborted) {
+      return { ok: false, outcome: { outcome: "caller_aborted" } };
+    }
+    const failure = classifyFailure("captions", error);
+    logAcquisitionFailure(input, failure);
+    return { ok: false, outcome: { outcome: "acquisition_failed", failure } };
+  }
+}
+
+function shouldAttemptEnglishCaption(
+  metadata: VpsMetadataResult,
+  detectedLanguage: string | undefined
+): boolean {
+  return (
+    metadata.ok &&
+    detectedLanguage !== undefined &&
+    detectedLanguage !== "en" &&
+    metadata.data.availableCaptions.some(
+      (language) => primarySubtag(language) === "en"
+    )
+  );
 }
 
 function logMetadataDegradation(
@@ -391,51 +444,20 @@ async function acquireFreshTranscript(
   }
 
   emitProgress(input, { type: "caption_acquisition" });
-  let captions;
-  try {
-    captions = await extractCaptions(
-      input.youtubeUrl,
-      input.signal,
-      detectedLanguage,
-      input.requestId
-    );
-  } catch (error) {
-    if (input.signal.aborted) return { outcome: "caller_aborted" };
-    const failure = classifyFailure("captions", error);
-    logAcquisitionFailure(input, failure);
-    return { outcome: "acquisition_failed", failure };
-  }
-  // A provider can still return usable canonical segments after the caller
-  // signal fires (for example, a response crossed the abort boundary). Keep
-  // those segments so the non-cancellable persistence step below can heal
-  // the cache before reporting caller_aborted.
-  if (input.signal.aborted && captions === null) {
-    return { outcome: "caller_aborted" };
-  }
+  const detectedCaptionAttempt = await acquireCaptionAttempt(
+    input,
+    detectedLanguage
+  );
+  if (!detectedCaptionAttempt.ok) return detectedCaptionAttempt.outcome;
 
+  let captions = detectedCaptionAttempt.captions;
   if (
     captions === null &&
-    detectedLanguage !== undefined &&
-    detectedLanguage !== "en" &&
-    vpsMetadata.ok &&
-    vpsMetadata.data.availableCaptions.map(primarySubtag).includes("en")
+    shouldAttemptEnglishCaption(vpsMetadata, detectedLanguage)
   ) {
-    try {
-      captions = await extractCaptions(
-        input.youtubeUrl,
-        input.signal,
-        "en",
-        input.requestId
-      );
-    } catch (error) {
-      if (input.signal.aborted) return { outcome: "caller_aborted" };
-      const failure = classifyFailure("captions", error);
-      logAcquisitionFailure(input, failure);
-      return { outcome: "acquisition_failed", failure };
-    }
-    if (input.signal.aborted && captions === null) {
-      return { outcome: "caller_aborted" };
-    }
+    const englishCaptionAttempt = await acquireCaptionAttempt(input, "en");
+    if (!englishCaptionAttempt.ok) return englishCaptionAttempt.outcome;
+    captions = englishCaptionAttempt.captions;
   }
 
   let segments: readonly TranscriptSegment[];
@@ -542,8 +564,9 @@ async function acquireFreshTranscript(
 export async function acquireTranscript(
   input: TranscriptAcquisitionInput
 ): Promise<TranscriptAcquisitionOutcome> {
+  const startedAt = Date.now();
   const cached = await getCachedTranscript(input.youtubeUrl);
   if (input.signal.aborted) return { outcome: "caller_aborted" };
   if (cached) return acquireStoredTranscript(input, cached);
-  return acquireFreshTranscript(input, Date.now());
+  return acquireFreshTranscript(input, startedAt);
 }
