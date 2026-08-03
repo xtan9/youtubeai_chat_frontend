@@ -360,6 +360,76 @@ describe("acquireTranscript", () => {
     expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
   });
 
+  it("treats Video Unavailable as terminal and never starts audio transcription", async () => {
+    mocks.extractCaptions.mockRejectedValue(
+      new CaptionExtractionError(
+        422,
+        JSON.stringify({
+          error: "Video unavailable",
+          errorId: "VIDEO_UNAVAILABLE",
+          requestId: "request-212",
+        })
+      )
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "acquisition_failed",
+      failure: {
+        stage: "captions",
+        status: 422,
+        errorId: "VPS_CAPTIONS_FAILED_HTTP_422",
+      },
+    });
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["network failure", "network", "VPS_CAPTIONS_FAILED_NETWORK"],
+    ["malformed response", "schema", "VPS_CAPTIONS_FAILED_SCHEMA"],
+  ] as const)(
+    "treats a caption %s as terminal and never starts audio transcription",
+    async (_label, status, errorId) => {
+      mocks.extractCaptions.mockRejectedValue(
+        new CaptionExtractionError(status, "caption acquisition failed")
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const result = await acquireTranscript(INPUT);
+
+      expect(result).toMatchObject({
+        outcome: "acquisition_failed",
+        failure: {
+          stage: "captions",
+          status,
+          errorId,
+        },
+      });
+      expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+      expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+    }
+  );
+
+  it("keeps caption cancellation terminal and never starts audio transcription", async () => {
+    const controller = new AbortController();
+    mocks.extractCaptions.mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("caption acquisition aborted", "AbortError");
+    });
+
+    const result = await acquireTranscript({
+      ...INPUT,
+      signal: controller.signal,
+    });
+
+    expect(result).toEqual({ outcome: "caller_aborted" });
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+  });
+
   it("persists usable segments after caller cancellation and returns caller_aborted", async () => {
     const controller = new AbortController();
     const progress: TranscriptAcquisitionProgress[] = [];

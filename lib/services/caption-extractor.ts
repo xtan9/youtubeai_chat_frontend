@@ -32,10 +32,10 @@ export interface CaptionResult {
   readonly channelName: string;
 }
 
-// The caption path has one recoverable outcome (HTTP 404: no usable
-// captions) and several failures that must stop the pipeline. Keep those
-// failures typed so the orchestrator cannot accidentally turn a VPS outage
-// into a paid Whisper request.
+// The caption path has one recoverable outcome (a bounded HTTP 404 with the
+// CAPTIONS_NOT_FOUND classification) and several failures that must stop the
+// pipeline. Keep those failures typed so the orchestrator cannot accidentally
+// turn a VPS outage into a paid Whisper request.
 export class CaptionExtractionError extends Error {
   public readonly bodyExcerpt?: string;
 
@@ -99,6 +99,32 @@ const CaptionsResponseSchema = z
     message: "either `segments` or `transcript` is required",
   });
 
+// Error responses are a separate, bounded wire contract. The frontend must
+// inspect the service classification before treating a non-success response
+// as Caption Track Absent; an HTTP status alone is not sufficient.
+const BoundedCaptionErrorResponseSchema = z.object({
+  error: z.string().min(1).max(128),
+  errorId: z.string().min(1).max(64),
+  requestId: z.string().min(1).max(64),
+});
+
+const MAX_BOUNDED_CAPTION_ERROR_BODY_CHARS = 512;
+
+function parseBoundedCaptionErrorResponse(
+  body: string
+): z.infer<typeof BoundedCaptionErrorResponseSchema> | null {
+  if (body.length > MAX_BOUNDED_CAPTION_ERROR_BODY_CHARS) return null;
+
+  try {
+    const parsed = BoundedCaptionErrorResponseSchema.safeParse(
+      JSON.parse(body)
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 // Captions path is fast — bound a slow VPS response so the route can surface
 // a typed failure well under its 300s budget instead of hanging indefinitely.
 const DEFAULT_VPS_CAPTIONS_TIMEOUT_MS = 30_000;
@@ -108,13 +134,14 @@ export function buildCaptionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/$/, "")}/captions`;
 }
 
-// Returns null only for the documented "no usable captions" outcome (404).
-// Unexpected VPS, transport, timeout, and schema failures throw typed errors
-// so the caller cannot silently turn an outage into paid Whisper work.
+// Returns null only for the documented, bounded "no usable captions" outcome
+// (404 with errorId=CAPTIONS_NOT_FOUND). Unexpected VPS, transport, timeout,
+// and schema failures throw typed errors so the caller cannot silently turn an
+// outage into paid Whisper work.
 //
 // When `lang` is provided, forwarded to the VPS so a specific caption
-// track is selected instead of YouTube's arbitrary `tracks[0]`. A 404
-// from the VPS still means "no captions available" (either the video
+// track is selected instead of YouTube's arbitrary `tracks[0]`. A bounded
+// 404 from the VPS still means "no captions available" (either the video
 // has none, or the specific track doesn't exist) — the orchestrator's
 // retry-with-English decision lives above this layer.
 export async function extractCaptions(
@@ -197,8 +224,6 @@ export async function extractCaptions(
     );
   }
 
-  // 404 is the stable "no captions available" contract — fall through to
-  // Whisper without logging.
   if (signal?.aborted) throwCallerAbort(signal);
   if (timeoutSignal.aborted) {
     return reportUnexpectedFailure(
@@ -209,7 +234,6 @@ export async function extractCaptions(
       requestId
     );
   }
-  if (response.status === 404) return null;
 
   if (!response.ok) {
     // Mirror of llm-client's body-read safety: preserve the status as the
@@ -236,6 +260,17 @@ export async function extractCaptions(
         requestId
       );
     }
+
+    const errorResponse = parseBoundedCaptionErrorResponse(text);
+    if (
+      response.status === 404 &&
+      errorResponse?.errorId === "CAPTIONS_NOT_FOUND"
+    ) {
+      // This is the only response that authorizes the Transcript Acquisition
+      // orchestrator to start audio Transcription.
+      return null;
+    }
+
     return reportUnexpectedFailure(
       videoId,
       response.status,
