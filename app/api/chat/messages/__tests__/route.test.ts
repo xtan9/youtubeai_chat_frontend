@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
+  resolveRequestPrincipal: vi.fn(),
   resolveVideoChatSubject: vi.fn(),
   listChatMessages: vi.fn(),
   clearChatMessages: vi.fn(),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () =>
-    Promise.resolve({
-      auth: { getUser: mocks.getUser },
-    }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 
 vi.mock("@/lib/services/video-chat-subject", () => ({
@@ -64,9 +61,13 @@ function makeReq(path: string, init?: RequestInit) {
 describe("/api/chat/messages", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } },
-      error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u1",
+        isAnonymous: false,
+        email: "user@example.com",
+      },
     });
   });
 
@@ -89,7 +90,7 @@ describe("/api/chat/messages", () => {
     });
 
     it("returns 401 when no user", async () => {
-      mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+      mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(
@@ -99,6 +100,27 @@ describe("/api/chat/messages", () => {
 
       expect(res.status).toBe(401);
       expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
+    });
+
+    it("accepts a resolved anonymous principal without adding an authorization rule", async () => {
+      mocks.resolveRequestPrincipal.mockResolvedValue({
+        kind: "resolved",
+        principal: {
+          userId: "anon-1",
+          isAnonymous: true,
+          email: "",
+        },
+      });
+      mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ messages: [] });
     });
 
     it("returns 400 when the resolver rejects an unresolvable video URL", async () => {
@@ -217,25 +239,8 @@ describe("/api/chat/messages", () => {
       );
     });
 
-    it("returns 503 on auth-service infra error (non-4xx)", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 502, message: "upstream" },
-      });
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const { GET } = await import("../route");
-      const res = await GET(
-        makeReq(
-          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
-        ),
-      );
-
-      expect(res.status).toBe(503);
-    });
-
-    it("returns 503 when getUser throws", async () => {
-      mocks.getUser.mockRejectedValue(new Error("network down"));
-      vi.spyOn(console, "error").mockImplementation(() => {});
+    it("returns 503 when auth infrastructure is unavailable", async () => {
+      mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(
@@ -263,7 +268,7 @@ describe("/api/chat/messages", () => {
 
   describe("DELETE", () => {
     it("returns 401 when no user", async () => {
-      mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+      mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
       const { DELETE } = await import("../route");
       const res = await DELETE(
         makeReq(

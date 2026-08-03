@@ -18,7 +18,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
   return {
     afterPassthrough,
     mocks: {
-      getUser: vi.fn(),
+      resolveRequestPrincipal: vi.fn(),
       extractCaptions: vi.fn(),
       transcribeViaVps: vi.fn(),
       fetchVideoMetadata: vi.fn(),
@@ -59,10 +59,8 @@ vi.mock("next/server", async () => {
   };
 });
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({
-    auth: { getUser: mocks.getUser },
-  }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 vi.mock("@/lib/services/caption-extractor", async () => {
   const actual = await vi.importActual<
@@ -147,6 +145,17 @@ import { POST } from "../route";
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
+function resolvedPrincipal(userId: string, isAnonymous = false) {
+  return {
+    kind: "resolved" as const,
+    principal: {
+      userId,
+      isAnonymous,
+      email: isAnonymous ? "" : "user@example.com",
+    },
+  };
+}
+
 function makeRequest(
   body: unknown,
   opts: {
@@ -219,8 +228,13 @@ const CAPTIONS_FIXTURE = {
 describe("POST /api/summarize/stream", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((m) => m.mockReset());
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "user-1", is_anonymous: false } },
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "user-1",
+        isAnonymous: false,
+        email: "user@example.com",
+      },
     });
     // Default anon-cookie helpers — tests override per-case when needed.
     mocks.signAnonId.mockImplementation((id: string): string | null => `${id}.sig`);
@@ -345,102 +359,20 @@ describe("POST /api/summarize/stream", () => {
 
   describe("auth", () => {
     it("returns 401 when user is not authenticated", async () => {
-      mocks.getUser.mockResolvedValue({ data: { user: null } });
+      mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ message: "Unauthorized" });
     });
 
-    it("returns 401 when getUser returns a status-400 session error (AuthSessionMissingError shape)", async () => {
-      // Supabase's AuthSessionMissingError uses status 400 — treat as
-      // unauth, not infra. Escalating to 503 here was a real production bug.
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 400, message: "Auth session missing!" },
-      });
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(401);
-    });
-
-    it("returns 401 when getUser returns a 401-status error", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 401, message: "no session" },
-      });
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(401);
-    });
-
-    it("returns 503 when getUser reports a 5xx infra error", async () => {
-      // Auth status 400/401/403 = "not logged in"; everything else
-      // (including 408/429/5xx/status-less) = infra outage.
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 500, message: "supabase down" },
-      });
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    it("returns 503 through the existing service-failure response when auth is unavailable", async () => {
+      mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({
         message: "Auth service temporarily unavailable.",
       });
-      expect(errSpy).toHaveBeenCalledWith(
-        "[summarize/stream] auth failed",
-        expect.objectContaining({ stage: "auth", status: 500 })
-      );
-    });
-
-    it("returns 503 when getUser reports 429 (Supabase JWKS throttled — not a user-auth error)", async () => {
-      // Round-10 regression guard: a 429 from Supabase is not "this user
-      // is not logged in" — it's infra telling us the auth endpoint is
-      // overloaded. Must page, not silently 401.
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 429, message: "too many requests" },
-      });
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(503);
-    });
-
-    it("returns 503 when getUser reports 408 request-timeout", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 408, message: "auth request timeout" },
-      });
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(503);
-    });
-
-    it("returns 401 when getUser reports 403 (forbidden - still a client-side auth result)", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { status: 403, message: "forbidden" },
-      });
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(401);
-    });
-
-    it("returns 503 when getUser error has no status (unreachable Supabase)", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: null },
-        error: { message: "network down" },
-      });
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(503);
-    });
-
-    it("returns 503 when getUser throws (network failure reaching Supabase)", async () => {
-      mocks.getUser.mockRejectedValueOnce(new Error("ECONNREFUSED"));
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const res = await POST(makeRequest({ youtube_url: VALID_URL }));
-      expect(res.status).toBe(503);
-      expect(errSpy).toHaveBeenCalledWith(
-        "[summarize/stream] auth threw",
-        expect.objectContaining({ stage: "auth" })
-      );
+      expect(res.headers.get("X-Error-ID")).toBe("AUTH_SERVICE_UNAVAILABLE");
     });
   });
 
@@ -453,9 +385,9 @@ describe("POST /api/summarize/stream", () => {
     });
 
     it("uses correct limit for anonymous users", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "anon-1", is_anonymous: true } },
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anon-1", true),
+      );
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9 });
       mocks.getCachedSummary.mockResolvedValue(cachedFixture());
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
@@ -508,9 +440,7 @@ describe("POST /api/summarize/stream", () => {
 
   describe("entitlement gating", () => {
     it("returns 402 with free_quota_exceeded when free user exceeded monthly cap", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "u1", is_anonymous: false } }, error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("u1"));
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
       mocks.checkSummaryEntitlement.mockResolvedValue({
         tier: "free", allowed: false, remaining: 0, reason: "exceeded",
@@ -524,9 +454,9 @@ describe("POST /api/summarize/stream", () => {
     });
 
     it("returns 402 with anon_quota_exceeded when anon exceeded lifetime cap", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anon-1", true),
+      );
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
       mocks.checkSummaryEntitlement.mockResolvedValue({
         tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
@@ -539,9 +469,7 @@ describe("POST /api/summarize/stream", () => {
     });
 
     it("logs entitlement fail_open without surfacing it in the response", async () => {
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "u1", is_anonymous: false } }, error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("u1"));
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 29, reason: "within_limit" });
       mocks.checkSummaryEntitlement.mockResolvedValue({
         tier: "free", allowed: true, remaining: 10, reason: "fail_open",
@@ -560,9 +488,9 @@ describe("POST /api/summarize/stream", () => {
       // Simulates ANON_COOKIE_SECRET missing or too short: signAnonId returns null.
       // The route must NOT fall through to checkSummaryEntitlement({ userId, isAnon: false })
       // which would silently debit the signed-in monthly counter.
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "anon-1", is_anonymous: true } }, error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anon-1", true),
+      );
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
       // signAnonId returns null → secret missing path
       mocks.signAnonId.mockReturnValue(null);
@@ -583,10 +511,9 @@ describe("POST /api/summarize/stream", () => {
     it("sets yt_anon_id Set-Cookie on 402 when minting fresh anon id", async () => {
       // Anon Supabase user, no existing cookie (default mock returns undefined),
       // signAnonId returns "ok.sig" → cookie should be set even on the 402.
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "anon-1", is_anonymous: true } },
-        error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anon-1", true),
+      );
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
       mocks.checkSummaryEntitlement.mockResolvedValue({
         tier: "anon", allowed: false, remaining: 0, reason: "exceeded",
@@ -604,10 +531,9 @@ describe("POST /api/summarize/stream", () => {
     it("sets yt_anon_id Set-Cookie on 200 streaming response when minting fresh anon id", async () => {
       // Anon Supabase user, no existing cookie, checkSummaryEntitlement allows.
       // The Set-Cookie must also be present on the success streaming response.
-      mocks.getUser.mockResolvedValue({
-        data: { user: { id: "anon-1", is_anonymous: true } },
-        error: null,
-      });
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anon-1", true),
+      );
       mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 9, reason: "within_limit" });
       mocks.checkSummaryEntitlement.mockResolvedValue({
         tier: "anon", allowed: true, remaining: 1, reason: "within_limit",

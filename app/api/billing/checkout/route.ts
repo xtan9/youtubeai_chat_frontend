@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { getStripe, priceIdForPlan } from "@/lib/services/stripe";
 
@@ -19,12 +19,19 @@ export async function POST(request: Request) {
     return Response.json({ message: "Invalid plan" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user || (user.is_anonymous ?? false)) {
+  const principalResult = await resolveRequestPrincipal({
+    source: "billing_checkout",
+  });
+  if (principalResult.kind === "unavailable") {
+    return Response.json({ message: "Service unavailable" }, { status: 503 });
+  }
+  if (
+    principalResult.kind === "missing" ||
+    principalResult.principal.isAnonymous
+  ) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
+  const { principal } = principalResult;
 
   const sr = getServiceRoleClient();
   if (!sr) {
@@ -45,12 +52,12 @@ export async function POST(request: Request) {
     const { data: existing, error: lookupErr } = await sr
       .from("user_subscriptions")
       .select("stripe_customer_id")
-      .eq("user_id", user.id)
+      .eq("user_id", principal.userId)
       .maybeSingle();
     if (lookupErr) {
       console.error("[billing/checkout] lookup failed", {
         errorId: "BILLING_CHECKOUT_LOOKUP_FAIL",
-        userId: user.id,
+        userId: principal.userId,
         code: (lookupErr as { code?: string }).code,
       });
       return Response.json({ message: "Service unavailable" }, { status: 503 });
@@ -59,19 +66,22 @@ export async function POST(request: Request) {
     let customerId = existing?.stripe_customer_id ?? null;
     if (!customerId) {
       const customer = await stripe.customers.create(
-        { email: user.email ?? undefined, metadata: { user_id: user.id } },
-        { idempotencyKey: `customer-create-${user.id}` },
+        {
+          email: principal.email ?? undefined,
+          metadata: { user_id: principal.userId },
+        },
+        { idempotencyKey: `customer-create-${principal.userId}` },
       );
       customerId = customer.id;
       const { error } = await sr.from("user_subscriptions").upsert({
-        user_id: user.id,
+        user_id: principal.userId,
         stripe_customer_id: customerId,
         tier: "free",
       });
       if (error) {
         console.error("[billing/checkout] upsert failed (aborting checkout)", {
           errorId: "BILLING_UPSERT_FAIL",
-          userId: user.id,
+          userId: principal.userId,
           code: error.code,
         });
         return Response.json({ message: "Service unavailable" }, { status: 503 });
@@ -83,8 +93,8 @@ export async function POST(request: Request) {
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
-      client_reference_id: user.id,
-      metadata: { user_id: user.id },
+      client_reference_id: principal.userId,
+      metadata: { user_id: principal.userId },
       success_url: `${siteUrl}/billing/success`,
       cancel_url: `${siteUrl}/pricing?canceled=1`,
       allow_promotion_codes: true,
@@ -94,7 +104,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("[billing/checkout] stripe error", {
       errorId: "BILLING_CHECKOUT_FAIL",
-      userId: user.id,
+      userId: principal.userId,
       err,
     });
     return Response.json({ message: "Service unavailable" }, { status: 503 });

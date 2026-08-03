@@ -6,7 +6,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
   return {
     afterPassthrough,
     mocks: {
-      getUser: vi.fn(),
+      resolveRequestPrincipal: vi.fn(),
       checkRateLimit: vi.fn(),
       checkChatEntitlement: vi.fn(),
       getCachedSummary: vi.fn(),
@@ -27,11 +27,8 @@ vi.mock("next/server", async () => {
   return { ...actual, after: mocks.after };
 });
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () =>
-    Promise.resolve({
-      auth: { getUser: mocks.getUser },
-    }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 
 vi.mock("@/lib/services/rate-limit", () => ({
@@ -65,6 +62,13 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
 }));
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+function resolvedPrincipal(userId: string, isAnonymous = false) {
+  return {
+    kind: "resolved" as const,
+    principal: { userId, isAnonymous, email: isAnonymous ? "" : "user@example.com" },
+  };
+}
 
 const SUMMARY_FIXTURE: CachedSummary = {
   videoId: "video-uuid",
@@ -121,10 +125,7 @@ describe("POST /api/chat/stream", () => {
     });
     mocks.after.mockImplementation(afterPassthrough);
     // Sensible defaults
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("u1"));
     mocks.checkRateLimit.mockResolvedValue({
       allowed: true,
       remaining: 99,
@@ -170,27 +171,23 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("returns 401 when there is no user", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
     expect(res.status).toBe(401);
   });
 
-  it("returns 503 when auth service errors with non-4xx", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: null },
-      error: { status: 502, message: "upstream" },
-    });
+  it("returns 503 when auth infrastructure is unavailable", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
     expect(res.status).toBe(503);
   });
 
   it("returns 402 with anon_chat_blocked for anonymous Supabase users (no checkRateLimit or checkChatEntitlement called)", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-1", is_anonymous: true } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anon-1", true),
+    );
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
     expect(res.status).toBe(402);
@@ -202,10 +199,9 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("blocks anonymous users on hero-demo videos before any LLM work", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-2", is_anonymous: true } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anon-2", true),
+    );
     const { POST } = await import("../route");
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
@@ -220,10 +216,7 @@ describe("POST /api/chat/stream", () => {
     // never seeded because the hero registry serves them from static
     // files. Before the fix, this 404'd with "Generate the summary
     // first…" — the test pins that the demo path is now self-contained.
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "demo-user", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
     mocks.getCachedSummary.mockResolvedValue(null);
     mocks.getCachedTranscript.mockResolvedValue(null);
     mocks.streamChatCompletion.mockImplementation(async function* () {
@@ -240,10 +233,7 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("404s a demo URL when the file registry itself can't load (defensive — should never happen in prod)", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "demo-user", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
     mocks.loadHeroDemoSummary.mockResolvedValue(null);
     mocks.loadHeroDemoTranscript.mockResolvedValue(null);
     const { POST } = await import("../route");
@@ -257,10 +247,7 @@ describe("POST /api/chat/stream", () => {
     // checkChatEntitlement for demos, this asserts the demo response
     // doesn't 402 on it. The not.toHaveBeenCalled assertion above
     // pins the actual contract; this pins the consequence.
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "demo-user", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
     mocks.checkChatEntitlement.mockResolvedValue({
       tier: "free",
       allowed: false,
@@ -278,10 +265,9 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("still 402s anonymous users on non-allowlisted videos even with the allowlist active", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-3", is_anonymous: true } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anon-3", true),
+    );
     const { POST } = await import("../route");
     // VALID_URL = dQw4w9WgXcQ — not in HERO_DEMO_VIDEO_IDS.
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
@@ -291,10 +277,7 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("allows signed-in users on the youtu.be hero-demo URL and applies rate limits", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "demo-user", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
@@ -313,10 +296,9 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("rejects malformed `?v=` values whose parsed id is too long, even if a hero-demo id is a prefix", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-5", is_anonymous: true } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anon-5", true),
+    );
     const { POST } = await import("../route");
     // `?v=Hrbq66XqtCoEXTRA` would be a substring-style attack on a naive
     // allowlist check. The 11-char guard inside getYoutubeVideoId means
@@ -511,10 +493,7 @@ describe("POST /api/chat/stream", () => {
     // If a future refactor reverts that seed to `false`, every demo
     // visitor who closes the tab mid-stream would hit appendChatUserMessage
     // with a non-UUID video_id and FK-violate in production logs.
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "demo-user", is_anonymous: false } },
-      error: null,
-    });
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
     const controller = new AbortController();
     mocks.streamChatCompletion.mockImplementation(async function* (
       opts: { signal: AbortSignal }

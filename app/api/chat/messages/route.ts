@@ -1,5 +1,7 @@
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import {
+  resolveRequestPrincipal,
+  type RequestPrincipal,
+} from "@/lib/auth/request-principal";
 import {
   clearChatMessages,
   listChatMessages,
@@ -22,39 +24,21 @@ function jsonError(status: number, message: string) {
   });
 }
 
-const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
-
 async function authenticate(): Promise<
-  | { ok: true; user: User }
+  | { ok: true; principal: RequestPrincipal }
   | { ok: false; response: Response }
 > {
-  const supabase = await createClient();
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      logAppEvent("error", "[chat/messages] auth failed", {
-        status: error.status ?? null,
-        errorId: "CHAT_MESSAGES_AUTH_FAILED",
-      });
-      return {
-        ok: false,
-        response: jsonError(503, "Auth service temporarily unavailable."),
-      };
-    }
-    if (!data.user) {
-      return { ok: false, response: jsonError(401, "Unauthorized") };
-    }
-    return { ok: true, user: data.user };
-  } catch (err) {
-    logAppEvent("error", "[chat/messages] auth threw", {
-      errorId: "CHAT_MESSAGES_AUTH_THREW",
-      errorName: err instanceof Error ? err.name : typeof err,
-    });
+  const result = await resolveRequestPrincipal({ source: "chat_messages" });
+  if (result.kind === "unavailable") {
     return {
       ok: false,
       response: jsonError(503, "Auth service temporarily unavailable."),
     };
   }
+  if (result.kind === "missing") {
+    return { ok: false, response: jsonError(401, "Unauthorized") };
+  }
+  return { ok: true, principal: result.principal };
 }
 
 function parseQuery(request: Request) {
@@ -187,7 +171,7 @@ export async function GET(request: Request) {
   if (!retainedThread) {
     logNoRetainedThread(
       "GET",
-      auth.user.id,
+      auth.principal.userId,
       subjectResult.identity,
       subjectResult.subject,
     );
@@ -197,7 +181,7 @@ export async function GET(request: Request) {
 
   try {
     const messages = await listChatMessages(
-      auth.user.id,
+      auth.principal.userId,
       retainedThread.videoId,
     );
     const body: ChatMessagesResponse = {
@@ -212,7 +196,7 @@ export async function GET(request: Request) {
   } catch (err) {
     logAppEvent("error", "[chat/messages] list failed", {
       errorId: "CHAT_MESSAGES_LIST_FAILED",
-      userId: auth.user.id,
+      userId: auth.principal.userId,
       errorName: err instanceof Error ? err.name : typeof err,
     });
     return jsonError(503, "Could not load chat history.");
@@ -242,7 +226,7 @@ export async function DELETE(request: Request) {
   if (!retainedThread) {
     logNoRetainedThread(
       "DELETE",
-      auth.user.id,
+      auth.principal.userId,
       subjectResult.identity,
       subjectResult.subject,
     );
@@ -250,12 +234,12 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await clearChatMessages(auth.user.id, retainedThread.videoId);
+    await clearChatMessages(auth.principal.userId, retainedThread.videoId);
     return new Response(null, { status: 204 });
   } catch (err) {
     logAppEvent("error", "[chat/messages] clear failed", {
       errorId: "CHAT_MESSAGES_CLEAR_FAILED",
-      userId: auth.user.id,
+      userId: auth.principal.userId,
       errorName: err instanceof Error ? err.name : typeof err,
     });
     return jsonError(503, "Could not clear chat history.");

@@ -1,6 +1,5 @@
 import { after } from "next/server";
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import {
   getCachedSummary,
   writeCachedSummary,
@@ -111,38 +110,11 @@ export async function POST(request: Request) {
     output_language: outputLanguageCode,
   } = parsed.data;
 
-  // Status codes that mean "this request is not authenticated" as opposed
-  // to "the auth service is broken." AuthSessionMissingError + friends are
-  // 400; AuthApiError for bad JWT is 401; forbidden responses are 403.
-  // Everything else (including 408 request-timeout, 429 rate-limited-at-
-  // Supabase, any 5xx, and status-less fetch failures) is infra and must
-  // surface as 503 so we don't silently 401 users during outages.
-  const AUTH_CLIENT_ERROR_STATUSES = new Set([400, 401, 403]);
-  const supabase = await createClient();
-  let user: User | null;
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !AUTH_CLIENT_ERROR_STATUSES.has(error.status ?? -1)) {
-      logAppEvent("error", "[summarize/stream] auth failed", {
-        stage: "auth" satisfies LogStage,
-        status: error.status ?? null,
-        requestId,
-      });
-      return jsonError(
-        503,
-        "Auth service temporarily unavailable.",
-        undefined,
-        requestId,
-        "AUTH_SERVICE_UNAVAILABLE"
-      );
-    }
-    user = data.user;
-  } catch (err) {
-    logAppEvent("error", "[summarize/stream] auth threw", {
-      stage: "auth" satisfies LogStage,
-      errorName: err instanceof Error ? err.name : typeof err,
-      requestId,
-    });
+  const principalResult = await resolveRequestPrincipal({
+    source: "summary_stream",
+    requestId,
+  });
+  if (principalResult.kind === "unavailable") {
     return jsonError(
       503,
       "Auth service temporarily unavailable.",
@@ -151,12 +123,14 @@ export async function POST(request: Request) {
       "AUTH_SERVICE_UNAVAILABLE"
     );
   }
-  if (!user) return jsonError(401, "Unauthorized", undefined, requestId, "AUTH_REQUIRED");
+  if (principalResult.kind === "missing") {
+    return jsonError(401, "Unauthorized", undefined, requestId, "AUTH_REQUIRED");
+  }
 
-  const authedUser = user;
-  const isAnonymous = authedUser.is_anonymous ?? false;
+  const { principal } = principalResult;
+  const { userId, isAnonymous } = principal;
 
-  const rateLimit = await checkRateLimit(authedUser.id, isAnonymous);
+  const rateLimit = await checkRateLimit(userId, isAnonymous);
   // Bind the user + URL to the bypass in one log line so dashboards can
   // alert without joining against rate-limit.ts's infra-cause log. Do NOT
   // surface this distinction in the HTTP response — exposing fail_open to
@@ -165,7 +139,7 @@ export async function POST(request: Request) {
     logAppEvent("error", "[summarize/stream] rate-limit bypassed (fail-open)", {
       stage: "unknown" satisfies LogStage,
       errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
-      userId: authedUser.id,
+      userId,
       videoId: videoIdForLog(youtube_url),
       requestId,
     });
@@ -209,7 +183,7 @@ export async function POST(request: Request) {
       logAppEvent("error", "[summarize/stream] anon entitlement bypassed - secret missing", {
         stage: "unknown" satisfies LogStage,
         errorId: "ENTITLEMENT_ANON_FAIL_OPEN_NO_SECRET",
-        userId: authedUser.id,
+        userId,
         videoId: videoIdForLog(youtube_url),
         requestId,
       });
@@ -221,14 +195,14 @@ export async function POST(request: Request) {
       };
     }
   } else {
-    entitlement = await checkSummaryEntitlement({ userId: authedUser.id, isAnon: false });
+    entitlement = await checkSummaryEntitlement({ userId, isAnon: false });
   }
 
   if (entitlement.reason === "fail_open") {
     logAppEvent("error", "[summarize/stream] entitlement bypassed (fail-open)", {
       stage: "unknown" satisfies LogStage,
       errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
-      userId: authedUser.id,
+      userId,
       isAnonymous,
       videoId: videoIdForLog(youtube_url),
       requestId,
@@ -292,7 +266,7 @@ export async function POST(request: Request) {
         logAppEvent("error", `[summarize/stream] ${stage} failed`, {
           stage,
           videoId: videoIdForLog(youtube_url),
-          userId: authedUser.id,
+          userId,
           requestId,
           ...(err instanceof Error && { errorName: err.name }),
         });
@@ -478,7 +452,7 @@ export async function POST(request: Request) {
         logAppEvent("info", "[summarize/stream] routing_decision", {
           event: "routing_decision",
           videoId: videoIdForLog(youtube_url),
-          userId: authedUser.id,
+          userId,
           requestId,
           model: decision.model,
           reason: decision.reason,
@@ -618,7 +592,7 @@ export async function POST(request: Request) {
                 processingTimeSeconds,
                 transcribeTimeSeconds: transcribeSeconds,
                 summarizeTimeSeconds: summarizeSecondsFinal,
-                userId: authedUser.id,
+                userId,
                 outputLanguage: outputLanguageCode ?? null,
               });
             } catch (err) {
@@ -641,7 +615,7 @@ export async function POST(request: Request) {
                 pgCode,
                 videoId: videoIdForLog(youtube_url),
                 requestId,
-                userId: authedUser.id,
+                userId,
                 outputLanguage: outputLanguageCode ?? null,
                 errorName: err instanceof Error ? err.name : typeof err,
               });
@@ -660,7 +634,7 @@ export async function POST(request: Request) {
             stage: "cache" satisfies LogStage,
             videoId: videoIdForLog(youtube_url),
             requestId,
-            userId: authedUser.id,
+            userId,
             outputLanguage: outputLanguageCode ?? null,
             errorName: err instanceof Error ? err.name : typeof err,
           });
