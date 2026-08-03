@@ -9,6 +9,7 @@ import { AdminAvatarMenu } from "./avatar-menu";
 import { findNavLabel } from "./nav-config";
 import { useAdmin } from "./admin-context";
 import { useDismissable } from "./use-dismissable";
+import { ReportCompletenessNotice } from "./report-completeness";
 import type { ReportCompletenessWarning } from "@/lib/admin/report-completeness";
 
 export function AdminTopbar({
@@ -80,14 +81,7 @@ export function AdminTopbar({
           </div>
         </div>
       </div>
-      {completenessWarnings.length > 0 && (
-        <div className="report-completeness" role="status" aria-live="polite">
-          <span className="report-completeness-title">Report completeness</span>
-          {completenessWarnings.map((warning) => (
-            <span key={warning.code}>{warning.description}</span>
-          ))}
-        </div>
-      )}
+      <ReportCompletenessNotice warnings={completenessWarnings} />
     </>
   );
 }

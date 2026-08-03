@@ -381,7 +381,7 @@ export interface VideoListOptions {
   /** Drop every video that any of these user IDs has ever touched (all-time,
    * window-independent — a video the admin tested last year shouldn't
    * re-enter trending this month). Stricter than the user-id history filter
-   * used by getDashboardKPIs/getPerformanceStats: there, only admin views
+   * used by getPerformanceStats: there, only admin views
    * are excluded but mixed videos still appear. The videos page uses the
    * stricter video-level filter to keep admin/QA traffic from inflating
    * what otherwise looks like organic catalog growth. */
@@ -799,136 +799,12 @@ export async function getUserSummaries(
   return rows;
 }
 
-// ─── Dashboard KPIs ───────────────────────────────────────────────────────
-
-export interface KpiDelta {
-  current: number;
-  previous: number;
-}
-
-export interface TopUserStat {
-  userId: string;
-  email: string | null;
-  /** False when the auth lookup for this user failed (network/permission)
-   * — UI can render "—" for missing email but distinguish a degraded
-   * lookup from a user genuinely missing an email. */
-  emailLookupOk: boolean;
-  summaries: number;
-  whisperPct: number;
-  p95Seconds: number | null;
-  lastSeen: string | null;
-  flagged: boolean;
-}
-
-export interface DashboardKPIs {
-  window: TimeWindow;
-  summaries: KpiDelta;
-  whisper: KpiDelta;
-  p95Seconds: { current: number | null; previous: number | null };
-  transcribeP95Seconds: number | null;
-  summarizeP95Seconds: number | null;
-  cacheHitRatePct: { current: number | null; previous: number | null };
-  summariesPerDay: DailyPoint[];
-  dauPerDay: DailyPoint[];
-  cacheHitPerDay: DailyPoint[];
-  sourceMix: { source: TranscriptSource; count: number }[];
-  topUsers: TopUserStat[];
-}
+// ─── Shared KPI options ──────────────────────────────────────────────────
 
 export interface KpiOptions {
   /** When non-empty, history aggregations exclude rows where user_id is
    * in this list. Used to drop admin activity from KPIs. */
   excludeAdminUserIds?: string[];
-}
-
-export async function getDashboardKPIs(
-  client: SupabaseClient,
-  window: TimeWindow = lastNDays(30),
-  opts: KpiOptions = {},
-): Promise<DashboardKPIs> {
-  const exclude = opts.excludeAdminUserIds ?? [];
-  const days =
-    Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
-  const prevWindow: TimeWindow = {
-    start: new Date(window.start.getTime() - days * 86_400_000),
-    end: new Date(window.start.getTime() - 86_400_000),
-  };
-
-  const wantFilter = exclude.length > 0;
-  const [current, previous, history, prevHistory] = await Promise.all([
-    fetchSummariesIn(client, window),
-    fetchSummariesIn(client, prevWindow),
-    fetchHistoryIn(client, window, exclude),
-    fetchHistoryIn(client, prevWindow, exclude),
-  ]);
-
-  // When excluding admins, intersect summary KPIs with the admin-filtered
-  // history so videos only admins watched contribute zero. If real-user
-  // history is empty in window, KPIs honestly show zero — the toggle
-  // promises filtering, not graceful fallback.
-  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
-  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
-
-  const summariesPerDay = bucketByDay(filteredCurrent, "created_at", window);
-  const dauPerDay = bucketByDay(history, "created_at", window, (rows) => {
-    const distinct = new Set<string>();
-    for (const r of rows) distinct.add(r.user_id);
-    return distinct.size;
-  });
-  const cacheHitPerDay = bucketByDay(history, "created_at", window, (rows) => {
-    if (rows.length === 0) return 0;
-    const hits = rows.filter((r) => r.cacheHit === true).length;
-    return Math.round((hits / rows.length) * 100);
-  });
-
-  const sourceCounts = new Map<TranscriptSource, number>();
-  for (const s of filteredCurrent) {
-    sourceCounts.set(
-      s.transcript_source as TranscriptSource,
-      (sourceCounts.get(s.transcript_source as TranscriptSource) ?? 0) + 1,
-    );
-  }
-  const sourceMix = TRANSCRIPT_SOURCES.map((source) => ({
-    source,
-    count: sourceCounts.get(source) ?? 0,
-  }));
-
-  const cacheHitCurrent = computeCacheHitRate(history);
-  const cacheHitPrevious = computeCacheHitRate(prevHistory);
-
-  const topUsers = await computeTopUsers(client, history, filteredCurrent, 5);
-
-  const whisperCount = filteredCurrent.filter(
-    (s) => s.transcript_source === "whisper",
-  ).length;
-  const whisperPrev = filteredPrev.filter(
-    (s) => s.transcript_source === "whisper",
-  ).length;
-
-  return {
-    window,
-    summaries: {
-      current: filteredCurrent.length,
-      previous: filteredPrev.length,
-    },
-    whisper: { current: whisperCount, previous: whisperPrev },
-    p95Seconds: {
-      current: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
-      previous: p95(filteredPrev.map((s) => s.processing_time_seconds)),
-    },
-    transcribeP95Seconds: p95(
-      filteredCurrent.map((s) => s.transcribe_time_seconds),
-    ),
-    summarizeP95Seconds: p95(
-      filteredCurrent.map((s) => s.summarize_time_seconds),
-    ),
-    cacheHitRatePct: { current: cacheHitCurrent, previous: cacheHitPrevious },
-    summariesPerDay,
-    dauPerDay,
-    cacheHitPerDay,
-    sourceMix,
-    topUsers,
-  };
 }
 
 // ─── Performance stats ────────────────────────────────────────────────────
@@ -1053,7 +929,7 @@ interface HistoryRow {
   user_id: string;
   video_id: string;
   created_at: string;
-  /** Populated by fetchHistoryIn enrichment; consumed by computeCacheHitRate. */
+  /** Populated by fetchHistoryIn enrichment for shared history consumers. */
   cacheHit?: boolean;
 }
 
@@ -1155,128 +1031,6 @@ async function fetchHistoryIn(
     return {
       ...h,
       cacheHit: earliest ? earliest < h.created_at : false,
-    };
-  });
-}
-
-function computeCacheHitRate(history: HistoryRow[]): number | null {
-  if (history.length === 0) return null;
-  const hits = history.filter((h) => h.cacheHit === true).length;
-  return Math.round((hits / history.length) * 100);
-}
-
-function bucketByDay<T extends { created_at: string }>(
-  rows: T[],
-  _field: "created_at",
-  window: TimeWindow,
-  reducer: (rowsForDay: T[]) => number = (r) => r.length,
-): DailyPoint[] {
-  const byDay = new Map<string, T[]>();
-  for (const r of rows) {
-    if (!r.created_at) continue;
-    const day = isoDay(new Date(r.created_at));
-    const arr = byDay.get(day) ?? [];
-    arr.push(r);
-    byDay.set(day, arr);
-  }
-  const reduced = new Map<string, number>();
-  for (const [day, arr] of byDay) reduced.set(day, reducer(arr));
-  return fillDailySeries(window.start, window.end, reduced);
-}
-
-async function computeTopUsers(
-  client: SupabaseClient,
-  history: HistoryRow[],
-  summaries: SummaryRow[],
-  limit: number,
-): Promise<TopUserStat[]> {
-  // First summary per video wins. Production has at most one summary
-  // per video (per migration 20260423000000_drop_thinking_columns); the
-  // dedup also collapsed historical duplicates. Iterating defensively
-  // costs us nothing.
-  const summariesByVideo = new Map<string, SummaryRow>();
-  for (const s of summaries) {
-    if (!summariesByVideo.has(s.video_id)) summariesByVideo.set(s.video_id, s);
-  }
-
-  const tally = new Map<
-    string,
-    { total: number; whisper: number; latencies: number[]; lastSeen: string }
-  >();
-  for (const h of history) {
-    const summary = summariesByVideo.get(h.video_id);
-    const bucket = tally.get(h.user_id) ?? {
-      total: 0,
-      whisper: 0,
-      latencies: [],
-      lastSeen: h.created_at,
-    };
-    bucket.total += 1;
-    if (summary?.transcript_source === "whisper") bucket.whisper += 1;
-    if (summary?.processing_time_seconds != null) {
-      bucket.latencies.push(summary.processing_time_seconds);
-    }
-    if (h.created_at > bucket.lastSeen) bucket.lastSeen = h.created_at;
-    tally.set(h.user_id, bucket);
-  }
-
-  const sorted = Array.from(tally.entries())
-    .map(([userId, b]) => ({
-      userId,
-      summaries: b.total,
-      whisper: b.whisper,
-      whisperPct: b.total > 0 ? Math.round((b.whisper / b.total) * 100) : 0,
-      p95Seconds: p95(b.latencies),
-      lastSeen: b.lastSeen,
-    }))
-    .sort((a, b) => b.summaries - a.summaries)
-    .slice(0, limit);
-
-  if (sorted.length === 0) return [];
-
-  // Resolve emails in parallel. Each lookup is independent — sequential
-  // awaits added 5x latency to every dashboard cold path. Failures are
-  // logged (not silently swallowed) and `emailLookupOk: false` lets the
-  // UI distinguish "auth lookup degraded" from "user genuinely has no
-  // email on record".
-  const emailLookups = await Promise.all(
-    sorted.map(async (top) => {
-      try {
-        const { data, error } = await client.auth.admin.getUserById(top.userId);
-        if (error) {
-          console.error("[admin-queries] auth.admin.getUserById error", {
-            userId: top.userId,
-            message: error.message,
-          });
-          return { userId: top.userId, email: null, ok: false };
-        }
-        return {
-          userId: top.userId,
-          email: data.user?.email ?? null,
-          ok: true,
-        };
-      } catch (err) {
-        console.error("[admin-queries] auth.admin.getUserById threw", {
-          userId: top.userId,
-          err,
-        });
-        return { userId: top.userId, email: null, ok: false };
-      }
-    }),
-  );
-  const lookups = new Map(emailLookups.map((r) => [r.userId, r] as const));
-
-  return sorted.map((t) => {
-    const lookup = lookups.get(t.userId);
-    return {
-      userId: t.userId,
-      email: lookup?.email ?? null,
-      emailLookupOk: lookup?.ok ?? false,
-      summaries: t.summaries,
-      whisperPct: t.whisperPct,
-      p95Seconds: t.p95Seconds,
-      lastSeen: t.lastSeen,
-      flagged: t.summaries > 0 && t.whisperPct > WHISPER_FLAG_THRESHOLD,
     };
   });
 }
