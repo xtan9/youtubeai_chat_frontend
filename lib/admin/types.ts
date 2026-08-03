@@ -1,7 +1,7 @@
 /** Domain types shared across the admin console. */
 
-export type { TranscriptSource } from "@/lib/services/summarize-cache";
-import type { TranscriptSource } from "@/lib/services/summarize-cache";
+export type { TranscriptSource } from "@/lib/domain/transcript-source";
+import type { TranscriptSource } from "@/lib/domain/transcript-source";
 
 /**
  * A user identity that has passed the admin-allowlist gate. Produced only

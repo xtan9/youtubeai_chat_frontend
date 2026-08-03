@@ -1,4 +1,7 @@
 import { z } from "zod";
+import type { TranscriptSource } from "@/lib/domain/transcript-source";
+
+export type { TranscriptSource } from "@/lib/domain/transcript-source";
 
 /**
  * Single source of truth for the transcript segment runtime shape. Imported
@@ -35,11 +38,6 @@ export interface TranscriptSegment {
   readonly start: number; // seconds since video start
   readonly duration: number; // seconds
 }
-
-export type TranscriptSource =
-  | "manual_captions"
-  | "auto_captions"
-  | "whisper";
 
 export interface User {
   id: string;

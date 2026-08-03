@@ -13,6 +13,7 @@ import {
   type TranscriptSegment,
   type TranscriptSource,
 } from "@/lib/types";
+import { TRANSCRIPT_SOURCES } from "@/lib/domain/transcript-source";
 import { decodeCaptionEntities } from "@/lib/utils/decode-caption-entities";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
@@ -103,11 +104,7 @@ export function computeVideoKey(url: string): string {
 // Parse Supabase responses through these so a stale enum value or dropped
 // column is a loud cache miss, not a silently corrupted typed object.
 const LocaleSchema = z.enum(["en", "zh"]);
-const TranscriptSourceSchema = z.enum([
-  "manual_captions",
-  "auto_captions",
-  "whisper",
-]);
+const TranscriptSourceSchema = z.enum(TRANSCRIPT_SOURCES);
 
 const VideoRowSchema = z.object({
   id: z.string(),
