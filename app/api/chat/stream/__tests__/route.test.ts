@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CachedSummary, CachedTranscript } from "@/lib/services/summarize-cache";
+import type {
+  VideoChatSubject,
+  VideoGroundingResolution,
+} from "@/lib/services/video-chat-subject";
 
 const { mocks, afterPassthrough } = vi.hoisted(() => {
   const afterPassthrough = (fn: () => unknown) => fn();
@@ -9,10 +12,8 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       resolveRequestPrincipal: vi.fn(),
       checkRateLimit: vi.fn(),
       checkChatEntitlement: vi.fn(),
-      getCachedSummary: vi.fn(),
-      getCachedTranscript: vi.fn(),
-      loadHeroDemoSummary: vi.fn(),
-      loadHeroDemoTranscript: vi.fn(),
+      resolveVideoChatSubject: vi.fn(),
+      loadGrounding: vi.fn(),
       listChatMessages: vi.fn(),
       appendChatTurn: vi.fn(),
       appendChatUserMessage: vi.fn(),
@@ -41,14 +42,8 @@ vi.mock("@/lib/services/entitlements", () => ({
   ANON_LIMITS: { summariesLifetime: 1 },
 }));
 
-vi.mock("@/lib/services/summarize-cache", () => ({
-  getCachedSummary: mocks.getCachedSummary,
-  getCachedTranscript: mocks.getCachedTranscript,
-}));
-
-vi.mock("@/lib/services/hero-demo-chat", () => ({
-  loadHeroDemoSummary: mocks.loadHeroDemoSummary,
-  loadHeroDemoTranscript: mocks.loadHeroDemoTranscript,
+vi.mock("@/lib/services/video-chat-subject", () => ({
+  resolveVideoChatSubject: mocks.resolveVideoChatSubject,
 }));
 
 vi.mock("@/lib/services/chat-store", () => ({
@@ -70,7 +65,7 @@ function resolvedPrincipal(userId: string, isAnonymous = false) {
   };
 }
 
-const SUMMARY_FIXTURE: CachedSummary = {
+const SUMMARY_FIXTURE = {
   videoId: "video-uuid",
   title: "T",
   channelName: "C",
@@ -83,9 +78,9 @@ const SUMMARY_FIXTURE: CachedSummary = {
   transcribeTimeSeconds: 1,
   summarizeTimeSeconds: 1,
   outputLanguage: null,
-};
+} as const;
 
-const TRANSCRIPT_FIXTURE: CachedTranscript = {
+const TRANSCRIPT_FIXTURE = {
   videoId: "video-uuid",
   title: "T",
   channelName: "C",
@@ -95,7 +90,94 @@ const TRANSCRIPT_FIXTURE: CachedTranscript = {
   ],
   transcriptSource: "auto_captions",
   language: "en",
+} as const;
+
+const HERO_TRANSCRIPT_FIXTURE = {
+  videoId: "Hrbq66XqtCo",
+  title: "Hero title",
+  channelName: "Hero channel",
+  segments: [
+    { text: "Hero welcome.", start: 0, duration: 1 },
+    { text: "Hero flow.", start: 1, duration: 2 },
+  ],
+  transcriptSource: "auto_captions" as const,
+  language: "en" as const,
 };
+
+const HERO_SUMMARY_FIXTURE = {
+  videoId: "Hrbq66XqtCo",
+  title: "Hero title",
+  channelName: "Hero channel",
+  language: "en" as const,
+  transcript: "",
+  summary: "Hero summary text.",
+  transcriptSource: "auto_captions" as const,
+  model: "hero-model",
+  processingTimeSeconds: 0,
+  transcribeTimeSeconds: 0,
+  summarizeTimeSeconds: 0,
+  outputLanguage: null,
+};
+
+const VALID_IDENTITY = {
+  youtubeVideoId: "dQw4w9WgXcQ",
+  canonicalUrl: VALID_URL,
+} as const;
+
+const HERO_IDENTITY = {
+  youtubeVideoId: "Hrbq66XqtCo",
+  canonicalUrl: "https://www.youtube.com/watch?v=Hrbq66XqtCo",
+} as const;
+
+function databaseSubject(
+  overrides: Partial<VideoChatSubject> = {},
+) {
+  return {
+    status: "resolved" as const,
+    subject: {
+      identity: VALID_IDENTITY,
+      source: "database" as const,
+      retainedThread: { videoId: "video-uuid" },
+      entitlement: { videoId: "video-uuid" },
+      grounding: { load: mocks.loadGrounding },
+      ...overrides,
+    },
+  };
+}
+
+function statelessSubject(
+  overrides: Partial<VideoChatSubject> = {},
+) {
+  return {
+    status: "resolved" as const,
+    subject: {
+      identity: HERO_IDENTITY,
+      source: "hero_demo" as const,
+      grounding: { load: mocks.loadGrounding },
+      ...overrides,
+    },
+  };
+}
+
+function heroReadyGrounding(): VideoGroundingResolution {
+  return {
+    status: "ready",
+    grounding: {
+      transcript: HERO_TRANSCRIPT_FIXTURE,
+      summary: HERO_SUMMARY_FIXTURE,
+    },
+  };
+}
+
+function readyGrounding(): VideoGroundingResolution {
+  return {
+    status: "ready",
+    grounding: {
+      transcript: TRANSCRIPT_FIXTURE,
+      summary: SUMMARY_FIXTURE,
+    },
+  };
+}
 
 async function readSse(stream: ReadableStream<Uint8Array>): Promise<string[]> {
   const reader = stream.getReader();
@@ -134,13 +216,8 @@ describe("POST /api/chat/stream", () => {
     mocks.checkChatEntitlement.mockResolvedValue({
       tier: "free", allowed: true, remaining: 5, reason: "within_limit",
     });
-    mocks.getCachedSummary.mockResolvedValue(SUMMARY_FIXTURE);
-    mocks.getCachedTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
-    // Default these to the DB fixtures so allowlist-only tests don't
-    // need their own seed; the bug-condition test below overrides to
-    // assert the file path is independent of DB state.
-    mocks.loadHeroDemoSummary.mockResolvedValue(SUMMARY_FIXTURE);
-    mocks.loadHeroDemoTranscript.mockResolvedValue(TRANSCRIPT_FIXTURE);
+    mocks.resolveVideoChatSubject.mockResolvedValue(databaseSubject());
+    mocks.loadGrounding.mockResolvedValue(readyGrounding());
     mocks.listChatMessages.mockResolvedValue([]);
     mocks.appendChatTurn.mockResolvedValue(undefined);
     mocks.appendChatUserMessage.mockResolvedValue(undefined);
@@ -168,6 +245,27 @@ describe("POST /api/chat/stream", () => {
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: "x", message: "" }));
     expect(res.status).toBe(400);
+  });
+
+  it("rejects a body whose YouTube URL cannot resolve to a Video identity", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue({ status: "invalid" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({
+        youtube_url: "https://www.youtube.com/watch?v=too-short",
+        message: "hi",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("X-Error-ID")).toBe("INVALID_REQUEST");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[chat/stream] invalid subject",
+      expect.objectContaining({ errorId: "CHAT_STREAM_SUBJECT_INVALID" }),
+    );
+    expect(mocks.loadGrounding).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
   it("returns 401 when there is no user", async () => {
@@ -211,14 +309,14 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
-  it("returns the demo file-loaded summary + transcript even when the DB cache helpers would return null", async () => {
+  it("streams stateless subject Grounding without entitlement or retention", async () => {
     // Simulates the bug condition: the DB cache for these ids was
     // never seeded because the hero registry serves them from static
     // files. Before the fix, this 404'd with "Generate the summary
     // first…" — the test pins that the demo path is now self-contained.
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.getCachedSummary.mockResolvedValue(null);
-    mocks.getCachedTranscript.mockResolvedValue(null);
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
@@ -230,19 +328,109 @@ describe("POST /api/chat/stream", () => {
     const events = (await readSse(res.body!)).join("");
     expect(events).toContain('"type":"delta"');
     expect(events).toContain('"type":"done"');
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+    expect(mocks.listChatMessages).not.toHaveBeenCalled();
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
   });
 
-  it("404s a demo URL when the file registry itself can't load (defensive — should never happen in prod)", async () => {
+  it("maps Grounding not-ready to the existing Summary-not-found response", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.loadHeroDemoSummary.mockResolvedValue(null);
-    mocks.loadHeroDemoTranscript.mockResolvedValue(null);
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue({ status: "not_ready" });
     const { POST } = await import("../route");
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
     expect(res.status).toBe(404);
+    expect(res.headers.get("X-Error-ID")).toBe("SUMMARY_NOT_FOUND");
   });
 
-  it("demo path ignores entitlement.allowed=false from a stray mock (entitlement is fully bypassed)", async () => {
+  it("maps a not-ready subject to Summary-not-found and logs readiness separately", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue({
+      status: "not_ready",
+      identity: VALID_IDENTITY,
+    });
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("X-Error-ID")).toBe("SUMMARY_NOT_FOUND");
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[chat/stream] subject not ready",
+      expect.objectContaining({
+        errorId: "CHAT_STREAM_SUBJECT_NOT_READY",
+        videoId: VALID_IDENTITY.youtubeVideoId,
+      }),
+    );
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(VALID_URL);
+    expect(mocks.loadGrounding).not.toHaveBeenCalled();
+  });
+
+  it("maps an unavailable subject to a stable 503 and distinct structured logging", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue({
+      status: "unavailable",
+      identity: VALID_IDENTITY,
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("X-Error-ID")).toBe("CHAT_STREAM_SUBJECT_UNAVAILABLE");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[chat/stream] subject unavailable",
+      expect.objectContaining({
+        errorId: "CHAT_STREAM_SUBJECT_UNAVAILABLE",
+        videoId: VALID_IDENTITY.youtubeVideoId,
+        errorClass: "SubjectResolution",
+      }),
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_URL);
+    expect(mocks.loadGrounding).not.toHaveBeenCalled();
+  });
+
+  it("maps unavailable Grounding to a stable 503 and logs it separately from subject resolution", async () => {
+    mocks.loadGrounding.mockResolvedValue({ status: "unavailable" });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("X-Error-ID")).toBe("CHAT_STREAM_GROUNDING_UNAVAILABLE");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[chat/stream] Grounding unavailable",
+      expect.objectContaining({
+        errorId: "CHAT_STREAM_GROUNDING_UNAVAILABLE",
+        videoId: VALID_IDENTITY.youtubeVideoId,
+        errorClass: "GroundingResolution",
+      }),
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_URL);
+  });
+
+  it("rejects Grounding whose Transcript and Summary do not share the subject Video", async () => {
+    mocks.loadGrounding.mockResolvedValue({
+      status: "ready",
+      grounding: {
+        transcript: TRANSCRIPT_FIXTURE,
+        summary: { ...SUMMARY_FIXTURE, videoId: "another-video" },
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("X-Error-ID")).toBe("CHAT_STREAM_GROUNDING_UNAVAILABLE");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[chat/stream] Grounding unavailable",
+      expect.objectContaining({ errorName: "SchemaMismatch" }),
+    );
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+  });
+
+  it("skips entitlement when a ready subject has no entitlement target", async () => {
     // Belt-and-braces: even if some future change accidentally calls
     // checkChatEntitlement for demos, this asserts the demo response
     // doesn't 402 on it. The not.toHaveBeenCalled assertion above
@@ -254,6 +442,8 @@ describe("POST /api/chat/stream", () => {
       remaining: 0,
       reason: "exceeded",
     });
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
@@ -262,6 +452,8 @@ describe("POST /api/chat/stream", () => {
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
     expect(res.status).toBe(200);
+    await readSse(res.body!);
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
   it("still 402s anonymous users on non-allowlisted videos even with the allowlist active", async () => {
@@ -282,6 +474,8 @@ describe("POST /api/chat/stream", () => {
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
     });
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     const { POST } = await import("../route");
     const res = await POST(
       makeRequest({
@@ -292,7 +486,10 @@ describe("POST /api/chat/stream", () => {
     await readSse(res.body!);
     expect(res.status).not.toBe(402);
     expect(mocks.checkRateLimit).toHaveBeenCalledWith("demo-user", false);
-    expect(mocks.loadHeroDemoSummary).toHaveBeenCalled();
+    expect(mocks.resolveVideoChatSubject).toHaveBeenCalledWith(
+      "https://youtu.be/Hrbq66XqtCo",
+    );
+    expect(mocks.loadGrounding).toHaveBeenCalledTimes(1);
   });
 
   it("rejects malformed `?v=` values whose parsed id is too long, even if a hero-demo id is a prefix", async () => {
@@ -324,18 +521,24 @@ describe("POST /api/chat/stream", () => {
   });
 
   it("returns 404 when summary or transcript missing", async () => {
-    mocks.getCachedTranscript.mockResolvedValue(null);
+    mocks.loadGrounding.mockResolvedValue({ status: "not_ready" });
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
     expect(res.status).toBe(404);
   });
 
   it("returns 413 when transcript exceeds the hard cap", async () => {
-    mocks.getCachedTranscript.mockResolvedValue({
-      ...TRANSCRIPT_FIXTURE,
-      segments: [
-        { text: "x".repeat(700_000), start: 0, duration: 1 },
-      ],
+    mocks.loadGrounding.mockResolvedValue({
+      status: "ready",
+      grounding: {
+        transcript: {
+          ...TRANSCRIPT_FIXTURE,
+          segments: [
+            { text: "x".repeat(700_000), start: 0, duration: 1 },
+          ],
+        },
+        summary: SUMMARY_FIXTURE,
+      },
     });
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
@@ -415,6 +618,11 @@ describe("POST /api/chat/stream", () => {
     expect(events).toContain('"type":"delta"');
     expect(events).toContain("Hello");
     expect(events).toContain('"type":"done"');
+    expect(mocks.checkChatEntitlement).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+    );
+    expect(mocks.loadGrounding).toHaveBeenCalledTimes(1);
     expect(mocks.appendChatTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "u1",
@@ -423,6 +631,43 @@ describe("POST /api/chat/stream", () => {
         assistantMessage: "Hello world.",
       })
     );
+  });
+
+  it("retains a database subject when entitlement is not exposed", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue(
+      databaseSubject({ entitlement: undefined }),
+    );
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    await readSse(res.body!);
+
+    expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+    expect(mocks.listChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
+    expect(mocks.appendChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ videoId: "video-uuid" }),
+    );
+  });
+
+  it("checks entitlement without retaining a database subject when no thread is exposed", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue(
+      databaseSubject({ retainedThread: undefined }),
+    );
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "ok" };
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
+    await readSse(res.body!);
+
+    expect(mocks.checkChatEntitlement).toHaveBeenCalledWith("u1", "video-uuid");
+    expect(mocks.listChatMessages).not.toHaveBeenCalled();
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
   });
 
   it("does not persist a turn when LLM errors mid-stream and surfaces an error event", async () => {
@@ -488,12 +733,10 @@ describe("POST /api/chat/stream", () => {
     );
   });
 
-  it("demo path: cancel() does NOT call appendChatUserMessage even when caller aborts mid-stream", async () => {
-    // Pins the `userMessagePersisted = isDemoVideo` seed in route.ts.
-    // If a future refactor reverts that seed to `false`, every demo
-    // visitor who closes the tab mid-stream would hit appendChatUserMessage
-    // with a non-UUID video_id and FK-violate in production logs.
+  it("does not retain a stateless subject when the caller aborts mid-stream", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     const controller = new AbortController();
     mocks.streamChatCompletion.mockImplementation(async function* (
       opts: { signal: AbortSignal }

@@ -48,3 +48,33 @@ describe("User Account Directory boundaries", () => {
     expect(affectedTests).not.toMatch(/\b(listAllUsers|fetchRegisteredUsersTotal)\b/);
   });
 });
+
+describe("Dashboard Report boundaries", () => {
+  it("keeps the loader server-only and the route at one loader boundary", () => {
+    const loader = source("lib/admin/dashboard-report.ts");
+    const page = source("app/admin/page.tsx");
+
+    expect(loader).toMatch(/^import "server-only";/m);
+    expect(page).toContain("@/lib/admin/dashboard-report");
+    expect(page).not.toContain("@/lib/admin/queries");
+    expect(page).not.toMatch(/\b(getDashboardKPIs|listAdminUserIds|lastNDays)\b/);
+    expect(page.match(/\bloadDashboardReport\(/g)).toHaveLength(1);
+  });
+
+  it("keeps Dashboard production code and tests off the retired query surface", () => {
+    const dashboardFiles = [
+      "app/admin/page.tsx",
+      "app/admin/_components/report-completeness.tsx",
+      "app/admin/_components/__tests__/report-completeness.test.tsx",
+      "lib/admin/dashboard-report.ts",
+      "lib/admin/__tests__/dashboard-report.test.ts",
+    ];
+
+    for (const file of dashboardFiles) {
+      const contents = source(file);
+      expect(contents, file).not.toContain("@/lib/admin/queries");
+      expect(contents, file).not.toContain("../queries");
+      expect(contents, file).not.toContain("getDashboardKPIs");
+    }
+  });
+});

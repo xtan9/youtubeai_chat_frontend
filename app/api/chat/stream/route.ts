@@ -1,10 +1,6 @@
 import { after } from "next/server";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { checkRateLimit } from "@/lib/services/rate-limit";
-import {
-  getCachedSummary,
-  getCachedTranscript,
-} from "@/lib/services/summarize-cache";
 import { checkChatEntitlement } from "@/lib/services/entitlements";
 import {
   appendChatTurn,
@@ -20,12 +16,13 @@ import {
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
 import { formatTimestamp } from "@/lib/utils/timestamp-citations";
-import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
-import { getYoutubeVideoId } from "@/app/summary/utils";
 import {
-  loadHeroDemoSummary,
-  loadHeroDemoTranscript,
-} from "@/lib/services/hero-demo-chat";
+  resolveVideoChatSubject,
+  type VideoChatSubject,
+  type VideoGrounding,
+  type VideoGroundingResolution,
+  type VideoChatSubjectResolution,
+} from "@/lib/services/video-chat-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
@@ -47,6 +44,13 @@ const USER_ERROR_NO_SUMMARY =
   "Generate the summary first, then ask follow-up questions.";
 const USER_ERROR_TRANSCRIPT_TOO_LONG =
   "This video's transcript is too long for chat. Please try a shorter video.";
+const USER_ERROR_SERVICE_UNAVAILABLE =
+  "Chat service temporarily unavailable. Please try again later.";
+
+const CHAT_STREAM_SUBJECT_NOT_READY = "CHAT_STREAM_SUBJECT_NOT_READY";
+const CHAT_STREAM_SUBJECT_UNAVAILABLE = "CHAT_STREAM_SUBJECT_UNAVAILABLE";
+const CHAT_STREAM_GROUNDING_NOT_READY = "CHAT_STREAM_GROUNDING_NOT_READY";
+const CHAT_STREAM_GROUNDING_UNAVAILABLE = "CHAT_STREAM_GROUNDING_UNAVAILABLE";
 
 function jsonError(status: number, message: string, requestId: string, errorId: string) {
   return new Response(JSON.stringify({ message }), {
@@ -57,6 +61,111 @@ function jsonError(status: number, message: string, requestId: string, errorId: 
       "X-Error-ID": errorId,
     },
   });
+}
+
+function logSubjectNotReady(videoId: string): void {
+  logAppEvent("info", "[chat/stream] subject not ready", {
+    errorId: CHAT_STREAM_SUBJECT_NOT_READY,
+    videoId,
+    reason: "not_ready",
+  });
+}
+
+function subjectUnavailableResponse(
+  requestId: string,
+  videoId: string,
+  errorName?: string,
+): Response {
+  logAppEvent("error", "[chat/stream] subject unavailable", {
+    errorId: CHAT_STREAM_SUBJECT_UNAVAILABLE,
+    videoId,
+    errorName: errorName ?? null,
+    errorClass: "SubjectResolution",
+  });
+  return jsonError(
+    503,
+    USER_ERROR_SERVICE_UNAVAILABLE,
+    requestId,
+    CHAT_STREAM_SUBJECT_UNAVAILABLE,
+  );
+}
+
+function logGroundingNotReady(videoId: string): void {
+  logAppEvent("info", "[chat/stream] Grounding not ready", {
+    errorId: CHAT_STREAM_GROUNDING_NOT_READY,
+    videoId,
+    reason: "not_ready",
+  });
+}
+
+function groundingUnavailableResponse(requestId: string): Response {
+  return jsonError(
+    503,
+    USER_ERROR_SERVICE_UNAVAILABLE,
+    requestId,
+    CHAT_STREAM_GROUNDING_UNAVAILABLE,
+  );
+}
+
+function hasCoherentGrounding(
+  subject: VideoChatSubject,
+  grounding: VideoGrounding,
+): boolean {
+  const groundingVideoId = grounding.transcript.videoId;
+  if (groundingVideoId !== grounding.summary.videoId) return false;
+
+  const capabilityTargets = [
+    subject.entitlement?.videoId,
+    subject.retainedThread?.videoId,
+  ].filter((videoId): videoId is string => Boolean(videoId));
+
+  if (capabilityTargets.length > 0) {
+    return capabilityTargets.every((videoId) => videoId === groundingVideoId);
+  }
+
+  return true;
+}
+
+async function loadSubjectGrounding(
+  subject: VideoChatSubject,
+): Promise<VideoGroundingResolution> {
+  if (!subject.grounding) {
+    logGroundingNotReady(subject.identity.youtubeVideoId);
+    return { status: "not_ready" };
+  }
+
+  try {
+    const outcome = await subject.grounding.load();
+    if (outcome.status === "ready") {
+      if (hasCoherentGrounding(subject, outcome.grounding)) return outcome;
+      logAppEvent("error", "[chat/stream] Grounding unavailable", {
+        errorId: CHAT_STREAM_GROUNDING_UNAVAILABLE,
+        videoId: subject.identity.youtubeVideoId,
+        errorName: "SchemaMismatch",
+        errorClass: "GroundingResolution",
+      });
+      return { status: "unavailable" };
+    }
+    if (outcome.status === "not_ready") {
+      logGroundingNotReady(subject.identity.youtubeVideoId);
+      return outcome;
+    }
+    logAppEvent("error", "[chat/stream] Grounding unavailable", {
+      errorId: CHAT_STREAM_GROUNDING_UNAVAILABLE,
+      videoId: subject.identity.youtubeVideoId,
+      errorName: null,
+      errorClass: "GroundingResolution",
+    });
+    return outcome;
+  } catch (error) {
+    logAppEvent("error", "[chat/stream] Grounding unavailable", {
+      errorId: CHAT_STREAM_GROUNDING_UNAVAILABLE,
+      videoId: subject.identity.youtubeVideoId,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorClass: "GroundingResolution",
+    });
+    return { status: "unavailable" };
+  }
 }
 
 export async function POST(request: Request) {
@@ -114,19 +223,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Signed-in users may still chat with static hero-demo assets, but those
-  // requests now consume the same per-user rate limit as every other chat.
-  const demoVideoId = getYoutubeVideoId(youtube_url);
-  const isDemoVideo = isHeroDemoVideoId(demoVideoId);
-
-  // Demo videos bypass entitlement and chat_messages persistence because
-  // they have no DB-cached summary, no chat thread row, and no
-  // `videos(id)` row. `chat_messages.video_id` is `UUID NOT NULL
-  // REFERENCES videos(id)`, so demo ids (11-char YouTube ids, not
-  // UUIDs) can satisfy neither the UUID column type on insert nor a
-  // UUID-typed equality predicate on read — both fail with Postgres
-  // `22P02 invalid_text_representation` before the FK constraint is
-  // ever reached. Allowlisted via HERO_DEMO_VIDEO_IDS.
+  // Every authenticated request consumes the same per-user rate limit.
+  // Entitlement and retention are selected by the resolved subject because
+  // stateless subjects have no database-backed targets.
+  //
+  // The subject resolver is the only source boundary for Grounding; this
+  // route never assembles evidence from cache or static source helpers.
   const rateLimit = await checkRateLimit(userId, false);
   if (rateLimit.reason === "fail_open") {
     logAppEvent("error", "[chat/stream] rate-limit bypassed (fail-open)", {
@@ -145,36 +247,62 @@ export async function POST(request: Request) {
     );
   }
 
-  // Chat is gated on the video-native summary row already existing for
-  // this video. `getCachedSummary(url, null)` filters strictly with
-  // `output_language IS NULL` (see summarize-cache.ts), so a user who
-  // only generated translated summaries hits 404 here — chat in
-  // translated languages is a follow-up. Both reads run in parallel
-  // because they're independent cache lookups.
-  //
-  // Demo videos read from the static file registry instead — demo
-  // summaries are never seeded into the DB cache, so the file
-  // registry is the only source.
-  const [cachedSummary, cachedTranscript] = isDemoVideo
-    ? await Promise.all([
-        loadHeroDemoSummary(youtube_url),
-        loadHeroDemoTranscript(youtube_url),
-      ])
-    : await Promise.all([
-        getCachedSummary(youtube_url, null),
-        getCachedTranscript(youtube_url),
-      ]);
-  if (!cachedSummary || !cachedTranscript) {
-    return jsonError(404, USER_ERROR_NO_SUMMARY, requestId, "SUMMARY_NOT_FOUND");
+  // Resolve the canonical Video and its coherent Grounding before applying
+  // per-Video policies or constructing the prompt.
+  let resolution: VideoChatSubjectResolution;
+  try {
+    resolution = await resolveVideoChatSubject(youtube_url);
+  } catch (error) {
+    return subjectUnavailableResponse(
+      requestId,
+      videoIdForLog(youtube_url),
+      error instanceof Error ? error.name : typeof error,
+    );
   }
 
-  if (!isDemoVideo) {
-    const entitlement = await checkChatEntitlement(userId, cachedSummary.videoId);
+  if (resolution.status === "invalid") {
+    logAppEvent("warn", "[chat/stream] invalid subject", {
+      errorId: "CHAT_STREAM_SUBJECT_INVALID",
+      errorClass: "InvalidVideoUrl",
+    });
+    return jsonError(400, "Invalid request body", requestId, "INVALID_REQUEST");
+  }
+  if (resolution.status === "not_ready") {
+    logSubjectNotReady(resolution.identity.youtubeVideoId);
+    return jsonError(404, USER_ERROR_NO_SUMMARY, requestId, "SUMMARY_NOT_FOUND");
+  }
+  if (resolution.status === "unavailable") {
+    return subjectUnavailableResponse(
+      requestId,
+      resolution.identity.youtubeVideoId,
+    );
+  }
+
+  const { subject } = resolution;
+  const groundingOutcome = await loadSubjectGrounding(subject);
+  if (groundingOutcome.status === "not_ready") {
+    return jsonError(
+      404,
+      USER_ERROR_NO_SUMMARY,
+      requestId,
+      "SUMMARY_NOT_FOUND",
+    );
+  }
+  if (groundingOutcome.status === "unavailable") {
+    return groundingUnavailableResponse(requestId);
+  }
+
+  const { grounding } = groundingOutcome;
+  const { retainedThread, entitlement: entitlementTarget } = subject;
+  const videoId = grounding.transcript.videoId;
+
+  if (entitlementTarget) {
+    const entitlement = await checkChatEntitlement(userId, entitlementTarget.videoId);
     if (entitlement.reason === "fail_open") {
       logAppEvent("error", "[chat/stream] entitlement bypassed (fail-open)", {
         errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",
         userId,
-        videoId: cachedSummary.videoId,
+        videoId: entitlementTarget.videoId,
         requestId,
       });
     }
@@ -198,7 +326,6 @@ export async function POST(request: Request) {
     }
   }
 
-  const videoId = cachedTranscript.videoId;
   // Prefix each segment with its [mm:ss] start time so the model can
   // cite real video timestamps in answers. Without this, the assistant
   // sees a flat run-on transcript and (correctly) refuses to invent
@@ -206,7 +333,7 @@ export async function POST(request: Request) {
   // explicitly told the user "the transcript does not include video
   // timestamps." formatTimestamp uses the same shape the citation
   // parser on the frontend recognizes, so the round-trip is closed.
-  const transcriptText = cachedTranscript.segments
+  const transcriptText = grounding.transcript.segments
     .map((s) => `${formatTimestamp(s.start)} ${s.text}`)
     .join("\n");
   if (transcriptText.length > TRANSCRIPT_HARD_CAP_CHARS) {
@@ -218,14 +345,13 @@ export async function POST(request: Request) {
     );
   }
 
-  // Demo path: stateless thread (see top-of-route comment for the FK
-  // reasoning). Every demo question runs against an empty history.
+  // Only a retained-thread capability can load or persist history.
   let history: readonly ChatMessageRow[];
-  if (isDemoVideo) {
+  if (!retainedThread) {
     history = [];
   } else {
     try {
-      const fullHistory = await listChatMessages(userId, videoId);
+      const fullHistory = await listChatMessages(userId, retainedThread.videoId);
       // Cap history at the route boundary so a long-running thread can't
       // blow the LLM's context window and the per-turn token cost stays
       // bounded regardless of how many turns the user has accumulated.
@@ -237,7 +363,7 @@ export async function POST(request: Request) {
       logAppEvent("error", "[chat/stream] history load failed", {
         errorId: "CHAT_HISTORY_LOAD_FAILED",
         userId,
-        videoId,
+        videoId: retainedThread.videoId,
         errorName: err instanceof Error ? err.name : typeof err,
         requestId,
       });
@@ -256,27 +382,19 @@ export async function POST(request: Request) {
   const cacheStablePrefix = false;
   const messages = buildChatMessages({
     transcript: transcriptText,
-    summary: cachedSummary.summary,
+    summary: grounding.summary.summary,
     history,
     userMessage: message,
     cacheStablePrefix,
   });
 
-  // Stream-side state. `closed` flips on natural end OR consumer cancel
-  // so any in-flight enqueue short-circuits instead of writing into a
-  // dead controller. `assistantBuffer` accumulates the full response so
-  // the post-stream persist can see what to write. `userMessagePersisted`
-  // de-duplicates the user-only persist between the start() abort branch
-  // and the cancel() hook — without this, both could fire and we'd insert
-  // the same question twice.
+  // Stream-side state. `closed` flips on natural end or consumer cancel so
+  // in-flight enqueues stop, while `assistantBuffer` holds the durable answer.
+  // `userMessagePersisted` prevents duplicate user-only writes on abort races.
   let closed = false;
   let assistantBuffer = "";
-  // Invariant: when `isDemoVideo`, `userMessagePersisted` stays `true`
-  // for the lifetime of the request, so all four persist sites become
-  // no-ops: persistUserOnly() (start-success / start-llm-fail /
-  // start-empty-response branches) and cancel(). The success branch's
-  // appendChatTurn is gated separately below.
-  let userMessagePersisted = isDemoVideo;
+  // A stateless subject starts with no persistence work to do.
+  let userMessagePersisted = !retainedThread;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -306,12 +424,16 @@ export async function POST(request: Request) {
       // post-success cancel() (rare, but observed when a flush races a
       // disconnect) from inserting the question a second time.
       const persistUserOnly = (errorId: string) => {
-        if (userMessagePersisted) return;
+        if (!retainedThread || userMessagePersisted) return;
         userMessagePersisted = true;
         try {
           after(async () => {
             try {
-              await appendChatUserMessage(userId, videoId, message);
+              await appendChatUserMessage(
+                userId,
+                retainedThread.videoId,
+                message,
+              );
             } catch (persistErr) {
               logAppEvent("error", "[chat/stream] user-only persist failed", {
                 errorId,
@@ -404,15 +526,14 @@ export async function POST(request: Request) {
         // complete answer that vanishes on reload. Adding ~50–200ms of
         // DB-write latency to the perceived close is the right trade.
         //
-        // Demo path: stateless (see top-of-route comment).
-        if (isDemoVideo) {
+        if (!retainedThread) {
           sendEvent({ type: "done" });
           return;
         }
         try {
           await appendChatTurn({
             userId,
-            videoId,
+            videoId: retainedThread.videoId,
             userMessage: message,
             assistantMessage: assistantBuffer,
           });
@@ -475,12 +596,16 @@ export async function POST(request: Request) {
       // appendChatTurn, in which case `userMessagePersisted` is set and
       // the dedupe guard inside persistUserOnly returns immediately.
       closed = true;
-      if (userMessagePersisted) return;
+      if (!retainedThread || userMessagePersisted) return;
       userMessagePersisted = true;
       try {
         after(async () => {
           try {
-            await appendChatUserMessage(userId, videoId, message);
+            await appendChatUserMessage(
+              userId,
+              retainedThread.videoId,
+              message,
+            );
           } catch (err) {
             logAppEvent("error", "[chat/stream] cancel-persist failed", {
               errorId: "CHAT_CANCEL_PERSIST_FAILED",

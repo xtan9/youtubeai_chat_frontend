@@ -6,6 +6,15 @@ request CI, the hourly frontend smoke, Preview deployments, and the controlled
 Vercel Production deployment chain. It makes real YouTube and Whisper calls,
 so dispatch it only when a service deployment needs verification.
 
+## Video Unavailable rollout order
+
+Deploy the frontend commit containing the explicit Caption Track outcome
+handling and verify that deployment is live before activating the service
+commit that emits `422 VIDEO_UNAVAILABLE`. If the two releases must be
+atomic, use one coordinated production window and verify the consumer first
+within that window. The shared `caption-video-unavailable` contract fixture
+must pass in both repositories before either release is promoted.
+
 ## One-time GitHub configuration
 
 Configure these settings in `xtan9/youtubeai_chat_frontend`:

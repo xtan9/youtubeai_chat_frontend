@@ -18,13 +18,12 @@ import {
 import { DashboardControls } from "./_components/dashboard-controls";
 import { parseWindowDays } from "./_components/window-days";
 import { requireAdminPage } from "./_components/admin-gate";
+import { ReportCompletenessNotice } from "./_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
-  listAdminUserIds,
-  getDashboardKPIs,
-  lastNDays,
-  type DashboardKPIs,
-} from "@/lib/admin/queries";
+  loadDashboardReport,
+  type DashboardReport,
+} from "@/lib/admin/dashboard-report";
 import type { Delta, TranscriptSource } from "@/lib/admin/types";
 
 export const dynamic = "force-dynamic";
@@ -42,11 +41,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const windowDays = parseWindowDays(params.window);
-  const window = lastNDays(windowDays);
   const includeAdmins = params.include_admins === "1";
-  const adminUserIds = includeAdmins ? [] : await listAdminUserIds(client);
-  const kpis = await getDashboardKPIs(client, window, {
-    excludeAdminUserIds: adminUserIds,
+  const report = await loadDashboardReport(client, {
+    windowDays,
+    includeAdministrators: includeAdmins,
   });
 
   return (
@@ -55,7 +53,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="page-sub">
-            {formatRange(window)} · compared to previous {windowDays} days ·{" "}
+            {formatRange(report.window)} · compared to previous {windowDays} days ·{" "}
             <span className="muted">
               {includeAdmins ? "including admins" : "excluding admin activity"}
             </span>
@@ -65,24 +63,25 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
       </div>
 
       <div className="page-body">
+        <ReportCompletenessNotice warnings={report.warnings} />
         <div className="kpi-grid cols-2" style={{ marginBottom: 16 }}>
           <HeroKPI
             label="Summaries"
-            value={formatCount(kpis.summaries.current)}
-            delta={pctDelta(kpis.summaries.current, kpis.summaries.previous)}
-            sub={summariesSub(kpis)}
-            data={kpis.summariesPerDay.map((d) => d.value)}
+            value={formatCount(report.summaries.current)}
+            delta={pctDelta(report.summaries.current, report.summaries.previous)}
+            sub={summariesSub(report)}
+            data={report.summariesPerDay.map((d) => d.value)}
             color="var(--text)"
           />
           <HeroKPI
             label="p95 latency"
-            value={formatSeconds(kpis.p95Seconds.current)}
+            value={formatSeconds(report.p95Seconds.current)}
             delta={absDeltaSeconds(
-              kpis.p95Seconds.current,
-              kpis.p95Seconds.previous,
+              report.p95Seconds.current,
+              report.p95Seconds.previous,
             )}
-            sub={latencySub(kpis)}
-            data={kpis.summariesPerDay.map(() => kpis.p95Seconds.current ?? 0)}
+            sub={latencySub(report)}
+            data={report.summariesPerDay.map(() => report.p95Seconds.current ?? 0)}
             color="var(--warn)"
           />
         </div>
@@ -91,23 +90,23 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <ChartCard
             title="Daily active users"
             sub={`DAU · last ${windowDays}d`}
-            footer={`Range avg · ${avg(kpis.dauPerDay.map((d) => d.value)).toFixed(0)}`}
+            footer={`Range avg · ${avg(report.dauPerDay.map((d) => d.value)).toFixed(0)}`}
             chart={
               <BarChart
-                data={kpis.dauPerDay.map((d) => d.value)}
+                data={report.dauPerDay.map((d) => d.value)}
                 h={140}
-                accentIndex={kpis.dauPerDay.length - 1}
+                accentIndex={report.dauPerDay.length - 1}
               />
             }
           />
-          <DonutCard sourceMix={kpis.sourceMix} />
+          <DonutCard sourceMix={report.sourceMix} />
           <ChartCard
             title="Cache hit rate"
-            sub={`last ${windowDays}d · ${formatPct(kpis.cacheHitRatePct.current)} avg`}
-            footer={cacheHitFooter(kpis)}
+            sub={`last ${windowDays}d · ${formatPct(report.cacheHitRatePct.current)} avg`}
+            footer={cacheHitFooter(report)}
             chart={
               <AreaChart
-                data={kpis.cacheHitPerDay.map((d) => d.value)}
+                data={report.cacheHitPerDay.map((d) => d.value)}
                 h={140}
                 lineClass="chart-line-primary"
                 fillClass="chart-fill-primary"
@@ -145,7 +144,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               </tr>
             </thead>
             <tbody>
-              {kpis.topUsers.length === 0 ? (
+              {report.topUsers.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -156,7 +155,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                   </td>
                 </tr>
               ) : (
-                kpis.topUsers.map((u) => (
+                report.topUsers.map((u) => (
                   <tr key={u.userId}>
                     <td>
                       <div className="user-cell">
@@ -299,7 +298,7 @@ const SOURCE_LABEL: Record<TranscriptSource, string> = {
   whisper: "Whisper",
 };
 
-function DonutCard({ sourceMix }: { sourceMix: DashboardKPIs["sourceMix"] }) {
+function DonutCard({ sourceMix }: { sourceMix: DashboardReport["sourceMix"] }) {
   const total = sourceMix.reduce((sum, m) => sum + m.count, 0);
   const segs = sourceMix.map((m) => ({
     label: SOURCE_LABEL[m.source],
@@ -351,10 +350,12 @@ function DonutCard({ sourceMix }: { sourceMix: DashboardKPIs["sourceMix"] }) {
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
-function formatRange(window: { start: Date; end: Date }): string {
+function formatRange(window: DashboardReport["window"]): string {
+  const start = new Date(window.start);
+  const end = new Date(window.end);
   const fmt = (d: Date) =>
     d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-  return `${fmt(window.start)} – ${fmt(window.end)}, ${window.end.getUTCFullYear()}`;
+  return `${fmt(start)} – ${fmt(end)}, ${end.getUTCFullYear()}`;
 }
 
 function formatCount(n: number): string {
@@ -396,23 +397,23 @@ function absDeltaSeconds(
   return { text: `${sign}${diff.toFixed(1)}s`, tone: diff > 0 ? "warn" : "down" };
 }
 
-function summariesSub(kpis: DashboardKPIs): string {
-  const total = kpis.summaries.current;
-  const w = kpis.whisper.current;
+function summariesSub(report: DashboardReport): string {
+  const total = report.summaries.current;
+  const w = report.whisper.current;
   const pct = total > 0 ? Math.round((w / total) * 100) : 0;
   return `of which whisper · ${formatCount(w)} (${pct}%)`;
 }
 
-function latencySub(kpis: DashboardKPIs): string {
-  const t = kpis.transcribeP95Seconds;
-  const s = kpis.summarizeP95Seconds;
+function latencySub(report: DashboardReport): string {
+  const t = report.transcribeP95Seconds;
+  const s = report.summarizeP95Seconds;
   if (t == null && s == null) return "no latency samples";
   return `transcribe ${formatSeconds(t)} · summarize ${formatSeconds(s)}`;
 }
 
-function cacheHitFooter(kpis: DashboardKPIs): string {
-  const c = kpis.cacheHitRatePct.current;
-  const p = kpis.cacheHitRatePct.previous;
+function cacheHitFooter(report: DashboardReport): string {
+  const c = report.cacheHitRatePct.current;
+  const p = report.cacheHitRatePct.previous;
   if (c == null) return "no traffic";
   if (p == null) return `${c}% (no prior data)`;
   const diff = c - p;
