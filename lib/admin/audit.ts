@@ -7,8 +7,8 @@ import type { AdminPrincipal } from "@/lib/admin/types";
 // length>0 CHECK (no Postgres ENUMs); this list is the wire-level
 // contract callers must satisfy. Derived as a `const` literal array so
 // the runtime constant and the type live in one place — drift between
-// `AUDIT_ACTIONS` (used for runtime `isAuditAction` validation in
-// queries.ts) and `AuditAction` (the writer type) is now non-typeable.
+// `AUDIT_ACTIONS` is the runtime vocabulary used by the Audit Report row
+// mapper, while `AuditAction` remains the writer's compile-time contract.
 export const AUDIT_ACTIONS = [
   "view_transcript",
   "view_summary_text",

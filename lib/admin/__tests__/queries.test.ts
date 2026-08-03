@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import {
-  listAuditLog,
   listUsersWithStatsAndSort,
   listVideosWithStats,
   getVideoInsights,
@@ -18,9 +17,9 @@ import {
   listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
 } from "../queries";
+import { QueryError } from "../errors";
 import type { AdminUserRow, VideoListOptions } from "../queries";
 import { loadAdminShell } from "../admin-shell";
-import { QueryError } from "../errors";
 import { listUserAccounts } from "../user-account-directory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -105,139 +104,6 @@ beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
-
-// ─── listAuditLog ────────────────────────────────────────────────────────
-
-describe("listAuditLog", () => {
-  it("returns rows newest-first with no cursor when page fits", async () => {
-    const client = buildClient([
-      {
-        table: "admin_audit_log",
-        response: {
-          data: [
-            {
-              id: "row-1",
-              created_at: "2026-04-29T12:00:00Z",
-              admin_id: "admin-1",
-              admin_email: "alice@example.com",
-              action: "view_transcript",
-              resource_type: "summary",
-              resource_id: "sum-1",
-              metadata: { user_id: "u1" },
-            },
-          ],
-          error: null,
-        },
-      },
-    ]);
-    const result = await listAuditLog(client, { pageSize: 50 });
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0].adminEmail).toBe("alice@example.com");
-    expect(result.rows[0].metadata).toEqual({ user_id: "u1" });
-    expect(result.nextCursor).toBeNull();
-  });
-
-  it("emits nextCursor when one extra row is returned (the +1 peek)", async () => {
-    const rows = Array.from({ length: 3 }, (_, idx) => ({
-      id: `r${idx}`,
-      created_at: `2026-04-29T12:00:0${idx}Z`,
-      admin_id: "a",
-      admin_email: "a@x",
-      action: "view_transcript",
-      resource_type: "summary",
-      resource_id: "s",
-      metadata: {},
-    }));
-    const client = buildClient([
-      { table: "admin_audit_log", response: { data: rows, error: null } },
-    ]);
-    const result = await listAuditLog(client, { pageSize: 2 });
-    expect(result.rows).toHaveLength(2);
-    expect(result.nextCursor).not.toBeNull();
-  });
-
-  it("round-trips a cursor: second page applies a keyset filter using the previous tail", async () => {
-    let capturedOrFilter = "";
-    const client = buildClient([
-      {
-        table: "admin_audit_log",
-        response: { data: [], error: null },
-        expect: (calls) => {
-          const orCall = calls.find((c) => c.method === "or");
-          expect(orCall, "expected an or() filter on cursor reuse").toBeDefined();
-          capturedOrFilter = String(orCall?.args[0] ?? "");
-        },
-      },
-    ]);
-    const cursor = Buffer.from(
-      JSON.stringify({ created_at: "2026-04-29T12:00:00Z", id: "row-1" }),
-    ).toString("base64url");
-    const result = await listAuditLog(client, { pageSize: 50, cursor });
-    expect(result.rows).toHaveLength(0);
-    expect(capturedOrFilter).toContain("created_at.lt.2026-04-29T12:00:00Z");
-    expect(capturedOrFilter).toContain("id.lt.row-1");
-  });
-
-  it("falls back to first page on malformed cursor (and warns)", async () => {
-    const warn = vi.spyOn(console, "warn");
-    let receivedOr = false;
-    const client = buildClient([
-      {
-        table: "admin_audit_log",
-        response: { data: [], error: null },
-        expect: (calls) => {
-          receivedOr = calls.some((c) => c.method === "or");
-        },
-      },
-    ]);
-    const result = await listAuditLog(client, { cursor: "not-base64-at-all" });
-    expect(result.rows).toHaveLength(0);
-    expect(receivedOr).toBe(false);
-    expect(warn).toHaveBeenCalled();
-  });
-
-  it("logs but still returns rows when persisted action is unknown", async () => {
-    const error = vi.spyOn(console, "error");
-    const client = buildClient([
-      {
-        table: "admin_audit_log",
-        response: {
-          data: [
-            {
-              id: "row-1",
-              created_at: "2026-04-29T12:00:00Z",
-              admin_id: "admin-1",
-              admin_email: "alice@example.com",
-              action: "unfamiliar_action",
-              resource_type: "summary",
-              resource_id: "sum-1",
-              metadata: {},
-            },
-          ],
-          error: null,
-        },
-      },
-    ]);
-    const result = await listAuditLog(client);
-    expect(result.rows[0].action).toBe("unfamiliar_action");
-    expect(
-      error.mock.calls.some(
-        (c) => typeof c[0] === "string" && c[0].includes("unknown audit action"),
-      ),
-    ).toBe(true);
-  });
-
-  it("propagates DB errors as QueryError", async () => {
-    const client = buildClient([
-      {
-        table: "admin_audit_log",
-        response: { data: null, error: { message: "table missing" } },
-      },
-    ]);
-    await expect(listAuditLog(client)).rejects.toBeInstanceOf(QueryError);
-  });
-});
-
 
 // ─── getDashboardKPIs ────────────────────────────────────────────────────
 
