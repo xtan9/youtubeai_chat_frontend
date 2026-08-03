@@ -25,7 +25,7 @@ export function ResultsDisplay({
 }: ResultsDisplayProps) {
   return (
     data && (
-      <div className="space-y-8">
+      <div className="space-y-8" data-testid="summary-results">
         <SummaryContent
           summary={data}
           copied={copied}

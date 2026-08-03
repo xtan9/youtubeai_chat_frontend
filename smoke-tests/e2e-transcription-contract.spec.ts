@@ -63,9 +63,12 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
-function summaryEvents(scenario: TranscriptScenario): string {
+function summaryEvents(
+  scenario: TranscriptScenario,
+  cached = false,
+): string {
   return [
-    { type: "metadata", category: "general", cached: false },
+    { type: "metadata", category: "general", cached },
     {
       type: "status",
       stage: "transcribe",
@@ -134,7 +137,8 @@ async function submitVideoUrl(page: Page) {
 
 async function mockSuccessfulJourney(
   page: Page,
-  scenario: TranscriptScenario
+  scenario: TranscriptScenario,
+  options: { readonly cached?: boolean } = {},
 ) {
   let chatCompleted = false;
 
@@ -153,7 +157,7 @@ async function mockSuccessfulJourney(
       status: 200,
       contentType: "text/event-stream",
       headers: { "cache-control": "no-cache" },
-      body: summaryEvents(scenario),
+      body: summaryEvents(scenario, options.cached ?? false),
     });
   });
   await page.route("**/api/chat/messages?*", (route) =>
@@ -198,6 +202,28 @@ async function mockSuccessfulJourney(
       ].join(""),
     });
   });
+}
+
+async function mockDeferredSummaryJourney(
+  page: Page,
+  scenario: TranscriptScenario,
+): Promise<() => void> {
+  await mockSharedBrowserBoundaries(page);
+  let release!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/summarize/stream", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await responseGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      headers: { "cache-control": "no-cache" },
+      body: summaryEvents(scenario, false),
+    });
+  });
+  return release;
 }
 
 async function expectUsableTranscript(
@@ -258,6 +284,40 @@ test("documented Whisper fallback keeps a multilingual timestamped Transcript us
     page.getByText(/La transcripción conserva el idioma/)
   ).toBeVisible();
   await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
+});
+
+test("live Summary Run renders a non-actionable Draft until the terminal Summary arrives", async ({
+  page,
+}) => {
+  const release = await mockDeferredSummaryJourney(page, CAPTION_SUCCESS);
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-draft")).toBeVisible();
+  await expect(page.getByTestId("summary-draft")).toContainText(
+    "Summary Draft",
+  );
+  await expect(page.getByTestId("summary-results")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeDisabled();
+
+  release();
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
+  await expect(page.getByTestId("summary-draft")).toHaveCount(0);
+});
+
+test("cached Summary Run success uses the API metadata and unlocks completed actions", async ({
+  page,
+}) => {
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS, { cached: true });
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expect(page.getByText("Reliable browser checks protect")).toBeVisible();
+  await expect(page.getByTestId("summary-draft")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Chat" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: /copy summary/i }),
+  ).toBeVisible();
 });
 
 test("typed transcription failure shows safe messaging without partial output", async ({
