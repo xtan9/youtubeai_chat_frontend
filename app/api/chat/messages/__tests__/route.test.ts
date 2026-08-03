@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
-  getCachedTranscript: vi.fn(),
+  resolveVideoChatSubject: vi.fn(),
   listChatMessages: vi.fn(),
   clearChatMessages: vi.fn(),
 }));
@@ -14,8 +14,8 @@ vi.mock("@/lib/supabase/server", () => ({
     }),
 }));
 
-vi.mock("@/lib/services/summarize-cache", () => ({
-  getCachedTranscript: mocks.getCachedTranscript,
+vi.mock("@/lib/services/video-chat-subject", () => ({
+  resolveVideoChatSubject: mocks.resolveVideoChatSubject,
 }));
 
 vi.mock("@/lib/services/chat-store", () => ({
@@ -24,6 +24,38 @@ vi.mock("@/lib/services/chat-store", () => ({
 }));
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+const VALID_IDENTITY = {
+  youtubeVideoId: "dQw4w9WgXcQ",
+  canonicalUrl: VALID_URL,
+};
+const DATABASE_SUBJECT = {
+  status: "resolved",
+  subject: {
+    identity: VALID_IDENTITY,
+    source: "database",
+    retainedThread: { videoId: "video-uuid" },
+    entitlement: { videoId: "video-uuid" },
+    suggestionCache: { videoId: "video-uuid" },
+  },
+};
+const HERO_DEMO_SUBJECT = {
+  status: "resolved",
+  subject: {
+    identity: {
+      youtubeVideoId: "Hrbq66XqtCo",
+      canonicalUrl: "https://www.youtube.com/watch?v=Hrbq66XqtCo",
+    },
+    source: "hero_demo",
+  },
+};
+const NOT_READY_SUBJECT = {
+  status: "not_ready",
+  identity: VALID_IDENTITY,
+};
+const UNAVAILABLE_SUBJECT = {
+  status: "unavailable",
+  identity: VALID_IDENTITY,
+};
 
 function makeReq(path: string, init?: RequestInit) {
   return new Request(`http://localhost${path}`, init);
@@ -31,12 +63,13 @@ function makeReq(path: string, init?: RequestInit) {
 
 describe("/api/chat/messages", () => {
   beforeEach(() => {
-    Object.values(mocks).forEach((m) => m.mockReset());
+    Object.values(mocks).forEach((mock) => mock.mockReset());
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "u1", is_anonymous: false } },
       error: null,
     });
   });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -46,52 +79,93 @@ describe("/api/chat/messages", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(makeReq("/api/chat/messages"));
+
       expect(res.status).toBe(400);
-      // A frontend regression that ships a malformed query should
-      // surface in ops dashboards even though the user only sees a 400.
       expect(warnSpy).toHaveBeenCalledWith(
         "[chat/messages] invalid query (GET)",
         expect.objectContaining({ errorId: "CHAT_MESSAGES_QUERY_INVALID" }),
       );
-      warnSpy.mockRestore();
+      expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
     });
 
     it("returns 401 when no user", async () => {
       mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
+
       expect(res.status).toBe(401);
+      expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
     });
 
-    it("returns empty messages when no transcript yet", async () => {
-      mocks.getCachedTranscript.mockResolvedValue(null);
+    it("returns 400 when the resolver rejects an unresolvable video URL", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue({ status: "invalid" });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(
+          "/api/chat/messages?youtube_url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dtoo-short",
+        ),
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ message: "Invalid query" });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[chat/messages] invalid subject (GET)",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_SUBJECT_INVALID",
+        }),
+      );
+    });
+
+    it("returns empty messages for a stateless Hero Demo subject", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
       const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
+
       expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body).toEqual({ messages: [] });
-      // Structured log so ops can distinguish brand-new URL from cache eviction.
+      expect(await res.json()).toEqual({ messages: [] });
       expect(infoSpy).toHaveBeenCalledWith(
-        "[chat/messages] empty list — no transcript cached",
-        expect.objectContaining({ errorId: "CHAT_MESSAGES_NO_TRANSCRIPT" }),
+        "[chat/messages] empty list - no retained thread",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_NO_RETAINED_THREAD",
+          reason: "stateless",
+        }),
       );
-      infoSpy.mockRestore();
+      expect(mocks.listChatMessages).not.toHaveBeenCalled();
     });
 
-    it("returns the persisted thread", async () => {
-      mocks.getCachedTranscript.mockResolvedValue({
-        videoId: "video-uuid",
-        title: "T",
-        channelName: "C",
-        segments: [{ text: "x", start: 0, duration: 1 }],
-        transcriptSource: "auto_captions",
-        language: "en",
-      });
+    it("returns empty messages for a database subject that is not ready", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(NOT_READY_SUBJECT);
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ messages: [] });
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[chat/messages] empty list - no retained thread",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_NO_RETAINED_THREAD",
+          reason: "not_ready",
+        }),
+      );
+    });
+
+    it("returns the persisted thread through the retained-thread capability", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(DATABASE_SUBJECT);
       mocks.listChatMessages.mockResolvedValue([
         {
           id: "m1",
@@ -102,10 +176,12 @@ describe("/api/chat/messages", () => {
       ]);
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
-      const body = await res.json();
-      expect(body).toEqual({
+
+      expect(await res.json()).toEqual({
         messages: [
           {
             id: "m1",
@@ -118,6 +194,29 @@ describe("/api/chat/messages", () => {
       expect(mocks.listChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
     });
 
+    it("returns 503 when subject resolution is unavailable", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(UNAVAILABLE_SUBJECT);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { GET } = await import("../route");
+      const res = await GET(
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
+      );
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        message: "Could not load chat history.",
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[chat/messages] subject resolution unavailable (GET)",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_SUBJECT_UNAVAILABLE",
+          videoId: VALID_IDENTITY.youtubeVideoId,
+        }),
+      );
+    });
+
     it("returns 503 on auth-service infra error (non-4xx)", async () => {
       mocks.getUser.mockResolvedValue({
         data: { user: null },
@@ -126,8 +225,11 @@ describe("/api/chat/messages", () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
+
       expect(res.status).toBe(503);
     });
 
@@ -136,26 +238,25 @@ describe("/api/chat/messages", () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
+
       expect(res.status).toBe(503);
     });
 
     it("returns 503 when listing fails", async () => {
-      mocks.getCachedTranscript.mockResolvedValue({
-        videoId: "video-uuid",
-        title: "T",
-        channelName: "C",
-        segments: [{ text: "x", start: 0, duration: 1 }],
-        transcriptSource: "auto_captions",
-        language: "en",
-      });
+      mocks.resolveVideoChatSubject.mockResolvedValue(DATABASE_SUBJECT);
       mocks.listChatMessages.mockRejectedValue(new Error("db down"));
       vi.spyOn(console, "error").mockImplementation(() => {});
       const { GET } = await import("../route");
       const res = await GET(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`)
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+        ),
       );
+
       expect(res.status).toBe(503);
     });
   });
@@ -165,10 +266,12 @@ describe("/api/chat/messages", () => {
       mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
       const { DELETE } = await import("../route");
       const res = await DELETE(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`, {
-          method: "DELETE",
-        })
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
       );
+
       expect(res.status).toBe(401);
     });
 
@@ -178,70 +281,109 @@ describe("/api/chat/messages", () => {
       const res = await DELETE(
         makeReq("/api/chat/messages", { method: "DELETE" }),
       );
+
       expect(res.status).toBe(400);
       expect(warnSpy).toHaveBeenCalledWith(
         "[chat/messages] invalid query (DELETE)",
         expect.objectContaining({ errorId: "CHAT_MESSAGES_QUERY_INVALID" }),
       );
-      warnSpy.mockRestore();
+      expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
     });
 
-    it("returns 204 when no transcript yet (idempotent)", async () => {
-      mocks.getCachedTranscript.mockResolvedValue(null);
+    it("returns 204 for a stateless Hero Demo subject (idempotent)", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
       const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
       const { DELETE } = await import("../route");
       const res = await DELETE(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`, {
-          method: "DELETE",
-        })
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
       );
+
       expect(res.status).toBe(204);
       expect(infoSpy).toHaveBeenCalledWith(
-        "[chat/messages] clear no-op — no transcript cached",
+        "[chat/messages] clear no-op - no retained thread",
         expect.objectContaining({
-          errorId: "CHAT_MESSAGES_CLEAR_NO_TRANSCRIPT",
+          errorId: "CHAT_MESSAGES_CLEAR_NO_RETAINED_THREAD",
+          reason: "stateless",
         }),
       );
-      infoSpy.mockRestore();
+      expect(mocks.clearChatMessages).not.toHaveBeenCalled();
     });
 
-    it("clears the thread and returns 204", async () => {
-      mocks.getCachedTranscript.mockResolvedValue({
-        videoId: "video-uuid",
-        title: "T",
-        channelName: "C",
-        segments: [{ text: "x", start: 0, duration: 1 }],
-        transcriptSource: "auto_captions",
-        language: "en",
-      });
+    it("returns 204 for a database subject that is not ready (idempotent)", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(NOT_READY_SUBJECT);
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      const { DELETE } = await import("../route");
+      const res = await DELETE(
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
+      );
+
+      expect(res.status).toBe(204);
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[chat/messages] clear no-op - no retained thread",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_CLEAR_NO_RETAINED_THREAD",
+          reason: "not_ready",
+        }),
+      );
+    });
+
+    it("clears the retained thread and returns 204", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(DATABASE_SUBJECT);
       mocks.clearChatMessages.mockResolvedValue(undefined);
       const { DELETE } = await import("../route");
       const res = await DELETE(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`, {
-          method: "DELETE",
-        })
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
       );
+
       expect(res.status).toBe(204);
       expect(mocks.clearChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
     });
 
-    it("returns 503 when clear fails", async () => {
-      mocks.getCachedTranscript.mockResolvedValue({
-        videoId: "video-uuid",
-        title: "T",
-        channelName: "C",
-        segments: [{ text: "x", start: 0, duration: 1 }],
-        transcriptSource: "auto_captions",
-        language: "en",
+    it("returns 503 when subject resolution is unavailable", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(UNAVAILABLE_SUBJECT);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { DELETE } = await import("../route");
+      const res = await DELETE(
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
+      );
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        message: "Could not clear chat history.",
       });
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[chat/messages] subject resolution unavailable (DELETE)",
+        expect.objectContaining({
+          errorId: "CHAT_MESSAGES_SUBJECT_UNAVAILABLE",
+          videoId: VALID_IDENTITY.youtubeVideoId,
+        }),
+      );
+    });
+
+    it("returns 503 when clear fails", async () => {
+      mocks.resolveVideoChatSubject.mockResolvedValue(DATABASE_SUBJECT);
       mocks.clearChatMessages.mockRejectedValue(new Error("boom"));
       vi.spyOn(console, "error").mockImplementation(() => {});
       const { DELETE } = await import("../route");
       const res = await DELETE(
-        makeReq(`/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`, {
-          method: "DELETE",
-        })
+        makeReq(
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
+          { method: "DELETE" },
+        ),
       );
+
       expect(res.status).toBe(503);
     });
   });
