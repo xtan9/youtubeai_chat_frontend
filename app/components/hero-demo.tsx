@@ -68,12 +68,10 @@ const LOADING_SUGGESTIONS_SENTINEL: readonly string[] = [];
  *    markdown without touching the network. Transcript tab uses the
  *    /summary `<TranscriptParagraphs>` component for paragraph-grouped
  *    click-to-seek timestamps that drive the embedded player.
- * 3. Live `<ChatTab>` against the active sample. Anonymous visitors
- *    can chat the demo videos without a sign-up wall (the API allowlist
- *    in app/api/chat/stream/route.ts is keyed off the same
- *    HERO_DEMO_VIDEO_IDS this registry uses). Chat answers' `[mm:ss]`
- *    chips seek the embedded player via the page-level
- *    PlayerRefProvider.
+ * 3. Live `<ChatTab>` against the active sample. Signed-in visitors
+ *    stream through the common Video Chat route; anonymous visitors are
+ *    prompted to sign up before chat work begins. Chat answers' `[mm:ss]`
+ *    chips seek the embedded player via the page-level PlayerRefProvider.
  */
 export default function HeroDemo() {
   return (

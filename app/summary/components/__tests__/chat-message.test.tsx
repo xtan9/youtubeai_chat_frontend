@@ -37,6 +37,27 @@ describe("ChatMessage", () => {
     expect(seekTo).toHaveBeenCalledWith(4 * 60 + 32, true);
   });
 
+  it("renders timestamp citations as disabled when Transcript timing is unavailable", () => {
+    const seekTo = vi.fn();
+    render(
+      <PlayerRefProvider>
+        <PlayerRegister seekTo={seekTo} />
+        <ChatMessage
+          role="assistant"
+          content="They explain it [4:32] clearly."
+          transcriptTimingStatus="unavailable"
+        />
+      </PlayerRefProvider>,
+    );
+
+    const chip = screen.getByRole("button", {
+      name: /timestamp \[4:32\].*unavailable/i,
+    });
+    expect((chip as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(chip);
+    expect(seekTo).not.toHaveBeenCalled();
+  });
+
   it("keeps malformed timestamps as plain text (no chip)", () => {
     render(<ChatMessage role="assistant" content="Look at [99:99]" />);
     expect(screen.queryByRole("button")).toBeNull();

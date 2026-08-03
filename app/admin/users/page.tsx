@@ -3,25 +3,18 @@ import { Btn } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
-  listUsersWithStatsAndSort,
-  getUserSummaries,
-  getUserAuditEvents,
-  lastNDays,
-  type SortKey,
-  type SortDir,
-} from "@/lib/admin/queries";
+  loadUserAccountsReport,
+  type UserAccountsReportInput,
+} from "@/lib/admin/user-accounts-report";
 import { UsersTable } from "./_components/users-table";
 import { parseTab, DEFAULT_TAB } from "./_components/filter";
 
-const PAGE_SIZE = 25;
-const DEFAULT_SORT: SortKey = "createdAt";
-const DEFAULT_DIR: SortDir = "desc";
-const DRILLDOWN_SUMMARY_LIMIT = 25;
-const DRILLDOWN_AUDIT_LIMIT = 10;
+const DEFAULT_SORT: UserAccountsReportInput["sort"] = "createdAt";
+const DEFAULT_DIRECTION: UserAccountsReportInput["direction"] = "desc";
 
 export const dynamic = "force-dynamic";
 
-const KNOWN_SORT: ReadonlySet<SortKey> = new Set([
+const KNOWN_SORT: ReadonlySet<UserAccountsReportInput["sort"]> = new Set([
   "email",
   "providers",
   "status",
@@ -33,13 +26,17 @@ const KNOWN_SORT: ReadonlySet<SortKey> = new Set([
   "whisperPct",
 ]);
 
-function parseSort(value: string | undefined): SortKey {
-  if (value && (KNOWN_SORT as Set<string>).has(value)) return value as SortKey;
+function parseSort(value: string | undefined): UserAccountsReportInput["sort"] {
+  if (value && KNOWN_SORT.has(value as UserAccountsReportInput["sort"])) {
+    return value as UserAccountsReportInput["sort"];
+  }
   return DEFAULT_SORT;
 }
 
-function parseDir(value: string | undefined): SortDir {
-  return value === "asc" ? "asc" : DEFAULT_DIR;
+function parseDirection(
+  value: string | undefined,
+): UserAccountsReportInput["direction"] {
+  return value === "asc" ? "asc" : DEFAULT_DIRECTION;
 }
 
 function parsePage(value: string | undefined): number {
@@ -67,35 +64,19 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
   const sort = parseSort(params.sort);
-  const dir = parseDir(params.dir);
+  const direction = parseDirection(params.dir);
   const tab = parseTab(params.tab);
   const page = parsePage(params.page);
   const search = params.q?.trim() ? params.q.trim() : null;
 
-  const window = lastNDays(30);
-  const result = await listUsersWithStatsAndSort(client, {
+  const result = await loadUserAccountsReport(client, {
     sort,
-    dir,
+    direction,
     tab,
     search,
     page,
-    pageSize: PAGE_SIZE,
-    window,
+    expandedAccountId: params.expanded ?? null,
   });
-
-  const expandedUserId =
-    params.expanded && result.rows.some((r) => r.userId === params.expanded)
-      ? params.expanded
-      : null;
-
-  const [expandedSummaries, expandedAudit] = expandedUserId
-    ? await Promise.all([
-        getUserSummaries(client, expandedUserId, DRILLDOWN_SUMMARY_LIMIT),
-        getUserAuditEvents(client, expandedUserId, DRILLDOWN_AUDIT_LIMIT),
-      ])
-    : [[], []];
-
-  const activeOnPage = result.rows.filter((r) => r.summaries > 0).length;
 
   return (
     <div className="surface-anim">
@@ -104,7 +85,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
           <h1 className="page-title">Users</h1>
           <p className="page-sub">
             {result.total.toLocaleString("en-US")} matching ·{" "}
-            {activeOnPage} active on this page
+            {result.activeOnPage} active on this page
             {result.truncated && (
               <span className="muted">
                 {" "}
@@ -128,7 +109,9 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
             {/* Preserve the active tab/sort across search submits. */}
             {tab !== DEFAULT_TAB && <input type="hidden" name="tab" value={tab} />}
             {sort !== DEFAULT_SORT && <input type="hidden" name="sort" value={sort} />}
-            {dir !== DEFAULT_DIR && <input type="hidden" name="dir" value={dir} />}
+            {direction !== DEFAULT_DIRECTION && (
+              <input type="hidden" name="dir" value={direction} />
+            )}
           </form>
           <Btn size="sm" kind="ghost" disabled>
             <Filter size={13} /> Filter
@@ -141,17 +124,10 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
 
       <div className="page-body">
         <UsersTable
-          rows={result.rows}
-          total={result.total}
-          page={result.page}
-          pageCount={result.pageCount}
-          truncated={result.truncated}
+          report={result}
           activeTab={tab}
           activeSort={sort}
-          activeDir={dir}
-          expandedUserId={expandedUserId}
-          expandedSummaries={expandedSummaries}
-          expandedAudit={expandedAudit}
+          activeDir={direction}
         />
       </div>
     </div>

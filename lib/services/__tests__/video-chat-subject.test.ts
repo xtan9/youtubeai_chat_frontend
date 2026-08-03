@@ -226,6 +226,25 @@ describe("Video Chat Subject resolver", () => {
     });
   });
 
+  it("does not resolve a non-allowlisted input through the static adapter", async () => {
+    const loadBase = vi.fn();
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary: vi.fn(),
+      },
+    ]);
+
+    await expect(adapter.resolve(identity(VIDEO_ID))).resolves.toEqual({
+      status: "not_ready",
+    });
+    expect(loadBase).not.toHaveBeenCalled();
+  });
+
   it("loads one coherent Hero Demo Grounding from one base asset and its source language", async () => {
     const loadBase = vi.fn().mockResolvedValue({
       id: HERO_VIDEO_ID,
@@ -325,6 +344,74 @@ describe("Video Chat Subject resolver", () => {
     );
   });
 
+  it("returns unavailable when the Hero base loader fails without loading a Summary", async () => {
+    const loadBase = vi.fn().mockRejectedValue(new Error("chunk-fetch"));
+    const loadSummary = vi.fn();
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(loadBase).toHaveBeenCalledTimes(1);
+    expect(loadSummary).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Hero Demo base load failed",
+      expect.objectContaining({ errorId: "HERO_DEMO_BASE_LOAD_FAILED" }),
+    );
+  });
+
+  it("rejects a Summary in a translated language instead of falling back from the source language", async () => {
+    const loadBase = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      segments: [{ text: "line", start: 1, duration: 2 }],
+      nativeLanguage: "es",
+    });
+    const loadSummary = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      language: "en",
+      summary: "English fallback",
+      model: "hero-model",
+    });
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(loadSummary).toHaveBeenCalledWith("es");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Hero Demo Grounding schema mismatch",
+      expect.objectContaining({
+        errorId: "VIDEO_CHAT_SUBJECT_HERO_DEMO_GROUNDING_SCHEMA_MISMATCH",
+      }),
+    );
+  });
+
   it("returns not-ready when the Hero base has no usable timing", async () => {
     const loadBase = vi.fn().mockResolvedValue({
       id: HERO_VIDEO_ID,
@@ -397,6 +484,39 @@ describe("Video Chat Subject resolver", () => {
       "[video-chat-subject] Hero Demo registry drift",
       expect.objectContaining({ errorId: "HERO_DEMO_REGISTRY_DRIFT" }),
     );
+  });
+
+  it("never probes the database when static Hero Grounding fails", async () => {
+    const loadBase = vi.fn().mockRejectedValue(new Error("chunk-fetch"));
+    const heroAdapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary: vi.fn(),
+      },
+    ]);
+    const databaseResolve = vi.fn();
+    const resolver = createVideoChatSubjectResolver({
+      heroDemo: heroAdapter,
+      database: {
+        kind: "database",
+        resolve: databaseResolve,
+      },
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await resolver(
+      `https://www.youtube.com/watch?v=${HERO_VIDEO_ID}`,
+    );
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(databaseResolve).not.toHaveBeenCalled();
   });
 
   it("selects only the database adapter for a non-demo video", async () => {

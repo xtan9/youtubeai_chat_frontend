@@ -11,6 +11,10 @@ import { ChatClearButton } from "./chat-clear-button";
 import { ChatEmptyState } from "./chat-empty-state";
 import { ChatInput } from "./chat-input";
 import { ChatMessageList } from "./chat-message-list";
+import {
+  TranscriptTimingNotice,
+  type TranscriptTimingStatus,
+} from "./transcript-timing-notice";
 import { cn } from "@/lib/utils";
 
 interface ChatTabProps {
@@ -32,6 +36,7 @@ interface ChatTabProps {
    */
   readonly suggestionsOverride?: readonly string[];
   readonly analyticsSurface?: "summary" | "hero_demo";
+  readonly transcriptTimingStatus?: TranscriptTimingStatus;
 }
 
 /**
@@ -45,6 +50,7 @@ export function ChatTab({
   className,
   suggestionsOverride,
   analyticsSurface = "summary",
+  transcriptTimingStatus,
 }: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
@@ -120,6 +126,15 @@ export function ChatTab({
         />
       </div>
 
+      {transcriptTimingStatus && transcriptTimingStatus !== "available" && (
+        <div className="px-3 pt-3">
+          <TranscriptTimingNotice
+            status={transcriptTimingStatus}
+            testId="chat-transcript-timing-notice"
+          />
+        </div>
+      )}
+
       {thread.error && (
         <div
           role="alert"
@@ -149,6 +164,7 @@ export function ChatTab({
           messages={persistedMessages}
           draft={stream.draft}
           streaming={stream.streaming}
+          transcriptTimingStatus={transcriptTimingStatus}
         />
       )}
 

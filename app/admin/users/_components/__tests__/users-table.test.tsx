@@ -19,10 +19,12 @@ vi.mock("../../../_components/admin-context", () => ({
 }));
 
 import { UsersTable } from "../users-table";
-import type { AdminUserRow } from "@/lib/admin/queries";
-import type { AuditRow } from "@/lib/admin/audit-report";
+import type { UserAccountsReport } from "@/lib/admin/user-accounts-report";
 
-const baseRow = (over: Partial<AdminUserRow>): AdminUserRow => ({
+type UserAccountRow = UserAccountsReport["rows"][number];
+type UserAuditRow = NonNullable<UserAccountsReport["expanded"]>["audit"][number];
+
+const baseRow = (over: Partial<UserAccountRow>): UserAccountRow => ({
   userId: "u",
   email: "u@x",
   emailVerified: true,
@@ -44,6 +46,23 @@ const baseRow = (over: Partial<AdminUserRow>): AdminUserRow => ({
   ...over,
 });
 
+function reportFor(
+  rows: UserAccountRow[],
+  over: Partial<UserAccountsReport> = {},
+): UserAccountsReport {
+  return {
+    rows,
+    total: rows.length,
+    truncated: false,
+    page: 1,
+    pageCount: 1,
+    activeOnPage: rows.filter((row) => row.summaries > 0).length,
+    expanded: null,
+    warnings: [],
+    ...over,
+  };
+}
+
 beforeEach(() => {
   replace.mockClear();
 });
@@ -58,17 +77,10 @@ describe("UsersTable", () => {
     ];
     render(
       <UsersTable
-        rows={rows}
-        total={1}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor(rows)}
         activeTab="exclude_anon"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId={null}
-        expandedSummaries={[]}
-        expandedAudit={[]}
       />,
     );
     expect(screen.getByText("alice@x")).toBeTruthy();
@@ -77,21 +89,35 @@ describe("UsersTable", () => {
     expect(screen.getByText(/Last activity/i)).toBeTruthy();
   });
 
+  it("renders report completeness warnings from the cohesive result", () => {
+    render(
+      <UsersTable
+        report={reportFor([], {
+          warnings: [
+            {
+              code: "USER_ACCOUNT_ACTIVITY_UNAVAILABLE",
+              description: "Activity data is temporarily incomplete.",
+            },
+          ],
+        })}
+        activeTab="exclude_anon"
+        activeSort="createdAt"
+        activeDir="desc"
+      />,
+    );
+
+    expect(screen.getByText("Report completeness")).toBeTruthy();
+    expect(screen.getByText("Activity data is temporarily incomplete.")).toBeTruthy();
+  });
+
   it("clicking the active sort header flips dir asc", async () => {
     const user = userEvent.setup();
     render(
       <UsersTable
-        rows={[baseRow({ userId: "u1" })]}
-        total={1}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor([baseRow({ userId: "u1" })])}
         activeTab="exclude_anon"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId={null}
-        expandedSummaries={[]}
-        expandedAudit={[]}
       />,
     );
 
@@ -104,17 +130,10 @@ describe("UsersTable", () => {
     const user = userEvent.setup();
     render(
       <UsersTable
-        rows={[baseRow({ userId: "u1" })]}
-        total={1}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor([baseRow({ userId: "u1" })])}
         activeTab="exclude_anon"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId={null}
-        expandedSummaries={[]}
-        expandedAudit={[]}
       />,
     );
 
@@ -125,17 +144,10 @@ describe("UsersTable", () => {
   it("Anonymous tab is highlighted when activeTab is anon_only", () => {
     render(
       <UsersTable
-        rows={[]}
-        total={0}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor([])}
         activeTab="anon_only"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId={null}
-        expandedSummaries={[]}
-        expandedAudit={[]}
       />,
     );
     const anon = screen.getByText("Anonymous");
@@ -143,7 +155,7 @@ describe("UsersTable", () => {
   });
 
   it("expanded drilldown shows audit events and raw metadata", () => {
-    const audit: AuditRow[] = [
+    const audit: UserAuditRow[] = [
       {
         id: "a1",
         createdAt: "2026-04-29T00:00:00Z",
@@ -158,17 +170,12 @@ describe("UsersTable", () => {
     const rows = [baseRow({ userId: "u1", appMetadata: { foo: "bar" } })];
     render(
       <UsersTable
-        rows={rows}
-        total={1}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor(rows, {
+          expanded: { accountId: "u1", summaries: [], audit },
+        })}
         activeTab="exclude_anon"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId="u1"
-        expandedSummaries={[]}
-        expandedAudit={audit}
       />,
     );
     expect(screen.getByText(/RECENT AUDIT EVENTS/)).toBeTruthy();
@@ -182,17 +189,12 @@ describe("UsersTable", () => {
   it("renders '(no email)' for anonymous-style rows", () => {
     render(
       <UsersTable
-        rows={[baseRow({ userId: "u1", email: null, isAnonymous: true, status: "anonymous" })]}
-        total={1}
-        page={1}
-        pageCount={1}
-        truncated={false}
+        report={reportFor([
+          baseRow({ userId: "u1", email: null, isAnonymous: true, status: "anonymous" }),
+        ])}
         activeTab="all"
         activeSort="createdAt"
         activeDir="desc"
-        expandedUserId={null}
-        expandedSummaries={[]}
-        expandedAudit={[]}
       />,
     );
     expect(screen.getByText("(no email)")).toBeTruthy();

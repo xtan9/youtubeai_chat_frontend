@@ -183,6 +183,43 @@ describe("Summary SSE event contract", () => {
     );
   });
 
+  it("rejects timed Transcript entries without usable text or duration", () => {
+    for (const segments of [
+      [{ text: "", start: 0, duration: 1 }],
+      [{ text: "   ", start: 0, duration: 1 }],
+      [{ text: "legacy timing", start: 0, duration: 0 }],
+    ]) {
+      expect(
+        SummarySseEventSchema.safeParse({
+          type: "full_transcript",
+          segments,
+          source: "whisper",
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("recovers a malformed full Transcript in wire order without hiding later events", () => {
+    const decoder = new SummarySseStreamDecoder();
+    const items = decoder.pushRecovering(
+      frame({
+        type: "full_transcript",
+        segments: [{ text: "legacy timing", start: 0, duration: 0 }],
+        source: "whisper",
+      }) + frame({ type: "content", text: "Summary content" }),
+    );
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      kind: "error",
+      error: { code: "invalid_full_transcript" },
+    });
+    expect(items[1]).toEqual({
+      kind: "event",
+      event: { type: "content", text: "Summary content" },
+    });
+  });
+
   it("validates events across chunk boundaries", () => {
     const decoder = new SummarySseStreamDecoder();
     const event = supportedEvents[5];

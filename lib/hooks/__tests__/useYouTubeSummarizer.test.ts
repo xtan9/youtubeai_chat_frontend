@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPush = vi.fn();
+const analyticsMocks = vi.hoisted(() => ({ capture: vi.fn() }));
 const mockGetSession = vi.fn();
 const mockSignInAnonymously = vi.fn();
 let mockUserCtx: {
@@ -27,6 +28,10 @@ vi.mock("@/lib/supabase/client", () => ({
   }),
 }));
 
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analyticsMocks.capture,
+}));
+
 import { useYouTubeSummarizer } from "../useYouTubeSummarizer";
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
@@ -39,7 +44,7 @@ function summaryResponse(cached = false): Response {
       {
         type: "summary",
         category: "general",
-        total_time: 3,
+        total_time: 9,
         transcribe_time: 1,
         summarize_time: 2,
       },
@@ -55,6 +60,7 @@ describe("useYouTubeSummarizer", () => {
     mockPush.mockReset();
     mockGetSession.mockReset();
     mockSignInAnonymously.mockReset();
+    analyticsMocks.capture.mockReset();
     mockUserCtx = { user: null, session: null };
   });
 
@@ -108,6 +114,53 @@ describe("useYouTubeSummarizer", () => {
       summary: { summary: "A complete Summary." },
     });
     expect("rawData" in result.current).toBe(false);
+    expect(analyticsMocks.capture).toHaveBeenCalledTimes(1);
+    expect(analyticsMocks.capture).toHaveBeenCalledWith("summary_succeeded", {
+      account_type: "registered",
+      source_surface: "summary",
+      result_origin: "cache",
+      output_language: "es",
+      transcription_seconds: 1,
+      summary_seconds: 2,
+      total_seconds: 9,
+    });
+  });
+
+  it("maps a terminal failure outcome to safe analytics exactly once", async () => {
+    mockUserCtx = {
+      user: { id: "u1" },
+      session: { access_token: "user-token" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "private upstream error" }), {
+          status: 503,
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useYouTubeSummarizer());
+    await act(async () => {
+      await result.current.start({
+        video: { youtubeUrl: VALID_URL },
+        outputLanguage: "ja",
+        includeTranscript: true,
+      });
+    });
+
+    expect(analyticsMocks.capture).toHaveBeenCalledTimes(1);
+    expect(analyticsMocks.capture).toHaveBeenCalledWith("summary_failed", {
+      account_type: "registered",
+      source_surface: "summary",
+      output_language: "ja",
+      failure_category: "request",
+      error_code: "REQUEST_FAILED",
+      http_status: 503,
+    });
+    expect(JSON.stringify(analyticsMocks.capture.mock.calls[0])).not.toContain(
+      "private upstream error",
+    );
   });
 
   it("redirects an authenticated 401 after the lifecycle records an auth failure", async () => {

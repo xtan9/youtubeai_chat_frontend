@@ -271,6 +271,148 @@ describe("acquireTranscript", () => {
     );
   });
 
+  it("measures fresh acquisition from operation start through cache lookup", async () => {
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_500)
+      .mockReturnValueOnce(2_500);
+    mocks.getCachedTranscript.mockImplementation(async () => {
+      Date.now();
+      return null;
+    });
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "en",
+        title: "VPS title",
+        description: "",
+        availableCaptions: ["en"],
+      },
+    });
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      acquisitionDurationSeconds: 1.5,
+    });
+  });
+
+  it("uses the normalized detected language for captions and emits semantic progress", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "FR-fr",
+        title: "VPS title",
+        description: "",
+        availableCaptions: ["fr-FR"],
+      },
+    });
+    const progress: TranscriptAcquisitionProgress[] = [];
+
+    const result = await acquireTranscript({
+      ...INPUT,
+      onProgress: (event) => progress.push(event),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+      detectedLanguage: "fr",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "fr",
+      "request-207"
+    );
+    expect(progress).toEqual([
+      { type: "language_detection", detectedLanguage: "fr" },
+      { type: "caption_acquisition" },
+    ]);
+    expect(progress.every((event) => !("message" in event))).toBe(true);
+  });
+
+  it("logs generic language metadata degradation and acquires captions without a hint", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "error",
+      error: new Error("metadata upstream unavailable"),
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      undefined,
+      "request-207"
+    );
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] language detection degraded",
+      expect.objectContaining({
+        errorId: "TRANSCRIPT_LANGUAGE_DETECTION_DEGRADED",
+        reason: "error",
+        errorName: "Error",
+      })
+    );
+  });
+
+  it("records a missing metadata endpoint as a warning and still acquires captions without a hint", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "non_ok",
+      status: 404,
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      undefined,
+      "request-207"
+    );
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      "[transcript-acquisition] language detection degraded",
+      expect.anything()
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] metadata endpoint unavailable",
+      expect.objectContaining({ errorId: "VPS_METADATA_404", status: 404 })
+    );
+  });
+
+  it("honors an explicit metadata cancellation outcome without logging or starting acquisition", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "aborted",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toEqual({ outcome: "caller_aborted" });
+    expect(mocks.extractCaptions).not.toHaveBeenCalled();
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it("uses an advertised English caption track before audio transcription", async () => {
     mocks.fetchVpsMetadata.mockResolvedValue({
       ok: true,
@@ -300,6 +442,102 @@ describe("acquireTranscript", () => {
       "request-207"
     );
     expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+  });
+
+  it("preserves the English caption source and timed segments before reporting success", async () => {
+    const events: string[] = [];
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(10_000)
+      .mockReturnValueOnce(12_500);
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "fr-FR",
+        title: "",
+        description: "",
+        availableCaptions: ["fr-FR", "en-US"],
+      },
+    });
+    const englishSegments = [
+      { text: "English one", start: 0.25, duration: 1.75 },
+      { text: "English two", start: 2, duration: 2.5 },
+    ] as const;
+    mocks.extractCaptions.mockImplementation(
+      async (
+        _youtubeUrl: string,
+        _signal: AbortSignal,
+        language?: string
+      ) => {
+        events.push(`captions:${language}`);
+        return language === "en"
+          ? captionsResult({
+              segments: englishSegments,
+              language: "en",
+              title: "English title",
+              channelName: "English channel",
+            })
+          : null;
+      }
+    );
+    mocks.writeCachedTranscript.mockImplementation(async (params) => {
+      events.push("persist");
+      expect(params).toMatchObject({
+        segments: englishSegments,
+        transcriptSource: "auto_captions",
+        language: "en",
+      });
+    });
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(events).toEqual(["captions:fr", "captions:en", "persist"]);
+    expect(result).toMatchObject({
+      outcome: "success",
+      segments: englishSegments,
+      transcriptSource: "auto_captions",
+      promptLocale: "en",
+      detectedLanguage: "fr",
+      acquisitionDurationSeconds: 2.5,
+    });
+  });
+
+  it("does not retry English when English was already the detected-language attempt", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "en-US",
+        title: "",
+        description: "",
+        availableCaptions: ["en-US"],
+      },
+    });
+    mocks.extractCaptions.mockResolvedValue(null);
+    mocks.transcribeViaVps.mockResolvedValue({
+      segments: SEGMENTS,
+      language: "en",
+      source: "whisper",
+    });
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "whisper",
+      detectedLanguage: "en",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledTimes(1);
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "en",
+      "request-207"
+    );
+    expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "en",
+      "request-207"
+    );
   });
 
   it("falls back to audio transcription only after a genuine caption miss", async () => {
@@ -341,6 +579,100 @@ describe("acquireTranscript", () => {
     );
   });
 
+  it("waits for an advertised English caption miss before starting pinned audio transcription", async () => {
+    const events: string[] = [];
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(20_000)
+      .mockReturnValueOnce(23_750);
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "fr-FR",
+        title: "",
+        description: "",
+        availableCaptions: ["fr-FR", "en-US"],
+      },
+    });
+    mocks.extractCaptions.mockImplementation(
+      async (
+        _youtubeUrl: string,
+        _signal: AbortSignal,
+        language?: string
+      ) => {
+        events.push(`captions:${language}`);
+        return null;
+      }
+    );
+    mocks.transcribeViaVps.mockImplementation(
+      async (
+        _youtubeUrl: string,
+        _signal: AbortSignal,
+        language?: string
+      ) => {
+        events.push(`audio:${language}`);
+        return {
+          segments: SEGMENTS,
+          language: "fr",
+          source: "whisper" as const,
+        };
+      }
+    );
+    mocks.writeCachedTranscript.mockImplementation(async () => {
+      events.push("persist");
+    });
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(events).toEqual(["captions:fr", "captions:en", "audio:fr", "persist"]);
+    expect(result).toMatchObject({
+      outcome: "success",
+      segments: SEGMENTS,
+      transcriptSource: "whisper",
+      detectedLanguage: "fr",
+      acquisitionDurationSeconds: 3.75,
+    });
+    expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "fr",
+      "request-207"
+    );
+  });
+
+  it("pins audio transcription to the normalized detected language", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "zh-Hans",
+        title: "",
+        description: "",
+        availableCaptions: [],
+      },
+    });
+    mocks.extractCaptions.mockResolvedValue(null);
+    mocks.transcribeViaVps.mockResolvedValue({
+      segments: SEGMENTS,
+      language: "zh",
+      source: "whisper",
+    });
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "whisper",
+      promptLocale: "zh",
+      detectedLanguage: "zh",
+    });
+    expect(mocks.transcribeViaVps).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "zh",
+      "request-207"
+    );
+    expect(mocks.detectLocale).not.toHaveBeenCalled();
+  });
+
   it("returns a known caption failure and never starts paid audio transcription", async () => {
     mocks.extractCaptions.mockRejectedValue(
       new CaptionExtractionError(503, "caption service down")
@@ -358,6 +690,79 @@ describe("acquireTranscript", () => {
     });
     expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
     expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+  });
+
+  it("stops on an unexpected English fallback failure without starting audio transcription", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "fr",
+        title: "",
+        description: "",
+        availableCaptions: ["fr", "en"],
+      },
+    });
+    mocks.extractCaptions
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(
+        new CaptionExtractionError("timeout", "English caption timeout")
+      );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "acquisition_failed",
+      failure: {
+        stage: "captions",
+        status: "timeout",
+        errorId: "VPS_CAPTIONS_FAILED_TIMEOUT",
+      },
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledTimes(2);
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] acquisition failed",
+      expect.objectContaining({
+        errorId: "VPS_CAPTIONS_FAILED_TIMEOUT",
+        stage: "captions",
+      })
+    );
+  });
+
+  it("returns the usable newly acquired Transcript when persistence fails", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "en",
+        title: "",
+        description: "",
+        availableCaptions: ["en"],
+      },
+    });
+    mocks.extractCaptions.mockResolvedValue(
+      captionsResult({ segments: SEGMENTS, title: "", channelName: "" })
+    );
+    mocks.writeCachedTranscript.mockRejectedValue(new Error("database down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      segments: SEGMENTS,
+      transcriptSource: "auto_captions",
+      promptLocale: "en",
+      reusedStoredTranscript: false,
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] Transcript persistence failed",
+      expect.objectContaining({
+        errorId: "TRANSCRIPT_PERSISTENCE_FAILED",
+        source: "auto_captions",
+      })
+    );
   });
 
   it("treats Video Unavailable as terminal and never starts audio transcription", async () => {
@@ -389,6 +794,7 @@ describe("acquireTranscript", () => {
 
   it.each([
     ["network failure", "network", "VPS_CAPTIONS_FAILED_NETWORK"],
+    ["timeout", "timeout", "VPS_CAPTIONS_FAILED_TIMEOUT"],
     ["malformed response", "schema", "VPS_CAPTIONS_FAILED_SCHEMA"],
   ] as const)(
     "treats a caption %s as terminal and never starts audio transcription",

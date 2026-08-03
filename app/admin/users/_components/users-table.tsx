@@ -18,17 +18,22 @@ import {
   TranscriptModal,
   type TranscriptModalTarget,
 } from "../../_components/transcript-modal";
-import type { TranscriptSource } from "@/lib/admin/types";
-import type { AuditRow } from "@/lib/admin/audit-report";
+import { ReportCompletenessNotice } from "../../_components/report-completeness";
 import type {
-  AdminUserRow,
-  SortDir,
-  SortKey,
-  UserSummaryRow,
-  UsersTab,
-} from "@/lib/admin/queries";
+  UserAccountsReport,
+  UserAccountsReportInput,
+} from "@/lib/admin/user-accounts-report";
 import { TABS } from "./filter";
-import { WHISPER_FLAG_THRESHOLD } from "@/lib/admin/constants";
+
+type UserAccountRow = UserAccountsReport["rows"][number];
+type UserSummaryRow = NonNullable<
+  UserAccountsReport["expanded"]
+>["summaries"][number];
+type UserAuditRow = NonNullable<UserAccountsReport["expanded"]>["audit"][number];
+type TranscriptSource = UserSummaryRow["source"];
+type UsersTab = UserAccountsReportInput["tab"];
+type SortKey = UserAccountsReportInput["sort"];
+type SortDir = UserAccountsReportInput["direction"];
 
 const SOURCE_PILL: Record<TranscriptSource, React.ReactNode> = {
   whisper: <Pill tone="warn">whisper</Pill>,
@@ -36,7 +41,7 @@ const SOURCE_PILL: Record<TranscriptSource, React.ReactNode> = {
   manual_captions: <Pill tone="ok">manual</Pill>,
 };
 
-const STATUS_PILL: Record<AdminUserRow["status"], React.ReactNode> = {
+const STATUS_PILL: Record<UserAccountRow["status"], React.ReactNode> = {
   active: <Pill tone="ok">active</Pill>,
   anonymous: <Pill>anon</Pill>,
   banned: <Pill tone="warn">banned</Pill>,
@@ -64,32 +69,20 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 interface UsersTableProps {
-  rows: AdminUserRow[];
-  total: number;
-  page: number;
-  pageCount: number;
-  truncated: boolean;
+  report: UserAccountsReport;
   activeTab: UsersTab;
   activeSort: SortKey;
   activeDir: SortDir;
-  expandedUserId: string | null;
-  expandedSummaries: UserSummaryRow[];
-  expandedAudit: AuditRow[];
 }
 
 export function UsersTable({
-  rows,
-  total,
-  page,
-  pageCount,
-  truncated,
+  report,
   activeTab,
   activeSort,
   activeDir,
-  expandedUserId,
-  expandedSummaries,
-  expandedAudit,
 }: UsersTableProps) {
+  const { rows, total, page, pageCount, truncated } = report;
+  const expandedUserId = report.expanded?.accountId ?? null;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -140,6 +133,7 @@ export function UsersTable({
 
   return (
     <>
+      <ReportCompletenessNotice warnings={report.warnings} />
       <div
         className="row gap-8"
         style={{ marginBottom: 14, alignItems: "center" }}
@@ -272,7 +266,7 @@ export function UsersTable({
                       </td>
                       <td className="num">{u.summaries}</td>
                       <td className="num">
-                        {u.whisperPct > WHISPER_FLAG_THRESHOLD ? (
+                        {u.flagged ? (
                           <Pill tone="warn">{u.whisperPct}%</Pill>
                         ) : (
                           <span className="muted tnum">{u.whisperPct}%</span>
@@ -287,8 +281,8 @@ export function UsersTable({
                         <td colSpan={COLUMNS.length + 1} style={{ padding: 0 }}>
                           <UserExpand
                             user={u}
-                            summaries={expandedSummaries}
-                            audit={expandedAudit}
+                            summaries={report.expanded?.summaries ?? []}
+                            audit={report.expanded?.audit ?? []}
                             onOpenTranscript={setOpenTranscript}
                           />
                         </td>
@@ -367,9 +361,9 @@ function buildHref(
 }
 
 interface UserExpandProps {
-  user: AdminUserRow;
+  user: UserAccountRow;
   summaries: UserSummaryRow[];
-  audit: AuditRow[];
+  audit: UserAuditRow[];
   onOpenTranscript: (target: TranscriptModalTarget) => void;
 }
 
@@ -391,7 +385,7 @@ function UserExpand({ user, summaries, audit, onOpenTranscript }: UserExpandProp
             <div className="mini-stat-label">Whisper rate</div>
             <div
               className="mini-stat-value tnum"
-              style={{ color: user.whisperPct > WHISPER_FLAG_THRESHOLD ? "var(--warn)" : undefined }}
+              style={{ color: user.flagged ? "var(--warn)" : undefined }}
             >
               {user.whisperPct}%
             </div>

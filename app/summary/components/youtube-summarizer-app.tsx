@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
@@ -21,7 +21,6 @@ import {
 } from "@/lib/constants/languages";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import YoutubeVideo from "./youtube-video";
-import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { Button } from "@/components/ui/button";
 import { getSummaryRunFailureMessage } from "@/lib/summary-run";
 
@@ -40,7 +39,6 @@ export function YouTubeSummarizerApp({
     useState<SupportedLanguageCode | null>(null);
   const [browserLanguage, setBrowserLanguage] =
     useState<SupportedLanguageCode>("en");
-  const analyticsOutcomeRef = useRef<string | null>(null);
 
   useEffect(() => {
     const langs =
@@ -51,7 +49,7 @@ export function YouTubeSummarizerApp({
     setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
   }, []);
 
-  const { snapshot, start, retry, cancel, isAnonymous, isAuthLoading } =
+  const { snapshot, start, retry, cancel, isAuthLoading } =
     useYouTubeSummarizer();
 
   const snapshotMatchesCurrentInput =
@@ -72,55 +70,6 @@ export function YouTubeSummarizerApp({
       includeTranscript: true,
     });
   }, [isAuthLoading, outputLanguage, start, url]);
-
-  useEffect(() => {
-    const accountType = isAnonymous ? "anonymous" : "registered";
-    const outputLanguageProperty = outputLanguage ?? "video_native";
-
-    if (!currentSnapshot) return;
-
-    if (currentSnapshot.status === "failed") {
-      const outcomeKey = `failed:${currentSnapshot.runId}`;
-      if (analyticsOutcomeRef.current === outcomeKey) return;
-      analyticsOutcomeRef.current = outcomeKey;
-      const { error } = currentSnapshot;
-      captureAnalyticsEvent("summary_failed", {
-        account_type: accountType,
-        source_surface: "summary",
-        output_language: outputLanguageProperty,
-        failure_category:
-          error.kind === "quota"
-            ? "quota"
-            : error.kind === "authentication"
-              ? "auth"
-              : error.kind === "rate_limit"
-                ? "rate_limit"
-                : error.kind === "processing" || error.kind === "protocol"
-                  ? "processing"
-                  : "request",
-        error_code: error.code ?? "summary_run_failed",
-        ...(error.status !== undefined ? { http_status: error.status } : {}),
-      });
-      return;
-    }
-
-    if (currentSnapshot.status === "succeeded") {
-      const outcomeKey = `succeeded:${currentSnapshot.runId}`;
-      if (analyticsOutcomeRef.current === outcomeKey) return;
-      analyticsOutcomeRef.current = outcomeKey;
-      captureAnalyticsEvent("summary_succeeded", {
-        account_type: accountType,
-        source_surface: "summary",
-        result_origin: currentSnapshot.origin,
-        output_language: outputLanguageProperty,
-        transcription_seconds: currentSnapshot.summary.transcriptionTime,
-        summary_seconds: currentSnapshot.summary.summaryTime,
-        total_seconds:
-          currentSnapshot.summary.transcriptionTime +
-          currentSnapshot.summary.summaryTime,
-      });
-    }
-  }, [currentSnapshot, isAnonymous, outputLanguage]);
 
   const { copied, copyToClipboard } = useClipboard();
 
@@ -226,6 +175,10 @@ export function YouTubeSummarizerApp({
     currentSnapshot?.status === "succeeded"
       ? currentSnapshot.summary
       : undefined;
+  const completedTranscript =
+    currentSnapshot?.status === "succeeded"
+      ? currentSnapshot.transcript
+      : undefined;
 
   return (
     <PlayerRefProvider>
@@ -237,7 +190,11 @@ export function YouTubeSummarizerApp({
               chatPermanentlyLocked={chatPermanentlyLocked}
               summaryContent={summaryContent}
               chatContent={
-                <ChatTab youtubeUrl={url || null} active={!chatLocked} />
+                <ChatTab
+                  youtubeUrl={url || null}
+                  active={!chatLocked}
+                  transcriptTimingStatus={completedTranscript?.status}
+                />
               }
             />
           </div>
@@ -247,6 +204,7 @@ export function YouTubeSummarizerApp({
               width={600}
               segments={completedSummary?.segments}
               transcriptSource={completedSummary?.transcriptSource}
+              transcriptState={completedTranscript}
               streamingComplete={currentSnapshot?.status === "succeeded"}
             />
           </div>

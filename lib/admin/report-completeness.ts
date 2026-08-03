@@ -2,11 +2,16 @@
 export const REPORT_COMPLETENESS_WARNING_CODES = {
   userAccountDirectoryUnavailable: "USER_ACCOUNT_DIRECTORY_UNAVAILABLE",
   userAccountDirectoryTruncated: "USER_ACCOUNT_DIRECTORY_TRUNCATED",
+  userAccountActivityUnavailable: "USER_ACCOUNT_ACTIVITY_UNAVAILABLE",
+  userAccountActivityTruncated: "USER_ACCOUNT_ACTIVITY_TRUNCATED",
   topUserAccountLookupUnavailable: "TOP_USER_ACCOUNT_LOOKUP_UNAVAILABLE",
   dashboardSummariesTruncated: "DASHBOARD_SUMMARIES_TRUNCATED",
   dashboardActivityTruncated: "DASHBOARD_ACTIVITY_TRUNCATED",
   dashboardCacheHitUnavailable: "DASHBOARD_CACHE_HIT_UNAVAILABLE",
   administratorTouchedVideosTruncated: "ADMINISTRATOR_TOUCHED_VIDEOS_TRUNCATED",
+  performanceSummariesTruncated: "PERFORMANCE_SUMMARIES_TRUNCATED",
+  performanceActivityUnavailable: "PERFORMANCE_ACTIVITY_UNAVAILABLE",
+  performanceActivityTruncated: "PERFORMANCE_ACTIVITY_TRUNCATED",
 } as const;
 
 export type ReportCompletenessWarningCode =
@@ -24,6 +29,10 @@ export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
     "User Account total is unavailable because account enumeration failed.",
   USER_ACCOUNT_DIRECTORY_TRUNCATED:
     "User Account total may be incomplete because account enumeration reached its row cap.",
+  USER_ACCOUNT_ACTIVITY_UNAVAILABLE:
+    "User Account activity data may be incomplete because activity lookup failed.",
+  USER_ACCOUNT_ACTIVITY_TRUNCATED:
+    "User Account activity data may be incomplete because activity lookup reached its row cap.",
   TOP_USER_ACCOUNT_LOOKUP_UNAVAILABLE:
     "Top User-Account email data may be incomplete because an account lookup failed.",
   DASHBOARD_SUMMARIES_TRUNCATED:
@@ -34,6 +43,12 @@ export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
     "Cache-hit metrics are unavailable because summary enrichment failed.",
   ADMINISTRATOR_TOUCHED_VIDEOS_TRUNCATED:
     "Administrator filtering may be incomplete because administrator-touched Video detection reached its row cap.",
+  PERFORMANCE_SUMMARIES_TRUNCATED:
+    "Performance summary data may be incomplete because the summary row cap was reached.",
+  PERFORMANCE_ACTIVITY_UNAVAILABLE:
+    "Performance administrator exclusions may be incomplete because activity lookup failed.",
+  PERFORMANCE_ACTIVITY_TRUNCATED:
+    "Performance administrator exclusions may be incomplete because activity lookup reached its row cap.",
 };
 
 export function reportCompletenessWarning(

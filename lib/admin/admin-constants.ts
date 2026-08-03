@@ -1,12 +1,8 @@
 /**
  * Caps and tuning constants shared between server-only admin code and
- * client components. Lives outside `queries.ts` so client components can
- * import the runtime values without pulling in the `import "server-only"`
- * side-effect (which intentionally fails the build for any client
- * component that transitively touches `queries.ts`).
- *
- * Server code re-exports these from `queries.ts` so existing import
- * paths keep working — the canonical numeric source is here.
+ * client components. Keeping them in this standalone module prevents
+ * client components from pulling server-only report implementations into
+ * the client bundle.
  */
 
 /** Hard cap on rows pulled from `summaries` for in-process aggregation. */
@@ -18,7 +14,7 @@ export const HISTORY_ROW_CAP = 100_000;
 /** Cap on per-page row count returned by `loadAuditReport`. */
 export const AUDIT_PAGE_SIZE_CAP = 200;
 
-/** Cap on per-page row count returned by `listUsersWithStatsAndSort`. */
+/** Cap on each page fetched by the User Accounts Directory loader. */
 export const USERS_PAGE_SIZE_CAP = 100;
 
 /** Hard cap on distinct Videos surfaced by `loadVideosReport`. */

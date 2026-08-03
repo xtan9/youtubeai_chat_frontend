@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
-import { TranscriptSegmentSchema } from "@/lib/types";
+import { TimedTranscriptSegmentSchema } from "@/lib/types";
 import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 
 // ---------------- Request body ----------------
@@ -59,7 +59,7 @@ export const SummarySseMetadataSchema = z
 export const SummarySseFullTranscriptSchema = z
   .object({
     type: z.literal("full_transcript"),
-    segments: z.array(TranscriptSegmentSchema).min(1).readonly(),
+    segments: z.array(TimedTranscriptSegmentSchema).min(1).readonly(),
     source: SummaryTranscriptSourceSchema,
   })
   .strict();

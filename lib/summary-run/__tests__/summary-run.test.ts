@@ -3,7 +3,8 @@ import {
   createSummaryRunController,
   type SummaryRunSnapshot,
   type SummaryRunInput,
-} from "../summary-run";
+  type SummaryRunOutcome,
+} from "..";
 
 const VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 const SECOND_VIDEO_URL = "https://www.youtube.com/watch?v=abcdefghijk";
@@ -148,6 +149,132 @@ describe("Summary Run public controller", () => {
     expect(snapshots.at(-1)?.status).toBe("succeeded");
 
     unsubscribe();
+  });
+
+  it("emits one privacy-safe success outcome with authoritative terminal timings", async () => {
+    const outcomes: SummaryRunOutcome[] = [];
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(
+        streamResponse(
+          [
+            event("metadata", {
+              category: "general",
+              cached: true,
+              title: "Private video title",
+            }),
+            event("content", { text: "Private Summary content" }),
+            event("full_transcript", {
+              segments: [{ text: "Private Transcript content", start: 0, duration: 1 }],
+              source: "auto_captions",
+            }),
+            event("summary", {
+              category: "general",
+              total_time: 11,
+              transcribe_time: 2,
+              summarize_time: 3,
+            }),
+          ].join(""),
+        ),
+      ),
+      getAccessToken: () => "token",
+      createRunId: () => "success-outcome-run",
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: "es",
+      includeTranscript: true,
+    });
+
+    expect(outcomes).toEqual([
+      {
+        outcome: "success",
+        runId: "success-outcome-run",
+        outputLanguage: "es",
+        origin: "cache",
+        timings: {
+          totalSeconds: 11,
+          transcriptionSeconds: 2,
+          summarySeconds: 3,
+        },
+      },
+    ]);
+    const serializedOutcome = JSON.stringify(outcomes[0]);
+    expect(serializedOutcome).not.toContain(VIDEO_URL);
+    expect(serializedOutcome).not.toContain("Private video title");
+    expect(serializedOutcome).not.toContain("Private Summary content");
+    expect(serializedOutcome).not.toContain("Private Transcript content");
+  });
+
+  it("emits one privacy-safe failure outcome for a duplicate terminal event", async () => {
+    const outcomes: SummaryRunOutcome[] = [];
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(
+        streamResponse(
+          [
+            event("metadata", { category: "general", cached: false }),
+            event("content", { text: "Private draft" }),
+            event("summary", {
+              category: "general",
+              total_time: 4,
+              transcribe_time: 1,
+              summarize_time: 3,
+            }),
+            event("summary", {
+              category: "general",
+              total_time: 4,
+              transcribe_time: 1,
+              summarize_time: 3,
+            }),
+          ].join(""),
+        ),
+      ),
+      getAccessToken: () => "token",
+      createRunId: () => "duplicate-outcome-run",
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+
+    expect(outcomes).toEqual([
+      {
+        outcome: "failure",
+        runId: "duplicate-outcome-run",
+        outputLanguage: null,
+        failure: {
+          kind: "protocol",
+          code: "EVENT_AFTER_TERMINATION",
+        },
+      },
+    ]);
+    expect(JSON.stringify(outcomes[0])).not.toContain("Private draft");
+  });
+
+  it("does not emit a success or failure outcome for cancellation", async () => {
+    const pending = controlledResponse();
+    const outcomes: SummaryRunOutcome[] = [];
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(pending.response),
+      getAccessToken: () => "token",
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    const start = controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: false,
+    });
+    await Promise.resolve();
+    controller.cancel();
+    pending.close();
+    await start;
+
+    expect(outcomes).toEqual([]);
   });
 
   it("decodes UTF-8 bytes and frames split at arbitrary boundaries exactly once", async () => {
@@ -654,6 +781,100 @@ describe("Summary Run public controller", () => {
     });
   });
 
+  it.each([
+    {
+      name: "not requested",
+      includeTranscript: false,
+      transcript: { status: "not_requested" },
+      wire: successfulWire(),
+    },
+    {
+      name: "requested but missing",
+      includeTranscript: true,
+      transcript: { status: "unavailable", diagnostic: "not_received" },
+      wire: successfulWire(),
+    },
+    {
+      name: "valid timed segments",
+      includeTranscript: true,
+      transcript: {
+        status: "available",
+        segments: [{ text: "Timed line", start: 12, duration: 2 }],
+        source: "auto_captions",
+      },
+      wire: [
+        event("metadata", { category: "general", cached: false }),
+        event("full_transcript", {
+          segments: [{ text: "Timed line", start: 12, duration: 2 }],
+          source: "auto_captions",
+        }),
+        event("content", { text: "Summary remains valid." }),
+        event("summary", {
+          category: "general",
+          total_time: 2,
+          transcribe_time: 1,
+          summarize_time: 1,
+        }),
+      ].join(""),
+    },
+  ])("represents the Transcript state independently for $name", async ({
+    includeTranscript,
+    transcript,
+    wire,
+  }) => {
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(streamResponse(wire)),
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      transcript,
+    });
+  });
+
+  it("does not expose a zero-duration Transcript entry as available timing", async () => {
+    const wire = [
+      event("metadata", { category: "general", cached: false }),
+      event("full_transcript", {
+        segments: [{ text: "Legacy transcript", start: 0, duration: 0 }],
+        source: "whisper",
+      }),
+      event("content", { text: "Summary without timed transcript." }),
+      event("summary", {
+        category: "general",
+        total_time: 2,
+        transcribe_time: 1,
+        summarize_time: 1,
+      }),
+    ].join("");
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(streamResponse(wire)),
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: true,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      transcript: {
+        status: "unavailable",
+        diagnostic: "invalid_full_transcript",
+      },
+      summary: { summary: "Summary without timed transcript." },
+    });
+  });
+
   it("sends every explicit start and never reuses a previous terminal result", async () => {
     const fetchMock = vi
       .fn()
@@ -699,11 +920,13 @@ describe("Summary Run public controller", () => {
       .fn()
       .mockResolvedValueOnce(first.response)
       .mockResolvedValueOnce(second.response);
+    const outcomes: SummaryRunOutcome[] = [];
     const observed: SummaryRunSnapshot[] = [];
     const controller = createSummaryRunController({
       fetch: fetchMock,
       getAccessToken: () => "token",
       createRunId: () => "reused-id",
+      onOutcome: (outcome) => outcomes.push(outcome),
     });
     controller.subscribe((snapshot) => observed.push(snapshot));
 
@@ -736,7 +959,13 @@ describe("Summary Run public controller", () => {
 
     first.enqueue(
       event("metadata", { category: "general", cached: false }) +
-        event("content", { text: "stale output" }),
+        event("content", { text: "stale output" }) +
+        event("summary", {
+          category: "general",
+          total_time: 3,
+          transcribe_time: 1,
+          summarize_time: 2,
+        }),
     );
     await Promise.resolve();
 
@@ -755,6 +984,7 @@ describe("Summary Run public controller", () => {
     first.close();
     await Promise.all([firstStart, secondStart]);
     expect(controller.getSnapshot().status).toBe("cancelled");
+    expect(outcomes).toEqual([]);
   });
 
   it("invalidates a succeeded Summary before a replacement can produce output", async () => {

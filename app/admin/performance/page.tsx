@@ -3,13 +3,12 @@ import { AreaChart, Btn, Pill, Sparkline } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
 import { IncludeAdminsToggle } from "../_components/include-admins-toggle";
 import { parseWindowDays } from "../_components/window-days";
+import { ReportCompletenessNotice } from "../_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
-  getPerformanceStats,
-  listAdminUserIds,
-  lastNDays,
-  type PerformanceStats,
-} from "@/lib/admin/queries";
+  loadPerformanceReport,
+  type PerformanceReport,
+} from "@/lib/admin/performance-report";
 import { assertNever, type Delta } from "@/lib/admin/types";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +33,13 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
   );
   const params = await searchParams;
   const windowDays = parseWindowDays(params.window, [1, 7, 14, 30, 90]);
-  const window = lastNDays(windowDays);
-  const includeAdmins = params.include_admins === "1";
-  const adminUserIds = includeAdmins ? [] : await listAdminUserIds(client);
-  const stats = await getPerformanceStats(client, window, {
-    excludeAdminUserIds: adminUserIds,
+  const includeAdministrators = params.include_admins === "1";
+  const report = await loadPerformanceReport(client, {
+    windowDays,
+    includeAdministrators,
   });
 
-  const cards = buildCards(stats);
+  const cards = buildCards(report);
 
   return (
     <div className="surface-anim">
@@ -51,12 +49,14 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
           <p className="page-sub">
             Last {windowDays} days · processing latency by stage ·{" "}
             <span className="muted">
-              {includeAdmins ? "including admins" : "excluding admin activity"}
+              {includeAdministrators
+                ? "including admins"
+                : "excluding admin activity"}
             </span>
           </p>
         </div>
         <div className="row gap-8">
-          <IncludeAdminsToggle checked={includeAdmins} />
+          <IncludeAdminsToggle checked={includeAdministrators} />
           <div className="tabs">
             {TIME_TABS.map((t) => (
               <a
@@ -64,7 +64,7 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
                 href={(() => {
                   const sp = new URLSearchParams();
                   if (t.key !== 30) sp.set("window", String(t.key));
-                  if (includeAdmins) sp.set("include_admins", "1");
+                  if (includeAdministrators) sp.set("include_admins", "1");
                   const qs = sp.toString();
                   return qs ? `?${qs}` : "?";
                 })()}
@@ -78,6 +78,7 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
       </div>
 
       <div className="page-body">
+        <ReportCompletenessNotice warnings={report.warnings} />
         {/* Compact metric strip */}
         <div className="card" style={{ overflow: "hidden", marginBottom: 18 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
@@ -143,10 +144,10 @@ export default async function AdminPerformancePage({ searchParams }: PageProps) 
           </div>
           <div style={{ padding: 18 }}>
             <AreaChart
-              data={stats.latencyByBucket.map((b) => b.p95Seconds ?? 0)}
+              data={report.latencyByBucket.map((b) => b.p95Seconds ?? 0)}
               h={220}
               color="var(--warn)"
-              labels={buildAxisLabels(stats.latencyByBucket.length)}
+              labels={buildAxisLabels(report.latencyByBucket.length)}
             />
           </div>
         </div>
@@ -163,7 +164,7 @@ interface PerfCard {
   spark: number[];
 }
 
-function buildCards(stats: PerformanceStats): PerfCard[] {
+function buildCards(stats: PerformanceReport): PerfCard[] {
   const sparkSeries = stats.latencyByBucket.map((b) => b.p95Seconds ?? 0);
   return [
     {
