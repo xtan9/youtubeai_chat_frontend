@@ -2,6 +2,8 @@
 export const REPORT_COMPLETENESS_WARNING_CODES = {
   userAccountDirectoryUnavailable: "USER_ACCOUNT_DIRECTORY_UNAVAILABLE",
   userAccountDirectoryTruncated: "USER_ACCOUNT_DIRECTORY_TRUNCATED",
+  userAccountActivityUnavailable: "USER_ACCOUNT_ACTIVITY_UNAVAILABLE",
+  userAccountActivityTruncated: "USER_ACCOUNT_ACTIVITY_TRUNCATED",
   topUserAccountLookupUnavailable: "TOP_USER_ACCOUNT_LOOKUP_UNAVAILABLE",
   dashboardSummariesTruncated: "DASHBOARD_SUMMARIES_TRUNCATED",
   dashboardActivityTruncated: "DASHBOARD_ACTIVITY_TRUNCATED",
@@ -26,6 +28,10 @@ export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
     "User Account total is unavailable because account enumeration failed.",
   USER_ACCOUNT_DIRECTORY_TRUNCATED:
     "User Account total may be incomplete because account enumeration reached its row cap.",
+  USER_ACCOUNT_ACTIVITY_UNAVAILABLE:
+    "User Account activity data may be incomplete because activity lookup failed.",
+  USER_ACCOUNT_ACTIVITY_TRUNCATED:
+    "User Account activity data may be incomplete because activity lookup reached its row cap.",
   TOP_USER_ACCOUNT_LOOKUP_UNAVAILABLE:
     "Top User-Account email data may be incomplete because an account lookup failed.",
   DASHBOARD_SUMMARIES_TRUNCATED:

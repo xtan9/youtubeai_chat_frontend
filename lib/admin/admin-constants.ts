@@ -18,7 +18,7 @@ export const HISTORY_ROW_CAP = 100_000;
 /** Cap on per-page row count returned by `loadAuditReport`. */
 export const AUDIT_PAGE_SIZE_CAP = 200;
 
-/** Cap on per-page row count returned by `listUsersWithStatsAndSort`. */
+/** Cap on each page fetched by the User Accounts Directory loader. */
 export const USERS_PAGE_SIZE_CAP = 100;
 
 /** Hard cap on distinct videos surfaced by `listVideosWithStats`. */

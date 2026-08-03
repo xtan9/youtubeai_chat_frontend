@@ -1,4 +1,6 @@
-import type { UsersTab } from "@/lib/admin/queries";
+import type { UserAccountsReportInput } from "@/lib/admin/user-accounts-report";
+
+export type UsersTab = UserAccountsReportInput["tab"];
 
 export const DEFAULT_TAB: UsersTab = "exclude_anon";
 
