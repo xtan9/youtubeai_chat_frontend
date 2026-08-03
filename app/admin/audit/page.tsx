@@ -3,7 +3,8 @@ import { ChevronRight, Download, RefreshCcw } from "lucide-react";
 import { Avatar, Btn, Pill } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import { loadAuditReport, type AuditRow } from "@/lib/admin/audit-report";
+import { loadAuditReport } from "@/lib/admin/audit-report";
+import type { AuditRow } from "@/lib/admin/report-types";
 import type { Tone } from "@/lib/admin/types";
 
 const PAGE_SIZE = 50;

@@ -2,10 +2,8 @@ import { Search } from "lucide-react";
 import { requireAdminPage } from "../_components/admin-gate";
 import { ReportCompletenessNotice } from "../_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import {
-  loadVideosReport,
-  type VideosReportInput,
-} from "@/lib/admin/videos-report";
+import { loadVideosReport } from "@/lib/admin/videos-report";
+import type { VideosReportInput } from "@/lib/admin/report-types";
 import {
   isTranscriptSource as isTranscriptSourceValue,
   type TranscriptSource,

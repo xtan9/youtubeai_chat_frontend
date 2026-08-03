@@ -1,18 +1,8 @@
+import "server-only";
+
 import { AUDIT_ACTIONS } from "./audit";
 import type { AuditAction, AuditResourceType } from "./audit";
-
-export interface AuditRow {
-  id: string;
-  createdAt: string;
-  adminId: string;
-  adminEmail: string;
-  /** Unknown values remain strings so persisted vocabulary stays visible. */
-  action: AuditAction | string;
-  /** Unknown values remain strings so persisted vocabulary stays visible. */
-  resourceType: AuditResourceType | string;
-  resourceId: string;
-  metadata: Record<string, unknown>;
-}
+import type { AuditRow } from "./report-types";
 
 const AUDIT_RESOURCE_TYPES: readonly AuditResourceType[] = [
   "summary",

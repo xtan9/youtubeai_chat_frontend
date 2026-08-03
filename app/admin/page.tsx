@@ -20,10 +20,8 @@ import { parseWindowDays } from "./_components/window-days";
 import { requireAdminPage } from "./_components/admin-gate";
 import { ReportCompletenessNotice } from "./_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import {
-  loadDashboardReport,
-  type DashboardReport,
-} from "@/lib/admin/dashboard-report";
+import { loadDashboardReport } from "@/lib/admin/dashboard-report";
+import type { DashboardReport } from "@/lib/admin/report-types";
 import type { Delta, TranscriptSource } from "@/lib/admin/types";
 
 export const dynamic = "force-dynamic";

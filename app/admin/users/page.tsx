@@ -2,10 +2,8 @@ import { Download, Filter, Search } from "lucide-react";
 import { Btn } from "../_components/atoms";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import {
-  loadUserAccountsReport,
-  type UserAccountsReportInput,
-} from "@/lib/admin/user-accounts-report";
+import { loadUserAccountsReport } from "@/lib/admin/user-accounts-report";
+import type { UserAccountsReportInput } from "@/lib/admin/report-types";
 import { UsersTable } from "./_components/users-table";
 import { parseTab, DEFAULT_TAB } from "./_components/filter";
 

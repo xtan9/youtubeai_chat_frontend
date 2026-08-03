@@ -19,7 +19,7 @@ vi.mock("../../../_components/admin-context", () => ({
 }));
 
 import { UsersTable } from "../users-table";
-import type { UserAccountsReport } from "@/lib/admin/user-accounts-report";
+import type { UserAccountsReport } from "@/lib/admin/report-types";
 
 type UserAccountRow = UserAccountsReport["rows"][number];
 type UserAuditRow = NonNullable<UserAccountsReport["expanded"]>["audit"][number];

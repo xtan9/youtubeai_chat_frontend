@@ -5,10 +5,8 @@ import { IncludeAdminsToggle } from "../_components/include-admins-toggle";
 import { parseWindowDays } from "../_components/window-days";
 import { ReportCompletenessNotice } from "../_components/report-completeness";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import {
-  loadPerformanceReport,
-  type PerformanceReport,
-} from "@/lib/admin/performance-report";
+import { loadPerformanceReport } from "@/lib/admin/performance-report";
+import type { PerformanceReport } from "@/lib/admin/report-types";
 import { assertNever, type Delta } from "@/lib/admin/types";
 
 export const dynamic = "force-dynamic";

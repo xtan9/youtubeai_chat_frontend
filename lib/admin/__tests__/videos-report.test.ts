@@ -27,10 +27,8 @@ vi.mock("react", () => {
 });
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  loadVideosReport,
-  type VideosReportInput,
-} from "../videos-report";
+import { loadVideosReport } from "../videos-report";
+import type { VideosReportInput } from "../report-types";
 import { QueryError } from "../errors";
 import { HISTORY_ROW_CAP } from "../admin-constants";
 

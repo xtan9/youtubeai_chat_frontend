@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAdminShell } from "../admin-shell";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function buildClient(
   users: Array<{
@@ -27,6 +31,88 @@ function buildClient(
 }
 
 describe("loadAdminShell", () => {
+  it("counts only signed-up, non-admin, non-anonymous users", async () => {
+    const client = {
+      from: vi.fn(),
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: {
+              users: [
+                { id: "u1", email: "alice@example.com", is_anonymous: false },
+                { id: "u2", email: "bob@example.com", is_anonymous: false },
+                { id: "u3", email: null, is_anonymous: true },
+                { id: "u4", email: "anon-x@y", is_anonymous: true },
+                { id: "u5", email: "ADMIN@example.com", is_anonymous: false },
+              ],
+              total: 5,
+            },
+            error: null,
+          })),
+          getUserById: vi.fn(),
+        },
+      },
+    } as unknown as SupabaseClient;
+
+    await expect(
+      loadAdminShell(client, { allowlist: ["admin@example.com"] }),
+    ).resolves.toMatchObject({ usersTotal: 2 });
+  });
+
+  it("treats allowlist comparison as case-insensitive", async () => {
+    const client = buildClient([
+      { id: "u1", email: "Owner@Example.com", is_anonymous: false },
+    ]);
+
+    await expect(
+      loadAdminShell(client, { allowlist: ["owner@example.com"] }),
+    ).resolves.toMatchObject({ usersTotal: 0 });
+  });
+
+  it("logs and returns a null count when listUsers fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = buildClient([], { message: "auth down" });
+    const result = await loadAdminShell(client, { allowlist: [] });
+
+    expect(result.usersTotal).toBeNull();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("User Account total unavailable"),
+      expect.any(Object),
+    );
+  });
+
+  it("paginates through multiple account pages", async () => {
+    const pageOne = Array.from({ length: 200 }, (_, index) => ({
+      id: `p1-${index}`,
+      email: `p1-${index}@example.com`,
+      is_anonymous: false,
+    }));
+    const pageTwo = Array.from({ length: 50 }, (_, index) => ({
+      id: `p2-${index}`,
+      email: `p2-${index}@example.com`,
+      is_anonymous: false,
+    }));
+    const pages = [
+      { users: pageOne, total: 250 },
+      { users: pageTwo, total: 250 },
+    ];
+    let page = 0;
+    const client = {
+      auth: {
+        admin: {
+          listUsers: vi.fn(async () => ({
+            data: pages[page++] ?? { users: [], total: 250 },
+            error: null,
+          })),
+        },
+      },
+    } as unknown as SupabaseClient;
+
+    await expect(loadAdminShell(client, { allowlist: [] })).resolves.toMatchObject({
+      usersTotal: 250,
+    });
+  });
+
   it("counts registered accounts while excluding anonymous, missing-email, and allowlisted admin accounts", async () => {
     const client = buildClient([
       { id: "u-1", email: "learner@example.com" },

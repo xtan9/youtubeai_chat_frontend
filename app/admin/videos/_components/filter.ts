@@ -2,7 +2,7 @@ import type {
   VideoReportMode,
   VideoReportSortDirection,
   VideoReportSortKey,
-} from "@/lib/admin/videos-report";
+} from "@/lib/admin/report-types";
 import { VIDEOS_PAGE_SIZE_CAP } from "@/lib/admin/admin-constants";
 
 type VideoMode = VideoReportMode;

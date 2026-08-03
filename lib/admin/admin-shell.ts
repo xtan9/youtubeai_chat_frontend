@@ -4,19 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   reportCompletenessWarning,
   REPORT_COMPLETENESS_WARNING_CODES,
-  type ReportCompletenessWarning,
 } from "./report-completeness";
+import type { AdminShellInput, AdminShellResult } from "./report-types";
 import { listUserAccounts } from "./user-account-directory";
-
-export interface AdminShellInput {
-  allowlist: readonly string[];
-}
-
-export interface AdminShellResult {
-  /** Null means the registered-account count could not be read. */
-  usersTotal: number | null;
-  warnings: ReportCompletenessWarning[];
-}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
