@@ -93,6 +93,7 @@ describe("transcription-http/v1 fixture manifest", () => {
       new Set([
         "caption-success",
         "caption-404",
+        "caption-video-unavailable",
         "caption-500",
         "transcription-success",
         "transcription-503",
@@ -115,7 +116,12 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["caption-success", "caption-404", "caption-500"])(
+  it.each([
+    "caption-success",
+    "caption-404",
+    "caption-video-unavailable",
+    "caption-500",
+  ])(
     "handles the %s caption response at the HTTP boundary",
     async (id) => {
       const fixture = getCase(id);
@@ -151,7 +157,13 @@ describe("frontend adapters against transcription-http/v1 fixtures", () => {
         expect(result).toBeNull();
       } else {
         expect(result).toBeInstanceOf(CaptionExtractionError);
-        expect((result as CaptionExtractionError).status).toBe(500);
+        expect((result as CaptionExtractionError).status).toBe(
+          fixture.frontend.response.status,
+        );
+      }
+
+      if (fixture.id === "caption-video-unavailable") {
+        expect(fixture.frontend.response).toEqual(fixture.service?.response);
       }
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];

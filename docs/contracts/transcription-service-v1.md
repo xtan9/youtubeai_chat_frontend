@@ -35,6 +35,10 @@ normal test suite without a shared package or live paid call.
   the service produces while the frontend test exercises the rollout bridge.
 - New response fields may be added during the window. Existing fields and
   status meanings are not removed or repurposed.
+- The frontend returns `null` from Caption Track extraction only for a bounded
+  `404 CAPTIONS_NOT_FOUND` response. A bounded `422 VIDEO_UNAVAILABLE`, all
+  other service failures, schema mismatches, and cancellation are terminal
+  and never authorize audio Transcription.
 - `duration: null` means unknown (for example, a live stream); it never means
   zero. A successful response with empty segments is invalid and must become a
   service or schema failure rather than an empty Transcript.
@@ -56,7 +60,7 @@ echoes it on every health/data response. Error responses also include a stable
 | Endpoint | Request body | Successful response | Stable failure statuses |
 | --- | --- | --- | --- |
 | `/metadata` | `{ "youtube_url": string }` | `{ language, title, description, duration: number \| null, availableCaptions: string[] }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `413` oversized request, `429` rate limit, `503` limit configuration failure, `504` endpoint timeout, `500` provider failure |
-| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `404` no usable captions, `413` oversized request, `429` rate limit, `503` limit configuration failure, `504` endpoint timeout, `500` unexpected provider failure |
+| `/captions` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "auto_captions", language, title, channelName }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `404` no usable captions, `422` valid Video Reference unavailable, `413` oversized request, `429` rate limit, `503` limit configuration failure, `504` endpoint timeout, `500` unexpected provider failure |
 | `/transcribe` | `{ "youtube_url": string, "lang"?: string }` | `{ segments, transcript, source: "whisper", language }` | `400` invalid JSON/fields, `401` missing/malformed auth, `403` wrong key, `413` oversized request/media or excessive duration, `429` rate/concurrency limit, `500` unexpected/empty result, `503` unknown media duration or temporary provider failure, `504` endpoint timeout |
 
 Language hints are constrained BCP-47-style tags. The sentinels `und`, `zxx`,
@@ -102,7 +106,7 @@ deployment chain.
 
 The required deterministic cases are all named in the manifest:
 
-- caption success, `404`, and `500`
+- caption success, `404`, `422`, and `500`
 - transcription success and `503`
 - metadata with known and unknown duration
 - multilingual language tags
