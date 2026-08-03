@@ -17,7 +17,6 @@ export { WHISPER_FLAG_THRESHOLD } from "./constants";
 // at the top of this file. Re-export the pair that callers historically
 // imported from this module so existing import paths stay stable.
 import {
-  SUMMARIES_ROW_CAP,
   HISTORY_ROW_CAP,
   USERS_PAGE_SIZE_CAP,
   VIDEOS_ROW_CAP,
@@ -67,13 +66,6 @@ function p95(values: (number | null | undefined)[]): number | null {
     .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
     .sort((a, b) => a - b);
   return percentile(filtered, 0.95);
-}
-
-function p50(values: (number | null | undefined)[]): number | null {
-  const filtered = values
-    .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
-    .sort((a, b) => a - b);
-  return percentile(filtered, 0.5);
 }
 
 // Window descriptor used by all KPI queries. Keeping it explicit (vs.
@@ -381,8 +373,8 @@ export interface VideoListOptions {
   /** Drop every video that any of these user IDs has ever touched (all-time,
    * window-independent — a video the admin tested last year shouldn't
    * re-enter trending this month). Stricter than the user-id history filter
-   * used by getPerformanceStats: there, only admin views
-   * are excluded but mixed videos still appear. The videos page uses the
+   * used by Performance: only administrator views are excluded there,
+   * while mixed videos still appear. The videos page uses the
    * stricter video-level filter to keep admin/QA traffic from inflating
    * what otherwise looks like organic catalog growth. */
   excludeAdminUserIds?: string[];
@@ -799,241 +791,7 @@ export async function getUserSummaries(
   return rows;
 }
 
-// ─── Shared KPI options ──────────────────────────────────────────────────
-
-export interface KpiOptions {
-  /** When non-empty, history aggregations exclude rows where user_id is
-   * in this list. Used to drop admin activity from KPIs. */
-  excludeAdminUserIds?: string[];
-}
-
-// ─── Performance stats ────────────────────────────────────────────────────
-
-export interface PerformanceStats {
-  window: TimeWindow;
-  p50Seconds: number | null;
-  p95Seconds: number | null;
-  transcribeP95Seconds: number | null;
-  summarizeP95Seconds: number | null;
-  prev: {
-    p50Seconds: number | null;
-    p95Seconds: number | null;
-    transcribeP95Seconds: number | null;
-    summarizeP95Seconds: number | null;
-  };
-  /** Daily buckets keyed by UTC day (YYYY-MM-DD). */
-  latencyByBucket: { day: string; p95Seconds: number | null }[];
-}
-
-export async function getPerformanceStats(
-  client: SupabaseClient,
-  window: TimeWindow = lastNDays(30),
-  opts: KpiOptions = {},
-): Promise<PerformanceStats> {
-  const exclude = opts.excludeAdminUserIds ?? [];
-  const days =
-    Math.round((window.end.getTime() - window.start.getTime()) / 86_400_000) + 1;
-  const prevWindow: TimeWindow = {
-    start: new Date(window.start.getTime() - days * 86_400_000),
-    end: new Date(window.start.getTime() - 86_400_000),
-  };
-
-  const wantFilter = exclude.length > 0;
-  const [current, previous, history, prevHistory] = await Promise.all([
-    fetchSummariesIn(client, window),
-    fetchSummariesIn(client, prevWindow),
-    wantFilter
-      ? fetchHistoryForExclusion(client, window, exclude)
-      : Promise.resolve([] as HistoryRow[]),
-    wantFilter
-      ? fetchHistoryForExclusion(client, prevWindow, exclude)
-      : Promise.resolve([] as HistoryRow[]),
-  ]);
-
-  // When excluding admins, intersect latency samples with admin-filtered
-  // history. Empty real-user history means null percentiles — the toggle
-  // promises filtering, not fallback to all-activity numbers.
-  const filteredCurrent = restrictSummariesToHistory(current, history, wantFilter);
-  const filteredPrev = restrictSummariesToHistory(previous, prevHistory, wantFilter);
-
-  const byDay = new Map<string, number[]>();
-  for (const s of filteredCurrent) {
-    if (!s.created_at || s.processing_time_seconds == null) continue;
-    const day = isoDay(new Date(s.created_at));
-    const arr = byDay.get(day) ?? [];
-    arr.push(s.processing_time_seconds);
-    byDay.set(day, arr);
-  }
-  const latencyByBucket: { day: string; p95Seconds: number | null }[] = [];
-  const cursor = new Date(window.start);
-  while (cursor <= window.end) {
-    const key = isoDay(cursor);
-    latencyByBucket.push({
-      day: key,
-      p95Seconds: p95(byDay.get(key) ?? []),
-    });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return {
-    window,
-    p50Seconds: p50(filteredCurrent.map((s) => s.processing_time_seconds)),
-    p95Seconds: p95(filteredCurrent.map((s) => s.processing_time_seconds)),
-    transcribeP95Seconds: p95(filteredCurrent.map((s) => s.transcribe_time_seconds)),
-    summarizeP95Seconds: p95(filteredCurrent.map((s) => s.summarize_time_seconds)),
-    prev: {
-      p50Seconds: p50(filteredPrev.map((s) => s.processing_time_seconds)),
-      p95Seconds: p95(filteredPrev.map((s) => s.processing_time_seconds)),
-      transcribeP95Seconds: p95(filteredPrev.map((s) => s.transcribe_time_seconds)),
-      summarizeP95Seconds: p95(filteredPrev.map((s) => s.summarize_time_seconds)),
-    },
-    latencyByBucket,
-  };
-}
-
 // ─── Internals ────────────────────────────────────────────────────────────
-
-interface SummaryRow {
-  id: string;
-  video_id: string;
-  transcript_source: string;
-  processing_time_seconds: number | null;
-  transcribe_time_seconds: number | null;
-  summarize_time_seconds: number | null;
-  created_at: string;
-}
-
-async function fetchSummariesIn(
-  client: SupabaseClient,
-  window: TimeWindow,
-): Promise<SummaryRow[]> {
-  const { data, error } = await client
-    .from("summaries")
-    .select(
-      "id, video_id, transcript_source, processing_time_seconds, transcribe_time_seconds, summarize_time_seconds, created_at",
-    )
-    .gte("created_at", window.start.toISOString())
-    .lte("created_at", window.end.toISOString())
-    .limit(SUMMARIES_ROW_CAP);
-  if (error) throw new QueryError("fetchSummariesIn", error.message);
-  if (data && data.length === SUMMARIES_ROW_CAP) {
-    console.warn("[admin-queries] summaries cap hit — KPIs may understate", {
-      cap: SUMMARIES_ROW_CAP,
-      window: { start: window.start.toISOString(), end: window.end.toISOString() },
-    });
-  }
-  return (data ?? []) as SummaryRow[];
-}
-
-interface HistoryRow {
-  user_id: string;
-  video_id: string;
-  created_at: string;
-  /** Populated by fetchHistoryIn enrichment for shared history consumers. */
-  cacheHit?: boolean;
-}
-
-/** Used by getPerformanceStats: a history-fetch error logs and returns []
- * so the perf page renders instead of 500-ing. With honest filtering, []
- * now zeroes the filtered metrics — that's preferable to crashing the
- * page on a transient read failure. */
-async function fetchHistoryForExclusion(
-  client: SupabaseClient,
-  window: TimeWindow,
-  exclude: string[],
-): Promise<HistoryRow[]> {
-  try {
-    return await fetchHistoryIn(client, window, exclude);
-  } catch (err) {
-    console.error(
-      "[admin-queries] getPerformanceStats: history fetch failed; filtered metrics will be empty",
-      {
-        message: err instanceof Error ? err.message : String(err),
-        window: {
-          start: window.start.toISOString(),
-          end: window.end.toISOString(),
-        },
-      },
-    );
-    return [];
-  }
-}
-
-function restrictSummariesToHistory<T extends { video_id: string }>(
-  summaries: T[],
-  history: HistoryRow[],
-  wantFilter: boolean,
-): T[] {
-  if (!wantFilter) return summaries;
-  const allowed = new Set(history.map((h) => h.video_id));
-  return summaries.filter((s) => allowed.has(s.video_id));
-}
-
-async function fetchHistoryIn(
-  client: SupabaseClient,
-  window: TimeWindow,
-  excludeUserIds: string[] = [],
-): Promise<HistoryRow[]> {
-  // Defensive filter: drop empty/falsy IDs so a future caller passing a
-  // partially-populated array can't break the PostgREST in.() literal
-  // (e.g. `()` or `(,uuid)` would 400 or silently mis-filter).
-  const cleanedExcludes = excludeUserIds.filter(
-    (id) => typeof id === "string" && id.length > 0,
-  );
-
-  // user_video_history's timestamp is `accessed_at` in production (see
-  // aggregateUserActivity comment). Alias on read so HistoryRow's
-  // `created_at` is consistent with how the field is named on every
-  // other admin table.
-  let query = client
-    .from("user_video_history")
-    .select("user_id, video_id, created_at:accessed_at")
-    .gte("accessed_at", window.start.toISOString())
-    .lte("accessed_at", window.end.toISOString());
-
-  if (cleanedExcludes.length > 0) {
-    query = query.not("user_id", "in", `(${cleanedExcludes.join(",")})`);
-  }
-
-  const { data: history, error } = await query.limit(HISTORY_ROW_CAP);
-  if (error) throw new QueryError("fetchHistoryIn:history", error.message);
-  if (history && history.length === HISTORY_ROW_CAP) {
-    console.warn("[admin-queries] history cap hit — DAU/cache-hit may understate", {
-      cap: HISTORY_ROW_CAP,
-      window: { start: window.start.toISOString(), end: window.end.toISOString() },
-    });
-  }
-  if (!history || history.length === 0) return [];
-
-  // Cache hit = an earlier summary for this video already existed before
-  // the user's history entry was recorded (so we served from cache instead
-  // of generating a new one). Compare history.created_at against the
-  // earliest known summary for the same video.
-  const videoIds = Array.from(new Set(history.map((h) => h.video_id as string)));
-  if (videoIds.length === 0) return history as HistoryRow[];
-
-  const { data: summaries, error: sErr } = await client
-    .from("summaries")
-    .select("video_id, created_at")
-    .in("video_id", videoIds);
-  if (sErr) throw new QueryError("fetchHistoryIn:summaries", sErr.message);
-
-  const earliestByVideo = new Map<string, string>();
-  for (const s of summaries ?? []) {
-    const vid = s.video_id as string;
-    const ts = s.created_at as string;
-    const existing = earliestByVideo.get(vid);
-    if (!existing || ts < existing) earliestByVideo.set(vid, ts);
-  }
-
-  return (history as HistoryRow[]).map((h) => {
-    const earliest = earliestByVideo.get(h.video_id);
-    return {
-      ...h,
-      cacheHit: earliest ? earliest < h.created_at : false,
-    };
-  });
-}
 
 // ─── Videos page queries ─────────────────────────────────────────────────
 
@@ -1053,7 +811,7 @@ interface AdminTouchedVideoLookup {
  * admin's stale test from outside the trending window re-enter the list.
  *
  * Throws on query error rather than fail-soft (unlike `listAdminUserIds`
- * and `fetchHistoryForExclusion` elsewhere in this file): a silent fail
+ * elsewhere in this file): a silent fail
  * here would degrade the videos page to *less* filtering than pre-PR,
  * which is exactly the failure mode the strict-filter contract is meant
  * to prevent. The caller should let the page-level error boundary render.
