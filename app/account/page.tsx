@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { AccountView } from "./AccountView";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Account - YouTube AI Chat",
@@ -10,10 +12,14 @@ export const metadata: Metadata = {
 };
 
 export default async function AccountPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
-  if (!user || (user.is_anonymous ?? false)) {
+  const principalResult = await resolveRequestPrincipal({ source: "account" });
+  if (principalResult.kind === "unavailable") {
+    throw new Error("Auth service temporarily unavailable.");
+  }
+  if (
+    principalResult.kind === "missing" ||
+    principalResult.principal.isAnonymous
+  ) {
     redirect("/auth/login");
   }
   return <AccountView />;

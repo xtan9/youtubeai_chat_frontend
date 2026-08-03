@@ -1,14 +1,21 @@
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { getStripe } from "@/lib/services/stripe";
 
 export async function POST() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (!user || (user.is_anonymous ?? false)) {
+  const principalResult = await resolveRequestPrincipal({
+    source: "billing_portal",
+  });
+  if (principalResult.kind === "unavailable") {
+    return Response.json({ message: "Service unavailable" }, { status: 503 });
+  }
+  if (
+    principalResult.kind === "missing" ||
+    principalResult.principal.isAnonymous
+  ) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
+  const { principal } = principalResult;
 
   const sr = getServiceRoleClient();
   const stripe = getStripe();
@@ -19,12 +26,12 @@ export async function POST() {
   const { data, error: lookupErr } = await sr
     .from("user_subscriptions")
     .select("stripe_customer_id")
-    .eq("user_id", user.id)
+    .eq("user_id", principal.userId)
     .maybeSingle();
   if (lookupErr) {
     console.error("[billing/portal] lookup failed", {
       errorId: "BILLING_PORTAL_LOOKUP_FAIL",
-      userId: user.id,
+      userId: principal.userId,
       code: (lookupErr as { code?: string }).code,
     });
     return Response.json({ message: "Service unavailable" }, { status: 503 });
@@ -42,7 +49,7 @@ export async function POST() {
     return Response.json({ url: session.url });
   } catch (err) {
     console.error("[billing/portal] stripe error", {
-      errorId: "BILLING_PORTAL_FAIL", userId: user.id, err,
+      errorId: "BILLING_PORTAL_FAIL", userId: principal.userId, err,
     });
     return Response.json({ message: "Service unavailable" }, { status: 503 });
   }

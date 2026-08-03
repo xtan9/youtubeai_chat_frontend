@@ -1,6 +1,5 @@
 import { after } from "next/server";
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import {
   getCachedSummary,
@@ -75,32 +74,11 @@ export async function POST(request: Request) {
   }
   const { youtube_url, message } = parsed.data;
 
-  // Match the summary route's auth-vs-infra error classification: 4xx
-  // from supabase auth means the request is unauthenticated; everything
-  // else means the auth service is sick and we should 503.
-  const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
-  const supabase = await createClient();
-  let user: User | null;
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      logAppEvent("error", "[chat/stream] auth failed", {
-        status: error.status ?? null,
-        requestId,
-      });
-      return jsonError(
-        503,
-        "Auth service temporarily unavailable.",
-        requestId,
-        "AUTH_SERVICE_UNAVAILABLE"
-      );
-    }
-    user = data.user;
-  } catch (err) {
-    logAppEvent("error", "[chat/stream] auth threw", {
-      errorName: err instanceof Error ? err.name : typeof err,
-      requestId,
-    });
+  const principalResult = await resolveRequestPrincipal({
+    source: "chat_stream",
+    requestId,
+  });
+  if (principalResult.kind === "unavailable") {
     return jsonError(
       503,
       "Auth service temporarily unavailable.",
@@ -108,10 +86,11 @@ export async function POST(request: Request) {
       "AUTH_SERVICE_UNAVAILABLE"
     );
   }
-  if (!user) return jsonError(401, "Unauthorized", requestId, "AUTH_REQUIRED");
+  if (principalResult.kind === "missing") {
+    return jsonError(401, "Unauthorized", requestId, "AUTH_REQUIRED");
+  }
 
-  const userId = user.id;
-  const isAnonymous = user.is_anonymous ?? false;
+  const { userId, isAnonymous } = principalResult.principal;
 
   // Never spend upstream tokens for anonymous users. The former hero-demo
   // exception was an unmetered public relay: callers could rotate anonymous

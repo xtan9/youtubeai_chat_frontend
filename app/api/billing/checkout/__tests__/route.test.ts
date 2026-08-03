@@ -1,7 +1,7 @@
 import { it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
+  resolveRequestPrincipal: vi.fn(),
   getServiceRoleClient: vi.fn(),
   customersCreate: vi.fn(),
   sessionsCreate: vi.fn(),
@@ -9,10 +9,8 @@ const mocks = vi.hoisted(() => ({
   maybeSingle: vi.fn(),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({
-    auth: { getUser: mocks.getUser },
-  }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 
 vi.mock("@/lib/supabase/service-role", () => ({
@@ -39,8 +37,19 @@ beforeEach(() => {
   });
 });
 
+function resolvedPrincipal(
+  userId = "u1",
+  email: string | null = "u@x",
+  isAnonymous = false,
+) {
+  return {
+    kind: "resolved" as const,
+    principal: { userId, email, isAnonymous },
+  };
+}
+
 it("401 when not signed in", async () => {
-  mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+  mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
   const { POST } = await import("../route");
   const res = await POST(new Request("http://x", {
     method: "POST",
@@ -49,11 +58,21 @@ it("401 when not signed in", async () => {
   expect(res.status).toBe(401);
 });
 
+it("503 when auth infrastructure is unavailable", async () => {
+  mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
+  const { POST } = await import("../route");
+  const res = await POST(new Request("http://x", {
+    method: "POST",
+    body: JSON.stringify({ plan: "monthly" }),
+  }));
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({ message: "Service unavailable" });
+});
+
 it("401 when user is anonymous (Supabase anon auth)", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", is_anonymous: true } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(
+    resolvedPrincipal("u1", "", true),
+  );
   const { POST } = await import("../route");
   const res = await POST(new Request("http://x", {
     method: "POST",
@@ -63,10 +82,7 @@ it("401 when user is anonymous (Supabase anon auth)", async () => {
 });
 
 it("400 on invalid plan", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   const { POST } = await import("../route");
   const res = await POST(new Request("http://x", {
     method: "POST",
@@ -76,10 +92,7 @@ it("400 on invalid plan", async () => {
 });
 
 it("creates customer + session for new user, returns url", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
   mocks.customersCreate.mockResolvedValue({ id: "cus_1" });
   mocks.upsert.mockResolvedValue({ error: null });
@@ -111,10 +124,7 @@ it("creates customer + session for new user, returns url", async () => {
 });
 
 it("reuses existing customer when user_subscriptions row already exists", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   mocks.maybeSingle.mockResolvedValue({
     data: { stripe_customer_id: "cus_existing" },
     error: null,
@@ -134,10 +144,7 @@ it("reuses existing customer when user_subscriptions row already exists", async 
 });
 
 it("503 when customer lookup returns DB error", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   mocks.maybeSingle.mockResolvedValue({ data: null, error: { code: "PGRST301" } });
   vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -152,10 +159,7 @@ it("503 when customer lookup returns DB error", async () => {
 });
 
 it("503 when upsert fails (does not create checkout session)", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
   mocks.customersCreate.mockResolvedValue({ id: "cus_1" });
   mocks.upsert.mockResolvedValue({ error: { code: "23505" } });
@@ -171,10 +175,7 @@ it("503 when upsert fails (does not create checkout session)", async () => {
 });
 
 it("503 when Stripe throws", async () => {
-  mocks.getUser.mockResolvedValue({
-    data: { user: { id: "u1", email: "u@x", is_anonymous: false } },
-    error: null,
-  });
+  mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal());
   mocks.maybeSingle.mockResolvedValue({
     data: { stripe_customer_id: "cus_existing" },
     error: null,
