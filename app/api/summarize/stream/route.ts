@@ -327,38 +327,49 @@ export async function POST(request: Request) {
           }
         };
 
-        let acquisitionResult: TranscriptAcquisitionOutcome;
-        let bufferedProgress: TranscriptAcquisitionProgress[] | undefined;
+        // A Summary cache hit can still need Transcript Acquisition when the
+        // caller requested the canonical timed Transcript. The acquisition
+        // seam decides whether the stored Transcript is valid, heals its
+        // metadata, or acquires a replacement before this cached Summary is
+        // streamed. Keeping one invocation here makes that boundary the only
+        // production source-selection entry point for the route.
+        const bufferedProgress: TranscriptAcquisitionProgress[] | null = cached
+          ? []
+          : null;
 
-        if (cached) {
-          // A Summary cache hit can still need Transcript Acquisition when
-          // the caller requested the canonical timed Transcript. The
-          // acquisition seam decides whether the stored Transcript is valid
-          // and heals its metadata before this cached Summary is streamed.
-          bufferedProgress = [];
-          acquisitionResult = await acquireTranscript({
+        if (!cached) {
+          sendEvent({ type: "metadata", category: "general", cached: false });
+        }
+
+        const acquisitionResult: TranscriptAcquisitionOutcome =
+          await acquireTranscript({
             youtubeUrl: youtube_url,
             signal: request.signal,
             requestId,
-            onProgress: (progress) => bufferedProgress!.push(progress),
+            onProgress: (progress) => {
+              if (bufferedProgress) bufferedProgress.push(progress);
+              else sendAcquisitionProgress(progress);
+            },
           });
 
-          if (
-            acquisitionResult.outcome === "success" &&
-            acquisitionResult.reusedStoredTranscript
-          ) {
-            streamCached(sendEvent, cached, {
-              includeTranscript,
-              segments: acquisitionResult.segments,
-              source: acquisitionResult.transcriptSource,
-              title: acquisitionResult.title,
-              channelName: acquisitionResult.channelName,
-              transcribeTimeSeconds:
-                acquisitionResult.acquisitionDurationSeconds,
-            });
-            return;
-          }
+        if (
+          cached &&
+          acquisitionResult.outcome === "success" &&
+          acquisitionResult.reusedStoredTranscript
+        ) {
+          streamCached(sendEvent, cached, {
+            includeTranscript,
+            segments: acquisitionResult.segments,
+            source: acquisitionResult.transcriptSource,
+            title: acquisitionResult.title,
+            channelName: acquisitionResult.channelName,
+            transcribeTimeSeconds:
+              acquisitionResult.acquisitionDurationSeconds,
+          });
+          return;
+        }
 
+        if (cached) {
           // The Summary itself came from the validated cache row even when
           // Transcript Acquisition has to run again to restore timed
           // segments. Origin must describe the Summary source, not whether
@@ -370,15 +381,7 @@ export async function POST(request: Request) {
             title: cached.title,
             channel: cached.channelName,
           });
-          bufferedProgress.forEach(sendAcquisitionProgress);
-        } else {
-          sendEvent({ type: "metadata", category: "general", cached: false });
-          acquisitionResult = await acquireTranscript({
-            youtubeUrl: youtube_url,
-            signal: request.signal,
-            requestId,
-            onProgress: sendAcquisitionProgress,
-          });
+          bufferedProgress?.forEach(sendAcquisitionProgress);
         }
 
         if (acquisitionResult.outcome === "caller_aborted") return;
@@ -519,10 +522,11 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Oembed was already awaited before the classifier, so this
-        // duration no longer includes an oembed round-trip tail. Includes
-        // transcription + LLM always; classifier time is included only
-        // when the classifier actually ran (middle-zone tokens).
+        // Transcript Acquisition has already awaited any required metadata
+        // recovery before the classifier, so this duration no longer
+        // includes a metadata round-trip tail. Includes transcription + LLM
+        // always; classifier time is included only when the classifier
+        // actually ran (middle-zone tokens).
         const processingTimeSeconds = (Date.now() - overallStart) / 1000;
 
         // Always emit a terminal summary so the client accumulator closes
@@ -568,9 +572,9 @@ export async function POST(request: Request) {
         // as `TypeError: fetch failed` on the videos upsert (observed 3×
         // for as3SgPXRRC4 on 2026-04-27, plus a longer tail across other
         // videos that healed only on a later retry). after() is the
-        // supported primitive for this exact post-response work;
-        // writeCachedTranscript above doesn't need it because it fires
-        // before the LLM streams and settles during that window.
+        // supported primitive for this exact post-response work. Transcript
+        // persistence is owned by acquisition and completes before this
+        // route receives its success outcome, so it does not belong here.
         //
         // The await INSIDE the try is load-bearing: after() reports a
         // rejected callback Promise to the platform's error logger
