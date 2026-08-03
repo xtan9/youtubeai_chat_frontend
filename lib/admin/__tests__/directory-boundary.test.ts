@@ -78,3 +78,40 @@ describe("Dashboard Report boundaries", () => {
     }
   });
 });
+
+describe("User Accounts Report boundaries", () => {
+  it("keeps the report server-only and the route at one loader boundary", () => {
+    const loader = source("lib/admin/user-accounts-report.ts");
+    const page = source("app/admin/users/page.tsx");
+
+    expect(loader).toMatch(/^import "server-only";/m);
+    expect(page).toContain("@/lib/admin/user-accounts-report");
+    expect(page).not.toContain("@/lib/admin/queries");
+    expect(page).not.toMatch(
+      /\b(listUsersWithStatsAndSort|getUserSummaries|getUserAuditEvents|lastNDays)\b/,
+    );
+    expect(page.match(/\bloadUserAccountsReport\(/g)).toHaveLength(1);
+  });
+
+  it("keeps User Accounts production code and tests on cohesive report types", () => {
+    const userAccountsFiles = [
+      "app/admin/users/page.tsx",
+      "app/admin/users/_components/filter.ts",
+      "app/admin/users/_components/users-table.tsx",
+      "app/admin/users/_components/__tests__/filter.test.ts",
+      "app/admin/users/_components/__tests__/users-table.test.tsx",
+      "lib/admin/user-accounts-report.ts",
+      "lib/admin/__tests__/user-accounts-report.test.ts",
+    ];
+
+    for (const file of userAccountsFiles) {
+      const contents = source(file);
+      expect(contents, file).not.toContain("@/lib/admin/queries");
+      expect(contents, file).not.toContain("../queries");
+      expect(contents, file).not.toContain("@/lib/admin/audit-report");
+      expect(contents, file).not.toMatch(
+        /\b(listUsersWithStatsAndSort|getUserSummaries|getUserAuditEvents)\b/,
+      );
+    }
+  });
+});

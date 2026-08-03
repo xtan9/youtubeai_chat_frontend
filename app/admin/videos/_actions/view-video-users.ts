@@ -36,7 +36,7 @@ const UUID_RE =
 /**
  * Returns the distinct user list for a video and writes ONE audit row per
  * revealed user. Per-user audit rows let the existing per-user drilldown
- * (`getUserAuditEvents`) surface admin viewing activity without code
+ * audit-log surface admin viewing activity without code
  * changes — it already filters on `metadata->>viewed_user_id`.
  *
  * Audit is fail-open per row: a failed insert logs but the user is still
