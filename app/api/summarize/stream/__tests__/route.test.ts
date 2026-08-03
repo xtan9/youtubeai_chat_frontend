@@ -751,10 +751,15 @@ describe("POST /api/summarize/stream", () => {
       expect(terminal?.total_time).toBe(
         terminal!.summarize_time + terminal!.transcribe_time
       );
-      // Pin the metadata-event contract: client sees cached:false because
-      // we genuinely re-transcribed (the user waited the transcribe time).
+      // Origin describes where the Summary came from, not whether the
+      // optional timed Transcript needed repair.
       const metadata = events.find((e) => e.type === "metadata");
-      expect(metadata).toMatchObject({ type: "metadata", cached: false });
+      expect(metadata).toMatchObject({
+        type: "metadata",
+        cached: true,
+        title: "Legacy Vid",
+        channel: "Legacy Chan",
+      });
     });
 
     it("still serves the cache shortcut when include_transcript=false even with no transcript row", async () => {

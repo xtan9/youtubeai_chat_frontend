@@ -92,6 +92,18 @@ export const SummarySseEventSchema = z.discriminatedUnion("type", [
 ]);
 export type SummarySseEvent = z.infer<typeof SummarySseEventSchema>;
 
+/**
+ * Ordered decoder output used by lifecycle consumers that can degrade an
+ * invalid optional Transcript without hiding valid Summary events that share
+ * the same network chunk.
+ */
+export type SummarySseDecodeItem =
+  | { readonly kind: "event"; readonly event: SummarySseEvent }
+  | {
+      readonly kind: "error";
+      readonly error: SummaryStreamProtocolError;
+    };
+
 export type SummarySseEventType = SummarySseEvent["type"];
 export const SUPPORTED_SUMMARY_EVENT_TYPES = [
   "status",
@@ -221,11 +233,51 @@ export class SummarySseStreamDecoder {
     return events;
   }
 
+  /**
+   * Decode complete frames while retaining parse failures in wire order.
+   * Summary Run uses this only for the optional `full_transcript` payload:
+   * that one variant can degrade transcript availability while all other
+   * protocol failures remain terminal.
+   */
+  pushRecovering(chunk: string): SummarySseDecodeItem[] {
+    this.buffer = `${this.buffer}${chunk}`.replace(/\r\n/g, "\n");
+    const items: SummarySseDecodeItem[] = [];
+
+    while (true) {
+      const separator = this.buffer.indexOf("\n\n");
+      if (separator < 0) break;
+
+      const frame = this.buffer.slice(0, separator);
+      this.buffer = this.buffer.slice(separator + 2);
+      if (frame.trim().length === 0) continue;
+      try {
+        items.push({ kind: "event", event: parseSummarySseFrame(frame) });
+      } catch (error) {
+        if (!(error instanceof SummaryStreamProtocolError)) throw error;
+        items.push({ kind: "error", error });
+      }
+    }
+
+    return items;
+  }
+
   finish(): SummarySseEvent[] {
     const remainder = this.buffer;
     this.buffer = "";
     if (remainder.trim().length === 0) return [];
     return [parseSummarySseFrame(remainder)];
+  }
+
+  finishRecovering(): SummarySseDecodeItem[] {
+    const remainder = this.buffer;
+    this.buffer = "";
+    if (remainder.trim().length === 0) return [];
+    try {
+      return [{ kind: "event", event: parseSummarySseFrame(remainder) }];
+    } catch (error) {
+      if (!(error instanceof SummaryStreamProtocolError)) throw error;
+      return [{ kind: "error", error }];
+    }
   }
 }
 

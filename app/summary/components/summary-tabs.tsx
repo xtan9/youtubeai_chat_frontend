@@ -23,8 +23,8 @@ interface SummaryTabsProps {
    * locks resolve on their own and the user gets the chat surface
    * they asked for.
    *
-   * Parent computes this from `!!streamError` — the only state
-   * where we know chat will never unlock without user action.
+   * Parent computes this from a terminal failed/cancelled Summary Run —
+   * the only states where we know Chat will not unlock without user action.
    */
   readonly chatPermanentlyLocked?: boolean;
   readonly summaryContent: ReactNode;
