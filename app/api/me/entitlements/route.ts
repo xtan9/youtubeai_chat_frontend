@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   ANON_LIMITS,
@@ -10,8 +9,6 @@ import {
 } from "@/lib/services/entitlements";
 import { ANON_COOKIE_NAME, verifyAnonId } from "@/lib/services/anon-cookie";
 
-const AUTH_CLIENT_ERROR_STATUSES = new Set([400, 401, 403]);
-
 function jsonError(status: number, message: string) {
   return new Response(JSON.stringify({ message }), {
     status,
@@ -20,34 +17,15 @@ function jsonError(status: number, message: string) {
 }
 
 export async function GET() {
-  const supabase = await createClient();
-
-  // Mirror the auth-vs-infra error classification used by /api/summarize/stream
-  // and /api/chat/stream — 4xx from Supabase auth means the request is
-  // unauthenticated; everything else means the auth service is sick and
-  // we should 503.
-  let user: User | null;
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !AUTH_CLIENT_ERROR_STATUSES.has(error.status ?? -1)) {
-      console.error("[me/entitlements] auth failed", {
-        errorId: "ENTITLEMENTS_AUTH_INFRA_FAILED",
-        status: error.status ?? null,
-        message: error.message,
-      });
-      return jsonError(503, "Auth service temporarily unavailable.");
-    }
-    user = data.user;
-  } catch (err) {
-    console.error("[me/entitlements] auth threw", {
-      errorId: "ENTITLEMENTS_AUTH_THREW",
-      err,
-    });
+  const principalResult = await resolveRequestPrincipal({
+    source: "entitlements",
+  });
+  if (principalResult.kind === "unavailable") {
     return jsonError(503, "Auth service temporarily unavailable.");
   }
 
   // ─── No Supabase user at all (cookie-only anon) ─────────────────
-  if (!user) {
+  if (principalResult.kind === "missing") {
     const jar = await cookies();
     const cookieVal = jar.get(ANON_COOKIE_NAME)?.value ?? null;
     const anonId = cookieVal ? verifyAnonId(cookieVal) : null;
@@ -83,8 +61,7 @@ export async function GET() {
   }
 
   // ─── Signed-in branch ──────────────────────────────────────────
-  const userId = user.id;
-  const isAnonAuth = user.is_anonymous ?? false;
+  const { userId, isAnonymous: isAnonAuth } = principalResult.principal;
   const sr = getServiceRoleClient();
 
   if (!sr && process.env.NODE_ENV === "production") {

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // `server-only` is a Next.js compiler virtual module; in vitest we just need it to be a no-op import.
 vi.mock("server-only", () => ({}));
 
-const mockGetUser = vi.fn();
+const mockResolveRequestPrincipal = vi.fn();
 const mockRedirect = vi.fn((path: string) => {
   // Mirror Next.js: redirect throws to short-circuit the request.
   throw new Error(`__redirect__:${path}`);
@@ -13,10 +13,8 @@ vi.mock("next/navigation", () => ({
   redirect: (path: string) => mockRedirect(path),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({
-    auth: { getUser: mockGetUser },
-  })),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mockResolveRequestPrincipal,
 }));
 
 async function importGate() {
@@ -34,7 +32,7 @@ async function expectRedirect(
 
 describe("requireAdminPage", () => {
   beforeEach(() => {
-    mockGetUser.mockReset();
+    mockResolveRequestPrincipal.mockReset();
     mockRedirect.mockClear();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -47,26 +45,16 @@ describe("requireAdminPage", () => {
 
   it("redirects unauthenticated request to /auth/login", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockResolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     const { requireAdminPage } = await importGate();
     await expectRedirect(() => requireAdminPage(), "/auth/login");
   });
 
   it("redirects user with no email to /auth/login", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1", email: undefined } },
-      error: null,
-    });
-    const { requireAdminPage } = await importGate();
-    await expectRedirect(() => requireAdminPage(), "/auth/login");
-  });
-
-  it("redirects user with no id to /auth/login", async () => {
-    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: { email: "alice@example.com" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: null },
     });
     const { requireAdminPage } = await importGate();
     await expectRedirect(() => requireAdminPage(), "/auth/login");
@@ -74,9 +62,13 @@ describe("requireAdminPage", () => {
 
   it("redirects non-admin email to / (homepage)", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1", email: "carol@example.com" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u1",
+        isAnonymous: false,
+        email: "carol@example.com",
+      },
     });
     const { requireAdminPage } = await importGate();
     await expectRedirect(() => requireAdminPage(), "/");
@@ -84,9 +76,13 @@ describe("requireAdminPage", () => {
 
   it("returns admin context when allowlisted", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com,bob@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u-alice", email: "Alice@Example.COM" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u-alice",
+        isAnonymous: false,
+        email: "Alice@Example.COM",
+      },
     });
     const { requireAdminPage } = await importGate();
     const ctx = await requireAdminPage();
@@ -102,9 +98,13 @@ describe("requireAdminPage", () => {
       "ADMIN_EMAILS",
       "  alice@example.com , Alice@Example.COM ,, bob@example.com",
     );
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u-bob", email: "bob@example.com" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u-bob",
+        isAnonymous: false,
+        email: "bob@example.com",
+      },
     });
     const { requireAdminPage } = await importGate();
     const ctx = await requireAdminPage();
@@ -115,9 +115,13 @@ describe("requireAdminPage", () => {
 
   it("denies everyone and warns ONCE across repeat calls when ADMIN_EMAILS is empty", async () => {
     vi.stubEnv("ADMIN_EMAILS", "");
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1", email: "alice@example.com" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u1",
+        isAnonymous: false,
+        email: "alice@example.com",
+      },
     });
     const { requireAdminPage } = await importGate();
     const warnSpy = vi.spyOn(console, "warn");
@@ -133,81 +137,47 @@ describe("requireAdminPage", () => {
 
   it("denies everyone when ADMIN_EMAILS is unset (literally undefined)", async () => {
     vi.stubEnv("ADMIN_EMAILS", undefined);
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: "u1", email: "alice@example.com" } },
-      error: null,
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u1",
+        isAnonymous: false,
+        email: "alice@example.com",
+      },
     });
     const { requireAdminPage } = await importGate();
     await expectRedirect(() => requireAdminPage(), "/");
   });
 
-  it("treats Supabase 401 as 'not signed in' (auth-client error → /auth/login)", async () => {
+  it("redirects a missing principal to /auth/login", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: { status: 401, message: "Bad JWT" },
-    });
+    mockResolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     const { requireAdminPage } = await importGate();
     await expectRedirect(() => requireAdminPage(), "/auth/login");
   });
 
-  it("throws on Supabase infra failure (5xx) instead of silently bouncing to login", async () => {
+  it("throws on an unavailable principal instead of silently bouncing to login", async () => {
     vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: { status: 503, message: "service unavailable" },
+    mockResolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
+    const { requireAdminPage } = await importGate();
+    await expect(requireAdminPage()).rejects.toThrow(
+      /auth service temporarily unavailable/i,
+    );
+  });
+
+  it("accepts a resolved anonymous principal when its normalized email is allowlisted", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
+    mockResolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u-anon",
+        isAnonymous: true,
+        email: "Alice@Example.COM",
+      },
     });
     const { requireAdminPage } = await importGate();
-    await expect(requireAdminPage()).rejects.toThrow(
-      /auth service temporarily unavailable/i,
-    );
-  });
-
-  it("throws on getUser() rejection (network/runtime) instead of silently bouncing", async () => {
-    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockRejectedValue(new Error("network down"));
-    const { requireAdminPage } = await importGate();
-    await expect(requireAdminPage()).rejects.toThrow(
-      /auth service temporarily unavailable/i,
-    );
-  });
-
-  it("treats Supabase error with no status field as infra failure (fail-loud, not silent login redirect)", async () => {
-    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    mockGetUser.mockResolvedValue({
-      data: { user: null },
-      error: { message: "no status field" },
-    });
-    const { requireAdminPage } = await importGate();
-    await expect(requireAdminPage()).rejects.toThrow(
-      /auth service temporarily unavailable/i,
-    );
-  });
-
-  it("preserves the original error as cause when rethrowing as AuthInfraError (5xx path)", async () => {
-    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    const original = { status: 503, message: "service unavailable" };
-    mockGetUser.mockResolvedValue({ data: { user: null }, error: original });
-    const { requireAdminPage } = await importGate();
-    try {
-      await requireAdminPage();
-      throw new Error("expected throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(Error);
-      expect((err as Error).cause).toBe(original);
-    }
-  });
-
-  it("preserves the original error as cause when rethrowing on getUser() rejection", async () => {
-    vi.stubEnv("ADMIN_EMAILS", "alice@example.com");
-    const original = new Error("network down");
-    mockGetUser.mockRejectedValue(original);
-    const { requireAdminPage } = await importGate();
-    try {
-      await requireAdminPage();
-      throw new Error("expected throw");
-    } catch (err) {
-      expect((err as Error).cause).toBe(original);
-    }
+    const ctx = await requireAdminPage();
+    expect(ctx.userId).toBe("u-anon");
+    expect(ctx.email).toBe("alice@example.com");
   });
 });

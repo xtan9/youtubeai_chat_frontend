@@ -1,5 +1,7 @@
-import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import {
+  resolveRequestPrincipal,
+  type RequestPrincipal,
+} from "@/lib/auth/request-principal";
 import {
   generateSuggestedFollowups,
   type SuggestedFollowups,
@@ -15,7 +17,6 @@ import {
 } from "@/lib/api-contracts/chat";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 
-const AUTH_CLIENT_STATUSES = new Set([400, 401, 403]);
 // Tight cap on the LLM call so an upstream stall does not block the chat
 // tab's empty state for minutes. The client falls back to static suggestions.
 const FOLLOWUPS_TIMEOUT_MS = 12_000;
@@ -28,36 +29,20 @@ function jsonError(status: number, message: string) {
 }
 
 async function authenticate(): Promise<
-  | { ok: true; user: User }
+  | { ok: true; principal: RequestPrincipal }
   | { ok: false; response: Response }
 > {
-  const supabase = await createClient();
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !AUTH_CLIENT_STATUSES.has(error.status ?? -1)) {
-      logAppEvent("error", "[chat/suggestions] auth failed", {
-        errorId: "CHAT_SUGGESTIONS_AUTH_FAILED",
-        status: error.status ?? null,
-      });
-      return {
-        ok: false,
-        response: jsonError(503, "Auth service temporarily unavailable."),
-      };
-    }
-    if (!data.user) {
-      return { ok: false, response: jsonError(401, "Unauthorized") };
-    }
-    return { ok: true, user: data.user };
-  } catch (err) {
-    logAppEvent("error", "[chat/suggestions] auth threw", {
-      errorId: "CHAT_SUGGESTIONS_AUTH_THREW",
-      errorName: err instanceof Error ? err.name : typeof err,
-    });
+  const result = await resolveRequestPrincipal({ source: "chat_suggestions" });
+  if (result.kind === "unavailable") {
     return {
       ok: false,
       response: jsonError(503, "Auth service temporarily unavailable."),
     };
   }
+  if (result.kind === "missing") {
+    return { ok: false, response: jsonError(401, "Unauthorized") };
+  }
+  return { ok: true, principal: result.principal };
 }
 
 function emptyResponse(): Response {

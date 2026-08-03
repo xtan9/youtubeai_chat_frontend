@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
+  resolveRequestPrincipal: vi.fn(),
   getUserTier: vi.fn(),
   cookieGet: vi.fn(),
   verifyAnonId: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ get: mocks.cookieGet }),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({ auth: { getUser: mocks.getUser } }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 
 vi.mock("@/lib/services/anon-cookie", () => ({
@@ -38,6 +38,14 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
+  mocks.resolveRequestPrincipal.mockResolvedValue({
+    kind: "resolved",
+    principal: {
+      userId: "u1",
+      isAnonymous: false,
+      email: "user@example.com",
+    },
+  });
   // Default: service-role client present and chains return null/zero
   mocks.getServiceRoleClient.mockReturnValue({
     from: (table: string) => {
@@ -60,7 +68,7 @@ beforeEach(() => {
 
 describe("GET /api/me/entitlements", () => {
   it("returns anon tier with count=0 when not signed in and no cookie", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     mocks.cookieGet.mockReturnValue(undefined);
     const { GET } = await import("../route");
     const res = await GET();
@@ -72,7 +80,7 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("returns anon tier with current count when cookie verifies", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     mocks.cookieGet.mockReturnValue({ value: "signed.sig" });
     mocks.verifyAnonId.mockReturnValue("aaaa-bbbb");
     mocks.fromAnon.mockResolvedValue({ data: { count: 1 }, error: null });
@@ -85,8 +93,9 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("returns pro tier with subscription details", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: "user@example.com" },
     });
     mocks.getUserTier.mockResolvedValue("pro");
     mocks.fromSub.mockResolvedValue({
@@ -106,8 +115,9 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("returns free tier with current monthly + history counts", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: "user@example.com" },
     });
     mocks.getUserTier.mockResolvedValue("free");
     mocks.fromUsage.mockResolvedValue({ data: { count: 4 }, error: null });
@@ -126,8 +136,9 @@ describe("GET /api/me/entitlements", () => {
 
   it("returns free tier with zeros when service-role unavailable", async () => {
     mocks.getServiceRoleClient.mockReturnValue(null);
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: "user@example.com" },
     });
     mocks.getUserTier.mockResolvedValue("free");
     const { GET } = await import("../route");
@@ -138,33 +149,13 @@ describe("GET /api/me/entitlements", () => {
     expect(body.caps.historyUsed).toBe(0);
   });
 
-  it("returns 503 when auth getUser() returns error with status 500", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: null },
-      error: { status: 500, message: "supabase down" },
-    });
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("returns 503 when auth infrastructure is unavailable", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
     const { GET } = await import("../route");
     const res = await GET();
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.message).toContain("unavailable");
-    expect(errSpy).toHaveBeenCalledWith(
-      "[me/entitlements] auth failed",
-      expect.objectContaining({ errorId: "ENTITLEMENTS_AUTH_INFRA_FAILED" }),
-    );
-  });
-
-  it("returns 503 when auth getUser() throws", async () => {
-    mocks.getUser.mockRejectedValue(new Error("ECONNREFUSED"));
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { GET } = await import("../route");
-    const res = await GET();
-    expect(res.status).toBe(503);
-    expect(errSpy).toHaveBeenCalledWith(
-      "[me/entitlements] auth threw",
-      expect.objectContaining({ errorId: "ENTITLEMENTS_AUTH_THREW" }),
-    );
   });
 
   it("tier=pro + getServiceRoleClient returns null → response is tier:pro with summariesLimit:-1, subscription:null", async () => {
@@ -172,8 +163,9 @@ describe("GET /api/me/entitlements", () => {
     // missing — rendering the upgrade banner to a paying user is worse
     // than returning a null renewal date.
     mocks.getServiceRoleClient.mockReturnValue(null);
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: "user@example.com" },
     });
     mocks.getUserTier.mockResolvedValue("pro");
     const { GET } = await import("../route");
@@ -186,8 +178,9 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("tier=free + monthly_summary_usage query returns error → console.error with ENTITLEMENTS_USAGE_READ_FAILED, response still 200 with summariesUsed:0", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "u1", isAnonymous: false, email: "user@example.com" },
     });
     mocks.getUserTier.mockResolvedValue("free");
     mocks.fromUsage.mockResolvedValue({ data: null, error: { code: "42P01", message: "table missing" } });
@@ -205,8 +198,9 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("is_anonymous:true Supabase user with valid cookie → reads from anon_summary_quota and returns tier:anon with summariesLimit:1", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-supabase-1", is_anonymous: true } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "anon-supabase-1", isAnonymous: true, email: "" },
     });
     mocks.cookieGet.mockReturnValue({ value: "signed.sig" });
     mocks.verifyAnonId.mockReturnValue("aaaa-bbbb");
@@ -221,8 +215,9 @@ describe("GET /api/me/entitlements", () => {
   });
 
   it("tampered cookie (verifyAnonId returns null) → fromAnon not called, summariesUsed:0", async () => {
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "anon-supabase-1", is_anonymous: true } }, error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "anon-supabase-1", isAnonymous: true, email: "" },
     });
     mocks.cookieGet.mockReturnValue({ value: "tampered-cookie" });
     mocks.verifyAnonId.mockReturnValue(null);

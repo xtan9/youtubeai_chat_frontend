@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
+  resolveRequestPrincipal: vi.fn(),
   resolveVideoChatSubject: vi.fn(),
   loadGrounding: vi.fn(),
   readSuggestionCache: vi.fn(),
@@ -11,9 +11,8 @@ const mocks = vi.hoisted(() => ({
   callLlmJson: vi.fn(),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () =>
-    Promise.resolve({ auth: { getUser: mocks.getUser } }),
+vi.mock("@/lib/auth/request-principal", () => ({
+  resolveRequestPrincipal: mocks.resolveRequestPrincipal,
 }));
 
 // The route-facing application seam is the subject resolver. Its resolved
@@ -90,9 +89,13 @@ function suggestionRequest() {
 describe("GET /api/chat/suggestions", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
-    mocks.getUser.mockResolvedValue({
-      data: { user: { id: "u1", is_anonymous: false } },
-      error: null,
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "u1",
+        isAnonymous: false,
+        email: "user@example.com",
+      },
     });
     mocks.resolveVideoChatSubject.mockResolvedValue(databaseSubject());
     mocks.loadGrounding.mockResolvedValue({
@@ -137,12 +140,36 @@ describe("GET /api/chat/suggestions", () => {
   });
 
   it("returns 401 when no user", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "missing" });
     const { GET } = await import("../route");
     const res = await GET(suggestionRequest());
 
     expect(res.status).toBe(401);
     expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
+  });
+
+  it("accepts a resolved anonymous principal", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: { userId: "anon-1", isAnonymous: true, email: "" },
+    });
+    mocks.readSuggestionCache.mockResolvedValue(["a?", "b?", "c?"]);
+    const { GET } = await import("../route");
+    const res = await GET(suggestionRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ suggestions: ["a?", "b?", "c?"] });
+  });
+
+  it("returns 503 when auth infrastructure is unavailable", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
+    const { GET } = await import("../route");
+    const res = await GET(suggestionRequest());
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      message: "Auth service temporarily unavailable.",
+    });
   });
 
   it("returns the cached suggestions without generation or a cache write", async () => {
