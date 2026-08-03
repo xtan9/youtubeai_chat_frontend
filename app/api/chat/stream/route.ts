@@ -123,7 +123,7 @@ function hasCoherentGrounding(
     return capabilityTargets.every((videoId) => videoId === groundingVideoId);
   }
 
-  return true;
+  return groundingVideoId === subject.identity.youtubeVideoId;
 }
 
 async function loadSubjectGrounding(
