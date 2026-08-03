@@ -10,7 +10,8 @@ import {
   createSummaryRunController,
   type SummaryRunControllerOptions,
   type SummaryRunInput,
-} from "@/lib/summary-run/summary-run";
+  type SummaryRunOutcome,
+} from "@/lib/summary-run";
 
 export type UseSummaryRunOptions = SummaryRunControllerOptions;
 
@@ -31,6 +32,10 @@ class LatestOptions {
 
   notifyAuthError(status: number, message: string): void {
     this.current.onAuthError?.(status, message);
+  }
+
+  notifyOutcome(outcome: SummaryRunOutcome): void {
+    this.current.onOutcome?.(outcome);
   }
 
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -56,6 +61,7 @@ export function useSummaryRun(options: UseSummaryRunOptions) {
       getAccessToken: () => optionsStore.getAccessToken(),
       onAuthError: (status, message) =>
         optionsStore.notifyAuthError(status, message),
+      onOutcome: (outcome) => optionsStore.notifyOutcome(outcome),
       now: options.now,
       elapsedTickMs: options.elapsedTickMs,
       createRunId: options.createRunId,

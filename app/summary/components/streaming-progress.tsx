@@ -3,7 +3,7 @@
 import { Brain, CheckCircle, Clock, FileText, Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import type { SummaryRunProgress } from "@/lib/summary-run/summary-run";
+import type { SummaryRunProgress } from "@/lib/summary-run";
 
 /** Render only validated protocol stage + controller-owned elapsed time. */
 export function StreamingProgressIndicator({
