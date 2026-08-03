@@ -40,7 +40,6 @@ type DailyPoint = { day: string; value: number };
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-
 function daysAgo(n: number): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
