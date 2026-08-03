@@ -373,7 +373,16 @@ async function acquireFreshTranscript(
     input.signal,
     input.requestId
   );
-  if (input.signal.aborted) return { outcome: "caller_aborted" };
+  // The metadata adapter normally returns `reason: "aborted"` together
+  // with an aborted caller signal. Honor the explicit discriminated outcome
+  // as well so a cancellation classified at the adapter boundary cannot
+  // accidentally fall through into caption or audio work.
+  if (
+    input.signal.aborted ||
+    (!vpsMetadata.ok && vpsMetadata.reason === "aborted")
+  ) {
+    return { outcome: "caller_aborted" };
+  }
   if (vpsMetadata.ok) {
     detectedLanguage = primarySubtag(vpsMetadata.data.language);
     emitProgress(input, { type: "language_detection", detectedLanguage });

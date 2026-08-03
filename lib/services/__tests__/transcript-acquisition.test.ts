@@ -271,6 +271,121 @@ describe("acquireTranscript", () => {
     );
   });
 
+  it("uses the normalized detected language for captions and emits semantic progress", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: true,
+      data: {
+        language: "FR-fr",
+        title: "VPS title",
+        description: "",
+        availableCaptions: ["fr-FR"],
+      },
+    });
+    const progress: TranscriptAcquisitionProgress[] = [];
+
+    const result = await acquireTranscript({
+      ...INPUT,
+      onProgress: (event) => progress.push(event),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+      detectedLanguage: "fr",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      "fr",
+      "request-207"
+    );
+    expect(progress).toEqual([
+      { type: "language_detection", detectedLanguage: "fr" },
+      { type: "caption_acquisition" },
+    ]);
+    expect(progress.every((event) => !("message" in event))).toBe(true);
+  });
+
+  it("logs generic language metadata degradation and acquires captions without a hint", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "error",
+      error: new Error("metadata upstream unavailable"),
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      undefined,
+      "request-207"
+    );
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] language detection degraded",
+      expect.objectContaining({
+        errorId: "TRANSCRIPT_LANGUAGE_DETECTION_DEGRADED",
+        reason: "error",
+        errorName: "Error",
+      })
+    );
+  });
+
+  it("records a missing metadata endpoint as a warning and still acquires captions without a hint", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "non_ok",
+      status: 404,
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toMatchObject({
+      outcome: "success",
+      transcriptSource: "auto_captions",
+    });
+    expect(mocks.extractCaptions).toHaveBeenCalledWith(
+      VIDEO_URL,
+      INPUT.signal,
+      undefined,
+      "request-207"
+    );
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      "[transcript-acquisition] language detection degraded",
+      expect.anything()
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[transcript-acquisition] metadata endpoint unavailable",
+      expect.objectContaining({ errorId: "VPS_METADATA_404", status: 404 })
+    );
+  });
+
+  it("honors an explicit metadata cancellation outcome without logging or starting acquisition", async () => {
+    mocks.fetchVpsMetadata.mockResolvedValue({
+      ok: false,
+      reason: "aborted",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await acquireTranscript(INPUT);
+
+    expect(result).toEqual({ outcome: "caller_aborted" });
+    expect(mocks.extractCaptions).not.toHaveBeenCalled();
+    expect(mocks.transcribeViaVps).not.toHaveBeenCalled();
+    expect(mocks.writeCachedTranscript).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it("uses an advertised English caption track before audio transcription", async () => {
     mocks.fetchVpsMetadata.mockResolvedValue({
       ok: true,
@@ -389,6 +504,7 @@ describe("acquireTranscript", () => {
 
   it.each([
     ["network failure", "network", "VPS_CAPTIONS_FAILED_NETWORK"],
+    ["timeout", "timeout", "VPS_CAPTIONS_FAILED_TIMEOUT"],
     ["malformed response", "schema", "VPS_CAPTIONS_FAILED_SCHEMA"],
   ] as const)(
     "treats a caption %s as terminal and never starts audio transcription",
