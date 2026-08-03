@@ -654,6 +654,100 @@ describe("Summary Run public controller", () => {
     });
   });
 
+  it.each([
+    {
+      name: "not requested",
+      includeTranscript: false,
+      transcript: { status: "not_requested" },
+      wire: successfulWire(),
+    },
+    {
+      name: "requested but missing",
+      includeTranscript: true,
+      transcript: { status: "unavailable", diagnostic: "not_received" },
+      wire: successfulWire(),
+    },
+    {
+      name: "valid timed segments",
+      includeTranscript: true,
+      transcript: {
+        status: "available",
+        segments: [{ text: "Timed line", start: 12, duration: 2 }],
+        source: "auto_captions",
+      },
+      wire: [
+        event("metadata", { category: "general", cached: false }),
+        event("full_transcript", {
+          segments: [{ text: "Timed line", start: 12, duration: 2 }],
+          source: "auto_captions",
+        }),
+        event("content", { text: "Summary remains valid." }),
+        event("summary", {
+          category: "general",
+          total_time: 2,
+          transcribe_time: 1,
+          summarize_time: 1,
+        }),
+      ].join(""),
+    },
+  ])("represents the Transcript state independently for $name", async ({
+    includeTranscript,
+    transcript,
+    wire,
+  }) => {
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(streamResponse(wire)),
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      transcript,
+    });
+  });
+
+  it("does not expose a zero-duration Transcript entry as available timing", async () => {
+    const wire = [
+      event("metadata", { category: "general", cached: false }),
+      event("full_transcript", {
+        segments: [{ text: "Legacy transcript", start: 0, duration: 0 }],
+        source: "whisper",
+      }),
+      event("content", { text: "Summary without timed transcript." }),
+      event("summary", {
+        category: "general",
+        total_time: 2,
+        transcribe_time: 1,
+        summarize_time: 1,
+      }),
+    ].join("");
+    const controller = createSummaryRunController({
+      fetch: vi.fn().mockResolvedValue(streamResponse(wire)),
+      getAccessToken: () => "token",
+    });
+
+    await controller.start({
+      video: { youtubeUrl: VIDEO_URL },
+      outputLanguage: null,
+      includeTranscript: true,
+    });
+
+    expect(controller.getSnapshot()).toMatchObject({
+      status: "succeeded",
+      transcript: {
+        status: "unavailable",
+        diagnostic: "invalid_full_transcript",
+      },
+      summary: { summary: "Summary without timed transcript." },
+    });
+  });
+
   it("sends every explicit start and never reuses a previous terminal result", async () => {
     const fetchMock = vi
       .fn()

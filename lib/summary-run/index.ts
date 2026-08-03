@@ -3,6 +3,7 @@ export {
   getSummaryRunFailureMessage,
   SUMMARY_RUN_FAILURE_KINDS,
   SUMMARY_RUN_FAILURE_MESSAGES,
+  SUMMARY_TRANSCRIPT_DIAGNOSTICS,
   SummaryRequestError,
   type CompletedSummary,
   type SummaryDraft,
@@ -24,5 +25,6 @@ export {
   type SummaryRunStage,
   type SummaryRunSucceededSnapshot,
   type SummaryRunVideo,
+  type SummaryTranscriptDiagnostic,
   type SummaryTranscriptState,
 } from "./summary-run";

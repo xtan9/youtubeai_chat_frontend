@@ -33,6 +33,14 @@ export type SummaryRunStage =
 
 export type SummaryRunOrigin = "cache" | "generated";
 
+export const SUMMARY_TRANSCRIPT_DIAGNOSTICS = [
+  "not_received",
+  "invalid_full_transcript",
+] as const;
+
+export type SummaryTranscriptDiagnostic =
+  (typeof SUMMARY_TRANSCRIPT_DIAGNOSTICS)[number];
+
 export const SUMMARY_RUN_FAILURE_KINDS = [
   "authentication",
   "quota",
@@ -84,7 +92,7 @@ export type SummaryTranscriptState =
     }
   | {
       readonly status: "unavailable";
-      readonly diagnostic?: string;
+      readonly diagnostic: SummaryTranscriptDiagnostic;
     };
 
 export interface SummaryRunProgress {
@@ -212,8 +220,7 @@ export const SUMMARY_RUN_FAILURE_MESSAGES: Readonly<
   malformed_json: "The summary stream was invalid. Please try again.",
   unknown_event_variant: "The summary stream was invalid. Please try again.",
   invalid_event: "The summary stream was invalid. Please try again.",
-  invalid_full_transcript:
-    "The summary stream contained an unavailable Transcript. Please try again.",
+  invalid_full_transcript: "Transcript timing is unavailable.",
   PREMATURE_EOF:
     "The summary stream ended before the Summary was complete. Please try again.",
   MISSING_METADATA: "The summary stream was invalid. Please try again.",

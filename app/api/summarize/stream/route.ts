@@ -45,6 +45,7 @@ import {
 import type { LogStage } from "@/lib/stages";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
+import { hasTimedTranscriptSegments } from "@/lib/types";
 
 export const maxDuration = 300;
 
@@ -409,7 +410,7 @@ export async function POST(request: Request) {
           });
         }
 
-        if (includeTranscript) {
+        if (includeTranscript && hasTimedTranscriptSegments(segments)) {
           sendEvent({
             type: "full_transcript",
             segments,
