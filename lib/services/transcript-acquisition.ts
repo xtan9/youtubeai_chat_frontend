@@ -66,6 +66,7 @@ export interface TranscriptAcquisitionFailure {
   readonly stage: TranscriptAcquisitionFailureStage;
   /** Stable identifier; callers do not need to inspect provider exceptions. */
   readonly errorId: string;
+  readonly requestId: string;
   readonly status?: TranscriptAcquisitionFailureStatus;
   readonly errorName?: string;
 }
@@ -98,6 +99,18 @@ type MetadataFields = {
 function nonBlank(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function assertUsableSegments(
+  segments: readonly TranscriptSegment[]
+): void {
+  if (
+    !Array.isArray(segments) ||
+    segments.length === 0 ||
+    segments.some((segment) => segment.text.trim().length === 0)
+  ) {
+    throw new Error("Transcript Acquisition received no usable segments");
+  }
 }
 
 function hasCompleteMetadata(fields: MetadataFields): boolean {
@@ -144,12 +157,14 @@ function isKnownFailureStatus(value: unknown): value is TranscriptAcquisitionFai
 
 function classifyFailure(
   stage: TranscriptAcquisitionFailureStage,
-  error: unknown
+  error: unknown,
+  requestId: string
 ): TranscriptAcquisitionFailure {
   if (stage === "captions" && error instanceof CaptionExtractionError) {
     return {
       stage,
       errorId: captionErrorId(error.status),
+      requestId,
       ...(isKnownFailureStatus(error.status) ? { status: error.status } : {}),
       errorName: error.name,
     };
@@ -159,19 +174,16 @@ function classifyFailure(
     return {
       stage,
       errorId: vpsErrorId(error.status),
+      requestId,
       ...(isKnownFailureStatus(error.status) ? { status: error.status } : {}),
       errorName: error.name,
     };
   }
 
-  return {
-    stage,
-    errorId:
-      stage === "captions"
-        ? "TRANSCRIPT_ACQUISITION_CAPTIONS_FAILED"
-        : "TRANSCRIPT_ACQUISITION_TRANSCRIPTION_FAILED",
-    errorName: error instanceof Error ? error.name : typeof error,
-  };
+  // A typed adapter error is the contract for an operational outcome. Any
+  // other exception is an invariant or programming failure and must remain
+  // visible to the caller instead of being disguised as a known incident.
+  throw error;
 }
 
 function logAcquisitionFailure(
@@ -183,7 +195,7 @@ function logAcquisitionFailure(
     stage: failure.stage,
     ...(failure.status !== undefined ? { status: failure.status } : {}),
     videoId: videoIdForLog(input.youtubeUrl),
-    requestId: input.requestId,
+    requestId: failure.requestId,
     ...(failure.errorName ? { errorName: failure.errorName } : {}),
   });
 }
@@ -220,7 +232,7 @@ async function acquireCaptionAttempt(
     if (input.signal.aborted) {
       return { ok: false, outcome: { outcome: "caller_aborted" } };
     }
-    const failure = classifyFailure("captions", error);
+    const failure = classifyFailure("captions", error, input.requestId);
     logAcquisitionFailure(input, failure);
     return { ok: false, outcome: { outcome: "acquisition_failed", failure } };
   }
@@ -308,6 +320,72 @@ async function recoverMetadata(
   }
 }
 
+type MetadataRecovery = {
+  readonly fields: MetadataFields;
+  readonly recovered: boolean;
+};
+
+async function recoverMissingMetadata(
+  input: TranscriptAcquisitionInput,
+  fields: MetadataFields
+): Promise<MetadataRecovery> {
+  if (hasCompleteMetadata(fields)) return { fields, recovered: false };
+
+  const metadata = await recoverMetadata(input);
+  if (!metadata.ok) {
+    logMetadataRecoveryFailure(input, metadata);
+    return { fields, recovered: false };
+  }
+
+  return mergeMetadata(fields, metadata);
+}
+
+type AbortableWait<T> =
+  | { readonly aborted: true }
+  | { readonly aborted: false; readonly value: T };
+
+async function waitUnlessCallerAborted<T>(
+  signal: AbortSignal,
+  promise: Promise<T>
+): Promise<AbortableWait<T>> {
+  if (signal.aborted) {
+    // The promise argument is evaluated before this helper runs. Keep a
+    // late provider rejection observed even when the caller aborts in that
+    // tiny hand-off window.
+    void promise.catch(() => undefined);
+    return { aborted: true };
+  }
+
+  return new Promise<AbortableWait<T>>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ aborted: true });
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ aborted: false, value });
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+    );
+
+    if (signal.aborted) onAbort();
+  });
+}
+
 async function persistBestEffort(
   input: TranscriptAcquisitionInput,
   fields: MetadataFields,
@@ -368,6 +446,7 @@ async function acquireStoredTranscript(
   cached: Awaited<ReturnType<typeof getCachedTranscript>>
 ): Promise<TranscriptAcquisitionOutcome> {
   if (!cached) throw new Error("acquireStoredTranscript requires a cache hit");
+  assertUsableSegments(cached.segments);
 
   emitProgress(input, { type: "stored_reuse" });
   let fields: MetadataFields = {
@@ -377,22 +456,38 @@ async function acquireStoredTranscript(
 
   if (input.signal.aborted) return { outcome: "caller_aborted" };
 
-  let metadataRecovered = false;
-  if (!hasCompleteMetadata(fields)) {
-    const metadata = await recoverMetadata(input);
-    if (metadata.ok) {
-      const merged = mergeMetadata(fields, metadata);
-      fields = merged.fields;
-      metadataRecovered = merged.recovered;
-    } else {
-      logMetadataRecoveryFailure(input, metadata);
+  let settledRecovery: MetadataRecovery | undefined;
+  const recoveryPromise = recoverMissingMetadata(input, fields).then(
+    (recovery) => {
+      settledRecovery = recovery;
+      return recovery;
     }
+  );
+  const recoveryWait = await waitUnlessCallerAborted(
+    input.signal,
+    recoveryPromise
+  );
+  if (recoveryWait.aborted) {
+    if (settledRecovery) fields = settledRecovery.fields;
+    if (settledRecovery?.recovered) {
+      await persistBestEffort(
+        input,
+        fields,
+        cached.segments,
+        cached.transcriptSource,
+        cached.language,
+        true
+      );
+    }
+    return { outcome: "caller_aborted" };
   }
+
+  fields = recoveryWait.value.fields;
 
   // A usable stored Transcript is already available. If the caller
   // disconnects during best-effort repair, still finish the short sparse
   // write when there are recovered fields, then report cancellation.
-  if (metadataRecovered) {
+  if (recoveryWait.value.recovered) {
     await persistBestEffort(
       input,
       fields,
@@ -421,11 +516,16 @@ async function acquireFreshTranscript(
 ): Promise<TranscriptAcquisitionOutcome> {
   let detectedLanguage: string | undefined;
 
-  const vpsMetadata = await fetchVpsMetadata(
-    input.youtubeUrl,
+  const vpsMetadataWait = await waitUnlessCallerAborted(
     input.signal,
-    input.requestId
+    fetchVpsMetadata(
+      input.youtubeUrl,
+      input.signal,
+      input.requestId
+    )
   );
+  if (vpsMetadataWait.aborted) return { outcome: "caller_aborted" };
+  const vpsMetadata = vpsMetadataWait.value;
   // The metadata adapter normally returns `reason: "aborted"` together
   // with an aborted caller signal. Honor the explicit discriminated outcome
   // as well so a cancellation classified at the adapter boundary cannot
@@ -443,7 +543,10 @@ async function acquireFreshTranscript(
     logMetadataDegradation(input, vpsMetadata);
   }
 
+  if (input.signal.aborted) return { outcome: "caller_aborted" };
+
   emitProgress(input, { type: "caption_acquisition" });
+  if (input.signal.aborted) return { outcome: "caller_aborted" };
   const detectedCaptionAttempt = await acquireCaptionAttempt(
     input,
     detectedLanguage
@@ -451,6 +554,9 @@ async function acquireFreshTranscript(
   if (!detectedCaptionAttempt.ok) return detectedCaptionAttempt.outcome;
 
   let captions = detectedCaptionAttempt.captions;
+  if (input.signal.aborted && captions === null) {
+    return { outcome: "caller_aborted" };
+  }
   if (
     captions === null &&
     shouldAttemptEnglishCaption(vpsMetadata, detectedLanguage)
@@ -458,6 +564,9 @@ async function acquireFreshTranscript(
     const englishCaptionAttempt = await acquireCaptionAttempt(input, "en");
     if (!englishCaptionAttempt.ok) return englishCaptionAttempt.outcome;
     captions = englishCaptionAttempt.captions;
+    if (input.signal.aborted && captions === null) {
+      return { outcome: "caller_aborted" };
+    }
   }
 
   let segments: readonly TranscriptSegment[];
@@ -465,8 +574,10 @@ async function acquireFreshTranscript(
   let promptLocale: PromptLocale;
   let fields: MetadataFields = {};
   let metadataPromise: Promise<VideoMetadataResult> | undefined;
+  let settledMetadata: VideoMetadataResult | undefined;
 
   if (captions !== null) {
+    assertUsableSegments(captions.segments);
     segments = captions.segments;
     transcriptSource = captions.source;
     promptLocale = captions.language;
@@ -476,38 +587,52 @@ async function acquireFreshTranscript(
     };
   } else {
     emitProgress(input, { type: "audio_transcription" });
+    if (input.signal.aborted) return { outcome: "caller_aborted" };
     // Metadata is auxiliary and may resolve while the expensive audio
-    // operation runs. Its result is still awaited before persistence.
-    metadataPromise = recoverMetadata(input);
+    // operation runs. While the caller is active, await it before success;
+    // after cancellation, consume only a settled result before persistence.
+    metadataPromise = recoverMetadata(input).then((metadata) => {
+      settledMetadata = metadata;
+      return metadata;
+    });
+    let transcription: Awaited<ReturnType<typeof transcribeViaVps>>;
     try {
-      const transcription = await transcribeViaVps(
+      transcription = await transcribeViaVps(
         input.youtubeUrl,
         input.signal,
         detectedLanguage,
         input.requestId
       );
-      segments = transcription.segments;
-      transcriptSource = "whisper";
-      promptLocale =
-        detectedLanguage === "zh"
-          ? "zh"
-          : detectLocale(
-              segments
-                .map((segment) => segment.text)
-                .join(" ")
-                .slice(0, 500)
-            );
     } catch (error) {
       if (input.signal.aborted) return { outcome: "caller_aborted" };
-      const failure = classifyFailure("transcription", error);
+      const failure = classifyFailure(
+        "transcription",
+        error,
+        input.requestId
+      );
       logAcquisitionFailure(input, failure);
       return { outcome: "acquisition_failed", failure };
     }
+    assertUsableSegments(transcription.segments);
+    segments = transcription.segments;
+    transcriptSource = "whisper";
+    promptLocale =
+      detectedLanguage === "zh"
+        ? "zh"
+        : detectLocale(
+            segments
+              .map((segment) => segment.text)
+              .join(" ")
+              .slice(0, 500)
+          );
   }
 
   // Once canonical segments exist, persistence is non-cancellable. This
   // preserves expensive work even if the caller disconnects in this window.
   if (input.signal.aborted) {
+    if (settledMetadata?.ok) {
+      fields = mergeMetadata(fields, settledMetadata).fields;
+    }
     await persistBestEffort(
       input,
       fields,
@@ -520,19 +645,54 @@ async function acquireFreshTranscript(
   }
 
   if (metadataPromise) {
-    const metadata = await metadataPromise;
-    if (metadata.ok) {
-      fields = mergeMetadata(fields, metadata).fields;
-    } else {
-      logMetadataRecoveryFailure(input, metadata);
+    const metadataWait = await waitUnlessCallerAborted(
+      input.signal,
+      metadataPromise
+    );
+    if (metadataWait.aborted) {
+      if (settledMetadata?.ok) {
+        fields = mergeMetadata(fields, settledMetadata).fields;
+      }
+      await persistBestEffort(
+        input,
+        fields,
+        segments,
+        transcriptSource,
+        promptLocale,
+        false
+      );
+      return { outcome: "caller_aborted" };
     }
-  } else if (!hasCompleteMetadata(fields)) {
-    const metadata = await recoverMetadata(input);
-    if (metadata.ok) {
-      fields = mergeMetadata(fields, metadata).fields;
-    } else {
-      logMetadataRecoveryFailure(input, metadata);
+    const metadata = metadataWait.value;
+    if (metadata.ok) fields = mergeMetadata(fields, metadata).fields;
+    else logMetadataRecoveryFailure(input, metadata);
+  } else {
+    let settledRecovery:
+      | { readonly fields: MetadataFields; readonly recovered: boolean }
+      | undefined;
+    const recoveryPromise = recoverMissingMetadata(input, fields).then(
+      (recovery) => {
+        settledRecovery = recovery;
+        return recovery;
+      }
+    );
+    const recoveryWait = await waitUnlessCallerAborted(
+      input.signal,
+      recoveryPromise
+    );
+    if (recoveryWait.aborted) {
+      if (settledRecovery) fields = settledRecovery.fields;
+      await persistBestEffort(
+        input,
+        fields,
+        segments,
+        transcriptSource,
+        promptLocale,
+        false
+      );
+      return { outcome: "caller_aborted" };
     }
+    fields = recoveryWait.value.fields;
   }
 
   await persistBestEffort(
@@ -564,9 +724,15 @@ async function acquireFreshTranscript(
 export async function acquireTranscript(
   input: TranscriptAcquisitionInput
 ): Promise<TranscriptAcquisitionOutcome> {
-  const startedAt = Date.now();
-  const cached = await getCachedTranscript(input.youtubeUrl);
   if (input.signal.aborted) return { outcome: "caller_aborted" };
+
+  const startedAt = Date.now();
+  const cachedWait = await waitUnlessCallerAborted(
+    input.signal,
+    getCachedTranscript(input.youtubeUrl)
+  );
+  if (cachedWait.aborted) return { outcome: "caller_aborted" };
+  const cached = cachedWait.value;
   if (cached) return acquireStoredTranscript(input, cached);
   return acquireFreshTranscript(input, startedAt);
 }

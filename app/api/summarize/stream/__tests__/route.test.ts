@@ -1635,13 +1635,10 @@ describe("POST /api/summarize/stream", () => {
       });
     });
 
-    it("does not stamp status/errorId for non-VpsTranscribeError rejections", async () => {
+    it("keeps non-VpsTranscribeError rejections on the route defect path", async () => {
       // Negative pin: a bare Error from somewhere upstream of the
-      // VPS client (e.g. a programmer-error throw at the
-      // env-missing path) must NOT be stamped with an `errorId`,
-      // otherwise log-search alerts grouping by errorId would
-      // silently bucket programmer errors under VPS_TRANSCRIBE_FAILED_*
-      // and operators would chase a phantom VPS regression.
+      // VPS client (e.g. a programmer-error throw at the env-missing path)
+      // must remain a thrown defect rather than an acquisition outcome.
       mocks.extractCaptions.mockResolvedValue(null);
       mocks.fetchVideoMetadata.mockResolvedValue({
         ok: true,
@@ -1653,18 +1650,20 @@ describe("POST /api/summarize/stream", () => {
       const res = await POST(makeRequest({ youtube_url: VALID_URL }));
       const events = parseEvents(await readStream(res));
       expect(events.find((e) => e.type === "error")).toBeDefined();
-      const vpsCall = errSpy.mock.calls.find(
-        (c) => c[0] === "[transcript-acquisition] acquisition failed"
+      const defectCall = errSpy.mock.calls.find(
+        (c) => c[0] === "[summarize/stream] unknown failed"
       );
-      expect(vpsCall).toBeDefined();
-      const payload = vpsCall![1] as Record<string, unknown>;
-      expect(payload).toHaveProperty("stage", "transcription");
+      expect(defectCall).toBeDefined();
+      const payload = defectCall![1] as Record<string, unknown>;
+      expect(payload).toHaveProperty("stage", "unknown");
+      expect(payload).toHaveProperty("errorName", "Error");
       expect(payload).not.toHaveProperty("status");
-      expect(payload).toHaveProperty(
-        "errorId",
-        "TRANSCRIPT_ACQUISITION_TRANSCRIPTION_FAILED"
-      );
-      expect(payload).not.toHaveProperty("bodyExcerpt");
+      expect(payload).not.toHaveProperty("errorId");
+      expect(
+        errSpy.mock.calls.filter(
+          (c) => c[0] === "[transcript-acquisition] acquisition failed"
+        )
+      ).toHaveLength(0);
     });
   });
 
