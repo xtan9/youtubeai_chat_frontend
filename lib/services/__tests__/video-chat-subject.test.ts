@@ -7,6 +7,7 @@ import {
 } from "../video-chat-subject";
 import {
   databaseVideoChatSubjectAdapter,
+  createHeroDemoVideoChatSubjectAdapter,
   heroDemoVideoChatSubjectAdapter,
 } from "../video-chat-subject-adapters";
 
@@ -220,8 +221,182 @@ describe("Video Chat Subject resolver", () => {
       subject: {
         identity: identity(HERO_VIDEO_ID),
         source: "hero_demo",
+        grounding: { load: expect.any(Function) },
       },
     });
+  });
+
+  it("loads one coherent Hero Demo Grounding from one base asset and its source language", async () => {
+    const loadBase = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      segments: [{ text: "Hola", start: 1, duration: 2 }],
+      nativeLanguage: "es",
+    });
+    const loadSummary = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      language: "es",
+      summary: "Resumen",
+      model: "hero-model",
+      suggestions: ["q1", "q2", "q3"],
+    });
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+
+    const loads = await Promise.all([
+      result.subject.grounding!.load(),
+      result.subject.grounding!.load(),
+    ]);
+    expect(loads[0]).toEqual({
+      status: "ready",
+      grounding: {
+        transcript: {
+          videoId: HERO_VIDEO_ID,
+          title: "Hero title",
+          channelName: "Hero channel",
+          segments: [{ text: "Hola", start: 1, duration: 2 }],
+          transcriptSource: "auto_captions",
+          language: "es",
+        },
+        summary: {
+          videoId: HERO_VIDEO_ID,
+          title: "Hero title",
+          channelName: "Hero channel",
+          language: "es",
+          transcript: "",
+          summary: "Resumen",
+          transcriptSource: "auto_captions",
+          model: "hero-model",
+          processingTimeSeconds: 0,
+          transcribeTimeSeconds: 0,
+          summarizeTimeSeconds: 0,
+          outputLanguage: null,
+        },
+      },
+    });
+    expect(loads[1]).toBe(loads[0]);
+    expect(loadBase).toHaveBeenCalledTimes(1);
+    expect(loadSummary).toHaveBeenCalledTimes(1);
+    expect(loadSummary).toHaveBeenCalledWith("es");
+  });
+
+  it("does not fall back to a translated Summary when the Hero source language is unsupported", async () => {
+    const loadBase = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      segments: [{ text: "line", start: 1, duration: 2 }],
+      nativeLanguage: "xyz",
+    });
+    const loadSummary = vi.fn();
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(loadSummary).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Hero Demo source language invalid",
+      expect.objectContaining({
+        errorId: "VIDEO_CHAT_SUBJECT_HERO_DEMO_SOURCE_LANGUAGE_INVALID",
+      }),
+    );
+  });
+
+  it("returns not-ready when the Hero base has no usable timing", async () => {
+    const loadBase = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      segments: [{ text: "legacy", start: 0, duration: 0 }],
+      nativeLanguage: "en",
+    });
+    const loadSummary = vi.fn();
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "not_ready",
+    });
+    expect(loadSummary).not.toHaveBeenCalled();
+  });
+
+  it("returns unavailable when the Hero Summary loader fails", async () => {
+    const loadBase = vi.fn().mockResolvedValue({
+      id: HERO_VIDEO_ID,
+      segments: [{ text: "line", start: 1, duration: 2 }],
+      nativeLanguage: "en",
+    });
+    const loadSummary = vi.fn().mockRejectedValue(new Error("chunk-fetch"));
+    const adapter = createHeroDemoVideoChatSubjectAdapter([
+      {
+        id: HERO_VIDEO_ID,
+        title: "Hero title",
+        channel: "Hero channel",
+        durationSec: 60,
+        loadBase,
+        loadSummary,
+      },
+    ]);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Hero Demo Summary load failed",
+      expect.objectContaining({ errorId: "HERO_DEMO_SUMMARY_LOAD_FAILED" }),
+    );
+  });
+
+  it("returns unavailable for Hero registry drift", async () => {
+    const adapter = createHeroDemoVideoChatSubjectAdapter([]);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await adapter.resolve(identity(HERO_VIDEO_ID));
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Hero Demo registry drift",
+      expect.objectContaining({ errorId: "HERO_DEMO_REGISTRY_DRIFT" }),
+    );
   });
 
   it("selects only the database adapter for a non-demo video", async () => {

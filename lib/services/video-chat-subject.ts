@@ -6,6 +6,7 @@ import {
   heroDemoVideoChatSubjectAdapter,
 } from "./video-chat-subject-adapters";
 import { logAppEvent } from "@/lib/observability";
+import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import type { CachedSummary, CachedTranscript } from "./summarize-cache";
 import type { SuggestedFollowups } from "./suggested-followups";
 
@@ -20,9 +21,17 @@ export interface VideoChatCapabilityTarget {
   readonly videoId: string;
 }
 
+export type VideoGroundingTranscript = Omit<CachedTranscript, "language"> & {
+  readonly language: SupportedLanguageCode;
+};
+
+export type VideoGroundingSummary = Omit<CachedSummary, "language"> & {
+  readonly language: SupportedLanguageCode;
+};
+
 export interface VideoGrounding {
-  readonly transcript: CachedTranscript;
-  readonly summary: CachedSummary;
+  readonly transcript: VideoGroundingTranscript;
+  readonly summary: VideoGroundingSummary;
 }
 
 export type VideoGroundingResolution =
