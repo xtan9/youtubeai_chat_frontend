@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { BarChart, Donut } from "../../_components/atoms";
-import type { VideosReport } from "@/lib/admin/videos-report";
+import type { VideosReport } from "@/lib/admin/report-types";
 import type { TranscriptSource } from "@/lib/admin/types";
 
 const SOURCE_COLOR: Record<TranscriptSource, string> = {

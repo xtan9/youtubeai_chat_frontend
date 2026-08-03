@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Btn, Pill } from "../../_components/atoms";
-import type { VideosReport } from "@/lib/admin/videos-report";
+import type { VideosReport } from "@/lib/admin/report-types";
 import { VIDEO_USERS_DRILLDOWN_CAP } from "@/lib/admin/admin-constants";
 import {
   viewVideoUsersAction,

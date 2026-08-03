@@ -17,6 +17,17 @@ import {
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
 } from "./report-completeness";
+import type {
+  VideoReportDateBounds,
+  VideoReportFilters,
+  VideoReportInsights,
+  VideoReportRow,
+  VideoReportSortDirection,
+  VideoReportSortKey,
+  VideosReport,
+  VideosReportInput,
+  VideoReportMode,
+} from "./report-types";
 import { listUserAccounts } from "./user-account-directory";
 
 const DAY_MS = 86_400_000;
@@ -24,104 +35,6 @@ const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 365;
 const DEFAULT_PAGE_SIZE = 25;
 const STALE_VIDEO_DAYS = 30;
-
-export type VideoReportMode = "all_time" | "trending";
-
-export type VideoReportSortKey =
-  | "distinctUsers"
-  | "totalSummaries"
-  | "title"
-  | "channelName"
-  | "language"
-  | "firstSummarizedAt"
-  | "lastSummarizedAt"
-  | "whisperPct"
-  | "p95ProcessingSeconds"
-  | "durationSeconds";
-
-export type VideoReportSortDirection = "asc" | "desc";
-
-/** Filter intent for the Videos route; policy and query mechanics stay private. */
-export interface VideoReportFilters {
-  language: string | null;
-  source: TranscriptSource | null;
-  channel: string | null;
-  model: string | null;
-}
-
-export interface VideoReportDateBounds {
-  from: string | null;
-  to: string | null;
-}
-
-export interface VideoReportPagination {
-  page: number;
-  pageSize: number;
-}
-
-/** Serializable route intent accepted by the single Videos report boundary. */
-export interface VideosReportInput {
-  mode: VideoReportMode;
-  windowDays: number;
-  search: string | null;
-  filters: VideoReportFilters;
-  dateBounds: VideoReportDateBounds;
-  sort: VideoReportSortKey;
-  direction: VideoReportSortDirection;
-  pagination: VideoReportPagination;
-  flaggedOnly: boolean;
-  expandedVideoId: string | null;
-}
-
-export interface VideoReportRow {
-  videoId: string;
-  title: string | null;
-  channelName: string | null;
-  language: string | null;
-  durationSeconds: number | null;
-  /** Earliest summaries.created_at observed for this Video. */
-  firstSummarizedAt: string;
-  /** Most recent user_video_history.accessed_at observed. */
-  lastSummarizedAt: string;
-  distinctUsers: number;
-  totalSummaries: number;
-  sourceMix: { source: TranscriptSource; count: number }[];
-  whisperPct: number;
-  modelsUsed: string[];
-  p95ProcessingSeconds: number | null;
-  flagged: boolean;
-  status: "active" | "stale";
-}
-
-export interface VideoReportList {
-  rows: VideoReportRow[];
-  total: number;
-  truncated: boolean;
-  page: number;
-  pageCount: number;
-  /** Compatibility signal for callers that need the old boolean alongside warnings. */
-  adminFilterIncomplete: boolean;
-}
-
-export interface VideoReportInsights {
-  totalUniqueVideos: number;
-  totalSummaries: number;
-  whisperVideoSharePct: number;
-  topChannels: { channelName: string; videoCount: number }[];
-  languageMix: { language: string; videoCount: number }[];
-  sourceMix: { source: TranscriptSource; count: number }[];
-  trendingPerDay?: { day: string; value: number }[];
-  /** Compatibility signal for callers that need the old boolean alongside warnings. */
-  adminFilterIncomplete: boolean;
-}
-
-/** Complete serializable Videos data owned by the single report loader. */
-export interface VideosReport {
-  list: VideoReportList;
-  insights: VideoReportInsights;
-  expandedVideoId: string | null;
-  warnings: ReportCompletenessWarning[];
-}
 
 interface TimeWindow {
   start: Date;

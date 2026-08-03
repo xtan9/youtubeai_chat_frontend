@@ -9,7 +9,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Pill } from "../../_components/atoms";
-import type { VideosReport, VideosReportInput } from "@/lib/admin/videos-report";
+import type { VideosReport, VideosReportInput } from "@/lib/admin/report-types";
 import type { TranscriptSource } from "@/lib/admin/types";
 import { VideoRowExpansion } from "./video-row-expansion";
 

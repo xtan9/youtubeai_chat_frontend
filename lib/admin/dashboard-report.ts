@@ -13,6 +13,13 @@ import {
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
 } from "./report-completeness";
+import type {
+  DashboardDailyPoint,
+  DashboardReport,
+  DashboardReportInput,
+  DashboardReportWindow,
+  DashboardTopUserStat,
+} from "./report-types";
 import { listUserAccounts } from "./user-account-directory";
 
 const DAY_MS = 86_400_000;
@@ -22,11 +29,6 @@ const TOP_USER_LIMIT = 5;
 type TimeWindow = {
   start: Date;
   end: Date;
-};
-
-type ReportWindow = {
-  start: string;
-  end: string;
 };
 
 interface SummaryRow {
@@ -46,57 +48,13 @@ interface HistoryRow {
   cacheHit?: boolean;
 }
 
-interface DailyPoint {
-  day: string;
-  value: number;
-}
-
-interface TopUserStat {
-  userId: string;
-  email: string | null;
-  emailLookupOk: boolean;
-  summaries: number;
-  whisperPct: number;
-  p95Seconds: number | null;
-  lastSeen: string | null;
-  flagged: boolean;
-}
-
-interface KpiDelta {
-  current: number;
-  previous: number;
-}
-
-/** Intent supplied by the Dashboard route; report policy stays private here. */
-export interface DashboardReportInput {
-  windowDays: number;
-  includeAdministrators: boolean;
-}
-
-/** Serializable operational data rendered by the Dashboard route. */
-export interface DashboardReport {
-  window: ReportWindow;
-  summaries: KpiDelta;
-  whisper: KpiDelta;
-  p95Seconds: { current: number | null; previous: number | null };
-  transcribeP95Seconds: number | null;
-  summarizeP95Seconds: number | null;
-  cacheHitRatePct: { current: number | null; previous: number | null };
-  summariesPerDay: DailyPoint[];
-  dauPerDay: DailyPoint[];
-  cacheHitPerDay: DailyPoint[];
-  sourceMix: { source: TranscriptSource; count: number }[];
-  topUsers: TopUserStat[];
-  warnings: ReportCompletenessWarning[];
-}
-
 interface AdminFilter {
   excludeUserIds: string[];
   warnings: ReportCompletenessWarning[];
 }
 
 interface TopUserResult {
-  rows: TopUserStat[];
+  rows: DashboardTopUserStat[];
   emailLookupFailed: boolean;
 }
 
@@ -281,7 +239,7 @@ function comparisonWindow(window: TimeWindow): TimeWindow {
   };
 }
 
-function serializeWindow(window: TimeWindow): ReportWindow {
+function serializeWindow(window: TimeWindow): DashboardReportWindow {
   return {
     start: window.start.toISOString(),
     end: window.end.toISOString(),
@@ -460,8 +418,8 @@ function fillDailySeries(
   start: Date,
   end: Date,
   bucketed: Map<string, number>,
-): DailyPoint[] {
-  const output: DailyPoint[] = [];
+): DashboardDailyPoint[] {
+  const output: DashboardDailyPoint[] = [];
   const cursor = new Date(start);
   while (cursor <= end) {
     const day = isoDay(cursor);
@@ -475,7 +433,7 @@ function bucketByDay<T extends { created_at: string }>(
   rows: T[],
   window: TimeWindow,
   reducer: (rowsForDay: T[]) => number = (rowsForDay) => rowsForDay.length,
-): DailyPoint[] {
+): DashboardDailyPoint[] {
   const byDay = new Map<string, T[]>();
   for (const row of rows) {
     if (!row.created_at) continue;

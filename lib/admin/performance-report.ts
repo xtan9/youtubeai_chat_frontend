@@ -8,6 +8,10 @@ import {
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
 } from "./report-completeness";
+import type {
+  PerformanceReport,
+  PerformanceReportInput,
+} from "./report-types";
 import { listUserAccounts } from "./user-account-directory";
 
 const DAY_MS = 86_400_000;
@@ -44,29 +48,6 @@ interface ActivityRead {
 
 interface AdminFilter {
   excludeUserIds: string[];
-  warnings: ReportCompletenessWarning[];
-}
-
-/** Intent supplied by the Performance route; report policy stays private here. */
-export interface PerformanceReportInput {
-  windowDays: number;
-  includeAdministrators: boolean;
-}
-
-/** Serializable operational data rendered by the Performance route. */
-export interface PerformanceReport {
-  window: { start: string; end: string };
-  p50Seconds: number | null;
-  p95Seconds: number | null;
-  transcribeP95Seconds: number | null;
-  summarizeP95Seconds: number | null;
-  prev: {
-    p50Seconds: number | null;
-    p95Seconds: number | null;
-    transcribeP95Seconds: number | null;
-    summarizeP95Seconds: number | null;
-  };
-  latencyByBucket: { day: string; p95Seconds: number | null }[];
   warnings: ReportCompletenessWarning[];
 }
 

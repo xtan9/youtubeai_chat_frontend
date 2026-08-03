@@ -22,7 +22,7 @@ import { ReportCompletenessNotice } from "../../_components/report-completeness"
 import type {
   UserAccountsReport,
   UserAccountsReportInput,
-} from "@/lib/admin/user-accounts-report";
+} from "@/lib/admin/report-types";
 import { TABS } from "./filter";
 
 type UserAccountRow = UserAccountsReport["rows"][number];

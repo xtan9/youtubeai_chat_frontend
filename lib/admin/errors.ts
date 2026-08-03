@@ -1,6 +1,8 @@
+import "server-only";
+
 export class QueryError extends Error {
   constructor(scope: string, detail: string) {
-    super(`[admin-queries:${scope}] ${detail}`);
+    super(`[admin-report:${scope}] ${detail}`);
     this.name = "QueryError";
   }
 }

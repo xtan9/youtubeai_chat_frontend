@@ -1,4 +1,4 @@
-import type { UserAccountsReportInput } from "@/lib/admin/user-accounts-report";
+import type { UserAccountsReportInput } from "@/lib/admin/report-types";
 
 export type UsersTab = UserAccountsReportInput["tab"];
 

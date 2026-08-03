@@ -2,22 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AUDIT_PAGE_SIZE_CAP } from "./admin-constants";
-import { mapAuditRow, type AuditRow } from "./audit-row";
+import { mapAuditRow } from "./audit-row";
 import { QueryError } from "./errors";
+import type { AuditReport, AuditReportInput } from "./report-types";
 
 const DEFAULT_PAGE_SIZE = 50;
-
-export type { AuditRow } from "./audit-row";
-
-export interface AuditReportInput {
-  cursor?: string | null;
-  pageSize?: number;
-}
-
-export interface AuditReport {
-  rows: AuditRow[];
-  nextCursor: string | null;
-}
 
 interface KeysetCursor {
   created_at: string;

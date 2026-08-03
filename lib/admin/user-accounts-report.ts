@@ -14,6 +14,17 @@ import {
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
 } from "./report-completeness";
+import type {
+  UserAccountReportRow as UserAccountRow,
+  UserAccountsDirection,
+  UserAccountsReport,
+  UserAccountsReportInput,
+  UserAccountsSort,
+  UserAccountsTab,
+  UserAuditReportRow as UserAuditRow,
+  UserStatus,
+  UserSummaryReportRow as UserSummaryRow,
+} from "./report-types";
 import { listUserAccounts, type UserAccount } from "./user-account-directory";
 
 const DEFAULT_ACTIVITY_WINDOW_DAYS = 30;
@@ -28,7 +39,6 @@ const TABS = [
   "flagged",
   "all",
 ] as const;
-type UserAccountsTab = (typeof TABS)[number];
 
 const SORT_KEYS = [
   "email",
@@ -41,84 +51,6 @@ const SORT_KEYS = [
   "summaries",
   "whisperPct",
 ] as const;
-type UserAccountsSort = (typeof SORT_KEYS)[number];
-type UserAccountsDirection = "asc" | "desc";
-type UserStatus =
-  | "active"
-  | "anonymous"
-  | "banned"
-  | "deleted"
-  | "unverified";
-
-interface UserAccountRow {
-  userId: string;
-  email: string | null;
-  emailVerified: boolean;
-  providers: string[];
-  status: UserStatus;
-  createdAt: string;
-  lastSignIn: string | null;
-  lastActivity: string | null;
-  summaries: number;
-  whisper: number;
-  whisperPct: number;
-  flagged: boolean;
-  isAnonymous: boolean;
-  isSsoUser: boolean;
-  bannedUntil: string | null;
-  deletedAt: string | null;
-  appMetadata: Record<string, unknown>;
-  userMetadata: Record<string, unknown>;
-}
-
-interface UserSummaryRow {
-  videoId: string;
-  videoTitle: string | null;
-  videoChannel: string | null;
-  language: string | null;
-  source: TranscriptSource;
-  model: string | null;
-  processingTimeSeconds: number | null;
-  pulledAt: string;
-  summaryId: string;
-}
-
-interface UserAuditRow {
-  id: string;
-  createdAt: string;
-  adminId: string;
-  adminEmail: string;
-  action: string;
-  resourceType: string;
-  resourceId: string;
-  metadata: Record<string, unknown>;
-}
-
-/** Intent supplied by the User Accounts route; report policy stays private here. */
-export interface UserAccountsReportInput {
-  search: string | null;
-  tab: UserAccountsTab;
-  sort: UserAccountsSort;
-  direction: UserAccountsDirection;
-  page: number;
-  expandedAccountId: string | null;
-}
-
-/** Serializable data rendered by the User Accounts route and components. */
-export interface UserAccountsReport {
-  rows: UserAccountRow[];
-  total: number;
-  truncated: boolean;
-  page: number;
-  pageCount: number;
-  activeOnPage: number;
-  expanded: {
-    accountId: string;
-    summaries: UserSummaryRow[];
-    audit: UserAuditRow[];
-  } | null;
-  warnings: ReportCompletenessWarning[];
-}
 
 const DEFAULT_INPUT: UserAccountsReportInput = {
   search: null,
