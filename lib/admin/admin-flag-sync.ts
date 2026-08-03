@@ -1,14 +1,14 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { listAllUsers } from "./queries";
+import { listUserAccounts } from "./user-account-directory";
 
 export interface ReconcileAdminFlagsResult {
   checked: number;
   promoted: number;
   demoted: number;
   failed: number;
-  /** True when listAllUsers hit its row cap; reconcile is incomplete past it. */
+  /** True when the User Account Directory hit its row cap; reconcile is incomplete past it. */
   truncated: boolean;
   /** True when the run was short-circuited by the module-level cooldown. */
   skipped: boolean;
@@ -71,7 +71,10 @@ export async function reconcileAdminFlags(
   }
   lastReconcileAt = now;
 
-  const { users, truncated } = await listAllUsers(client);
+  const { users, truncated } = await listUserAccounts(client);
+  const normalizedAllowlist = new Set(
+    Array.from(allowlist, (email) => email.trim().toLowerCase()),
+  );
 
   let promoted = 0;
   let demoted = 0;
@@ -79,12 +82,12 @@ export async function reconcileAdminFlags(
 
   for (const user of users) {
     if (!user.email) continue;
-    const expected = allowlist.has(user.email.toLowerCase());
-    const actual = user.app_metadata?.is_admin === true;
+    const expected = normalizedAllowlist.has(user.email.trim().toLowerCase());
+    const actual = user.isAdministrator;
     if (expected === actual) continue;
 
     const mergedMetadata = {
-      ...(user.app_metadata ?? {}),
+      ...user.appMetadata,
       is_admin: expected,
     };
     const { error } = await client.auth.admin.updateUserById(user.id, {
