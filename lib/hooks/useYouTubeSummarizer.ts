@@ -1,309 +1,53 @@
+"use client";
+
+import { useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/contexts/user-context";
 import { useAnonSession } from "@/lib/hooks/useAnonSession";
-
-import type { SummaryResult } from "@/lib/types";
-import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { getAuthErrorInfo } from "@/lib/utils/youtube";
-import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
-import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
-import {
-  SummaryRequestSchema,
-  SummarySseStreamDecoder,
-  SummaryStreamProtocolError,
-} from "@/lib/api-contracts/summary";
-import {
-  QueryFunctionContext,
-  useQuery,
-  experimental_streamedQuery as streamedQuery,
-  UseQueryOptions,
-} from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useCallback } from "react";
+import type { SummaryRunControllerOptions } from "@/lib/summary-run/summary-run";
+import { useSummaryRun } from "@/lib/hooks/useSummaryRun";
 
-const debugLog: (...args: unknown[]) => void =
-  process.env.NODE_ENV === "production" ? () => {} : console.log;
+export { SummaryRequestError } from "@/lib/summary-run/summary-run";
 
-export class SummaryRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly errorCode?: string,
-  ) {
-    super(message);
-    this.name = "SummaryRequestError";
-  }
-}
-
-function isAbortLike(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "AbortError" || error.name === "TimeoutError")
-  );
-}
-
-function callerAbortError(signal: AbortSignal): Error {
-  const reason = signal.reason;
-  if (reason instanceof Error && reason.name === "AbortError") return reason;
-
-  const abortError = new DOMException(
-    reason instanceof Error ? reason.message : "The operation was aborted",
-    "AbortError"
-  );
-  if (reason !== undefined) {
-    Object.defineProperty(abortError, "cause", {
-      configurable: true,
-      value: reason,
-    });
-  }
-  return abortError;
-}
-
-function shouldRetrySummaryRequest(
-  failureCount: number,
-    error: unknown
-): boolean {
-  if (isAbortLike(error)) return false;
-  if (error instanceof SummaryStreamProtocolError) return false;
-  if (
-    error instanceof SummaryRequestError &&
-    [408, 413, 429, 503, 504].includes(error.status)
-  ) {
-    return false;
-  }
-  return failureCount < 1;
-}
-
-// `outputLanguage = null` means "use the video's own language" — matches the
-// server's cache-key convention. Adding it to the queryKey means switching
-// languages auto-invalidates the cached query and re-fetches without us
-// having to orchestrate refetch manually.
-export function useYouTubeSummarizer(
-  url: string,
-  includeTranscript: boolean = true,
-  outputLanguage: SupportedLanguageCode | null = null
-) {
+/**
+ * Summary-page adapter. Authentication provisioning and login navigation are
+ * page concerns; the lifecycle itself stays in `createSummaryRunController`.
+ */
+export function useYouTubeSummarizer() {
   const { user, session } = useUser();
   const router = useRouter();
-  // Anonymous Supabase session bootstrap is shared with the hero demo
-  // widget on / via this hook; both call sites must agree on flow so a
-  // visitor moving between pages doesn't double-sign-in.
   const { anonSession, isLoading } = useAnonSession();
 
   const handleAuthError = useCallback(
     (status: number, message: string) => {
       const errorInfo = getAuthErrorInfo(status, message);
-
       if (errorInfo.shouldRedirect && user) {
         setTimeout(() => {
           router.push("/auth/login");
         }, errorInfo.redirectDelay);
       }
     },
-    [user, router]
+    [router, user],
   );
 
-  const fetchStreamingSummary = async function* ({
-    queryKey,
-    signal,
-  }: QueryFunctionContext<
-    [
-      "youtube-summary-stream",
-      string,
-      boolean,
-      SupportedLanguageCode | null,
-    ]
-  >): AsyncIterable<SummaryResult> {
-    const [, urlArg, includeTranscriptArg, outputLanguageArg] = queryKey;
-    const requestId = resolveRequestId(undefined);
-    debugLog("Fetching streaming summary:", {
-      requestId,
-      includeTranscript: includeTranscriptArg,
-      outputLanguage: outputLanguageArg,
-    });
-
-    // Get access token - either from user session or anonymous session
-    const accessToken = session?.access_token || anonSession?.access_token;
-
-    if (!accessToken) {
-      throw new Error(
-        "No authentication available. Please wait a moment while we set up anonymous access."
-      );
-    }
-
-    if (signal.aborted) {
-      throw callerAbortError(signal);
-    }
-
-    const requestBodyResult = SummaryRequestSchema.safeParse({
-      youtube_url: urlArg,
-      include_transcript: includeTranscriptArg,
-      ...(outputLanguageArg !== null
-        ? { output_language: outputLanguageArg }
-        : {}),
-    });
-    if (!requestBodyResult.success) {
-      // Keep local contract failures on the same safe public error shape as
-      // the endpoint's 400 response; do not surface Zod internals to the UI.
-      throw new SummaryRequestError(
-        "Invalid request body",
-        400,
-        "INVALID_REQUEST",
-      );
-    }
-    const requestBody = requestBodyResult.data;
-
-    const response = await fetch(
-      "/api/summarize/stream",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-          [REQUEST_ID_HEADER]: requestId,
-        },
-        body: JSON.stringify(requestBody),
-        signal,
-      }
-    );
-
-    if (signal.aborted) throw callerAbortError(signal);
-
-    debugLog("Response status:", { requestId, status: response.status });
-
-    if (!response.ok) {
-      let errorData: { message?: string; errorCode?: string; tier?: string; upgradeUrl?: string } = {};
-      try {
-        errorData = await response.json();
-      } catch {
-        if (signal.aborted) throw callerAbortError(signal);
-        console.error("[summarize-stream] non-JSON error body", {
-          errorId: "SUMMARIZE_ERROR_BODY_PARSE_FAIL",
-          status: response.status,
-          requestId,
-        });
-      }
-      if (signal.aborted) throw callerAbortError(signal);
-      console.error("[summarize-stream] request failed", {
-        errorId: response.headers.get("X-Error-ID") ?? "SUMMARIZE_REQUEST_FAILED",
-        status: response.status,
-        requestId: response.headers.get(REQUEST_ID_HEADER) ?? requestId,
-      });
-      if (response.status === 402) {
-        throw new UpgradeRequiredError({
-          errorCode: (errorData.errorCode as UpgradeRequiredError["errorCode"]) ?? "free_quota_exceeded",
-          tier: (errorData.tier as UpgradeRequiredError["tier"]) ?? "free",
-          upgradeUrl: errorData.upgradeUrl ?? "/pricing",
-          message: errorData.message ?? "Upgrade required",
-        });
-      }
-      if (response.status === 401 || response.status === 403) {
-        handleAuthError(response.status, errorData.message ?? "");
-      }
-      throw new SummaryRequestError(
-        errorData.message || "Failed to start streaming summarization",
-        response.status,
-        errorData.errorCode,
-      );
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("Failed to get response reader");
-    }
-
-    const decoder = new TextDecoder();
-    const summaryStreamDecoder = new SummarySseStreamDecoder();
-    let accumulatedData = "";
-    let chunkCount = 0;
-
-    try {
-      while (true) {
-        if (signal.aborted) {
-          throw callerAbortError(signal);
-        }
-        const { done, value } = await reader.read();
-        if (done) {
-          const trailing = decoder.decode();
-          if (trailing) {
-            accumulatedData += trailing;
-            summaryStreamDecoder.push(trailing);
-          }
-          // A final partial frame is a protocol failure, not a silently
-          // truncated summary. Complete frames were validated on arrival.
-          summaryStreamDecoder.finish();
-          debugLog("Streaming finished. Total chunks:", chunkCount);
-          break;
-        }
-        if (signal.aborted) {
-          throw callerAbortError(signal);
-        }
-
-        const chunk = decoder.decode(value, { stream: true });
-        accumulatedData += chunk;
-        // Validate every complete event at the HTTP boundary while retaining
-        // the existing accumulated wire string for the UI parser and its
-        // current rendering behavior.
-        summaryStreamDecoder.push(chunk);
-        chunkCount++;
-
-        debugLog("Summary stream chunk received", {
-          requestId,
-          chunkCount,
-          chunkBytes: chunk.length,
-        });
-
-        // Yield raw accumulated data - let consumer parse it
-        yield {
-          title: "Streaming Summary",
-          duration: "Streaming in progress",
-          summary: accumulatedData,
-          transcriptionTime: 0,
-          summaryTime: 0,
-        };
-      }
-    } catch (error) {
-      if (signal.aborted && !isAbortLike(error)) {
-        throw callerAbortError(signal);
-      }
-      throw error;
-    } finally {
-      if (signal.aborted) {
-        await reader.cancel().catch(() => undefined);
-      }
-    }
-  };
-
-  // Streaming summarization query - with refetchMode to accumulate streaming results
-  const queryOptions: UseQueryOptions<
-    SummaryResult[],
-    Error,
-    SummaryResult[],
-    [
-      "youtube-summary-stream",
-      string,
-      boolean,
-      SupportedLanguageCode | null,
-    ]
-  > = {
-    queryKey: [
-      "youtube-summary-stream",
-      url,
-      includeTranscript,
-      outputLanguage,
-    ],
-    queryFn: streamedQuery({
-      streamFn: fetchStreamingSummary,
+  const getAccessToken = useCallback(
+    () => session?.access_token || anonSession?.access_token || null,
+    [anonSession?.access_token, session?.access_token],
+  );
+  const runOptions = useMemo<SummaryRunControllerOptions>(
+    () => ({
+      getAccessToken,
+      onAuthError: handleAuthError,
     }),
-    enabled: false,
-    retry: shouldRetrySummaryRequest,
-  };
-
-  const streamingSummarizationQuery = useQuery(queryOptions);
+    [getAccessToken, handleAuthError],
+  );
+  const run = useSummaryRun(runOptions);
 
   return {
-    summarizationQuery: streamingSummarizationQuery,
+    ...run,
     isAnonymous:
-      session?.user?.is_anonymous === true || (!session && !!anonSession),
+      user?.is_anonymous === true || (!session && !!anonSession),
     isAuthLoading: isLoading,
   };
 }

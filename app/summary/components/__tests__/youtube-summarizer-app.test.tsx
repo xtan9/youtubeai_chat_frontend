@@ -1,73 +1,82 @@
 // @vitest-environment happy-dom
-import { render, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
-import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SummaryRunSnapshot } from "@/lib/summary-run/summary-run";
 
-const analyticsMocks = vi.hoisted(() => ({
-  capture: vi.fn(),
-}));
+const analyticsMocks = vi.hoisted(() => ({ capture: vi.fn() }));
 vi.mock("@/lib/analytics/client", () => ({
   captureAnalyticsEvent: analyticsMocks.capture,
 }));
 vi.mock("posthog-js/react", () => ({
   usePostHog: () => ({ capture: vi.fn() }),
 }));
-
-// Mock heavy dependencies before importing the component
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  usePathname: () => "/",
+  usePathname: () => "/summary",
   useSearchParams: () => new URLSearchParams(),
 }));
-
 vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
-
-vi.mock("@tanstack/react-query", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
-  return { ...actual };
-});
-
 vi.mock("@/lib/hooks/useYouTubeSummarizer");
 vi.mock("@/lib/hooks/useClipboard", () => ({
-  useClipboard: () => ({ copied: false, copy: vi.fn() }),
-}));
-vi.mock("@/lib/hooks/useStageTimers", () => ({
-  useStageTimers: () => ({ transcriptionTime: 0, summaryTime: 0 }),
+  useClipboard: () => ({ copied: false, copyToClipboard: vi.fn() }),
 }));
 vi.mock("../results-display", () => ({
-  ResultsDisplay: () => <div>summary results</div>,
+  ResultsDisplay: ({ data }: { data: { summary: string } }) => (
+    <div data-testid="summary-results">{data.summary}</div>
+  ),
 }));
-vi.mock("../chat-tab", () => ({
-  ChatTab: () => <div>chat</div>,
+vi.mock("../chat-tab", () => ({ ChatTab: () => <div>chat</div> }));
+vi.mock("../youtube-video", () => ({
+  default: () => <div data-testid="youtube-video" />,
+}));
+vi.mock("@/components/paywall/UpgradeCard", () => ({
+  UpgradeCard: ({ variant }: { variant: string }) => (
+    <div data-paywall-variant={variant} />
+  ),
 }));
 vi.mock("@/lib/contexts/user-context", () => ({
-  useUser: () => ({ user: { id: "u1", is_anonymous: false }, session: { access_token: "tok" } }),
-}));
-vi.mock("@/lib/hooks/useEntitlements", () => ({
-  useEntitlements: () => ({
-    data: {
-      tier: "free",
-      caps: { summariesUsed: 10, summariesLimit: 10 },
-    },
-    isError: false,
+  useUser: () => ({
+    user: { id: "u1", is_anonymous: false },
+    session: { access_token: "tok" },
   }),
 }));
 
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { YouTubeSummarizerApp } from "../youtube-summarizer-app";
 
-function freshQueryClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
-}
-function Wrapper({ children, qc }: { children: ReactNode; qc: QueryClient }) {
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+const mockUseYouTubeSummarizer = useYouTubeSummarizer as ReturnType<typeof vi.fn>;
+
+function commonCommands() {
+  return {
+    start: vi.fn(),
+    cancel: vi.fn(),
+    retry: vi.fn(),
+    isAnonymous: false,
+    isAuthLoading: false,
+  };
 }
 
-const mockUseYouTubeSummarizer = useYouTubeSummarizer as ReturnType<typeof vi.fn>;
+function runningSnapshot(): SummaryRunSnapshot {
+  return {
+    status: "running",
+    runId: "run-1",
+    input: {
+      video: { youtubeUrl: "https://youtu.be/x" },
+      outputLanguage: null,
+      includeTranscript: true,
+    },
+    draft: { text: "A draft that is still being generated." },
+    progress: {
+      stage: "summarizing",
+      message: "Generating summary...",
+      elapsedSeconds: 2.4,
+    },
+    origin: "generated",
+    transcript: { status: "unavailable", diagnostic: "not_received" },
+  };
+}
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -75,107 +84,122 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  cleanup();
 });
 
-describe("YouTubeSummarizerApp — 402 upgrade gate", () => {
-  it("renders UpgradeCard and records a quota-blocked summary", async () => {
-    const upgradeError = new UpgradeRequiredError({
-      errorCode: "free_quota_exceeded",
-      tier: "free",
-      upgradeUrl: "/pricing",
-      message: "Monthly summary limit reached",
-    });
-
+describe("YouTubeSummarizerApp Summary Run presentation", () => {
+  it("renders a non-actionable Summary Draft and keeps Chat locked while running", () => {
     mockUseYouTubeSummarizer.mockReturnValue({
-      summarizationQuery: {
-        data: undefined,
-        error: upgradeError,
-        isLoading: false,
-        isFetching: false,
-        fetchStatus: "idle",
-        dataUpdatedAt: 0,
-        errorUpdatedAt: 123,
-        refetch: vi.fn(),
-      },
-      isAnonymous: false,
-      isAuthLoading: false,
+      ...commonCommands(),
+      snapshot: runningSnapshot(),
     });
 
-    const qc = freshQueryClient();
-    render(
-      <Wrapper qc={qc}>
-        <YouTubeSummarizerApp initialUrl="https://youtu.be/x" />
-      </Wrapper>
-    );
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
 
-    // UpgradeCard renders with the summary-cap variant data attribute. Don't
-    // assert specific copy here — it's owned by UpgradeCard's own test suite.
-    expect(
-      document.querySelector('[data-paywall-variant="summary-cap"]')
-    ).not.toBeNull();
-    await waitFor(() =>
-      expect(analyticsMocks.capture).toHaveBeenCalledWith("summary_failed", {
-        account_type: "registered",
-        source_surface: "summary",
-        output_language: "video_native",
-        failure_category: "quota",
-        error_code: "free_quota_exceeded",
-        http_status: 402,
-      }),
-    );
+    expect(screen.getByTestId("summary-draft")).not.toBeNull();
+    expect(screen.getByText("A draft that is still being generated.")).not.toBeNull();
+    expect(screen.queryByTestId("summary-results")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /copy summary/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /new summary/i })).toBeNull();
   });
 
-  it("records a terminal cached summary without content properties", async () => {
-    const stream = [
-      'data: {"type":"metadata","category":"general","cached":true}',
-      'data: {"type":"content","text":"A useful summary"}',
-      'data: {"type":"summary","category":"general","total_time":3,"summarize_time":2,"transcribe_time":1}',
-      "",
-    ].join("\n");
-    mockUseYouTubeSummarizer.mockReturnValue({
-      summarizationQuery: {
-        data: [
-          {
-            title: "Streaming Summary",
-            duration: "Streaming in progress",
-            summary: stream,
-            transcriptionTime: 0,
-            summaryTime: 0,
+  it.each([
+    {
+      label: "generated",
+      origin: "generated" as const,
+      summaryText: "A validated generated Summary.",
+    },
+    {
+      label: "cached",
+      origin: "cache" as const,
+      summaryText: "A validated cached Summary.",
+    },
+  ])(
+    "renders completed $label Summary presentation, unlocks Chat, and records validated origin",
+    async ({ origin, summaryText }) => {
+      mockUseYouTubeSummarizer.mockReturnValue({
+        ...commonCommands(),
+        isAnonymous: true,
+        snapshot: {
+          status: "succeeded",
+          runId: "run-2",
+          input: {
+            video: { youtubeUrl: "https://youtu.be/x" },
+            outputLanguage: null,
+            includeTranscript: true,
           },
-        ],
-        error: null,
-        isLoading: false,
-        isFetching: false,
-        fetchStatus: "idle",
-        dataUpdatedAt: 456,
-        errorUpdatedAt: 0,
-        refetch: vi.fn(),
-      },
-      isAnonymous: true,
-      isAuthLoading: false,
+          summary: {
+            title: "Video Summary",
+            duration: "3.0s total",
+            summary: summaryText,
+            transcriptionTime: 1,
+            summaryTime: 2,
+            origin,
+          },
+          origin,
+          progress: {
+            stage: "complete",
+            message: "Summary complete",
+            elapsedSeconds: 3,
+          },
+          transcript: { status: "not_requested" },
+        } satisfies SummaryRunSnapshot,
+      });
+
+      render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+      expect(screen.getByTestId("summary-results").textContent).toContain(
+        summaryText,
+      );
+      expect(screen.queryByTestId("summary-draft")).toBeNull();
+      expect(
+        screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled"),
+      ).toBeNull();
+      await waitFor(() =>
+        expect(analyticsMocks.capture).toHaveBeenCalledWith(
+          "summary_succeeded",
+          expect.objectContaining({
+            result_origin: origin,
+            output_language: "video_native",
+          }),
+        ),
+      );
+    },
+  );
+
+  it("renders quota failure without exposing a completed Summary", () => {
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      snapshot: {
+        status: "failed",
+        runId: "run-3",
+        input: {
+          video: { youtubeUrl: "https://youtu.be/x" },
+          outputLanguage: null,
+          includeTranscript: true,
+        },
+        draft: { text: "" },
+        progress: {
+          stage: "preparing",
+          message: "Preparing summary...",
+          elapsedSeconds: 0,
+        },
+        origin: null,
+        transcript: { status: "unavailable", diagnostic: "not_received" },
+        error: {
+          kind: "quota",
+          code: "free_quota_exceeded",
+          message: "Monthly summary limit reached",
+          status: 402,
+        },
+      } satisfies SummaryRunSnapshot,
     });
 
-    const qc = freshQueryClient();
-    render(
-      <Wrapper qc={qc}>
-        <YouTubeSummarizerApp initialUrl="https://youtu.be/x" />
-      </Wrapper>,
-    );
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
 
-    await waitFor(() =>
-      expect(analyticsMocks.capture).toHaveBeenCalledWith(
-        "summary_succeeded",
-        {
-          account_type: "anonymous",
-          source_surface: "summary",
-          result_origin: "cache",
-          output_language: "video_native",
-          transcription_seconds: 1,
-          summary_seconds: 2,
-          total_seconds: 3,
-        },
-      ),
-    );
+    expect(document.querySelector('[data-paywall-variant="summary-cap"]')).not.toBeNull();
+    expect(screen.queryByTestId("summary-results")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
   });
 });

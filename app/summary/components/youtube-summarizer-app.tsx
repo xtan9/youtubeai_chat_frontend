@@ -1,32 +1,25 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  SummaryRequestError,
-  useYouTubeSummarizer,
-} from "@/lib/hooks/useYouTubeSummarizer";
+import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
-import { useStageTimers } from "@/lib/hooks/useStageTimers";
 import { AuthErrorBanner } from "./auth-error-banner";
 import { ResultsDisplay } from "./results-display";
+import { SummaryDraft } from "./summary-draft";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import { StreamErrorBanner } from "./stream-error-banner";
 import { LanguagePicker } from "./language-picker";
 import { SummaryTabs } from "./summary-tabs";
 import { ChatTab } from "./chat-tab";
 import { PlayerRefProvider } from "@/lib/contexts/player-ref";
-import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { UpgradeCard } from "@/components/paywall/UpgradeCard";
-import type { SummaryResult } from "@/lib/types";
 import {
   SUPPORTED_LANGUAGE_CODES,
   type SupportedLanguageCode,
 } from "@/lib/constants/languages";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
-import { parseStreamingData, type StreamingProgress } from "../utils";
 import YoutubeVideo from "./youtube-video";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
@@ -38,288 +31,92 @@ export function YouTubeSummarizerApp({
   initialUrl,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [url, setUrl] = useState(initialUrl || "");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [streamingComplete, setStreamingComplete] = useState(false);
-  const firstRenderRef = useRef(true);
-  const analyticsOutcomeRef = useRef<string | null>(null);
-
-  // `null` until the user actively picks a translation. Null = "ask the
-  // server for the video-native summary" which reuses the existing NULL
-  // cache row — no double-billing on first load.
   const [outputLanguage, setOutputLanguage] =
     useState<SupportedLanguageCode | null>(null);
-
-  // Browser locale only drives the "Your language" menu hint. Computed once
-  // on mount so ref-stable across re-renders. SSR-safe: `navigator` isn't
-  // available during server render, so guard + fall back to English (the
-  // util also defaults to "en" for the same reason). React hydration will
-  // re-run this effect on the client.
   const [browserLanguage, setBrowserLanguage] =
     useState<SupportedLanguageCode>("en");
+  const analyticsOutcomeRef = useRef<string | null>(null);
+
   useEffect(() => {
     const langs =
       typeof navigator !== "undefined" && navigator.languages
         ? Array.from(navigator.languages)
         : [];
-    // TODO(B-followup): replace this hydration-flag pattern with
-    // `useSyncExternalStore` over `navigator.languages` so the locale
-    // detection is push-driven, not pulled-once-on-mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBrowserLanguage(pickDefaultLanguage(langs, SUPPORTED_LANGUAGE_CODES));
   }, []);
 
-  // Use custom hooks for complex logic
-  const { summarizationQuery, isAnonymous } = useYouTubeSummarizer(
-    url,
-    true,
-    outputLanguage
-  );
+  const { snapshot, start, isAnonymous, isAuthLoading } =
+    useYouTubeSummarizer();
 
-  const {
-    data: rawData,
-    error: queryError,
-    isLoading,
-    isFetching,
-    fetchStatus,
-    dataUpdatedAt,
-    errorUpdatedAt,
-  } = summarizationQuery;
-
-  // Handle streaming data (array)
-  // TODO(B-followup): split this useMemo into (a) a pure derivation
-  // returning `{ data, streamingProgress, isCached, streamError }`
-  // and (b) a separate `useEffect` keyed on the derivation that
-  // owns the `setIsProcessing` / `setStreamingComplete` side
-  // effects. The current shape interleaves derivation + state
-  // mutation, which is what `react-hooks/set-state-in-render`
-  // flags. Refactor is out of scope for B PR 6 (composites cluster).
-  const {
-    data,
-    streamingProgress,
-    isCached,
-    streamError,
-    streamErrorId,
-  } = useMemo(() => {
-    if ((isLoading || isFetching) && !rawData) {
-      // eslint-disable-next-line react-hooks/set-state-in-render
-      setIsProcessing(true);
-      // eslint-disable-next-line react-hooks/set-state-in-render
-      setStreamingComplete(false);
-      return {
-        data: undefined,
-        streamingProgress: {
-          stage: "preparing",
-          message: "Initializing summary process...",
-          progress: 5,
-        } as StreamingProgress,
-        isCached: false,
-        streamError: null as string | null,
-        streamErrorId: null as string | null,
-      };
-    }
-
-    if (Array.isArray(rawData) && rawData.length > 0) {
-      const latestRawData = rawData[rawData.length - 1];
-
-      if (latestRawData?.summary) {
-        // eslint-disable-next-line react-hooks/set-state-in-render
-        setIsProcessing(false);
-        // Parse the streaming data to extract clean content and progress
-        const parsed = parseStreamingData(latestRawData.summary);
-
-        // Check if streaming is complete OR errored — either way the
-        // stream has finished and the progress indicator should stop.
-        if (
-          parsed.streamError ||
-          (parsed.progress?.stage === "complete" &&
-            parsed.progress.progress === 100)
-        ) {
-          // eslint-disable-next-line react-hooks/set-state-in-render
-          setStreamingComplete(true);
-        }
-
-        return {
-          data: parsed.result,
-          streamingProgress: parsed.progress,
-          isCached: parsed.isCached,
-          streamError: parsed.streamError,
-          streamErrorId: parsed.streamErrorId,
-        };
-      }
-      return {
-        data: latestRawData,
-        streamingProgress: null,
-        isCached: false,
-        streamError: null as string | null,
-        streamErrorId: null as string | null,
-      };
-    }
-
-    return {
-      data: rawData as SummaryResult | undefined,
-      streamingProgress: null,
-      isCached: false,
-      streamError: null as string | null,
-      streamErrorId: null as string | null,
-    };
-  }, [rawData, isLoading, isFetching]);
+  // Each effect execution is one explicit Summary Run start. The controller
+  // captures the URL, language, and transcript preference before any async
+  // work begins, and replaces/cancels an older run when language changes.
+  useEffect(() => {
+    if (!url || isAuthLoading) return;
+    void start({
+      video: { youtubeUrl: url },
+      outputLanguage,
+      includeTranscript: true,
+    });
+  }, [isAuthLoading, outputLanguage, start, url]);
 
   useEffect(() => {
     const accountType = isAnonymous ? "anonymous" : "registered";
     const outputLanguageProperty = outputLanguage ?? "video_native";
 
-    if (streamError) {
-      const outcomeKey = `stream-failed:${dataUpdatedAt}`;
+    if (snapshot.status === "failed") {
+      const outcomeKey = `failed:${snapshot.runId}`;
       if (analyticsOutcomeRef.current === outcomeKey) return;
       analyticsOutcomeRef.current = outcomeKey;
+      const { error } = snapshot;
       captureAnalyticsEvent("summary_failed", {
         account_type: accountType,
         source_surface: "summary",
         output_language: outputLanguageProperty,
-        failure_category: "processing",
-        error_code: streamErrorId ?? "stream_error",
+        failure_category:
+          error.kind === "quota"
+            ? "quota"
+            : error.kind === "authentication"
+              ? "auth"
+              : error.kind === "rate_limit"
+                ? "rate_limit"
+                : error.kind === "processing" || error.kind === "protocol"
+                  ? "processing"
+                  : "request",
+        error_code: error.code ?? "summary_run_failed",
+        ...(error.status !== undefined ? { http_status: error.status } : {}),
       });
       return;
     }
 
-    if (queryError) {
-      const outcomeKey = `request-failed:${errorUpdatedAt}`;
-      if (analyticsOutcomeRef.current === outcomeKey) return;
-      analyticsOutcomeRef.current = outcomeKey;
-
-      if (queryError instanceof UpgradeRequiredError) {
-        captureAnalyticsEvent("summary_failed", {
-          account_type: accountType,
-          source_surface: "summary",
-          output_language: outputLanguageProperty,
-          failure_category: "quota",
-          error_code: queryError.errorCode,
-          http_status: 402,
-        });
-        return;
-      }
-
-      const status =
-        queryError instanceof SummaryRequestError
-          ? queryError.status
-          : undefined;
-      const failureCategory =
-        status === 401 || status === 403
-          ? "auth"
-          : status === 429
-            ? "rate_limit"
-            : "request";
-      captureAnalyticsEvent("summary_failed", {
-        account_type: accountType,
-        source_surface: "summary",
-        output_language: outputLanguageProperty,
-        failure_category: failureCategory,
-        error_code:
-          queryError instanceof SummaryRequestError
-            ? queryError.errorCode ?? "summary_request_failed"
-            : "summary_request_failed",
-        ...(status !== undefined ? { http_status: status } : {}),
-      });
-      return;
-    }
-
-    if (
-      streamingProgress?.stage === "complete" &&
-      data &&
-      data.summary.length > 0
-    ) {
-      const outcomeKey = `succeeded:${dataUpdatedAt}`;
+    if (snapshot.status === "succeeded") {
+      const outcomeKey = `succeeded:${snapshot.runId}`;
       if (analyticsOutcomeRef.current === outcomeKey) return;
       analyticsOutcomeRef.current = outcomeKey;
       captureAnalyticsEvent("summary_succeeded", {
         account_type: accountType,
         source_surface: "summary",
-        result_origin: isCached ? "cache" : "generated",
+        result_origin: snapshot.origin,
         output_language: outputLanguageProperty,
-        transcription_seconds: data.transcriptionTime,
-        summary_seconds: data.summaryTime,
-        total_seconds: data.transcriptionTime + data.summaryTime,
+        transcription_seconds: snapshot.summary.transcriptionTime,
+        summary_seconds: snapshot.summary.summaryTime,
+        total_seconds:
+          snapshot.summary.transcriptionTime + snapshot.summary.summaryTime,
       });
     }
-  }, [
-    data,
-    dataUpdatedAt,
-    errorUpdatedAt,
-    isAnonymous,
-    isCached,
-    outputLanguage,
-    queryError,
-    streamError,
-    streamErrorId,
-    streamingProgress?.stage,
-  ]);
-
-  // data.transcriptionTime/summaryTime only land with the terminal
-  // `summary` event; tick wall-clock until then.
-  const { transcriptionTime, summaryTime } = useStageTimers(
-    streamingProgress?.stage,
-    {
-      transcriptionTime: data?.transcriptionTime,
-      summaryTime: data?.summaryTime,
-    }
-  );
-
-  const dataWithLiveTimers = useMemo<SummaryResult | undefined>(
-    () =>
-      data ? { ...data, transcriptionTime, summaryTime } : undefined,
-    [data, transcriptionTime, summaryTime]
-  );
-
-  // Detect if this is a cached result from query status.
-  // TODO(B-followup): collapse the cache-detection effect into the
-  // derivation above so React state stays in lockstep with the
-  // streaming snapshot rather than being patched after-the-fact in
-  // an effect.
-  useEffect(() => {
-    // If we already detected it's cached from metadata, don't change it
-    if (isCached) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStreamingComplete(true);
-      return;
-    }
-
-    // Otherwise check the query status
-    if (rawData && !isLoading && !isFetching && fetchStatus === "idle") {
-      setStreamingComplete(true);
-    }
-  }, [rawData, isLoading, isFetching, fetchStatus, isCached]);
-
-  // Handle first render with cached results
-  useEffect(() => {
-    if (isCached && firstRenderRef.current) {
-      firstRenderRef.current = false;
-      setStreamingComplete(true);
-    }
-  }, [isCached]);
+  }, [isAnonymous, outputLanguage, snapshot]);
 
   const { copied, copyToClipboard } = useClipboard();
 
-  // Fetch summary when component mounts or language changes. The hook uses
-  // `enabled: false`, so a queryKey change alone doesn't auto-refetch —
-  // depending on [url, outputLanguage] here gives us both the initial mount
-  // fire and the language-switch re-run without a second effect.
-  useEffect(() => {
-    if (url) {
-      firstRenderRef.current = true;
-      summarizationQuery.refetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, outputLanguage]);
-
   const handleCopySummary = async () => {
-    if (!data) return;
-
-    const textToCopy = `${data?.title}\n\n${data?.summary}`;
-    await copyToClipboard(textToCopy);
+    if (snapshot.status !== "succeeded") return;
+    await copyToClipboard(
+      `${snapshot.summary.title}\n\n${snapshot.summary.summary}`,
+    );
   };
 
   const handleNewSummary = () => {
@@ -328,81 +125,52 @@ export function YouTubeSummarizerApp({
   };
 
   const handleLanguageSelect = (code: SupportedLanguageCode) => {
-    // Picking the same code as the current state is a no-op — the effect
-    // above would pointlessly refetch and cache-hit, but it also clears the
-    // rendered content briefly. Short-circuit before that.
     if (code === outputLanguage) return;
-    // Cancel the in-flight stream (if any) so a user rapidly switching
-    // Spanish → French doesn't leave an orphan `es` LLM call streaming on
-    // the backend that still writes its cache row. cancelQueries fires the
-    // AbortSignal passed into fetchStreamingSummary, which the route
-    // handler observes via request.signal.aborted and exits without
-    // writing the cache.
-    //
-    // Fire-and-forget with an explicit catch: if React Query's internals
-    // reject, an unhandled rejection would mask the "why did I get billed
-    // twice" user report from debugging logs.
-    queryClient
-      .cancelQueries({
-        queryKey: ["youtube-summary-stream", url],
-        exact: false,
-      })
-      .catch((err) =>
-        console.error("[language-switch] cancelQueries failed", { err })
-      );
     setOutputLanguage(code);
   };
 
-  // Chat unlocks once the summary is on the page (live stream finished
-  // OR cached row resolved). Both produce `dataWithLiveTimers`, and a
-  // hard error suppresses both, so this single condition covers both
-  // paths without touching the streaming state machine.
-  const chatLocked = !dataWithLiveTimers || !!streamError;
-  // Tell SummaryTabs which kind of lock this is. Only `streamError`
-  // is "permanent" (won't resolve without user action) — the
-  // `!dataWithLiveTimers` half flips to `false` once the cache hit
-  // or stream completion lands. SummaryTabs uses this to decide
-  // whether to rewrite `?tab=chat` away from the URL.
-  const chatPermanentlyLocked = !!streamError;
+  const failure = snapshot.status === "failed" ? snapshot.error : null;
+  const draftText =
+    snapshot.status === "running" ||
+    snapshot.status === "failed" ||
+    snapshot.status === "cancelled"
+      ? snapshot.draft.text
+      : null;
+
+  const languagePicker = (
+    <LanguagePicker
+      currentLanguage={outputLanguage}
+      browserLanguage={browserLanguage}
+      onSelect={handleLanguageSelect}
+      isDark={isDark}
+      disabled={false}
+    />
+  );
 
   const summaryContent = (
     <>
-      {/* 402 cap-hit: render UpgradeCard instead of generic error banner.
-          TODO: add e2e for this in Task 11 */}
-      {queryError instanceof UpgradeRequiredError ? (
+      {failure?.kind === "quota" ? (
         <UpgradeCard variant="summary-cap" />
-      ) : (
-        <AuthErrorBanner authError={queryError?.message} />
+      ) : failure?.kind === "authentication" ? (
+        <AuthErrorBanner authError={failure.message} />
+      ) : failure ? (
+        <StreamErrorBanner message={failure.message} errorId={failure.code} />
+      ) : null}
+
+      {(snapshot.status === "running" ||
+        snapshot.status === "failed" ||
+        snapshot.status === "cancelled") &&
+        url && <div className="mb-4 flex justify-end">{languagePicker}</div>}
+
+      {snapshot.status === "running" && (
+        <StreamingProgressIndicator progress={snapshot.progress} />
       )}
-      {streamError && (
-        <StreamErrorBanner message={streamError} errorId={streamErrorId} />
-      )}
-      {!streamError && !(queryError instanceof UpgradeRequiredError) && (streamingProgress || isProcessing) && (
-        <>
-          {!dataWithLiveTimers && (
-            <div className="flex justify-end mb-3">
-              <LanguagePicker
-                currentLanguage={outputLanguage ?? null}
-                browserLanguage={browserLanguage}
-                onSelect={handleLanguageSelect}
-                isDark={isDark}
-              />
-            </div>
-          )}
-          <StreamingProgressIndicator
-            progress={
-              streamingProgress || {
-                stage: "preparing",
-                message: "Starting summary process...",
-                progress: 5,
-              }
-            }
-          />
-        </>
-      )}
-      {dataWithLiveTimers && !streamError && (
+
+      {draftText !== null && <SummaryDraft text={draftText} />}
+
+      {snapshot.status === "succeeded" && (
         <ResultsDisplay
-          data={dataWithLiveTimers}
+          data={snapshot.summary}
           copied={copied}
           onCopySummary={handleCopySummary}
           onNewSummary={handleNewSummary}
@@ -415,27 +183,33 @@ export function YouTubeSummarizerApp({
     </>
   );
 
-  const chatContent = <ChatTab youtubeUrl={url || null} active={!chatLocked} />;
+  const chatLocked = snapshot.status !== "succeeded";
+  const chatPermanentlyLocked =
+    snapshot.status === "failed" || snapshot.status === "cancelled";
+  const completedSummary =
+    snapshot.status === "succeeded" ? snapshot.summary : undefined;
 
   return (
     <PlayerRefProvider>
       <div className="mx-auto max-w-page px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <SummaryTabs
               chatLocked={chatLocked}
               chatPermanentlyLocked={chatPermanentlyLocked}
               summaryContent={summaryContent}
-              chatContent={chatContent}
+              chatContent={
+                <ChatTab youtubeUrl={url || null} active={!chatLocked} />
+              }
             />
           </div>
           <div className="sticky top-[138px] w-full">
             <YoutubeVideo
               url={url}
               width={600}
-              segments={data?.segments}
-              transcriptSource={data?.transcriptSource}
-              streamingComplete={streamingComplete}
+              segments={completedSummary?.segments}
+              transcriptSource={completedSummary?.transcriptSource}
+              streamingComplete={snapshot.status === "succeeded"}
             />
           </div>
         </div>

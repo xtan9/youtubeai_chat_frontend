@@ -236,20 +236,111 @@ describe("extractCaptions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns null on 404 (no_captions) without logging", async () => {
+  it("returns null on a bounded 404 CAPTIONS_NOT_FOUND response", async () => {
     stubEnv();
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(jsonResponse({ error: "no_captions" }, 404))
+        .mockResolvedValue(
+          jsonResponse(
+            {
+              error: "no_captions",
+              errorId: "CAPTIONS_NOT_FOUND",
+              requestId: "request-212",
+            },
+            404
+          )
+        )
     );
     const result = await extractCaptions(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     );
     expect(result).toBeNull();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("throws on a 404 response without the bounded absence classification", async () => {
+    stubEnv();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({ error: "no_captions" }, 404)
+      )
+    );
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: 404 });
+    expect(spy).toHaveBeenCalledWith(
+      "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
+      expect.objectContaining({ status: 404 })
+    );
+  });
+
+  it("does not treat an unbounded 404 absence envelope as fallback-eligible", async () => {
+    stubEnv();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "no_captions",
+            errorId: "CAPTIONS_NOT_FOUND",
+            requestId: "x".repeat(65),
+          },
+          404
+        )
+      )
+    );
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({ status: 404 });
+  });
+
+  it("throws a terminal typed error for bounded 422 VIDEO_UNAVAILABLE", async () => {
+    stubEnv();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Video unavailable",
+            errorId: "VIDEO_UNAVAILABLE",
+            requestId: "request-212",
+          },
+          422
+        )
+      )
+    );
+
+    const error = await extractCaptions(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    ).catch((err) => err);
+
+    expect(error).toBeInstanceOf(CaptionExtractionError);
+    expect(error).toMatchObject({
+      status: 422,
+      bodyExcerpt: expect.stringContaining("VIDEO_UNAVAILABLE"),
+    });
+    expect(captionErrorId((error as CaptionExtractionError).status)).toBe(
+      "VPS_CAPTIONS_FAILED_HTTP_422"
+    );
+    expect(spy).toHaveBeenCalledWith(
+      "[caption-extractor] CAPTION_UNEXPECTED_FAILURE",
+      expect.objectContaining({ status: 422 })
+    );
   });
 
   it("throws a typed error on 500 instead of triggering paid fallback", async () => {

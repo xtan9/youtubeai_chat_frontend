@@ -358,7 +358,17 @@ export async function POST(request: Request) {
             return;
           }
 
-          sendEvent({ type: "metadata", category: "general", cached: false });
+          // The Summary itself came from the validated cache row even when
+          // Transcript Acquisition has to run again to restore timed
+          // segments. Origin must describe the Summary source, not whether
+          // this request spent time repairing its optional Transcript.
+          sendEvent({
+            type: "metadata",
+            category: "general",
+            cached: true,
+            title: cached.title,
+            channel: cached.channelName,
+          });
           bufferedProgress.forEach(sendAcquisitionProgress);
         } else {
           sendEvent({ type: "metadata", category: "general", cached: false });
