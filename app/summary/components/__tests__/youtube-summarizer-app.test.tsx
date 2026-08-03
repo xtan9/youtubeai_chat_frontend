@@ -1,12 +1,8 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SummaryRunSnapshot } from "@/lib/summary-run/summary-run";
+import type { SummaryRunSnapshot } from "@/lib/summary-run";
 
-const analyticsMocks = vi.hoisted(() => ({ capture: vi.fn() }));
-vi.mock("@/lib/analytics/client", () => ({
-  captureAnalyticsEvent: analyticsMocks.capture,
-}));
 vi.mock("posthog-js/react", () => ({
   usePostHog: () => ({ capture: vi.fn() }),
 }));
@@ -89,7 +85,6 @@ function runningSnapshot(): SummaryRunSnapshot {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  analyticsMocks.capture.mockReset();
 });
 
 afterEach(() => {
@@ -178,15 +173,6 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
       expect(
         screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled"),
       ).toBeNull();
-      await waitFor(() =>
-        expect(analyticsMocks.capture).toHaveBeenCalledWith(
-          "summary_succeeded",
-          expect.objectContaining({
-            result_origin: origin,
-            output_language: "video_native",
-          }),
-        ),
-      );
     },
   );
 

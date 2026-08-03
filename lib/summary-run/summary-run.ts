@@ -115,6 +115,37 @@ export interface SummaryRunFailure {
   readonly quota?: SummaryRunQuotaInfo;
 }
 
+export interface SummaryRunTiming {
+  readonly totalSeconds: number;
+  readonly transcriptionSeconds: number;
+  readonly summarySeconds: number;
+}
+
+export interface SummaryRunSuccessOutcome {
+  readonly outcome: "success";
+  readonly runId: string;
+  readonly outputLanguage: SupportedLanguageCode | null;
+  readonly origin: SummaryRunOrigin;
+  readonly timings: SummaryRunTiming;
+}
+
+export interface SummaryRunFailureOutcome {
+  readonly outcome: "failure";
+  readonly runId: string;
+  readonly outputLanguage: SupportedLanguageCode | null;
+  readonly failure: {
+    readonly kind: SummaryRunFailureKind;
+    readonly code: SummaryRunFailureCode;
+    readonly status?: number;
+  };
+}
+
+export type SummaryRunOutcome =
+  | SummaryRunSuccessOutcome
+  | SummaryRunFailureOutcome;
+
+export type SummaryRunOutcomeObserver = (outcome: SummaryRunOutcome) => void;
+
 export type CompletedSummary = SummaryResult & {
   readonly origin: SummaryRunOrigin;
 };
@@ -183,6 +214,7 @@ export interface SummaryRunControllerOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly getAccessToken: () => string | null | Promise<string | null>;
   readonly onAuthError?: (status: number, message: string) => void;
+  readonly onOutcome?: SummaryRunOutcomeObserver;
   readonly now?: () => number;
   readonly elapsedTickMs?: number;
   readonly createRunId?: () => string;
@@ -274,6 +306,7 @@ interface RunAccumulator {
 interface ActiveRun extends RunAccumulator {
   readonly id: string;
   readonly controller: AbortController;
+  outcomeEmitted: boolean;
 }
 
 class SummaryRunFailureError extends Error {
@@ -567,6 +600,40 @@ function summaryFromRun(
   });
 }
 
+function successOutcomeForRun(
+  run: ActiveRun,
+  terminal: TerminalSummaryEvent,
+  origin: SummaryRunOrigin,
+): SummaryRunSuccessOutcome {
+  return Object.freeze({
+    outcome: "success" as const,
+    runId: run.id,
+    outputLanguage: run.input.outputLanguage,
+    origin,
+    timings: Object.freeze({
+      totalSeconds: terminal.total_time,
+      transcriptionSeconds: terminal.transcribe_time,
+      summarySeconds: terminal.summarize_time,
+    }),
+  });
+}
+
+function failureOutcomeForRun(
+  run: ActiveRun,
+  failure: SummaryRunFailure,
+): SummaryRunFailureOutcome {
+  return Object.freeze({
+    outcome: "failure" as const,
+    runId: run.id,
+    outputLanguage: run.input.outputLanguage,
+    failure: Object.freeze({
+      kind: failure.kind,
+      code: failure.code,
+      ...(failure.status !== undefined ? { status: failure.status } : {}),
+    }),
+  });
+}
+
 function makeRunningSnapshot(
   run: ActiveRun,
   now: number,
@@ -641,10 +708,22 @@ export function createSummaryRunController(
     return distinctId;
   };
 
+  const emitOutcome = (run: ActiveRun, outcome: SummaryRunOutcome): void => {
+    if (run.outcomeEmitted) return;
+    run.outcomeEmitted = true;
+    try {
+      options.onOutcome?.(outcome);
+    } catch {
+      // An observer is an integration boundary. It must never turn a
+      // terminal Summary Run into a second lifecycle failure.
+    }
+  };
+
   const failRun = (run: ActiveRun, error: unknown) => {
     if (!isCurrentRun(run)) return;
     stopElapsedTimer();
     const failure = toFailure(error);
+    const outcome = failureOutcomeForRun(run, failure);
     activeRun = null;
     lastFailedInput = run.input;
     run.controller.abort();
@@ -665,6 +744,7 @@ export function createSummaryRunController(
         error: Object.freeze(failure),
       }),
     );
+    emitOutcome(run, outcome);
   };
 
   const succeedRun = (run: ActiveRun, terminal: TerminalSummaryEvent) => {
@@ -675,6 +755,7 @@ export function createSummaryRunController(
       failRun(run, new SummaryRunProtocolFailure("MISSING_ORIGIN"));
       return;
     }
+    const outcome = successOutcomeForRun(run, terminal, summary.origin);
     activeRun = null;
     setSnapshot(
       Object.freeze({
@@ -687,6 +768,7 @@ export function createSummaryRunController(
         transcript: freezeTranscript(run.transcript),
       }),
     );
+    emitOutcome(run, outcome);
   };
 
   const processDecodedItems = (
@@ -836,6 +918,7 @@ export function createSummaryRunController(
       transcript: initialTranscriptState(capturedInput.includeTranscript),
       terminal: null,
       terminalSummary: null,
+      outcomeEmitted: false,
     };
     activeRun = run;
     startElapsedTimer(run);
