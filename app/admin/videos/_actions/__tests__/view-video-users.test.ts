@@ -17,20 +17,20 @@ vi.mock("@/lib/admin/audit", () => ({
   writeAudit: vi.fn(),
 }));
 
-vi.mock("@/lib/admin/queries", () => ({
-  getVideoSummariesUsers: vi.fn(),
+vi.mock("@/lib/services/video-user-disclosure", () => ({
+  getVideoUsersDisclosure: vi.fn(),
 }));
 
 import { viewVideoUsersAction } from "../view-video-users";
 import { requireAdminPage } from "@/app/admin/_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import { writeAudit } from "@/lib/admin/audit";
-import { getVideoSummariesUsers } from "@/lib/admin/queries";
+import { getVideoUsersDisclosure } from "@/lib/services/video-user-disclosure";
 
 const requireAdminPageMock = vi.mocked(requireAdminPage);
 const requireAdminClientMock = vi.mocked(requireAdminClient);
 const writeAuditMock = vi.mocked(writeAudit);
-const getVideoSummariesUsersMock = vi.mocked(getVideoSummariesUsers);
+const getVideoUsersDisclosureMock = vi.mocked(getVideoUsersDisclosure);
 
 const VALID_VIDEO_UUID = "11111111-2222-3333-4444-555555555555";
 
@@ -45,14 +45,14 @@ beforeEach(() => {
   requireAdminPageMock.mockReset();
   requireAdminClientMock.mockReset();
   writeAuditMock.mockReset();
-  getVideoSummariesUsersMock.mockReset();
+  getVideoUsersDisclosureMock.mockReset();
   requireAdminPageMock.mockResolvedValue(adminPrincipal);
   requireAdminClientMock.mockReturnValue({} as unknown as SupabaseClient);
 });
 
 describe("viewVideoUsersAction", () => {
   it("writes one audit row per revealed user with viewed_user_id metadata", async () => {
-    getVideoSummariesUsersMock.mockResolvedValue({
+    getVideoUsersDisclosureMock.mockResolvedValue({
       videoId: VALID_VIDEO_UUID,
       users: [
         {
@@ -130,7 +130,7 @@ describe("viewVideoUsersAction", () => {
   });
 
   it("does not write audit when drilldown returns zero users", async () => {
-    getVideoSummariesUsersMock.mockResolvedValue({
+    getVideoUsersDisclosureMock.mockResolvedValue({
       videoId: VALID_VIDEO_UUID,
       users: [],
       truncated: false,
@@ -149,7 +149,7 @@ describe("viewVideoUsersAction", () => {
     // to the wire so the row-expansion UI can surface its banner.
     // A regression that drops this field would silently degrade the
     // operator's ability to know they're not seeing the full user set.
-    getVideoSummariesUsersMock.mockResolvedValue({
+    getVideoUsersDisclosureMock.mockResolvedValue({
       videoId: VALID_VIDEO_UUID,
       users: [
         {
@@ -178,7 +178,7 @@ describe("viewVideoUsersAction", () => {
   });
 
   it("audit fail on one user does not prevent others from being audited or returned", async () => {
-    getVideoSummariesUsersMock.mockResolvedValue({
+    getVideoUsersDisclosureMock.mockResolvedValue({
       videoId: VALID_VIDEO_UUID,
       users: [
         { userId: "u1", email: "u1@x", emailLookupOk: true, accessedAt: "2026-04-04T00:00:00Z", cacheHit: true },
@@ -201,6 +201,21 @@ describe("viewVideoUsersAction", () => {
     expect(result.users[1].auditId).toBe("audit-2");
   });
 
+  it("does not invoke the disclosure service when the admin gate redirects", async () => {
+    const redirectError = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/;0",
+    });
+    requireAdminPageMock.mockRejectedValueOnce(redirectError);
+
+    await expect(
+      viewVideoUsersAction(VALID_VIDEO_UUID),
+    ).rejects.toMatchObject({
+      digest: expect.stringMatching(/^NEXT_REDIRECT/),
+    });
+    expect(getVideoUsersDisclosureMock).not.toHaveBeenCalled();
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
   it("returns missing_video_id for empty input", async () => {
     const result = await viewVideoUsersAction("");
     expect(result.ok).toBe(false);
@@ -216,7 +231,7 @@ describe("viewVideoUsersAction", () => {
   });
 
   it("returns internal_error when drilldown query throws", async () => {
-    getVideoSummariesUsersMock.mockRejectedValue(new Error("db down"));
+    getVideoUsersDisclosureMock.mockRejectedValue(new Error("db down"));
     const result = await viewVideoUsersAction(VALID_VIDEO_UUID);
     expect(result.ok).toBe(false);
     if (result.ok) return;

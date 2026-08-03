@@ -2,7 +2,6 @@ import { AlertTriangle, Search } from "lucide-react";
 import { requireAdminPage } from "../_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
 import {
-  ALL_SOURCES,
   listVideosWithStats,
   getVideoInsights,
   listAdminUserIdsWithStatus,
@@ -10,7 +9,10 @@ import {
   type VideoListOptions,
   type TimeWindow,
 } from "@/lib/admin/queries";
-import type { TranscriptSource } from "@/lib/admin/types";
+import {
+  isTranscriptSource as isTranscriptSourceValue,
+  type TranscriptSource,
+} from "@/lib/domain/transcript-source";
 import {
   parseVideoSearchParams,
   DEFAULT_PAGE_SIZE,
@@ -25,7 +27,7 @@ interface PageProps {
 }
 
 function isTranscriptSource(value: string): value is TranscriptSource {
-  return (ALL_SOURCES as readonly string[]).includes(value);
+  return isTranscriptSourceValue(value);
 }
 
 export default async function AdminVideosPage({ searchParams }: PageProps) {

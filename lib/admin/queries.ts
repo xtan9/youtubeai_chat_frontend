@@ -1,21 +1,13 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TranscriptSource } from "@/lib/admin/types";
+import {
+  TRANSCRIPT_SOURCES,
+  type TranscriptSource,
+} from "@/lib/domain/transcript-source";
 import { mapAuditRow, type AuditRow } from "./audit-row";
 import { QueryError } from "./errors";
 import { listUserAccounts, type UserAccount } from "./user-account-directory";
-
-/** Canonical list of `transcript_source` values the rest of the admin
- * surface understands. Exported so `app/admin/videos/page.tsx` and the
- * server actions don't redefine the same literal array (drift would let
- * a new source silently sort/filter as `auto_captions`). Keep in sync
- * with `TranscriptSource` in `lib/admin/types.ts`. */
-export const ALL_SOURCES: readonly TranscriptSource[] = [
-  "manual_captions",
-  "auto_captions",
-  "whisper",
-] as const;
 
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 export { WHISPER_FLAG_THRESHOLD } from "./constants";
@@ -29,11 +21,10 @@ import {
   HISTORY_ROW_CAP,
   USERS_PAGE_SIZE_CAP,
   VIDEOS_ROW_CAP,
-  VIDEO_USERS_DRILLDOWN_CAP,
   VIDEOS_PAGE_SIZE_CAP,
 } from "./admin-constants";
 
-export { VIDEO_USERS_DRILLDOWN_CAP, VIDEOS_PAGE_SIZE_CAP };
+export { VIDEOS_PAGE_SIZE_CAP };
 
 type DailyPoint = { day: string; value: number };
 
@@ -424,25 +415,6 @@ export interface VideoInsightsOptions {
   excludeAdminUserIds?: string[];
 }
 
-export interface VideoUsersDrilldown {
-  videoId: string;
-  users: {
-    userId: string;
-    /** null when emailLookupOk=false or the user genuinely has no email. */
-    email: string | null;
-    emailLookupOk: boolean;
-    /** Most recent access for this user. Each user appears once even if
-     * they accessed the video N times — the audit row count must equal
-     * the distinct revealed-user count, not the access count. */
-    accessedAt: string;
-    cacheHit: boolean;
-  }[];
-  /** True when the underlying `user_video_history` fetch hit
-   * VIDEO_USERS_DRILLDOWN_CAP. Lets the UI surface a "+N more" banner
-   * instead of silently dropping the tail. */
-  truncated: boolean;
-}
-
 export async function listUsersWithStatsAndSort(
   client: SupabaseClient,
   opts: UserListSortFilterOptions,
@@ -575,7 +547,6 @@ function toAdminUserRow(
     userMetadata: u.userMetadata,
   };
 }
-
 export interface AdminUserIdLookup {
   ids: string[];
   /** False when the lookup itself failed or the underlying user-list paginate
@@ -802,7 +773,7 @@ export async function getUserSummaries(
     const video = videoById.get(h.video_id);
     const summary = summaryByVideo.get(h.video_id);
     const rawSource = (summary?.transcript_source ?? "auto_captions") as string;
-    if (!ALL_SOURCES.includes(rawSource as TranscriptSource)) {
+    if (!TRANSCRIPT_SOURCES.includes(rawSource as TranscriptSource)) {
       console.warn("[admin-queries] unknown transcript_source dropped", {
         videoId: h.video_id,
         rawSource,
@@ -917,7 +888,7 @@ export async function getDashboardKPIs(
       (sourceCounts.get(s.transcript_source as TranscriptSource) ?? 0) + 1,
     );
   }
-  const sourceMix = ALL_SOURCES.map((source) => ({
+  const sourceMix = TRANSCRIPT_SOURCES.map((source) => ({
     source,
     count: sourceCounts.get(source) ?? 0,
   }));
@@ -1760,7 +1731,7 @@ export async function getVideoInsights(
       whisperVideoSharePct: 0,
       topChannels: [],
       languageMix: [],
-      sourceMix: ALL_SOURCES.map((s) => ({ source: s, count: 0 })),
+      sourceMix: TRANSCRIPT_SOURCES.map((s) => ({ source: s, count: 0 })),
       trendingPerDay: window
         ? fillDailySeries(window.start, window.end, new Map())
         : undefined,
@@ -1853,7 +1824,7 @@ export async function getVideoInsights(
       return a.language.localeCompare(b.language);
     });
 
-  const sourceMix = ALL_SOURCES.map((source) => ({
+  const sourceMix = TRANSCRIPT_SOURCES.map((source) => ({
     source,
     count: sourceCounts.get(source) ?? 0,
   }));
@@ -1881,134 +1852,5 @@ export async function getVideoInsights(
     sourceMix,
     trendingPerDay,
     adminFilterIncomplete: adminLookup.truncated,
-  };
-}
-
-/**
- * Resolve the per-video drilldown of distinct users who accessed the video.
- *
- * Conservative truncation: when the over-fetch limit (CAP+1) is hit, we
- * set `truncated=true` because we cannot prove from a single peek row
- * that no distinct hidden users exist past the cap. The cap is on raw
- * access rows, not distinct users — a single peek at row #(CAP+1)
- * reveals nothing about rows #(CAP+2)..N. Banner/audit copy must
- * reflect that uncertainty rather than promise completeness.
- *
- * Trade-off: on videos where the tail is dominated by repeat viewers
- * (every hidden row is a duplicate of a kept user) we will over-warn.
- * That failure mode is recoverable — operators see the banner and
- * investigate. The alternative (under-warning by trusting a single
- * peek) silently degrades forensic awareness on exactly the
- * high-traffic videos where the drilldown matters most.
- */
-export async function getVideoSummariesUsers(
-  client: SupabaseClient,
-  videoId: string,
-): Promise<VideoUsersDrilldown> {
-  // Fetch one extra row past the cap so we can detect cap-hit cheaply
-  // without a separate count query. The +1 is sliced off before the
-  // dedup pass below.
-  const { data: history, error: hErr } = await client
-    .from("user_video_history")
-    .select("user_id, video_id, created_at:accessed_at")
-    .eq("video_id", videoId)
-    .order("accessed_at", { ascending: false })
-    .limit(VIDEO_USERS_DRILLDOWN_CAP + 1);
-  if (hErr) {
-    throw new QueryError("getVideoSummariesUsers:history", hErr.message);
-  }
-  if (!history || history.length === 0) {
-    return { videoId, users: [], truncated: false };
-  }
-
-  // Conservative rule: any cap-hit means we cannot prove completeness,
-  // so report truncated=true. We deliberately do NOT inspect the peek
-  // row's user_id — a single peek can't answer "are distinct users
-  // hidden past the cap?" because we never see rows #(CAP+2)..N.
-  const truncated = history.length > VIDEO_USERS_DRILLDOWN_CAP;
-  const slicedHistory = truncated
-    ? history.slice(0, VIDEO_USERS_DRILLDOWN_CAP)
-    : history;
-
-  // Earliest summary for the video — used to compute cacheHit. A history
-  // row counts as a cache-hit when the canonical summary already existed
-  // before the access.
-  const { data: summaries, error: sErr } = await client
-    .from("summaries")
-    .select("video_id, created_at")
-    .eq("video_id", videoId);
-  if (sErr) {
-    throw new QueryError("getVideoSummariesUsers:summaries", sErr.message);
-  }
-
-  let earliest: string | null = null;
-  for (const s of (summaries ?? []) as Array<Record<string, unknown>>) {
-    const ts = String(s.created_at);
-    if (!earliest || ts < earliest) earliest = ts;
-  }
-
-  const typedHistory = slicedHistory as Array<{
-    user_id: string;
-    video_id: string;
-    created_at: string;
-  }>;
-  // Aggregate per user — keep the most recent access. The drilldown
-  // contract is "one row per revealed user", which is what feeds
-  // `viewVideoUsersAction` writing one audit row per result. A previous
-  // map-per-history version could write N audit rows for one user who
-  // accessed the video N times, distorting forensics.
-  const seen = new Map<
-    string,
-    { userId: string; accessedAt: string }
-  >();
-  for (const h of typedHistory) {
-    const prev = seen.get(h.user_id);
-    if (!prev || h.created_at > prev.accessedAt) {
-      seen.set(h.user_id, {
-        userId: h.user_id,
-        accessedAt: h.created_at,
-      });
-    }
-  }
-  const distinctUsers = Array.from(seen.values());
-
-  // Resolve emails in parallel (mirrors computeTopUsers pattern).
-  const userIds = distinctUsers.map((u) => u.userId);
-  const lookups = await Promise.all(
-    userIds.map(async (id) => {
-      try {
-        const { data, error } = await client.auth.admin.getUserById(id);
-        if (error) {
-          console.error(
-            "[admin-queries] getVideoSummariesUsers email lookup failed",
-            { userId: id, message: error.message },
-          );
-          return { userId: id, email: null, ok: false };
-        }
-        return { userId: id, email: data.user?.email ?? null, ok: true };
-      } catch (err) {
-        console.error(
-          "[admin-queries] getVideoSummariesUsers email lookup threw",
-          { userId: id, err },
-        );
-        return { userId: id, email: null, ok: false };
-      }
-    }),
-  );
-  const lookupById = new Map(lookups.map((l) => [l.userId, l] as const));
-
-  return {
-    videoId,
-    users: distinctUsers.map((u) => {
-      const lookup = lookupById.get(u.userId);
-      return {
-        userId: u.userId,
-        email: lookup?.email ?? null,
-        emailLookupOk: lookup?.ok ?? false,
-        accessedAt: u.accessedAt,
-        cacheHit: earliest ? earliest < u.accessedAt : false,
-      };
-    }),
-    truncated,
   };
 }

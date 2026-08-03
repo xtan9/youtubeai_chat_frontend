@@ -2,8 +2,8 @@
 
 import { requireAdminPage } from "@/app/admin/_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import { getVideoSummariesUsers } from "@/lib/admin/queries";
 import { writeAudit } from "@/lib/admin/audit";
+import { getVideoUsersDisclosure } from "@/lib/services/video-user-disclosure";
 
 export interface ViewVideoUsersOk {
   ok: true;
@@ -56,7 +56,7 @@ export async function viewVideoUsersAction(
 
   let drilldown;
   try {
-    drilldown = await getVideoSummariesUsers(client, videoId);
+    drilldown = await getVideoUsersDisclosure(client, videoId);
   } catch (err) {
     console.error("[view-video-users] drilldown query failed", {
       videoId,
