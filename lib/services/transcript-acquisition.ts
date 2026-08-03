@@ -400,12 +400,12 @@ async function acquireFreshTranscript(
   // signal fires (for example, a response crossed the abort boundary). Keep
   // those segments so the non-cancellable persistence step below can heal
   // the cache before reporting caller_aborted.
-  if (input.signal.aborted && !captions) {
+  if (input.signal.aborted && captions === null) {
     return { outcome: "caller_aborted" };
   }
 
   if (
-    !captions &&
+    captions === null &&
     detectedLanguage !== undefined &&
     detectedLanguage !== "en" &&
     vpsMetadata.ok &&
@@ -424,7 +424,7 @@ async function acquireFreshTranscript(
       logAcquisitionFailure(input, failure);
       return { outcome: "acquisition_failed", failure };
     }
-    if (input.signal.aborted && !captions) {
+    if (input.signal.aborted && captions === null) {
       return { outcome: "caller_aborted" };
     }
   }
@@ -435,7 +435,7 @@ async function acquireFreshTranscript(
   let fields: MetadataFields = {};
   let metadataPromise: Promise<VideoMetadataResult> | undefined;
 
-  if (captions) {
+  if (captions !== null) {
     segments = captions.segments;
     transcriptSource = captions.source;
     promptLocale = captions.language;
