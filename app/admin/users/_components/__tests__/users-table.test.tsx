@@ -19,7 +19,8 @@ vi.mock("../../../_components/admin-context", () => ({
 }));
 
 import { UsersTable } from "../users-table";
-import type { AdminUserRow, AuditRow } from "@/lib/admin/queries";
+import type { AdminUserRow } from "@/lib/admin/queries";
+import type { AuditRow } from "@/lib/admin/audit-report";
 
 const baseRow = (over: Partial<AdminUserRow>): AdminUserRow => ({
   userId: "u",
