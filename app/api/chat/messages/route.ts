@@ -121,7 +121,7 @@ async function resolveHistorySubject(
 function noRetainedThreadReason(
   subject: VideoChatSubject | null,
 ): "stateless" | "not_ready" {
-  return subject?.source === "hero_demo" ? "stateless" : "not_ready";
+  return subject ? "stateless" : "not_ready";
 }
 
 function logNoRetainedThread(

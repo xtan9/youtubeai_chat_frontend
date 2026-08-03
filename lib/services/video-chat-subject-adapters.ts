@@ -1,5 +1,11 @@
 import "server-only";
 import { z } from "zod";
+import {
+  SAMPLES,
+  type HeroSampleBase,
+  type HeroSampleSummary,
+  type SampleMeta,
+} from "@/app/components/hero-demo-data";
 import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
 import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 import { TranscriptSegmentSchema } from "@/lib/types";
@@ -16,6 +22,7 @@ import type {
   VideoChatSubject,
   VideoChatSubjectAdapter,
   VideoChatSubjectAdapterResult,
+  VideoGrounding,
   VideoGroundingResolution,
 } from "./video-chat-subject";
 import { memoizeVideoGroundingLoader } from "./video-chat-subject";
@@ -33,6 +40,7 @@ const TranscriptSourceSchema = z.enum([
   "whisper",
 ]);
 const PromptLocaleSchema = z.enum(["en", "zh"]);
+const HeroSourceLanguageSchema = z.enum(SUPPORTED_LANGUAGE_CODES);
 const OutputLanguageSchema = z.enum(SUPPORTED_LANGUAGE_CODES);
 
 const DatabaseTranscriptRowSchema = z.object({
@@ -54,6 +62,19 @@ const DatabaseSummaryRowSchema = z.object({
   output_language: OutputLanguageSchema.nullable(),
 });
 
+const HeroSampleBaseSchema = z.object({
+  id: z.string().min(1),
+  segments: z.array(TranscriptSegmentSchema),
+  nativeLanguage: z.string().nullable(),
+});
+
+const HeroSampleSummarySchema = z.object({
+  id: z.string().min(1),
+  language: z.string().min(1),
+  summary: z.string().min(1),
+  model: z.string().min(1),
+});
+
 type DatabaseVideoRow = z.infer<typeof DatabaseVideoRowSchema>;
 type DatabaseServiceRoleClient = NonNullable<
   ReturnType<typeof getServiceRoleClient>
@@ -61,10 +82,14 @@ type DatabaseServiceRoleClient = NonNullable<
 
 function statelessHeroDemoSubject(
   identity: CanonicalVideoIdentity,
+  samples: ReadonlyArray<SampleMeta>,
 ): VideoChatSubject {
   return {
     identity,
     source: "hero_demo",
+    grounding: memoizeVideoGroundingLoader(() =>
+      loadHeroDemoGrounding(identity, samples),
+    ),
   };
 }
 
@@ -111,6 +136,124 @@ function isNoTimingShape(
     segments[0].start === 0 &&
     segments[0].duration === 0
   );
+}
+
+async function loadHeroDemoGrounding(
+  identity: CanonicalVideoIdentity,
+  samples: ReadonlyArray<SampleMeta>,
+): Promise<VideoGroundingResolution> {
+  const sample = samples.find(
+    (candidate) => candidate.id === identity.youtubeVideoId,
+  );
+  if (!sample) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo registry drift",
+      "HERO_DEMO_REGISTRY_DRIFT",
+      identity.youtubeVideoId,
+      "RegistryDrift",
+    );
+  }
+
+  let base: HeroSampleBase;
+  try {
+    base = await sample.loadBase();
+  } catch (error) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo base load failed",
+      "HERO_DEMO_BASE_LOAD_FAILED",
+      identity.youtubeVideoId,
+      error instanceof Error ? error.name : "HeroDemoBaseLoadError",
+    );
+  }
+
+  const parsedBase = HeroSampleBaseSchema.safeParse(base);
+  if (!parsedBase.success || parsedBase.data.id !== identity.youtubeVideoId) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo base schema mismatch",
+      "VIDEO_CHAT_SUBJECT_HERO_DEMO_BASE_SCHEMA_MISMATCH",
+      identity.youtubeVideoId,
+      "SchemaMismatch",
+    );
+  }
+
+  if (
+    parsedBase.data.segments.length === 0 ||
+    isNoTimingShape(parsedBase.data.segments)
+  ) {
+    logAppEvent("info", "[video-chat-subject] Hero Demo Grounding not ready", {
+      errorId: "VIDEO_CHAT_SUBJECT_HERO_DEMO_GROUNDING_NOT_READY",
+      videoId: identity.youtubeVideoId,
+      reason: "not_ready",
+    });
+    return { status: "not_ready" };
+  }
+
+  const sourceLanguage = HeroSourceLanguageSchema.safeParse(
+    parsedBase.data.nativeLanguage,
+  );
+  if (!sourceLanguage.success) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo source language invalid",
+      "VIDEO_CHAT_SUBJECT_HERO_DEMO_SOURCE_LANGUAGE_INVALID",
+      identity.youtubeVideoId,
+      "SchemaMismatch",
+    );
+  }
+
+  let summary: HeroSampleSummary;
+  try {
+    summary = await sample.loadSummary(sourceLanguage.data);
+  } catch (error) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo Summary load failed",
+      "HERO_DEMO_SUMMARY_LOAD_FAILED",
+      identity.youtubeVideoId,
+      error instanceof Error ? error.name : "HeroDemoSummaryLoadError",
+    );
+  }
+
+  const parsedSummary = HeroSampleSummarySchema.safeParse(summary);
+  if (
+    !parsedSummary.success ||
+    parsedSummary.data.id !== identity.youtubeVideoId ||
+    parsedSummary.data.language !== sourceLanguage.data
+  ) {
+    return groundingUnavailable(
+      "[video-chat-subject] Hero Demo Grounding schema mismatch",
+      "VIDEO_CHAT_SUBJECT_HERO_DEMO_GROUNDING_SCHEMA_MISMATCH",
+      identity.youtubeVideoId,
+      "SchemaMismatch",
+    );
+  }
+
+  const title = sample.title;
+  const channelName = sample.channel;
+  const grounding: VideoGrounding = {
+    transcript: {
+      videoId: identity.youtubeVideoId,
+      title,
+      channelName,
+      segments: parsedBase.data.segments,
+      transcriptSource: "auto_captions",
+      language: sourceLanguage.data,
+    },
+    summary: {
+      videoId: identity.youtubeVideoId,
+      title,
+      channelName,
+      language: sourceLanguage.data,
+      transcript: "",
+      summary: parsedSummary.data.summary,
+      transcriptSource: "auto_captions",
+      model: parsedSummary.data.model,
+      processingTimeSeconds: 0,
+      transcribeTimeSeconds: 0,
+      summarizeTimeSeconds: 0,
+      outputLanguage: null,
+    },
+  };
+
+  return { status: "ready", grounding };
 }
 
 async function loadDatabaseGrounding(
@@ -234,7 +377,9 @@ async function loadDatabaseGrounding(
   }
 }
 
-export function createHeroDemoVideoChatSubjectAdapter(): VideoChatSubjectAdapter {
+export function createHeroDemoVideoChatSubjectAdapter(
+  samples: ReadonlyArray<SampleMeta> = SAMPLES,
+): VideoChatSubjectAdapter {
   return {
     kind: "hero_demo",
     async resolve(
@@ -248,7 +393,7 @@ export function createHeroDemoVideoChatSubjectAdapter(): VideoChatSubjectAdapter
       }
       return {
         status: "resolved",
-        subject: statelessHeroDemoSubject(identity),
+        subject: statelessHeroDemoSubject(identity, samples),
       };
     },
   };
