@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import {
-  listAllUsers,
   listUsersWithStatsAndSort,
   listVideosWithStats,
   getVideoInsights,
@@ -15,12 +14,13 @@ import {
   getUserAuditEvents,
   getUserSummaries,
   lastNDays,
-  fetchRegisteredUsersTotal,
   listAdminUserIds,
   WHISPER_FLAG_THRESHOLD,
 } from "../queries";
 import { QueryError } from "../errors";
 import type { AdminUserRow, VideoListOptions } from "../queries";
+import { loadAdminShell } from "../admin-shell";
+import { listUserAccounts } from "../user-account-directory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SelectScript {
@@ -557,9 +557,9 @@ describe("user_video_history column drift guard", () => {
   });
 });
 
-// ─── listAllUsers ────────────────────────────────────────────────────────
+// ─── User Account Directory integration ─────────────────────────────────
 
-describe("listAllUsers", () => {
+describe("listUserAccounts", () => {
   function buildAuthClient(
     pages: Array<{ users: Array<Record<string, unknown>>; total: number }>,
   ): SupabaseClient {
@@ -591,7 +591,7 @@ describe("listAllUsers", () => {
       { users: full, total: 250 },
       { users: partial, total: 250 },
     ]);
-    const out = await listAllUsers(client);
+    const out = await listUserAccounts(client);
     expect(out.users).toHaveLength(250);
     expect(out.truncated).toBe(false);
     expect(out.total).toBe(250);
@@ -609,7 +609,7 @@ describe("listAllUsers", () => {
         total: 6000,
       })),
     );
-    const out = await listAllUsers(client, { rowCap: 5000 });
+    const out = await listUserAccounts(client, { rowCap: 5000 });
     expect(out.users).toHaveLength(5000);
     expect(out.truncated).toBe(true);
     // Pin distinct-ID contract — the 5,000th user is the 4999-th index
@@ -617,7 +617,7 @@ describe("listAllUsers", () => {
     expect(out.users[0].id).toBe("id-0");
     expect(out.users[4999].id).toBe("id-4999");
     expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("listAllUsers cap hit"),
+      expect.stringContaining("account enumeration cap reached"),
       expect.any(Object),
     );
   });
@@ -635,7 +635,7 @@ describe("listAllUsers", () => {
         },
       },
     } as unknown as SupabaseClient;
-    await expect(listAllUsers(client)).rejects.toBeInstanceOf(QueryError);
+    await expect(listUserAccounts(client)).rejects.toBeInstanceOf(QueryError);
   });
 });
 
@@ -965,7 +965,7 @@ describe("listUsersWithStatsAndSort", () => {
   });
 });
 
-describe("fetchRegisteredUsersTotal", () => {
+describe("loadAdminShell", () => {
   it("counts only signed-up, non-admin, non-anonymous users", async () => {
     const client = {
       from: vi.fn(),
@@ -988,8 +988,10 @@ describe("fetchRegisteredUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchRegisteredUsersTotal(client, ["admin@example.com"]);
-    expect(out).toBe(2);
+    const out = await loadAdminShell(client, {
+      allowlist: ["admin@example.com"],
+    });
+    expect(out.usersTotal).toBe(2);
   });
 
   it("treats allowlist comparison as case-insensitive", async () => {
@@ -1014,8 +1016,10 @@ describe("fetchRegisteredUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchRegisteredUsersTotal(client, ["owner@example.com"]);
-    expect(out).toBe(0);
+    const out = await loadAdminShell(client, {
+      allowlist: ["owner@example.com"],
+    });
+    expect(out.usersTotal).toBe(0);
   });
 
   it("returns null on listUsers error", async () => {
@@ -1031,10 +1035,10 @@ describe("fetchRegisteredUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchRegisteredUsersTotal(client, []);
-    expect(out).toBeNull();
+    const out = await loadAdminShell(client, { allowlist: [] });
+    expect(out.usersTotal).toBeNull();
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("fetchRegisteredUsersTotal"),
+      expect.stringContaining("User Account total unavailable"),
       expect.any(Object),
     );
   });
@@ -1067,8 +1071,8 @@ describe("fetchRegisteredUsersTotal", () => {
         },
       },
     } as unknown as SupabaseClient;
-    const out = await fetchRegisteredUsersTotal(client, []);
-    expect(out).toBe(250);
+    const out = await loadAdminShell(client, { allowlist: [] });
+    expect(out.usersTotal).toBe(250);
   });
 });
 
@@ -1150,8 +1154,8 @@ describe("listAdminUserIds", () => {
       from: vi.fn(),
       auth: {
         admin: {
-          // listAllUsers throws QueryError on page-1 listUsers errors;
-          // listAdminUserIds's try/catch catches it and falls back to [].
+          // The User Account Directory throws QueryError on page-1 listUsers
+          // errors; listAdminUserIds's try/catch falls back to [].
           listUsers: vi.fn(async () => ({
             data: null,
             error: { message: "auth offline" },

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { requireAdminPage } from "./_components/admin-gate";
 import { requireAdminClient } from "@/lib/supabase/admin-client";
-import { fetchRegisteredUsersTotal } from "@/lib/admin/queries";
+import { loadAdminShell } from "@/lib/admin/admin-shell";
 import { reconcileAdminFlags } from "@/lib/admin/admin-flag-sync";
 import { AdminProvider } from "./_components/admin-context";
 import { AdminSidebar } from "./_components/sidebar";
@@ -26,18 +26,17 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     });
   });
 
-  const usersTotal = await fetchRegisteredUsersTotal(
-    client,
-    Array.from(principal.allowlist),
-  );
+  const shell = await loadAdminShell(client, {
+    allowlist: Array.from(principal.allowlist),
+  });
 
   return (
     <AdminProvider email={principal.email}>
       <div data-admin-scope>
         <div className="admin-app">
-          <AdminSidebar adminEmail={principal.email} usersTotal={usersTotal} />
+          <AdminSidebar adminEmail={principal.email} usersTotal={shell.usersTotal} />
           <main className="admin-main">
-            <AdminTopbar />
+            <AdminTopbar completenessWarnings={shell.warnings} />
             {children}
           </main>
         </div>
