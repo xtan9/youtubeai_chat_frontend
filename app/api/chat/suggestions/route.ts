@@ -84,26 +84,11 @@ function logGroundingUnavailable(videoId: string, errorName?: string): void {
   });
 }
 
-function hasCoherentSuggestionGrounding(
-  grounding: VideoGrounding,
-  videoId: string,
-): boolean {
-  return (
-    grounding.transcript.videoId === videoId &&
-    grounding.summary.videoId === videoId
-  );
-}
-
 function handleGroundingOutcome(
   outcome: VideoGroundingResolution,
-  targetVideoId: string,
   logVideoId: string,
 ): VideoGrounding | null {
   if (outcome.status === "ready") {
-    if (!hasCoherentSuggestionGrounding(outcome.grounding, targetVideoId)) {
-      logGroundingUnavailable(logVideoId, "SchemaMismatch");
-      return null;
-    }
     return outcome.grounding;
   }
   if (outcome.status === "not_ready") {
@@ -176,7 +161,6 @@ export async function GET(request: Request) {
   try {
     grounding = handleGroundingOutcome(
       await subject.grounding.load(),
-      suggestionCache.videoId,
       subject.identity.youtubeVideoId,
     );
   } catch (err) {

@@ -96,6 +96,57 @@ export function memoizeVideoGroundingLoader(
   };
 }
 
+function hasCoherentVideoGrounding(
+  subject: VideoChatSubject,
+  grounding: VideoGrounding,
+): boolean {
+  const groundingVideoId = grounding.transcript.videoId;
+  if (grounding.summary.videoId !== groundingVideoId) return false;
+
+  const capabilityTargets = [
+    subject.retainedThread,
+    subject.entitlement,
+    subject.suggestionCache,
+  ];
+  const targetVideoIds = capabilityTargets
+    .filter((target): target is VideoChatCapabilityTarget => target !== undefined)
+    .map((target) => target.videoId);
+
+  if (targetVideoIds.length === 0) {
+    return groundingVideoId === subject.identity.youtubeVideoId;
+  }
+
+  return targetVideoIds.every((videoId) => videoId === groundingVideoId);
+}
+
+function withCoherentVideoGrounding(
+  subject: VideoChatSubject,
+): VideoChatSubject {
+  const grounding = subject.grounding;
+  if (!grounding) return subject;
+
+  return {
+    ...subject,
+    grounding: memoizeVideoGroundingLoader(async () => {
+      const outcome = await grounding.load();
+      if (
+        outcome.status !== "ready" ||
+        hasCoherentVideoGrounding(subject, outcome.grounding)
+      ) {
+        return outcome;
+      }
+
+      logAppEvent("error", "[video-chat-subject] Grounding Video mismatch", {
+        errorId: "VIDEO_CHAT_SUBJECT_GROUNDING_VIDEO_MISMATCH",
+        videoId: subject.identity.youtubeVideoId,
+        source: subject.source,
+        errorClass: "SchemaMismatch",
+      });
+      return { status: "unavailable" };
+    }),
+  };
+}
+
 export type VideoChatSubjectResolution =
   | { readonly status: "invalid" }
   | { readonly status: "resolved"; readonly subject: VideoChatSubject }
@@ -149,7 +200,12 @@ export function createVideoChatSubjectResolver(
 
     try {
       const result = await adapter.resolve(identity);
-      if (result.status === "resolved") return result;
+      if (result.status === "resolved") {
+        return {
+          status: "resolved",
+          subject: withCoherentVideoGrounding(result.subject),
+        };
+      }
       return { status: result.status, identity };
     } catch (error) {
       logAppEvent("error", "[video-chat-subject] adapter threw", {

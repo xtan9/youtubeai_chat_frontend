@@ -19,7 +19,6 @@ import { formatTimestamp } from "@/lib/utils/timestamp-citations";
 import {
   resolveVideoChatSubject,
   type VideoChatSubject,
-  type VideoGrounding,
   type VideoGroundingResolution,
   type VideoChatSubjectResolution,
 } from "@/lib/services/video-chat-subject";
@@ -107,25 +106,6 @@ function groundingUnavailableResponse(requestId: string): Response {
   );
 }
 
-function hasCoherentGrounding(
-  subject: VideoChatSubject,
-  grounding: VideoGrounding,
-): boolean {
-  const groundingVideoId = grounding.transcript.videoId;
-  if (groundingVideoId !== grounding.summary.videoId) return false;
-
-  const capabilityTargets = [
-    subject.entitlement?.videoId,
-    subject.retainedThread?.videoId,
-  ].filter((videoId): videoId is string => Boolean(videoId));
-
-  if (capabilityTargets.length > 0) {
-    return capabilityTargets.every((videoId) => videoId === groundingVideoId);
-  }
-
-  return groundingVideoId === subject.identity.youtubeVideoId;
-}
-
 async function loadSubjectGrounding(
   subject: VideoChatSubject,
 ): Promise<VideoGroundingResolution> {
@@ -136,16 +116,7 @@ async function loadSubjectGrounding(
 
   try {
     const outcome = await subject.grounding.load();
-    if (outcome.status === "ready") {
-      if (hasCoherentGrounding(subject, outcome.grounding)) return outcome;
-      logAppEvent("error", "[chat/stream] Grounding unavailable", {
-        errorId: CHAT_STREAM_GROUNDING_UNAVAILABLE,
-        videoId: subject.identity.youtubeVideoId,
-        errorName: "SchemaMismatch",
-        errorClass: "GroundingResolution",
-      });
-      return { status: "unavailable" };
-    }
+    if (outcome.status === "ready") return outcome;
     if (outcome.status === "not_ready") {
       logGroundingNotReady(subject.identity.youtubeVideoId);
       return outcome;

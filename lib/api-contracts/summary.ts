@@ -214,20 +214,60 @@ function parseSummarySseFrame(frame: string): SummarySseEvent {
  * `finish` validates any final frame and rejects an incomplete/malformed tail.
  */
 export class SummarySseStreamDecoder {
-  private buffer = "";
+  private currentLineParts: string[] = [];
+  private frameLines: string[] = [];
+  private pendingFrames: string[] = [];
 
   push(chunk: string): SummarySseEvent[] {
-    this.buffer = `${this.buffer}${chunk}`.replace(/\r\n/g, "\n");
+    this.scanChunk(chunk);
+    return this.decodePendingFrames();
+  }
+
+  private scanChunk(chunk: string): void {
+    let lineStart = 0;
+
+    for (let index = 0; index < chunk.length; index += 1) {
+      if (chunk[index] !== "\n") continue;
+
+      if (index > lineStart) {
+        this.currentLineParts.push(chunk.slice(lineStart, index));
+      }
+
+      let line = this.currentLineParts.join("");
+      this.currentLineParts = [];
+      if (line.endsWith("\r")) {
+        line = line.slice(0, -1);
+      }
+
+      if (line.length === 0) {
+        this.pendingFrames.push(this.frameLines.join("\n"));
+        this.frameLines = [];
+      } else {
+        this.frameLines.push(line);
+      }
+
+      lineStart = index + 1;
+    }
+
+    if (lineStart < chunk.length) {
+      this.currentLineParts.push(chunk.slice(lineStart));
+    }
+  }
+
+  private decodePendingFrames(): SummarySseEvent[] {
+    const frames = this.pendingFrames;
+    this.pendingFrames = [];
     const events: SummarySseEvent[] = [];
 
-    while (true) {
-      const separator = this.buffer.indexOf("\n\n");
-      if (separator < 0) break;
-
-      const frame = this.buffer.slice(0, separator);
-      this.buffer = this.buffer.slice(separator + 2);
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index];
       if (frame.trim().length === 0) continue;
-      events.push(parseSummarySseFrame(frame));
+      try {
+        events.push(parseSummarySseFrame(frame));
+      } catch (error) {
+        this.pendingFrames = frames.slice(index + 1);
+        throw error;
+      }
     }
 
     return events;
@@ -240,15 +280,16 @@ export class SummarySseStreamDecoder {
    * protocol failures remain terminal.
    */
   pushRecovering(chunk: string): SummarySseDecodeItem[] {
-    this.buffer = `${this.buffer}${chunk}`.replace(/\r\n/g, "\n");
+    this.scanChunk(chunk);
+    return this.decodePendingFramesRecovering();
+  }
+
+  private decodePendingFramesRecovering(): SummarySseDecodeItem[] {
+    const frames = this.pendingFrames;
+    this.pendingFrames = [];
     const items: SummarySseDecodeItem[] = [];
 
-    while (true) {
-      const separator = this.buffer.indexOf("\n\n");
-      if (separator < 0) break;
-
-      const frame = this.buffer.slice(0, separator);
-      this.buffer = this.buffer.slice(separator + 2);
+    for (const frame of frames) {
       if (frame.trim().length === 0) continue;
       try {
         items.push({ kind: "event", event: parseSummarySseFrame(frame) });
@@ -261,23 +302,27 @@ export class SummarySseStreamDecoder {
     return items;
   }
 
+  private queueRemainder(): void {
+    if (this.currentLineParts.length === 0 && this.frameLines.length === 0) {
+      return;
+    }
+
+    if (this.currentLineParts.length > 0) {
+      this.frameLines.push(this.currentLineParts.join(""));
+      this.currentLineParts = [];
+    }
+    this.pendingFrames.push(this.frameLines.join("\n"));
+    this.frameLines = [];
+  }
+
   finish(): SummarySseEvent[] {
-    const remainder = this.buffer;
-    this.buffer = "";
-    if (remainder.trim().length === 0) return [];
-    return [parseSummarySseFrame(remainder)];
+    this.queueRemainder();
+    return this.decodePendingFrames();
   }
 
   finishRecovering(): SummarySseDecodeItem[] {
-    const remainder = this.buffer;
-    this.buffer = "";
-    if (remainder.trim().length === 0) return [];
-    try {
-      return [{ kind: "event", event: parseSummarySseFrame(remainder) }];
-    } catch (error) {
-      if (!(error instanceof SummaryStreamProtocolError)) throw error;
-      return [{ kind: "error", error }];
-    }
+    this.queueRemainder();
+    return this.decodePendingFramesRecovering();
   }
 }
 
