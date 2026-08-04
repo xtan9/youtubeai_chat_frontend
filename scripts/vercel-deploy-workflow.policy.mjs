@@ -32,15 +32,15 @@ test("authenticates every Vercel CLI operation explicitly in CI", () => {
   }
 });
 
-test("places Vercel auth flags before the curl subcommand", () => {
-  const curlCommand = normalizedWorkflow
-    .split(/\r?\n/)
-    .find((line) => line.includes("vercel@") && line.includes(" curl "));
-
-  assert.ok(curlCommand, "workflow must verify the deployment with vercel curl");
+test("uses the automation bypass secret for deployment health checks", () => {
+  assert.doesNotMatch(workflow, /vercel@\S+[\s\S]*?\bcurl \/api\/health/);
   assert.match(
-    curlCommand,
-    /vercel@\S+\s+--scope="\$VERCEL_ORG_ID"\s+--token="\$VERCEL_TOKEN"\s+curl /,
+    workflow,
+    /VERCEL_AUTOMATION_BYPASS_SECRET: \$\{\{ secrets\.VERCEL_AUTOMATION_BYPASS_SECRET \}\}/,
+  );
+  assert.match(
+    normalizedWorkflow,
+    /curl --fail --silent --show-error\s+--header "x-vercel-protection-bypass: \$VERCEL_AUTOMATION_BYPASS_SECRET"\s+"\$DEPLOYMENT_URL\/api\/health"/,
   );
 });
 
