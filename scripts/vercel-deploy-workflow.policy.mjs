@@ -32,6 +32,18 @@ test("authenticates every Vercel CLI operation explicitly in CI", () => {
   }
 });
 
+test("places Vercel auth flags before the curl subcommand", () => {
+  const curlCommand = normalizedWorkflow
+    .split(/\r?\n/)
+    .find((line) => line.includes("vercel@") && line.includes(" curl "));
+
+  assert.ok(curlCommand, "workflow must verify the deployment with vercel curl");
+  assert.match(
+    curlCommand,
+    /vercel@\S+\s+--scope="\$VERCEL_ORG_ID"\s+--token="\$VERCEL_TOKEN"\s+curl /,
+  );
+});
+
 test("does not pull local settings when Vercel performs the remote build", () => {
   assert.doesNotMatch(workflow, /vercel@\S+ pull\b/);
 });
