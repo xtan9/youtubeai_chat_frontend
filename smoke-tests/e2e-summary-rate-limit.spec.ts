@@ -26,8 +26,8 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
   ]);
 
   // Mirror the real prod 429 payload from app/api/summarize/stream/route.ts.
-  // If prod's wording diverges in the future, update both this mock and
-  // the assertion regex below in lockstep.
+  // The adapter intentionally converts this private payload into stable,
+  // user-safe copy before rendering it.
   await page.route("**/api/summarize/stream", (route) =>
     route.fulfill({
       status: 429,
@@ -43,8 +43,10 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
     { waitUntil: "domcontentloaded" }
   );
 
-  // Specific match on the rate-limit phrase. Avoids false-positives on
-  // unrelated "upgrade" copy elsewhere in the chrome.
-  const limitUi = page.getByText(/rate.?limit|too many requests/i);
+  // Assert the adapter's stable, user-safe copy rather than the private API
+  // payload. This also avoids false positives from unrelated page chrome.
+  const limitUi = page.getByText(
+    "Too many summary requests. Please wait a moment and try again."
+  );
   await expect(limitUi).toBeVisible({ timeout: 30_000 });
 });
