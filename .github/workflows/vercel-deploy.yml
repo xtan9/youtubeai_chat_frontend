@@ -69,7 +69,7 @@ jobs:
           steps.changes.outputs.deploy != 'true'
         run: echo "Skipped Vercel deployment because only non-runtime files changed"
 
-      - name: Pull Vercel environment
+      - name: Verify Vercel project access
         if: >-
           steps.changes.outputs.deploy == 'true' ||
           steps.manual.outputs.deploy == 'true'
@@ -77,7 +77,10 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: npx --yes vercel@58.4.4 pull --yes --environment="$DEPLOY_TARGET"
+        run: |
+          npx --yes vercel@58.4.4 project inspect "$VERCEL_PROJECT_ID" \
+            --scope="$VERCEL_ORG_ID" \
+            --token="$VERCEL_TOKEN"
 
       # CI already built this exact commit. Vercel performs the provider-
       # specific packaging remotely, where its dependency cache is available.
@@ -92,9 +95,11 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           if [[ "$DEPLOY_TARGET" == "production" ]]; then
-            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes --prod)
+            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes --prod \
+              --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN")
           else
-            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes)
+            deployment_url=$(npx --yes vercel@58.4.4 deploy --yes \
+              --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN")
           fi
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
           echo "### Vercel $DEPLOY_TARGET deployment" >> "$GITHUB_STEP_SUMMARY"
@@ -110,7 +115,9 @@ jobs:
         run: |
           for attempt in {1..12}; do
             if npx --yes vercel@58.4.4 curl /api/health \
-              --deployment "$DEPLOYMENT_URL" -- --fail --silent --show-error; then
+              --deployment "$DEPLOYMENT_URL" \
+              --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN" \
+              -- --fail --silent --show-error; then
               exit 0
             fi
             sleep 5
