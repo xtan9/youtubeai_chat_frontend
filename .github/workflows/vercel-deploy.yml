@@ -114,9 +114,9 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         run: |
           for attempt in {1..12}; do
-            if npx --yes vercel@58.4.4 curl /api/health \
-              --deployment "$DEPLOYMENT_URL" \
+            if npx --yes vercel@58.4.4 \
               --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN" \
+              curl /api/health --deployment "$DEPLOYMENT_URL" \
               -- --fail --silent --show-error; then
               exit 0
             fi
