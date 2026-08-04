@@ -108,16 +108,13 @@ jobs:
       - name: Verify deployed health endpoint
         if: steps.deploy.outputs.url
         env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
         run: |
           for attempt in {1..12}; do
-            if npx --yes vercel@58.4.4 \
-              --scope="$VERCEL_ORG_ID" --token="$VERCEL_TOKEN" \
-              curl /api/health --deployment "$DEPLOYMENT_URL" \
-              -- --fail --silent --show-error; then
+            if curl --fail --silent --show-error \
+              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              "$DEPLOYMENT_URL/api/health"; then
               exit 0
             fi
             sleep 5
