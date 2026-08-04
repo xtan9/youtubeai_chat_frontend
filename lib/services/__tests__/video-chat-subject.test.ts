@@ -211,6 +211,73 @@ describe("Video Chat Subject resolver", () => {
     expect(adapters.database.resolve).not.toHaveBeenCalled();
   });
 
+  it("normalizes ready Grounding that disagrees with a capability target to unavailable", async () => {
+    const adapters = makeAdapters();
+    const loadGrounding = vi.fn().mockResolvedValue({
+      status: "ready" as const,
+      grounding: {
+        transcript: {
+          videoId: DATABASE_VIDEO_ID,
+          title: "Database title",
+          channelName: "Database channel",
+          segments: [{ text: "Transcript line", start: 1, duration: 2 }],
+          transcriptSource: "auto_captions" as const,
+          language: "en" as const,
+        },
+        summary: {
+          videoId: DATABASE_VIDEO_ID,
+          title: "Database title",
+          channelName: "Database channel",
+          language: "en" as const,
+          transcript: "Transcript snapshot",
+          summary: "Native summary",
+          transcriptSource: "auto_captions" as const,
+          model: "summary-model",
+          processingTimeSeconds: 3,
+          transcribeTimeSeconds: 1,
+          summarizeTimeSeconds: 2,
+          outputLanguage: null,
+        },
+      },
+    });
+    vi.mocked(adapters.database.resolve).mockResolvedValueOnce({
+      status: "resolved",
+      subject: {
+        identity: identity(),
+        source: "database",
+        retainedThread: { videoId: DATABASE_VIDEO_ID },
+        entitlement: { videoId: DATABASE_VIDEO_ID },
+        suggestionCache: {
+          videoId: "another-video",
+          read: vi.fn(),
+          write: vi.fn(),
+        },
+        grounding: { load: loadGrounding },
+      },
+    });
+    const resolve = createVideoChatSubjectResolver(adapters);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await resolve(
+      `https://www.youtube.com/watch?v=${VIDEO_ID}`,
+    );
+
+    expect(result.status).toBe("resolved");
+    if (result.status !== "resolved") return;
+    await expect(result.subject.grounding!.load()).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[video-chat-subject] Grounding Video mismatch",
+      expect.objectContaining({
+        errorId: "VIDEO_CHAT_SUBJECT_GROUNDING_VIDEO_MISMATCH",
+        videoId: VIDEO_ID,
+        source: "database",
+        errorClass: "SchemaMismatch",
+      }),
+    );
+  });
+
   it("returns a stateless Hero Demo subject without retained capabilities", async () => {
     const result = await heroDemoVideoChatSubjectAdapter.resolve(
       identity(HERO_VIDEO_ID),

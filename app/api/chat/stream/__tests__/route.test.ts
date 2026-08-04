@@ -409,14 +409,8 @@ describe("POST /api/chat/stream", () => {
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_URL);
   });
 
-  it("rejects Grounding whose Transcript and Summary do not share the subject Video", async () => {
-    mocks.loadGrounding.mockResolvedValue({
-      status: "ready",
-      grounding: {
-        transcript: TRANSCRIPT_FIXTURE,
-        summary: { ...SUMMARY_FIXTURE, videoId: "another-video" },
-      },
-    });
+  it("does not apply entitlement when the subject boundary reports Grounding unavailable", async () => {
+    mocks.loadGrounding.mockResolvedValue({ status: "unavailable" });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "hi" }));
@@ -425,20 +419,17 @@ describe("POST /api/chat/stream", () => {
     expect(res.headers.get("X-Error-ID")).toBe("CHAT_STREAM_GROUNDING_UNAVAILABLE");
     expect(errorSpy).toHaveBeenCalledWith(
       "[chat/stream] Grounding unavailable",
-      expect.objectContaining({ errorName: "SchemaMismatch" }),
+      expect.objectContaining({
+        errorId: "CHAT_STREAM_GROUNDING_UNAVAILABLE",
+        errorName: null,
+      }),
     );
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
-  it("rejects stateless Grounding whose shared Video differs from the canonical subject", async () => {
+  it("does not stream when the subject boundary reports stateless Grounding unavailable", async () => {
     mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
-    mocks.loadGrounding.mockResolvedValue({
-      status: "ready",
-      grounding: {
-        transcript: { ...HERO_TRANSCRIPT_FIXTURE, videoId: "another-video" },
-        summary: { ...HERO_SUMMARY_FIXTURE, videoId: "another-video" },
-      },
-    });
+    mocks.loadGrounding.mockResolvedValue({ status: "unavailable" });
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "should not stream" };
       yield { type: "done" as const };
@@ -461,7 +452,7 @@ describe("POST /api/chat/stream", () => {
       "[chat/stream] Grounding unavailable",
       expect.objectContaining({
         errorId: "CHAT_STREAM_GROUNDING_UNAVAILABLE",
-        errorName: "SchemaMismatch",
+        errorName: null,
       }),
     );
   });

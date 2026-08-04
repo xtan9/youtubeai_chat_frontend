@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   SummaryRequestSchema,
   SummarySseEventSchema,
@@ -229,5 +229,86 @@ describe("Summary SSE event contract", () => {
     expect(decoder.push(encoded.slice(0, midpoint))).toEqual([]);
     expect(decoder.push(encoded.slice(midpoint))).toEqual([event]);
     expect(decoder.finish()).toEqual([]);
+  });
+
+  it("decodes a large Transcript with linear separator scanning under heavy fragmentation", () => {
+    const decoder = new SummarySseStreamDecoder();
+    const event: SummarySseEvent = {
+      type: "full_transcript",
+      segments: [
+        { text: "x".repeat(16_384), start: 0, duration: 60 },
+      ],
+      source: "whisper",
+    };
+    const encoded = frame(event);
+    const originalIndexOf = String.prototype.indexOf;
+    let separatorScanCharacters = 0;
+    const indexOfSpy = vi
+      .spyOn(String.prototype, "indexOf")
+      .mockImplementation(function (
+        this: string,
+        searchString: string,
+        position?: number,
+      ) {
+        if (searchString === "\n\n") {
+          separatorScanCharacters += this.length;
+        }
+        return originalIndexOf.call(this, searchString, position);
+      });
+
+    try {
+      const decoded: SummarySseEvent[] = [];
+      for (const character of encoded) {
+        decoded.push(...decoder.push(character));
+      }
+
+      expect(decoded).toEqual([event]);
+      expect(decoder.finish()).toEqual([]);
+      expect(separatorScanCharacters).toBeLessThanOrEqual(encoded.length * 2);
+    } finally {
+      indexOfSpy.mockRestore();
+    }
+  });
+
+  it("handles CRLF separators split across strict, recovering, and finish boundaries", () => {
+    const event: SummarySseEvent = {
+      type: "content",
+      text: "Summary content",
+    };
+    const encoded = frame(event).replace(/\n/g, "\r\n");
+    const strictDecoder = new SummarySseStreamDecoder();
+    const strictEvents = [...encoded].flatMap((character) =>
+      strictDecoder.push(character),
+    );
+
+    expect(strictEvents).toEqual([event]);
+    expect(strictDecoder.finish()).toEqual([]);
+
+    const recoveringDecoder = new SummarySseStreamDecoder();
+    const recoveringWire = (
+      frame({
+        type: "full_transcript",
+        segments: [{ text: "legacy timing", start: 0, duration: 0 }],
+        source: "whisper",
+      }) + frame(event)
+    ).replace(/\n/g, "\r\n");
+    const recoveringItems = [...recoveringWire].flatMap((character) =>
+      recoveringDecoder.pushRecovering(character),
+    );
+
+    expect(recoveringItems).toMatchObject([
+      { kind: "error", error: { code: "invalid_full_transcript" } },
+      { kind: "event", event },
+    ]);
+    expect(recoveringDecoder.finishRecovering()).toEqual([]);
+
+    const finishDecoder = new SummarySseStreamDecoder();
+    const withoutBlankLine = encoded.slice(0, -2);
+    expect(
+      [...withoutBlankLine].flatMap((character) =>
+        finishDecoder.push(character),
+      ),
+    ).toEqual([]);
+    expect(finishDecoder.finish()).toEqual([event]);
   });
 });

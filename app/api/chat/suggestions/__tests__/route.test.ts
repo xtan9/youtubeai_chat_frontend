@@ -291,7 +291,7 @@ describe("GET /api/chat/suggestions", () => {
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(VALID_URL);
   });
 
-  it("returns the empty response for unavailable Grounding and logs it distinctly", async () => {
+  it("returns the empty response for Grounding normalized to unavailable by the subject boundary", async () => {
     mocks.loadGrounding.mockResolvedValue({ status: "unavailable" });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { GET } = await import("../route");
