@@ -1,5 +1,6 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import {
+  type AdminCreds,
   loadAdminCreds,
   authenticateAndAssertSmokeAccount,
   generateRecoveryLink,
@@ -12,6 +13,104 @@ import { buildRecoveryRedirectUrl } from "../lib/auth/recovery-redirect";
 const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
+const AUTH_REFRESH_PATH = "/auth/v1/token";
+const AUTH_USER_PATH = "/auth/v1/user";
+
+async function login(page: Page, creds: AdminCreds): Promise<void> {
+  await page.goto(`${PROD_URL}/auth/login`);
+  await page.fill("#email", creds.email);
+  await page.fill("#password", creds.password);
+  await Promise.all([
+    page.waitForURL(
+      (url) => url.pathname === "/" || url.pathname === "/dashboard",
+      { timeout: 15_000 },
+    ),
+    page.getByRole("button", { name: /^login$/i }).click(),
+  ]);
+  await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
+async function expectSignedOut(page: Page): Promise<void> {
+  await expect(
+    page
+      .getByRole("button", { name: /sign in|log in/i })
+      .or(page.getByRole("link", { name: /sign in|log in/i }))
+      .first(),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+async function addExpiredSessionClock(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    const realDateNow = Date.now.bind(Date);
+    const readOffset = () => {
+      const [, rawOffset = "0"] =
+        window.name.match(/^youtubeai-auth-clock:(\d+)$/) ?? [];
+      return Number(rawOffset);
+    };
+
+    if (!/^youtubeai-auth-clock:\d+$/.test(window.name)) {
+      window.name = "youtubeai-auth-clock:0";
+    }
+
+    Date.now = () => realDateNow() + readOffset();
+    (
+      window as Window & {
+        advanceAuthClock?: (milliseconds: number) => void;
+      }
+    ).advanceAuthClock = (milliseconds) => {
+      window.name = `youtubeai-auth-clock:${readOffset() + milliseconds}`;
+    };
+  });
+}
+
+async function advanceAuthClock(page: Page, milliseconds: number): Promise<void> {
+  await page.evaluate((offset) => {
+    const pageWindow = window as Window & {
+      advanceAuthClock?: (milliseconds: number) => void;
+    };
+    pageWindow.advanceAuthClock?.(offset);
+  }, milliseconds);
+}
+
+async function closeContext(context: BrowserContext | undefined): Promise<void> {
+  if (context) await context.close();
+}
+
+async function guardOtherSessionRevocation(
+  page: Page,
+  creds: AdminCreds,
+  password: string,
+): Promise<() => boolean> {
+  let markerVerified = false;
+
+  await page.route("**/auth/v1/logout**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("scope") !== "others") {
+      await route.continue();
+      return;
+    }
+
+    // The browser is about to revoke older sessions. Re-authenticate through
+    // the protected service client so a misconfigured credential cannot reach
+    // this destructive request unless the trusted app_metadata marker passes.
+    await authenticateAndAssertSmokeAccount(creds, password);
+    markerVerified = true;
+    await route.continue();
+  });
+
+  return () => markerVerified;
+}
+
+function waitForPasswordUpdate(page: Page) {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname.endsWith(AUTH_USER_PATH),
+    { timeout: 15_000 },
+  );
+}
 
 // Regression guard for the recovery redirect URL the form sends to Supabase.
 // See lib/auth/recovery-redirect.ts for the allowlist + implicit-grant
@@ -69,7 +168,7 @@ test("password reset form requests the apex /auth/update-password redirectTo", a
 // admin API resets it back to the original at the end so subsequent runs work.
 const TEMP_SUFFIX = "_E2Etmp";
 
-test("password reset: forgot → recovery link → update → re-login", async ({
+test("password reset: forgot → recovery link → update → re-login @account-recovery", async ({
   page,
   context,
 }) => {
@@ -120,19 +219,22 @@ test("password reset: forgot → recovery link → update → re-login", async (
     // authenticated account through Auth immediately before that mutation so
     // a misrouted credential cannot change a human account's password.
     await authenticateAndAssertSmokeAccount(creds);
+    const markerVerifiedBeforeRevocation = await guardOtherSessionRevocation(
+      page,
+      creds,
+      tempPassword,
+    );
 
     // --- Update password to a known temp value (Supabase blocks same-password updates) ---
     await page.locator("#password").fill(tempPassword);
-    await Promise.all([
-      page.waitForURL(
-        (url) => url.pathname === "/" || url.pathname === "/dashboard",
-        { timeout: 10_000 },
-      ),
-      page.getByRole("button", { name: /update password|save/i }).click(),
-    ]);
-    // Mark immediately after the password change is committed by Supabase.
-    // The redirect above only completes after the auth.updateUser call returned.
-    passwordChanged = true;
+    const passwordUpdateResponse = waitForPasswordUpdate(page);
+    await page.getByRole("button", { name: /update password|save/i }).click();
+    const updateResponse = await passwordUpdateResponse;
+    passwordChanged = updateResponse.ok();
+    expect(passwordChanged, "password update must succeed before recovery completes").toBe(true);
+    await expect(page).toHaveURL(/\/(?:dashboard)?$/, { timeout: 10_000 });
+    await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible();
+    expect(markerVerifiedBeforeRevocation()).toBe(true);
 
     // --- Sanity: log out then re-login with the temp password to confirm it works ---
     await context.clearCookies();
@@ -167,9 +269,10 @@ test("password reset: forgot → recovery link → update → re-login", async (
 // (d) someone setting `detectSessionInUrl: false` in lib/supabase/client.ts.
 // All four would let the network-intercept test pass while breaking the
 // real flow in production.
-test("password reset (implicit grant): action_link → fragment → form → update", async ({
+test("password reset (implicit grant): action_link → fragment → form → update @account-recovery", async ({
   page,
   context,
+  browser,
 }) => {
   const creds = await loadAdminCreds();
   test.skip(!creds, "SUPABASE_SECRET_KEY required");
@@ -185,8 +288,17 @@ test("password reset (implicit grant): action_link → fragment → form → upd
 
   const tempPassword = creds.password + TEMP_SUFFIX + "_action";
   let passwordChanged = false;
+  let olderContext: BrowserContext | undefined;
 
   try {
+    // Establish a Remembered Session before recovery. The recovery browser
+    // must survive the later `scope: "others"` revocation while this older
+    // context must fail on its next real refresh.
+    olderContext = await browser.newContext();
+    await addExpiredSessionClock(olderContext);
+    const olderPage = await olderContext.newPage();
+    await login(olderPage, creds);
+
     // Build the redirectTo exactly the way the production form does, then
     // ask Supabase for the same action_link the recovery email would carry.
     const redirectTo = buildRecoveryRedirectUrl(PROD_URL);
@@ -221,16 +333,42 @@ test("password reset (implicit grant): action_link → fragment → form → upd
     // Guard the password mutation against a credential accidentally pointing
     // at an unmarked account before submitting the recovery form.
     await authenticateAndAssertSmokeAccount(creds);
+    const markerVerifiedBeforeRevocation = await guardOtherSessionRevocation(
+      page,
+      creds,
+      tempPassword,
+    );
 
     await page.locator("#password").fill(tempPassword);
-    await Promise.all([
-      page.waitForURL(
-        (url) => url.pathname === "/" || url.pathname === "/dashboard",
-        { timeout: 10_000 },
-      ),
-      page.getByRole("button", { name: /update password|save/i }).click(),
-    ]);
-    passwordChanged = true;
+    const passwordUpdateResponse = waitForPasswordUpdate(page);
+    await page.getByRole("button", { name: /update password|save/i }).click();
+    const updateResponse = await passwordUpdateResponse;
+    passwordChanged = updateResponse.ok();
+    expect(passwordChanged, "password update must succeed before recovery completes").toBe(true);
+    await expect(page).toHaveURL(/\/(?:dashboard)?$/, { timeout: 10_000 });
+    await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible();
+    expect(markerVerifiedBeforeRevocation()).toBe(true);
+
+    // The recovery browser's session is the one preserved by `scope:
+    // "others"`; prove it at an authenticated product boundary after the
+    // redirect rather than inferring it from the update response.
+    await page.goto(`${PROD_URL}/account`);
+    await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible();
+
+    await expect(olderPage.getByRole("button", { name: /user menu/i })).toBeVisible();
+    await advanceAuthClock(olderPage, 3 * 60 * 60 * 1000);
+    const refreshResponse = olderPage.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().includes(AUTH_REFRESH_PATH) &&
+        response.url().includes("grant_type=refresh_token"),
+      { timeout: 15_000 },
+    );
+    await olderPage.reload({ waitUntil: "domcontentloaded" });
+    const response = await refreshResponse;
+    expect(response.status()).toBeGreaterThanOrEqual(400);
+    await expectSignedOut(olderPage);
 
     // Sanity: re-login with the temp password.
     await context.clearCookies();
@@ -245,8 +383,14 @@ test("password reset (implicit grant): action_link → fragment → form → upd
       page.getByRole("button", { name: /^login$/i }).click(),
     ]);
   } finally {
-    if (passwordChanged) {
-      await restoreSmokeAccountPassword(creds, tempPassword);
+    try {
+      await closeContext(olderContext);
+    } finally {
+      // Restore the Smoke Account even when password update succeeded but
+      // older-session revocation or the later session assertions failed.
+      if (passwordChanged) {
+        await restoreSmokeAccountPassword(creds, tempPassword);
+      }
     }
   }
 });
