@@ -28,7 +28,10 @@ vi.mock("react", () => {
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { QueryError } from "../errors";
-import { listUserAccounts } from "../user-account-directory";
+import {
+  getExcludedBusinessActivityUserIds,
+  listUserAccounts,
+} from "../user-account-directory";
 
 interface AuthUserFixture {
   id: string;
@@ -172,6 +175,72 @@ describe("listUserAccounts", () => {
       ["trusted-smoke", true],
       ["user-marked", false],
     ]);
+  });
+
+  it("exposes the complete reporting identity classification at the Directory boundary", async () => {
+    const result = await listUserAccounts(
+      buildClient([
+        {
+          users: [
+            {
+              id: "human",
+              email: "human@example.com",
+              user_metadata: { is_smoke_account: true },
+            },
+            {
+              id: "administrator",
+              email: "administrator@example.com",
+              app_metadata: { is_admin: true },
+            },
+            {
+              id: "anonymous",
+              email: null,
+              is_anonymous: true,
+            },
+            {
+              id: "administrator-smoke",
+              email: "administrator-smoke@example.com",
+              app_metadata: { is_admin: true, is_smoke_account: true },
+              user_metadata: { is_smoke_account: false },
+            },
+            {
+              id: "smoke",
+              email: "smoke@example.com",
+              app_metadata: { is_smoke_account: true },
+            },
+          ],
+          total: 5,
+        },
+      ]),
+    );
+
+    expect(
+      result.users.map((user) => ({
+        id: user.id,
+        isAdministrator: user.isAdministrator,
+        isSmokeAccount: user.isSmokeAccount,
+      })),
+    ).toEqual([
+      { id: "human", isAdministrator: false, isSmokeAccount: false },
+      { id: "administrator", isAdministrator: true, isSmokeAccount: false },
+      { id: "anonymous", isAdministrator: false, isSmokeAccount: false },
+      {
+        id: "administrator-smoke",
+        isAdministrator: true,
+        isSmokeAccount: true,
+      },
+      { id: "smoke", isAdministrator: false, isSmokeAccount: true },
+    ]);
+    expect(
+      getExcludedBusinessActivityUserIds(result.users, false),
+    ).toEqual(["administrator", "administrator-smoke", "smoke"]);
+    expect(
+      getExcludedBusinessActivityUserIds(result.users, true),
+    ).toEqual(["administrator-smoke", "smoke"]);
+    expect(result.users[3]).toMatchObject({
+      appMetadata: { is_admin: true, is_smoke_account: true },
+      userMetadata: { is_smoke_account: false },
+    });
   });
 
   it("throws the recognized admin data error when enumeration fails", async () => {

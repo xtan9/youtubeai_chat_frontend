@@ -41,6 +41,29 @@ export interface UserAccountDirectoryResult {
   truncated: boolean;
 }
 
+/**
+ * Return the account IDs excluded from business-activity reports.
+ *
+ * Smoke Accounts are always synthetic, even when a report explicitly includes
+ * administrator activity. Administrator exclusion remains opt-in so existing
+ * report behavior is preserved for non-Smoke accounts.
+ */
+export function getExcludedBusinessActivityUserIds(
+  users: readonly Pick<
+    UserAccount,
+    "id" | "isAdministrator" | "isSmokeAccount"
+  >[],
+  includeAdministrators: boolean,
+): string[] {
+  return users
+    .filter(
+      (user) =>
+        user.isSmokeAccount ||
+        (!includeAdministrators && user.isAdministrator),
+    )
+    .map((user) => user.id);
+}
+
 interface AuthUserRecord {
   id: string;
   email?: string | null;

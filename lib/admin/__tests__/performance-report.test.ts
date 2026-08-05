@@ -113,7 +113,7 @@ describe("loadPerformanceReport", () => {
       expect(calls.find((call) => call.method === "not")?.args).toEqual([
         "user_id",
         "in",
-        "(smoke)",
+        "(administrator-smoke,smoke)",
       ]);
     };
     const client = buildClient(
@@ -136,12 +136,17 @@ describe("loadPerformanceReport", () => {
           data: {
             users: [
               {
+                id: "administrator-smoke",
+                email: "administrator-smoke@example.com",
+                app_metadata: { is_admin: true, is_smoke_account: true },
+              },
+              {
                 id: "smoke",
                 email: "smoke@example.com",
                 app_metadata: { is_smoke_account: true },
               },
             ],
-            total: 1,
+            total: 2,
           },
           error: null,
         },
@@ -321,7 +326,7 @@ describe("loadPerformanceReport", () => {
             expect(calls.find((call) => call.method === "not")?.args).toEqual([
               "user_id",
               "in",
-              "(u-admin,smoke)",
+              "(u-admin,administrator-smoke,smoke)",
             ]);
           },
         },
@@ -337,12 +342,17 @@ describe("loadPerformanceReport", () => {
                 app_metadata: { is_admin: true },
               },
               {
+                id: "administrator-smoke",
+                email: "administrator-smoke@example.com",
+                app_metadata: { is_admin: true, is_smoke_account: true },
+              },
+              {
                 id: "smoke",
                 email: "smoke@example.com",
                 app_metadata: { is_smoke_account: true },
               },
             ],
-            total: 1,
+            total: 3,
           },
           error: null,
         },

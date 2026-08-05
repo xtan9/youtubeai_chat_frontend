@@ -20,7 +20,10 @@ import type {
   DashboardReportWindow,
   DashboardTopUserStat,
 } from "./report-types";
-import { listUserAccounts } from "./user-account-directory";
+import {
+  getExcludedBusinessActivityUserIds,
+  listUserAccounts,
+} from "./user-account-directory";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -263,13 +266,10 @@ async function loadAdminFilter(
   try {
     const directory = await listUserAccounts(client);
     return {
-      excludeUserIds: directory.users
-        .filter(
-          (user) =>
-            user.isSmokeAccount ||
-            (!includeAdministrators && user.isAdministrator),
-        )
-        .map((user) => user.id),
+      excludeUserIds: getExcludedBusinessActivityUserIds(
+        directory.users,
+        includeAdministrators,
+      ),
       warnings: directory.truncated
         ? [
             reportCompletenessWarning(

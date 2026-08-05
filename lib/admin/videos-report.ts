@@ -28,7 +28,10 @@ import type {
   VideosReportInput,
   VideoReportMode,
 } from "./report-types";
-import { listUserAccounts } from "./user-account-directory";
+import {
+  getExcludedBusinessActivityUserIds,
+  listUserAccounts,
+} from "./user-account-directory";
 
 const DAY_MS = 86_400_000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -235,9 +238,7 @@ async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
   try {
     const directory = await listUserAccounts(client);
     return {
-      userIds: directory.users
-        .filter((user) => user.isAdministrator || user.isSmokeAccount)
-        .map((user) => user.id),
+      userIds: getExcludedBusinessActivityUserIds(directory.users, false),
       warnings: directory.truncated
         ? [
             reportCompletenessWarning(

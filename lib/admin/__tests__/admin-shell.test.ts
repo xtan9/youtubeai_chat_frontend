@@ -150,6 +150,32 @@ describe("loadAdminShell", () => {
     });
   });
 
+  it("excludes both administrator and non-administrator Smoke Accounts from the human total", async () => {
+    const client = buildClient([
+      { id: "human", email: "learner@example.com" },
+      {
+        id: "administrator",
+        email: "admin@example.com",
+        app_metadata: { is_admin: true },
+      },
+      { id: "anonymous", email: null, is_anonymous: true },
+      {
+        id: "administrator-smoke",
+        email: "administrator-smoke@example.com",
+        app_metadata: { is_admin: true, is_smoke_account: true },
+      },
+      {
+        id: "smoke",
+        email: "smoke@example.com",
+        app_metadata: { is_smoke_account: true },
+      },
+    ]);
+
+    await expect(
+      loadAdminShell(client, { allowlist: ["admin@example.com"] }),
+    ).resolves.toMatchObject({ usersTotal: 1 });
+  });
+
   it("keeps the shell usable and reports a serializable warning when enumeration is unavailable", async () => {
     const result = await loadAdminShell(
       buildClient([], { message: "auth unavailable" }),
