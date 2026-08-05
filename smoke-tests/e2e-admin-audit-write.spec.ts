@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openHighestVolumeUserTranscript } from "./admin-helpers";
 import { loadSmokeCreds } from "./helpers";
 
 const PROD_URL = (
@@ -51,7 +52,7 @@ test("admin viewing a transcript writes a row to admin_audit_log", async ({
   await page.goto(`${PROD_URL}/admin/users`);
   await expect(page.getByRole("heading", { name: /^Users$/ })).toBeVisible();
   // Expand the first user row that has a transcript button.
-  await page.getByRole("button", { name: /View transcript/i }).first().click();
+  await openHighestVolumeUserTranscript(page);
 
   // The audit-banner copy should switch from "logging this view…" to
   // "this view is logged" once the server action returns successfully.
