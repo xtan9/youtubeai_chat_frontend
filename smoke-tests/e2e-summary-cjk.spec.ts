@@ -49,20 +49,20 @@ for (const { url, label, matcher } of CASES) {
       { waitUntil: "domcontentloaded" }
     );
 
-    await page.waitForSelector(".prose p", { timeout: SUMMARY_TIMEOUT_MS });
-    // Let streaming flush
-    await page.waitForTimeout(2_000);
+    const summaryProse = page.locator(".prose").first();
+    const errorBanner = page.getByTestId("stream-error-banner");
 
-    const summaryText = await page.evaluate(() => {
-      const els = document.querySelectorAll(
-        ".prose p, .prose li, .prose h1, .prose h2, .prose h3"
-      );
-      return Array.from(els).map((el) => el.textContent || "").join(" ");
-    });
-
-    expect(
-      matcher.test(summaryText),
-      `summary should contain ${label} script characters`
-    ).toBe(true);
+    await Promise.race([
+      expect(
+        summaryProse,
+        `summary should contain ${label} script characters`
+      ).toContainText(matcher, { timeout: SUMMARY_TIMEOUT_MS }),
+      errorBanner
+        .waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS })
+        .then(async () => {
+          const text = await errorBanner.innerText().catch(() => "(no text)");
+          throw new Error(`stream-error-banner appeared: ${text}`);
+        }),
+    ]);
   });
 }
