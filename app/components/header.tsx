@@ -16,16 +16,40 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
+import { useState } from "react";
 
 export function Header() {
   const { user } = useUser();
   const router = useRouter();
   const supabase = createClient();
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    // Navigate to home page
-    router.push("/");
+    if (isSigningOut) return;
+    setSignOutError(null);
+    setIsSigningOut(true);
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) {
+        console.error("[header] signOut failed", {
+          status: error.status ?? null,
+          message: error.message,
+        });
+        setSignOutError("Couldn't sign you out. Check your connection and try again.");
+        return;
+      }
+      // Navigate to home page after the current browser session ends.
+      router.push("/");
+    } catch (error: unknown) {
+      console.error("[header] signOut threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setSignOutError("Couldn't sign you out. Check your connection and try again.");
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   return (
@@ -103,10 +127,11 @@ export function Header() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onSelect={handleSignOut}
+                      disabled={isSigningOut}
                       className="cursor-pointer"
                     >
                       <LogOut size={16} />
-                      <span>Sign Out</span>
+                      <span>{isSigningOut ? "Signing out…" : "Sign Out"}</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -114,6 +139,15 @@ export function Header() {
             )}
           </div>
         </div>
+        {signOutError ? (
+          <p
+            role="alert"
+            aria-live="assertive"
+            className="mt-3 text-body-sm text-accent-danger"
+          >
+            {signOutError}
+          </p>
+        ) : null}
       </div>
     </header>
   );

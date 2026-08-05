@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ManageSubscriptionButton } from "@/components/paywall/ManageSubscriptionButton";
+import { useState } from "react";
 
 function formatRenewalDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -143,6 +144,8 @@ export function AccountView() {
   const entitlements = useEntitlements();
   const router = useRouter();
   const supabase = createClient();
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [activeSignOutScope, setActiveSignOutScope] = useState<"local" | "global" | null>(null);
 
   if (!user) return null;
 
@@ -154,8 +157,55 @@ export function AccountView() {
   const subscription = entitlements.data?.subscription ?? null;
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    if (activeSignOutScope) return;
+    setSignOutError(null);
+    setActiveSignOutScope("local");
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) {
+        console.error("[account] local signOut failed", {
+          status: error.status ?? null,
+          message: error.message,
+        });
+        setSignOutError("Couldn't sign you out. Check your connection and try again.");
+        return;
+      }
+      router.push("/");
+    } catch (error: unknown) {
+      console.error("[account] local signOut threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setSignOutError("Couldn't sign you out. Check your connection and try again.");
+    } finally {
+      setActiveSignOutScope(null);
+    }
+  };
+
+  const handleSignOutEverywhere = async () => {
+    if (activeSignOutScope) return;
+    setSignOutError(null);
+    setActiveSignOutScope("global");
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "global" });
+      if (error) {
+        console.error("[account] global signOut failed", {
+          status: error.status ?? null,
+          message: error.message,
+        });
+        setSignOutError("Couldn't sign you out everywhere. Check your connection and try again.");
+        return;
+      }
+      router.push("/");
+    } catch (error: unknown) {
+      console.error("[account] global signOut threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setSignOutError("Couldn't sign you out everywhere. Check your connection and try again.");
+    } finally {
+      setActiveSignOutScope(null);
+    }
   };
 
   // Plan card branching:
@@ -196,10 +246,31 @@ export function AccountView() {
 
         {planNode}
 
-        <div>
-          <Button variant="outline" onClick={handleSignOut}>
-            Sign out
+        <div className="flex flex-col items-start gap-3">
+          {signOutError ? (
+            <p role="alert" aria-live="assertive" className="text-body-sm text-accent-danger">
+              {signOutError}
+            </p>
+          ) : null}
+          <Button
+            variant="outline"
+            onClick={handleSignOut}
+            disabled={activeSignOutScope !== null}
+          >
+            {activeSignOutScope === "local" ? "Signing out…" : "Sign out"}
           </Button>
+          <div className="flex flex-col items-start gap-2">
+            <Button
+              variant="destructive"
+              onClick={handleSignOutEverywhere}
+              disabled={activeSignOutScope !== null}
+            >
+              {activeSignOutScope === "global" ? "Signing out everywhere…" : "Sign out everywhere"}
+            </Button>
+            <p className="max-w-prose text-body-sm text-text-muted">
+              This ends remembered sessions on your other devices too. Other devices may remain active briefly until their current access tokens expire.
+            </p>
+          </div>
         </div>
       </div>
     </main>
