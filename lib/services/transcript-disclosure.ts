@@ -25,7 +25,6 @@ export interface SummaryTranscriptDisclosure extends VideoMetadata {
   summaryId: string;
   transcript: string | null;
   summary: string;
-  thinking: string | null;
   source: TranscriptSource;
   model: string | null;
   processingTimeSeconds: number | null;
@@ -148,7 +147,7 @@ export async function getTranscriptDisclosureBySummaryId(
   const { data, error } = await client
     .from("summaries")
     .select(
-      "id, video_id, transcript, summary, thinking, transcript_source, model, processing_time_seconds, created_at",
+      "id, video_id, transcript, summary, transcript_source, model, processing_time_seconds, created_at",
     )
     .eq("id", summaryId)
     .maybeSingle();
@@ -173,7 +172,6 @@ export async function getTranscriptDisclosureBySummaryId(
     summaryId: String(row.id),
     transcript: (row.transcript as string | null) ?? null,
     summary: String(row.summary ?? ""),
-    thinking: (row.thinking as string | null) ?? null,
     ...metadata,
     source,
     model: (row.model as string | null) ?? null,

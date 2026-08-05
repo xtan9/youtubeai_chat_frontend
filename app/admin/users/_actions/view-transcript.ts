@@ -12,7 +12,6 @@ export interface ViewTranscriptOk {
    * cached row predates the schema change that added the column. */
   transcript: string | null;
   summary: string;
-  thinking: string | null;
   videoTitle: string | null;
   channelName: string | null;
   language: string | null;
@@ -106,7 +105,6 @@ export async function viewTranscriptAction(
     ok: true,
     transcript: disclosure.transcript,
     summary: disclosure.summary,
-    thinking: disclosure.thinking,
     videoTitle: disclosure.videoTitle,
     channelName: disclosure.channelName,
     language: disclosure.language,

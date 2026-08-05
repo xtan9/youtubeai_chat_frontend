@@ -90,7 +90,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "raw transcript text",
             summary: "the summary",
-            thinking: "thoughts",
             transcript_source: "whisper",
             model: "claude-opus-4-7",
             processing_time_seconds: 12.5,
@@ -120,7 +119,6 @@ describe("viewTranscriptAction", () => {
     if (!result.ok) return;
     expect(result.transcript).toBe("raw transcript text");
     expect(result.summary).toBe("the summary");
-    expect(result.thinking).toBe("thoughts");
     expect(result.videoTitle).toBe("Video title");
     expect(result.source).toBe("whisper");
     expect(result.auditId).toBe("audit-row-1");
@@ -150,7 +148,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "raw transcript",
             summary: "summary",
-            thinking: null,
             transcript_source: "auto_captions",
             model: "claude-haiku-4-5",
             processing_time_seconds: 5,
@@ -250,7 +247,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "raw",
             summary: "s",
-            thinking: null,
             transcript_source: "unknown_future_source",
             model: "claude-haiku-4-5",
             processing_time_seconds: 5,
@@ -279,7 +275,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: null,
             summary: "s",
-            thinking: null,
             transcript_source: "auto_captions",
             model: null,
             processing_time_seconds: null,
@@ -312,7 +307,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "t",
             summary: "s",
-            thinking: null,
             transcript_source: "auto_captions",
             model: null,
             processing_time_seconds: null,
@@ -346,7 +340,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "t",
             summary: "s",
-            thinking: null,
             transcript_source: "auto_captions",
             model: null,
             processing_time_seconds: null,
@@ -380,7 +373,6 @@ describe("viewTranscriptAction", () => {
             video_id: "v1",
             transcript: "t",
             summary: "s",
-            thinking: null,
             transcript_source: "auto_captions",
             model: null,
             processing_time_seconds: null,

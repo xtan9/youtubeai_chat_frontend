@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { X, Download, ChevronDown } from "lucide-react";
+import { X, Download } from "lucide-react";
 import { Btn, Pill } from "./atoms";
 import { useAdmin } from "./admin-context";
 import {
@@ -365,44 +365,6 @@ function SummaryPane({ state }: { state: LoadState }) {
           >
             {ready.summary || "(empty summary)"}
           </div>
-          {ready.thinking && (
-            <details
-              style={{
-                marginTop: 14,
-                padding: "10px 12px",
-                background: "var(--surface-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-              }}
-            >
-              <summary
-                className="text-xs"
-                style={{
-                  color: "var(--text-2)",
-                  fontWeight: 500,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  cursor: "pointer",
-                  listStyle: "none",
-                }}
-              >
-                <span>Thinking</span>
-                <ChevronDown size={12} />
-              </summary>
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 12,
-                  lineHeight: 1.55,
-                  color: "var(--text-2)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {ready.thinking}
-              </div>
-            </details>
-          )}
         </>
       )}
     </div>
