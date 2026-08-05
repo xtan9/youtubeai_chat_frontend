@@ -15,6 +15,7 @@ jobs:
           node --test
           scripts/vercel-deployment-policy.policy.mjs
           scripts/vercel-deploy-workflow.policy.mjs
+          scripts/production-smoke-workflow.policy.mjs
 
   lint:
     runs-on: ubuntu-latest

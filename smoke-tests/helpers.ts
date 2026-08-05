@@ -37,6 +37,11 @@ export type SmokeCreds = {
   source: CredSource;
 };
 
+export type AdminCreds = SmokeCreds & {
+  supabaseUrl: string;
+  secretKey: string;
+};
+
 export class SmokeAccountVerificationError extends Error {
   constructor() {
     super("Production smoke requires an authenticated, marked Smoke Account");
@@ -173,11 +178,6 @@ export function parseEnvFile(raw: string): Record<string, string> {
 
 // --- Admin helpers (E2E auth specs) -----------------------------------
 
-export type AdminCreds = SmokeCreds & {
-  supabaseUrl: string;
-  secretKey: string;
-};
-
 /**
  * Same as `loadSmokeCreds` but additionally requires SUPABASE_URL +
  * SUPABASE_SECRET_KEY (Supabase's new API key system; the legacy
@@ -228,6 +228,27 @@ export async function loadAdminCreds(): Promise<AdminCreds | null> {
 
   if (!supabaseUrl || !secretKey) return null;
   return { ...base, supabaseUrl, secretKey };
+}
+
+/**
+ * Resolve the dedicated administrator Smoke Account for the serial session
+ * policy journey. This intentionally requires the explicit admin pair and
+ * never falls back to the non-admin or legacy credential names.
+ */
+export async function loadAdminSmokeCreds(): Promise<AdminCreds | null> {
+  const email = process.env.TEST_ADMIN_EMAIL?.trim();
+  const password = process.env.TEST_ADMIN_PASSWORD?.trim();
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const secretKey = process.env.SUPABASE_SECRET_KEY?.trim();
+
+  if (!email || !password || !supabaseUrl || !secretKey) return null;
+  return {
+    email,
+    password,
+    source: "env",
+    supabaseUrl,
+    secretKey,
+  };
 }
 
 // Cached admin client. Built lazily so test files that don't need it
