@@ -76,7 +76,19 @@ export function UpdatePasswordForm({
       // Keep the recovery browser's new Remembered Session while ending every
       // older session. Unlike global sign-out, the `others` scope does not
       // clear this browser's session.
-      const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });
+      let revokeError: { message: string; status?: number } | null = null;
+      try {
+        ({ error: revokeError } = await supabase.auth.signOut({ scope: "others" }));
+      } catch (error: unknown) {
+        console.error("[update-password] other-session signOut threw", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        setNeedsGlobalSignOut(true);
+        setError(
+          "Your password was changed, but we couldn't sign out your other sessions. Try again or sign out everywhere below.",
+        );
+        return;
+      }
       if (revokeError) {
         console.error("[update-password] other-session signOut failed", {
           status: revokeError.status ?? null,

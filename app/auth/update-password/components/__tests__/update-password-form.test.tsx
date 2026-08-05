@@ -50,6 +50,9 @@ describe("UpdatePasswordForm recovery session", () => {
       expect(signOutSpy).toHaveBeenCalledWith({ scope: "others" });
       expect(mockPush).toHaveBeenCalledWith("/");
     });
+    expect(updateUserSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      signOutSpy.mock.invocationCallOrder[0],
+    );
   });
 
   it("reports password-update failure without attempting session revocation", async () => {
@@ -81,5 +84,18 @@ describe("UpdatePasswordForm recovery session", () => {
       expect(signOutSpy).toHaveBeenNthCalledWith(2, { scope: "global" });
       expect(mockPush).toHaveBeenCalledWith("/");
     });
+  });
+
+  it("offers global sign out when other-session revocation throws", async () => {
+    signOutSpy.mockRejectedValueOnce(new Error("Other-session revoke unavailable"));
+    render(<UpdatePasswordForm />);
+
+    enterPassword();
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toMatch(/password was changed/i);
+      expect(screen.getByRole("button", { name: /sign out everywhere/i })).not.toBeNull();
+    });
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

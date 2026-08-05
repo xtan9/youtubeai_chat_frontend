@@ -41,10 +41,22 @@ jobs:
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
       # in CI without NEXT_PUBLIC_SUPABASE_URL etc.).
-      # Run the global-revocation spec separately so every other authenticated
-      # check has released this Smoke Account before its sessions are revoked.
+      # Run account-mutating recovery and global-revocation specs separately so
+      # every non-mutating authenticated check has released this Smoke Account
+      # before either destructive flow changes its password or sessions.
       - name: Run non-mutating browser smoke
-        run: pnpm exec playwright test --grep-invert "@account-mutating"
+        run: pnpm exec playwright test --grep-invert "@account-mutating|@account-recovery"
+        env:
+          BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
+          TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      - name: Run account recovery smoke
+        run: pnpm exec playwright test --grep "@account-recovery" --workers=1
         env:
           BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
@@ -55,7 +67,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
       - name: Run global sign-out smoke last
-        run: pnpm exec playwright test --grep "@account-mutating"
+        run: pnpm exec playwright test --grep "@account-mutating" --workers=1
         env:
           BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
