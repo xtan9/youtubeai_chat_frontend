@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 import {
   loadAdminCreds,
+  authenticateAndAssertSmokeAccount,
   generateRecoveryLink,
-  getAdminClient,
   getProductionRecoveryActionLink,
   loadSmokeCreds,
+  restoreSmokeAccountPassword,
 } from "./helpers";
 import { buildRecoveryRedirectUrl } from "../lib/auth/recovery-redirect";
 
@@ -24,7 +25,7 @@ test("password reset form requests the apex /auth/update-password redirectTo", a
   page,
 }) => {
   const creds = await loadSmokeCreds();
-  test.skip(!creds, "TEST_USER_EMAIL/PASSWORD required");
+  test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
   if (!creds) return;
 
   let observedRedirectTo: string | undefined;
@@ -115,6 +116,11 @@ test("password reset: forgot → recovery link → update → re-login", async (
     await page.goto(recoveryLink);
     await page.waitForURL(/\/auth\/update-password/, { timeout: 15_000 });
 
+    // The recovery page is about to invoke auth.updateUser. Fetch the
+    // authenticated account through Auth immediately before that mutation so
+    // a misrouted credential cannot change a human account's password.
+    await authenticateAndAssertSmokeAccount(creds);
+
     // --- Update password to a known temp value (Supabase blocks same-password updates) ---
     await page.locator("#password").fill(tempPassword);
     await Promise.all([
@@ -145,31 +151,7 @@ test("password reset: forgot → recovery link → update → re-login", async (
     // Skip restore only when the password was never changed (test failed
     // before the update form was submitted).
     if (passwordChanged) {
-      const admin = await getAdminClient(creds);
-      // Paginate to find user (project may exceed any single page size).
-      let userId: string | undefined;
-      for (let pg = 1; !userId; pg++) {
-        const { data, error } = await admin.auth.admin.listUsers({
-          page: pg,
-          perPage: 1000,
-        });
-        if (error) throw error;
-        const match = data.users.find((u) => u.email === creds.email);
-        if (match) {
-          userId = match.id;
-          break;
-        }
-        if (data.users.length < 1000) break;
-      }
-      if (!userId) {
-        throw new Error(
-          `Teardown: cannot find user ${creds.email} to restore password`
-        );
-      }
-      const { error } = await admin.auth.admin.updateUserById(userId, {
-        password: creds.password,
-      });
-      if (error) throw error;
+      await restoreSmokeAccountPassword(creds, tempPassword);
     }
   }
 });
@@ -236,6 +218,10 @@ test("password reset (implicit grant): action_link → fragment → form → upd
       { timeout: 10_000 }
     );
 
+    // Guard the password mutation against a credential accidentally pointing
+    // at an unmarked account before submitting the recovery form.
+    await authenticateAndAssertSmokeAccount(creds);
+
     await page.locator("#password").fill(tempPassword);
     await Promise.all([
       page.waitForURL(
@@ -260,30 +246,7 @@ test("password reset (implicit grant): action_link → fragment → form → upd
     ]);
   } finally {
     if (passwordChanged) {
-      const admin = await getAdminClient(creds);
-      let userId: string | undefined;
-      for (let pg = 1; !userId; pg++) {
-        const { data, error } = await admin.auth.admin.listUsers({
-          page: pg,
-          perPage: 1000,
-        });
-        if (error) throw error;
-        const match = data.users.find((u) => u.email === creds.email);
-        if (match) {
-          userId = match.id;
-          break;
-        }
-        if (data.users.length < 1000) break;
-      }
-      if (!userId) {
-        throw new Error(
-          `Teardown: cannot find user ${creds.email} to restore password`
-        );
-      }
-      const { error } = await admin.auth.admin.updateUserById(userId, {
-        password: creds.password,
-      });
-      if (error) throw error;
+      await restoreSmokeAccountPassword(creds, tempPassword);
     }
   }
 });

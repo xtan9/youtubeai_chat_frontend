@@ -2,7 +2,8 @@
 // e2e spec. Keep free of runtime-specific imports so both environments can
 // load this module without bundling surprises.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { isSmokeAccount } from "../lib/auth/smoke-account";
 
 // Arabic block + Arabic Supplement + Arabic Extended-A + Presentation
 // Forms A/B. YouTube captions have been observed to use presentation
@@ -36,17 +37,94 @@ export type SmokeCreds = {
   source: CredSource;
 };
 
-// Resolve test account credentials with a strict precedence:
-//   1. TEST_USER_EMAIL / TEST_USER_PASSWORD env vars (CI path)
-//   2. ~/.config/claude-test-creds/youtubeai.env (local dev path, matches
-//      the path documented in user memory)
+export class SmokeAccountVerificationError extends Error {
+  constructor() {
+    super("Production smoke requires an authenticated, marked Smoke Account");
+    this.name = "SmokeAccountVerificationError";
+  }
+}
+
+type AuthWithGetUser = Pick<SupabaseClient["auth"], "getUser">;
+
+/**
+ * Fetch the account behind an authenticated session and require the trusted
+ * service-managed marker before a destructive smoke operation can continue.
+ */
+export async function assertTrustedSmokeAccount(
+  auth: AuthWithGetUser,
+): Promise<User> {
+  const { data, error } = await auth.getUser();
+  const user = data?.user;
+  if (error || !user || !isSmokeAccount(user)) {
+    throw new SmokeAccountVerificationError();
+  }
+  return user;
+}
+
+export async function withTrustedSmokeAccount<T>(
+  auth: AuthWithGetUser,
+  mutation: (user: User) => Promise<T> | T,
+): Promise<T> {
+  const user = await assertTrustedSmokeAccount(auth);
+  return mutation(user);
+}
+
+/**
+ * Authenticate a smoke credential pair, then fetch the authenticated account
+ * through Auth before returning it. The secret key is used only in this
+ * server-side/CI helper; it is never sent to the application browser.
+ */
+export async function authenticateAndAssertSmokeAccount(
+  creds: AdminCreds,
+  password: string = creds.password,
+): Promise<User> {
+  const { createClient } = await import("@supabase/supabase-js");
+  const client = createClient(creds.supabaseUrl, creds.secretKey, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  });
+  const { error } = await client.auth.signInWithPassword({
+    email: creds.email,
+    password,
+  });
+  if (error) throw new SmokeAccountVerificationError();
+  return assertTrustedSmokeAccount(client.auth);
+}
+
+export async function restoreSmokeAccountPassword(
+  creds: AdminCreds,
+  currentPassword: string,
+): Promise<void> {
+  const user = await authenticateAndAssertSmokeAccount(creds, currentPassword);
+  const admin = await getAdminClient(creds);
+  const { error } = await admin.auth.admin.updateUserById(user.id, {
+    password: creds.password,
+  });
+  if (error) throw new Error("Smoke Account password restoration failed");
+}
+
+// Resolve the dedicated non-administrator Smoke Account credentials with a
+// strict precedence:
+//   1. TEST_NON_ADMIN_EMAIL / TEST_NON_ADMIN_PASSWORD (production CI path)
+//   2. TEST_USER_EMAIL / TEST_USER_PASSWORD (legacy/local compatibility path)
+//   3. ~/.config/claude-test-creds/youtubeai.env (local dev path)
 // Returns null when neither source is usable — callers decide whether to
 // skip or hard-fail.
 export async function loadSmokeCreds(): Promise<SmokeCreds | null> {
-  const envEmail = process.env.TEST_USER_EMAIL?.trim();
-  const envPassword = process.env.TEST_USER_PASSWORD?.trim();
-  if (envEmail && envPassword) {
-    return { email: envEmail, password: envPassword, source: "env" };
+  const smokeEmail = process.env.TEST_NON_ADMIN_EMAIL?.trim();
+  const smokePassword = process.env.TEST_NON_ADMIN_PASSWORD?.trim();
+  if (smokeEmail || smokePassword) {
+    if (!smokeEmail || !smokePassword) return null;
+    return { email: smokeEmail, password: smokePassword, source: "env" };
+  }
+
+  const legacyEmail = process.env.TEST_USER_EMAIL?.trim();
+  const legacyPassword = process.env.TEST_USER_PASSWORD?.trim();
+  if (legacyEmail && legacyPassword) {
+    return { email: legacyEmail, password: legacyPassword, source: "env" };
   }
 
   const { readFile } = await import("node:fs/promises");

@@ -30,7 +30,7 @@ for (const { url, label, matcher } of CASES) {
     page,
   }) => {
     const creds = await loadSmokeCreds();
-    expect(creds, "TEST_USER_EMAIL/TEST_USER_PASSWORD required").not.toBeNull();
+    expect(creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required").not.toBeNull();
     if (!creds) return;
 
     await page.goto(`${PROD_URL}/auth/login`);

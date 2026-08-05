@@ -5,6 +5,7 @@ import {
   loadAdminCreds,
   loadSmokeCreds,
   parseEnvFile,
+  withTrustedSmokeAccount,
 } from "../helpers";
 
 describe("hasArabicChars", () => {
@@ -45,6 +46,51 @@ describe("hasFrenchAnchors", () => {
 
   it("returns false for pure English text without overlap", () => {
     expect(hasFrenchAnchors("Hello world how are you today")).toBe(false);
+  });
+});
+
+describe("withTrustedSmokeAccount", () => {
+  it("accepts a fetched account with the trusted marker", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      data: {
+        user: {
+          id: "smoke-user",
+          app_metadata: { is_smoke_account: true },
+        },
+      },
+      error: null,
+    });
+    const mutation = vi.fn().mockResolvedValue("mutated");
+
+    const userId = await withTrustedSmokeAccount({ getUser }, (user) => {
+      mutation(user.id);
+      return user.id;
+    });
+
+    expect(userId).toBe("smoke-user");
+    expect(getUser).toHaveBeenCalledOnce();
+    expect(mutation).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    undefined,
+    { app_metadata: {} },
+    { app_metadata: { is_smoke_account: false } },
+    { app_metadata: { is_smoke_account: "true" } },
+  ])("refuses an account without a true marker before mutation: %j", async (user) => {
+    const getUser = vi.fn().mockResolvedValue({
+      data: { user: user ? { id: "unmarked-user", ...user } : undefined },
+      error: null,
+    });
+    const mutation = vi.fn();
+
+    await expect(
+      withTrustedSmokeAccount({ getUser }, () => mutation()),
+    ).rejects.toThrow(
+      "authenticated, marked Smoke Account",
+    );
+    expect(getUser).toHaveBeenCalledOnce();
+    expect(mutation).not.toHaveBeenCalled();
   });
 });
 
@@ -95,6 +141,28 @@ describe("loadSmokeCreds", () => {
       password: "envpass",
       source: "env",
     });
+  });
+
+  it("prefers the dedicated non-admin CI pair over legacy user variables", async () => {
+    vi.stubEnv("TEST_NON_ADMIN_EMAIL", "smoke-non-admin@example.com");
+    vi.stubEnv("TEST_NON_ADMIN_PASSWORD", "smoke-password");
+    vi.stubEnv("TEST_USER_EMAIL", "legacy@example.com");
+    vi.stubEnv("TEST_USER_PASSWORD", "legacy-password");
+
+    await expect(loadSmokeCreds()).resolves.toMatchObject({
+      email: "smoke-non-admin@example.com",
+      password: "smoke-password",
+      source: "env",
+    });
+  });
+
+  it("does not fall back to a legacy identity when a dedicated pair is incomplete", async () => {
+    vi.stubEnv("TEST_NON_ADMIN_EMAIL", "smoke-non-admin@example.com");
+    vi.stubEnv("TEST_NON_ADMIN_PASSWORD", "");
+    vi.stubEnv("TEST_USER_EMAIL", "legacy@example.com");
+    vi.stubEnv("TEST_USER_PASSWORD", "legacy-password");
+
+    await expect(loadSmokeCreds()).resolves.toBeNull();
   });
 
   it("returns null when env is absent and file is missing", async () => {

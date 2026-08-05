@@ -16,7 +16,7 @@ test.describe("/account", () => {
     page,
   }) => {
     const creds = await loadSmokeCreds();
-    test.skip(!creds, "TEST_USER_EMAIL/TEST_USER_PASSWORD required");
+    test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
     if (!creds) return;
 
     // --- Login ---

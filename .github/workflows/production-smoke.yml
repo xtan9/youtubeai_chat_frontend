@@ -45,10 +45,16 @@ jobs:
         env:
           BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          # These protected values are dedicated Smoke Accounts only; never
+          # point them at a personal or other human identity.
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
           TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
           TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+          # Backend Auth controls used only by the recovery smoke's admin API
+          # helper; keep the service key protected and never log its value.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
       - uses: actions/upload-artifact@v6
         if: failure()
         with:

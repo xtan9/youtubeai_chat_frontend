@@ -23,7 +23,7 @@ async function login(page: import("@playwright/test").Page) {
 
 test("invalid YouTube URL surfaces a user-visible error", async ({ page }) => {
   const creds = await login(page);
-  test.skip(!creds, "TEST_USER_EMAIL/TEST_USER_PASSWORD required");
+  test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
   if (!creds) return;
 
   await page.goto(
@@ -41,7 +41,7 @@ test("upstream summary failure (intercepted) surfaces error UI", async ({
   page,
 }) => {
   const creds = await login(page);
-  test.skip(!creds, "TEST_USER_EMAIL/TEST_USER_PASSWORD required");
+  test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
   if (!creds) return;
 
   // Force the streaming endpoint to return 502 on the next call, then
