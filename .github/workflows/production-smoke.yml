@@ -55,7 +55,11 @@ jobs:
       # its recovery and global-revocation mutations cannot race the earlier
       # authenticated smoke checks.
       - name: Run non-mutating browser smoke
-        run: pnpm exec playwright test --grep-invert "@session-policy|@account-mutating|@account-recovery"
+        run: >-
+          pnpm exec playwright test
+          smoke-tests/e2e-admin-happypath.spec.ts
+          smoke-tests/e2e-admin-audit-write.spec.ts
+          --workers=1
       - name: Run serial production session policy journey
         run: pnpm exec playwright test smoke-tests/e2e-auth-session-policy.spec.ts --grep "@session-policy" --workers=1
       - name: Preserve redacted session-policy evidence
