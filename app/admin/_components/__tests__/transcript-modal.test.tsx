@@ -36,7 +36,6 @@ const happyResult = {
   ok: true as const,
   transcript: "transcript body",
   summary: "summary body",
-  thinking: null,
   videoTitle: "Authoritative title",
   channelName: "Authoritative channel",
   language: "en",

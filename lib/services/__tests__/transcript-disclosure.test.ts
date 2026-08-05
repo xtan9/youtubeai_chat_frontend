@@ -173,13 +173,20 @@ describe("transcript disclosure service", () => {
             video_id: null,
             transcript: "raw transcript",
             summary: "summary text",
-            thinking: "thinking text",
             transcript_source: "manual_captions",
             model: "model-1",
             processing_time_seconds: 12.5,
             created_at: "2026-04-05T00:00:00Z",
           },
           error: null,
+        },
+        expect: (calls) => {
+          expect(calls).toContainEqual({
+            method: "select",
+            args: [
+              "id, video_id, transcript, summary, transcript_source, model, processing_time_seconds, created_at",
+            ],
+          });
         },
       },
     ]);
@@ -190,7 +197,6 @@ describe("transcript disclosure service", () => {
       summaryId: SUMMARY_ID,
       transcript: "raw transcript",
       summary: "summary text",
-      thinking: "thinking text",
       videoTitle: null,
       channelName: null,
       language: null,

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openHighestVolumeUserTranscript } from "./admin-helpers";
 import { loadSmokeCreds } from "./helpers";
 
 const PROD_URL = (
@@ -42,13 +43,14 @@ test("admin signs in → dashboard renders + transcript modal opens", async ({
   await expect(page).toHaveURL(`${PROD_URL}/admin`, { timeout: 10_000 });
   await expect(page.locator('[data-admin-scope]')).toBeVisible();
   await expect(page.getByRole("heading", { name: /^Dashboard$/ })).toBeVisible();
-  await expect(page.getByText("Summaries", { exact: true })).toBeVisible();
-  await expect(page.getByText("p95 latency", { exact: true })).toBeVisible();
+  const dashboardKpis = page.locator(".kpi-grid").first();
+  await expect(dashboardKpis.getByText("Summaries", { exact: true })).toBeVisible();
+  await expect(dashboardKpis.getByText("p95 latency", { exact: true })).toBeVisible();
 
   // /admin/users — open transcript modal, confirm audit banner
   await page.goto(`${PROD_URL}/admin/users`);
   await expect(page.getByRole("heading", { name: /^Users$/ })).toBeVisible();
-  await page.getByRole("button", { name: /View transcript/i }).first().click();
+  await openHighestVolumeUserTranscript(page);
   await expect(
     page.getByText(/viewing as admin.*will be logged|viewing as admin.*is logged/i),
   ).toBeVisible({ timeout: 5_000 });
