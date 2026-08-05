@@ -317,6 +317,20 @@ describe("AccountView — Sign Out", () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
   });
 
+  it("explains the short-lived access-token window for other devices", () => {
+    setEntitlements({
+      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
+      isPending: false,
+      isError: false,
+    });
+    const qc = freshQueryClient();
+    render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    expect(
+      screen.getByText(/other devices may remain active until their already-issued short-lived access tokens expire/i),
+    ).not.toBeNull();
+  });
+
   it("reports a global sign-out failure without leaving the account page", async () => {
     signOutSpy.mockResolvedValueOnce({ error: new Error("Auth unavailable") });
     setEntitlements({
@@ -329,7 +343,18 @@ describe("AccountView — Sign Out", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /sign out everywhere/i }));
 
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/couldn't sign you out everywhere/i));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /couldn't confirm that your other sessions were revoked.*try again/i,
+      ),
+    );
     expect(mockPush).not.toHaveBeenCalled();
+
+    const retry = screen.getByRole("button", { name: /sign out everywhere/i });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(signOutSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
   });
 });
