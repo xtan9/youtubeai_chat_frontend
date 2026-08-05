@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { loadSmokeCreds } from "./helpers";
+import { waitForLiveSummarySuccess } from "./live-summary";
 
 // Golden-path regression guard for the summary-language picker:
 //  - click through login → summarize a short English video
@@ -28,7 +29,7 @@ const PROD_URL = (
 
 const SUMMARY_TIMEOUT_MS = 180_000;
 
-test("summary language picker regenerates the summary in Spanish", async ({
+test("summary language picker regenerates the summary in Spanish @live-summary", async ({
   page,
 }) => {
   const creds = await loadSmokeCreds();
@@ -50,20 +51,18 @@ test("summary language picker regenerates the summary in Spanish", async ({
   await page.getByRole("button", { name: /summarize video/i }).click();
   await page.waitForURL(/\/summary/, { timeout: 15_000 });
 
-  const errorBanner = page.getByTestId("stream-error-banner");
   const summaryHeader = page.getByRole("heading", {
     name: /ai-generated video summary/i,
   });
 
-  await Promise.race([
-    summaryHeader.waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS }),
-    errorBanner
-      .waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS })
-      .then(async () => {
-        const text = await errorBanner.innerText().catch(() => "(no text)");
-        throw new Error(`stream-error-banner appeared: ${text}`);
-      }),
-  ]);
+  await waitForLiveSummarySuccess({
+    page,
+    success: summaryHeader.waitFor({
+      state: "visible",
+      timeout: SUMMARY_TIMEOUT_MS,
+    }),
+    terminalTimeoutMs: SUMMARY_TIMEOUT_MS,
+  });
 
   // The picker button is identified by an aria-label starting with
   // "Summary language:" — stable across current/"Auto" states.
@@ -88,15 +87,22 @@ test("summary language picker regenerates the summary in Spanish", async ({
   // That's only true when the new stream has produced enough content for
   // at least one Spanish anchor to surface.
   const summaryProse = page.locator(".prose").first();
-  await expect
-    .poll(
-      async () => {
-        const text = await summaryProse.innerText().catch(() => "");
-        return hasSpanishAnchors(text) ? text : null;
-      },
-      { timeout: SUMMARY_TIMEOUT_MS, message: "Spanish summary never rendered" }
-    )
-    .not.toBeNull();
+  await waitForLiveSummarySuccess({
+    page,
+    success: expect
+      .poll(
+        async () => {
+          const text = await summaryProse.innerText().catch(() => "");
+          return hasSpanishAnchors(text) ? text : null;
+        },
+        {
+          timeout: SUMMARY_TIMEOUT_MS,
+          message: "Spanish summary never rendered",
+        },
+      )
+      .not.toBeNull(),
+    terminalTimeoutMs: SUMMARY_TIMEOUT_MS,
+  });
 
   // At this point we know the summary re-streamed in Spanish. Assert it
   // has substantive content (guards against a one-word false positive

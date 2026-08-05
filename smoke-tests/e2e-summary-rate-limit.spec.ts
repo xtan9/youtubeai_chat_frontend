@@ -1,15 +1,12 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { loadSmokeCreds } from "./helpers";
+import { waitForLiveSummarySuccess } from "./live-summary";
 
 const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
 
-// Force the rate-limit branch by intercepting and returning the same
-// 429 the orchestrator returns when the per-user limit is hit. This
-// avoids actually exhausting the prod limit (which would lock out the
-// test user for the rest of the day).
-test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
+async function loginAsNonAdminSmokeAccount(page: Page): Promise<void> {
   const creds = await loadSmokeCreds();
   test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
   if (!creds) return;
@@ -24,6 +21,14 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
     ),
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
+}
+
+// Force the rate-limit branch by intercepting and returning the same
+// 429 the orchestrator returns when the per-user limit is hit. This
+// avoids actually exhausting the prod limit (which would lock out the
+// test user for the rest of the day).
+test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
+  await loginAsNonAdminSmokeAccount(page);
 
   // Mirror the real prod 429 payload from app/api/summarize/stream/route.ts.
   // The adapter intentionally converts this private payload into stable,
@@ -49,4 +54,39 @@ test("429 response surfaces rate-limit / paywall UI", async ({ page }) => {
     "Too many summary requests. Please wait a moment and try again."
   );
   await expect(limitUi).toBeVisible({ timeout: 30_000 });
+});
+
+test("402 quota UI terminates a live Summary wait", async ({ page }) => {
+  await loginAsNonAdminSmokeAccount(page);
+
+  await page.route("**/api/summarize/stream", (route) =>
+    route.fulfill({
+      status: 402,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "You've used your 10 free summaries this month. Upgrade for unlimited.",
+        errorCode: "free_quota_exceeded",
+        tier: "free",
+        upgradeUrl: "/pricing",
+      }),
+    })
+  );
+
+  await page.goto(
+    `${PROD_URL}/summary?url=${encodeURIComponent("https://www.youtube.com/watch?v=dQw4w9WgXcQ")}`,
+    { waitUntil: "domcontentloaded" }
+  );
+
+  await expect(
+    waitForLiveSummarySuccess({
+      page,
+      success: page
+        .getByTestId("summary-results")
+        .waitFor({ state: "visible", timeout: 30_000 }),
+      terminalTimeoutMs: 10_000,
+    })
+  ).rejects.toThrow(/live Summary ended in quota state/i);
+  await expect(
+    page.locator('[data-paywall-variant="summary-cap"]')
+  ).toBeVisible();
 });

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { hasArabicChars, hasFrenchAnchors, loadSmokeCreds } from "./helpers";
+import { waitForLiveSummarySuccess } from "./live-summary";
 
 // The reason this suite exists. Audio is French; the old
 // youtube-transcript-plus default selected tracks[0] (Arabic) when no
@@ -16,7 +17,7 @@ const PROD_URL = (
 // slack for cold starts and one retry without masking real hangs.
 const SUMMARY_TIMEOUT_MS = 180_000;
 
-test("French video produces French transcript + summary end-to-end", async ({
+test("French video produces French transcript + summary end-to-end @live-summary", async ({
   page,
 }) => {
   const creds = await loadSmokeCreds();
@@ -47,19 +48,17 @@ test("French video produces French transcript + summary end-to-end", async ({
   // gateway 502, the exact Haiku-outage regression class). Race the two
   // outcomes so the test fails within seconds of a banner appearing
   // instead of waiting the full 180s transcript budget.
-  const errorBanner = page.getByTestId("stream-error-banner");
   const transcript = page.getByTestId("transcript-container");
 
-  await Promise.race([
-    transcript.waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS }),
-    errorBanner
-      .waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS })
-      .then(async () => {
-        const text = await errorBanner.innerText().catch(() => "(no text)");
-        throw new Error(`stream-error-banner appeared: ${text}`);
-      }),
-  ]);
-  await expect(errorBanner).not.toBeVisible();
+  await waitForLiveSummarySuccess({
+    page,
+    success: transcript.waitFor({
+      state: "visible",
+      timeout: SUMMARY_TIMEOUT_MS,
+    }),
+    terminalTimeoutMs: SUMMARY_TIMEOUT_MS,
+  });
+  await expect(page.getByTestId("stream-error-banner")).not.toBeVisible();
 
   const transcriptText = (await transcript.innerText()).trim();
   expect(

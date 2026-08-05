@@ -47,11 +47,22 @@ retrying. Never weaken the marker guard to make a run pass.
 order:
 
 1. API smoke against the configured production URL.
-2. All browser smoke cases that do not mutate a password or revoke sessions.
-3. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
+2. Browser smoke cases that do not make a live Summary request, mutate a
+   password, or revoke sessions.
+3. The live Summary browser journeys in a dedicated no-retry phase. These
+   journeys still exercise the production Summary, authorization, and quota
+   paths, but any public terminal failure state ends the wait immediately.
+4. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
    app and real Supabase Auth. It proves browser restart, repeated refresh,
    concurrent contexts, local Sign Out, Account Recovery, and Sign Out
    Everywhere in that order.
+
+The session-policy journey runs in a downstream job with its own ten-minute
+budget. It starts only after the browser-smoke job has stopped and the API job
+has succeeded, including when a live Summary journey reports a real production
+failure. This keeps account mutations from racing authenticated browser checks
+without allowing a slow Summary provider or terminal Summary failure to starve
+the session-policy evidence.
 
 The journey verifies the trusted Smoke Account marker immediately before each
 Auth password or logout mutation. Recovery uses the administrator account,
@@ -102,6 +113,12 @@ Record only aggregate counts and the run ID, never account credentials or raw
 event payloads.
 
 ## Failure handling
+
+A live Summary quota, authentication, rate-limit, request, network, processing,
+or protocol state is a real production-smoke failure. The live Summary phase
+must report it promptly, without retrying the full journey. Do not reset usage,
+upgrade a Smoke Account, or add a quota exception merely to make the smoke run
+green; any entitlement change requires a separate product or billing decision.
 
 If a password restore, marker verification, or cleanup step fails, treat the
 Smoke Account as not ready. Do not start the next hourly run until a maintainer
