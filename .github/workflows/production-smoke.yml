@@ -29,6 +29,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: api-smoke
     timeout-minutes: 10
+    env:
+      BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+      TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+      TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
+      TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SESSION_POLICY_EVIDENCE_PATH: test-results/session-policy-evidence.json
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -40,47 +50,22 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
-      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.).
-      # Run account-mutating recovery and global-revocation specs separately so
-      # every non-mutating authenticated check has released this Smoke Account
-      # before either destructive flow changes its password or sessions.
+      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). The dedicated session
+      # policy journey is the final browser phase and is intentionally serial:
+      # its recovery and global-revocation mutations cannot race the earlier
+      # authenticated smoke checks.
       - name: Run non-mutating browser smoke
-        run: pnpm exec playwright test --grep-invert "@account-mutating|@account-recovery"
-        env:
-          BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
-          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
-          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
-          TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      - name: Run account recovery smoke
-        run: pnpm exec playwright test --grep "@account-recovery" --workers=1
-        env:
-          BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
-          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
-          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
-          TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      - name: Run global sign-out smoke last
-        run: pnpm exec playwright test --grep "@account-mutating" --workers=1
-        env:
-          BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-          # These protected values are dedicated Smoke Accounts only; never
-          # point them at a personal or other human identity.
-          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
-          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
-          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
-          TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
-          # Backend Auth controls used only by the recovery smoke's admin API
-          # helper; keep the service key protected and never log its value.
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: pnpm exec playwright test --grep-invert "@session-policy|@account-mutating|@account-recovery"
+      - name: Run serial production session policy journey
+        run: pnpm exec playwright test smoke-tests/e2e-auth-session-policy.spec.ts --grep "@session-policy" --workers=1
+      - name: Preserve redacted session-policy evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-session-policy-evidence
+          path: test-results/session-policy-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v6
         if: failure()
         with:

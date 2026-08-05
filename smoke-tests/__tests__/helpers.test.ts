@@ -3,6 +3,7 @@ import {
   hasArabicChars,
   hasFrenchAnchors,
   loadAdminCreds,
+  loadAdminSmokeCreds,
   loadSmokeCreds,
   parseEnvFile,
   withTrustedSmokeAccount,
@@ -207,5 +208,31 @@ describe("loadAdminCreds", () => {
     expect(r!.supabaseUrl).toBe("https://supabase.example.com");
     expect(r!.secretKey).toBe("sb_secret_test");
     expect(r!.email).toBe("x@example.com");
+  });
+
+  it("uses only the explicit administrator Smoke Account pair", async () => {
+    process.env.TEST_ADMIN_EMAIL = "admin-smoke@example.com";
+    process.env.TEST_ADMIN_PASSWORD = "admin-password";
+    process.env.TEST_NON_ADMIN_EMAIL = "non-admin-smoke@example.com";
+    process.env.TEST_NON_ADMIN_PASSWORD = "non-admin-password";
+    process.env.SUPABASE_URL = "https://supabase.example.com";
+    process.env.SUPABASE_SECRET_KEY = "sb_secret_test";
+
+    await expect(loadAdminSmokeCreds()).resolves.toEqual({
+      email: "admin-smoke@example.com",
+      password: "admin-password",
+      source: "env",
+      supabaseUrl: "https://supabase.example.com",
+      secretKey: "sb_secret_test",
+    });
+  });
+
+  it("refuses an incomplete administrator Smoke Account pair", async () => {
+    process.env.TEST_ADMIN_EMAIL = "admin-smoke@example.com";
+    delete process.env.TEST_ADMIN_PASSWORD;
+    process.env.SUPABASE_URL = "https://supabase.example.com";
+    process.env.SUPABASE_SECRET_KEY = "sb_secret_test";
+
+    await expect(loadAdminSmokeCreds()).resolves.toBeNull();
   });
 });
