@@ -535,6 +535,12 @@ describe("loadVideosReport", () => {
         {
           table: "user_video_history",
           response: { data: [{ video_id: "vA" }], error: null },
+          expect: (calls) => {
+            expect(calls.find((call) => call.method === "in")?.args).toEqual([
+              "user_id",
+              ["a1", "smoke"],
+            ]);
+          },
         },
         {
           table: "user_video_history",
@@ -569,6 +575,11 @@ describe("loadVideosReport", () => {
               id: "a1",
               email: "admin@example.com",
               app_metadata: { is_admin: true },
+            },
+            {
+              id: "smoke",
+              email: "smoke@example.com",
+              app_metadata: { is_smoke_account: true },
             },
           ],
           total: 1,

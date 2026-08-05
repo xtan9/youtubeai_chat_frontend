@@ -82,9 +82,10 @@ export async function loadDashboardReport(
 ): Promise<DashboardReport> {
   const currentWindow = lastNDays(input.windowDays);
   const previousWindow = comparisonWindow(currentWindow);
-  const adminFilter: AdminFilter = input.includeAdministrators
-    ? { excludeUserIds: [], warnings: [] }
-    : await loadAdminFilter(client);
+  const adminFilter = await loadAdminFilter(
+    client,
+    input.includeAdministrators,
+  );
   const wantFilter = adminFilter.excludeUserIds.length > 0;
 
   const [currentRead, previousRead, historyRead, previousHistoryRead] =
@@ -255,12 +256,19 @@ function addWarning(
   }
 }
 
-async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
+async function loadAdminFilter(
+  client: SupabaseClient,
+  includeAdministrators: boolean,
+): Promise<AdminFilter> {
   try {
     const directory = await listUserAccounts(client);
     return {
       excludeUserIds: directory.users
-        .filter((user) => user.isAdministrator)
+        .filter(
+          (user) =>
+            user.isSmokeAccount ||
+            (!includeAdministrators && user.isAdministrator),
+        )
         .map((user) => user.id),
       warnings: directory.truncated
         ? [
@@ -271,7 +279,7 @@ async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
         : [],
     };
   } catch (error) {
-    console.error("[dashboard-report] administrator enumeration unavailable", {
+    console.error("[dashboard-report] business-account audience enumeration unavailable", {
       message: error instanceof Error ? error.message : String(error),
     });
     return {

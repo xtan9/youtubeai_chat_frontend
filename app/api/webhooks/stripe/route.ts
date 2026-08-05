@@ -1,5 +1,6 @@
 import { getStripe, deriveTier, periodEndToIso, readCurrentPeriodEnd } from "@/lib/services/stripe";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import type { User } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { captureSubscriptionActivated } from "@/lib/analytics/server";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs"; // need raw body
 export const dynamic = "force-dynamic";
 
 type ServiceClient = NonNullable<ReturnType<typeof getServiceRoleClient>>;
+type AnalyticsIdentity = Pick<User, "app_metadata"> &
+  Partial<Pick<User, "user_metadata">>;
 
 // Architectural canary for the original P2.11 bug: when status is active
 // or trialing, tier MUST be "pro". If we derived "free", something
@@ -170,12 +173,16 @@ async function dispatch(
         tier === "pro" &&
         (sub.status === "active" || sub.status === "trialing")
       ) {
-        await captureSubscriptionActivated(userId, {
-          source_surface: "stripe_webhook",
-          plan: plan ?? "unknown",
-          billing_interval: plan ?? "unknown",
-          subscription_status: sub.status,
-        });
+        await captureSubscriptionActivated(
+          userId,
+          {
+            source_surface: "stripe_webhook",
+            plan: plan ?? "unknown",
+            billing_interval: plan ?? "unknown",
+            subscription_status: sub.status,
+          },
+          await loadAnalyticsIdentity(sr, userId),
+        );
       }
       break;
     }
@@ -229,12 +236,16 @@ async function dispatch(
         row.tier !== "pro" &&
         (sub.status === "active" || sub.status === "trialing")
       ) {
-        await captureSubscriptionActivated(row.user_id, {
-          source_surface: "stripe_webhook",
-          plan: plan ?? "unknown",
-          billing_interval: plan ?? "unknown",
-          subscription_status: sub.status,
-        });
+        await captureSubscriptionActivated(
+          row.user_id,
+          {
+            source_surface: "stripe_webhook",
+            plan: plan ?? "unknown",
+            billing_interval: plan ?? "unknown",
+            subscription_status: sub.status,
+          },
+          await loadAnalyticsIdentity(sr, row.user_id),
+        );
       }
       break;
     }
@@ -286,6 +297,44 @@ async function dispatch(
     default:
       // Ignore
       break;
+  }
+}
+
+/**
+ * Resolve the trusted Auth metadata immediately before a server business
+ * event. A missing lookup is treated as an unknown identity so a human event
+ * is not silently lost; only the true service-managed marker suppresses it.
+ */
+async function loadAnalyticsIdentity(
+  sr: ServiceClient,
+  userId: string,
+): Promise<AnalyticsIdentity | undefined> {
+  const admin = sr.auth?.admin as unknown as {
+    getUserById?: (
+      id: string,
+    ) => Promise<{
+      data: { user: User | null };
+      error: { message?: string } | null;
+    }>;
+  } | undefined;
+  if (typeof admin?.getUserById !== "function") return undefined;
+
+  try {
+    const { data, error } = await admin.getUserById(userId);
+    if (error) {
+      console.error("[stripe-webhook] analytics identity lookup failed", {
+        errorId: "WEBHOOK_ANALYTICS_IDENTITY_LOOKUP_FAIL",
+        message: error.message ?? "unknown error",
+      });
+      return undefined;
+    }
+    return data?.user ?? undefined;
+  } catch (error: unknown) {
+    console.error("[stripe-webhook] analytics identity lookup threw", {
+      errorId: "WEBHOOK_ANALYTICS_IDENTITY_LOOKUP_THROW",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
   }
 }
 

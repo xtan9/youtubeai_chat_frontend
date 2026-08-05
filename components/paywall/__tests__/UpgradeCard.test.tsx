@@ -2,9 +2,9 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const captureMock = vi.fn();
-vi.mock("posthog-js/react", () => ({
-  usePostHog: () => ({ capture: captureMock }),
+const captureMock = vi.hoisted(() => vi.fn());
+vi.mock("posthog-js", () => ({
+  default: { capture: captureMock },
 }));
 
 const useEntitlementsMock = vi.fn();
@@ -161,6 +161,7 @@ describe("UpgradeCard analytics", () => {
     expect(captureMock).toHaveBeenCalledWith(
       "paywall_cap_hit_viewed",
       {
+        analytics_schema_version: 1,
         variant: "summary-cap",
         tier: "free",
         summaries_used: 10,
@@ -183,7 +184,13 @@ describe("UpgradeCard analytics", () => {
     render(<UpgradeCard variant="summary-cap" />);
     expect(captureMock).toHaveBeenCalledWith(
       "paywall_cap_hit_viewed",
-      { variant: "summary-cap", tier: null, summaries_used: null, summaries_limit: null },
+      {
+        analytics_schema_version: 1,
+        variant: "summary-cap",
+        tier: null,
+        summaries_used: null,
+        summaries_limit: null,
+      },
     );
   });
 

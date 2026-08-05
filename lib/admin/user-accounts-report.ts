@@ -265,6 +265,7 @@ function mapUserAccount(user: UserAccount): UserAccountRow {
     flagged: false,
     isAnonymous: user.isAnonymous,
     isSsoUser: user.isSsoUser,
+    isSmokeAccount: user.isSmokeAccount,
     bannedUntil: user.bannedUntil,
     deletedAt: user.deletedAt,
     appMetadata: user.appMetadata,
@@ -280,16 +281,20 @@ function filterRows(
   let output = rows;
   switch (tab) {
     case "exclude_anon":
-      output = output.filter((row) => !row.isAnonymous);
+      output = output.filter((row) => !row.isAnonymous && !row.isSmokeAccount);
       break;
     case "anon_only":
       output = output.filter((row) => row.isAnonymous);
       break;
     case "active":
-      output = output.filter((row) => !row.isAnonymous && row.summaries > 0);
+      output = output.filter(
+        (row) => !row.isAnonymous && !row.isSmokeAccount && row.summaries > 0,
+      );
       break;
     case "flagged":
-      output = output.filter((row) => !row.isAnonymous && row.flagged);
+      output = output.filter(
+        (row) => !row.isAnonymous && !row.isSmokeAccount && row.flagged,
+      );
       break;
     case "all":
       break;

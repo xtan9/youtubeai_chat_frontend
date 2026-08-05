@@ -108,6 +108,52 @@ describe("loadPerformanceReport", () => {
     expect(() => JSON.stringify(report)).not.toThrow();
   });
 
+  it("keeps Smoke Accounts excluded even when administrator activity is included", async () => {
+    const expectSmokeExclusion = (calls: ChainCall[]) => {
+      expect(calls.find((call) => call.method === "not")?.args).toEqual([
+        "user_id",
+        "in",
+        "(smoke)",
+      ]);
+    };
+    const client = buildClient(
+      [
+        { table: "summaries", response: { data: [], error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: expectSmokeExclusion,
+        },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: expectSmokeExclusion,
+        },
+      ],
+      {
+        listUsers: {
+          data: {
+            users: [
+              {
+                id: "smoke",
+                email: "smoke@example.com",
+                app_metadata: { is_smoke_account: true },
+              },
+            ],
+            total: 1,
+          },
+          error: null,
+        },
+      },
+    );
+
+    await loadPerformanceReport(client, {
+      windowDays: 7,
+      includeAdministrators: true,
+    });
+  });
+
   it("throws the recognized admin data error when the primary summary dataset fails", async () => {
     const client = buildClient([
       {
@@ -239,7 +285,10 @@ describe("loadPerformanceReport", () => {
     });
 
     expect(report.p95Seconds).toBe(100);
-    expect(client.auth.admin.listUsers).not.toHaveBeenCalled();
+    expect(client.auth.admin.listUsers).toHaveBeenCalledWith({
+      page: 1,
+      perPage: 200,
+    });
     expect(client.from).toHaveBeenCalledTimes(2);
   });
 
@@ -272,7 +321,7 @@ describe("loadPerformanceReport", () => {
             expect(calls.find((call) => call.method === "not")?.args).toEqual([
               "user_id",
               "in",
-              "(u-admin)",
+              "(u-admin,smoke)",
             ]);
           },
         },
@@ -286,6 +335,11 @@ describe("loadPerformanceReport", () => {
                 id: "u-admin",
                 email: "admin@example.com",
                 app_metadata: { is_admin: true },
+              },
+              {
+                id: "smoke",
+                email: "smoke@example.com",
+                app_metadata: { is_smoke_account: true },
               },
             ],
             total: 1,

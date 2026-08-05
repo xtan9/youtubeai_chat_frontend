@@ -7,7 +7,7 @@ import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { useTheme } from "next-themes";
 import { RefObject, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { usePostHog } from "posthog-js/react";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { LanguagePicker } from "./language-picker";
 import { buildSummaryMarkdownComponents } from "./summary-markdown-renderer";
 
@@ -38,19 +38,18 @@ export function SummaryContent({
 }: SummaryContentProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const posthog = usePostHog();
   const markdownComponents = buildSummaryMarkdownComponents({ isDark });
 
   // Wrap the onNewSummary callback to include PostHog tracking
   const handleNewSummary = useCallback(() => {
     // Track the "New Summary" button click
-    posthog?.capture("new_summary_button_clicked", {
+    captureAnalyticsEvent("new_summary_button_clicked", {
       source_surface: "summary",
     });
 
     // Call the original onNewSummary callback
     onNewSummary?.();
-  }, [onNewSummary, posthog]);
+  }, [onNewSummary]);
 
   return (
     <div className="relative group">

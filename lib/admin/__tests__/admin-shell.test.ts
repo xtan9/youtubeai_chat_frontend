@@ -15,6 +15,7 @@ function buildClient(
     email: string | null;
     is_anonymous?: boolean;
     app_metadata?: Record<string, unknown>;
+    user_metadata?: Record<string, unknown>;
   }>,
   error?: { message: string } | null,
 ): SupabaseClient {
@@ -126,6 +127,26 @@ describe("loadAdminShell", () => {
     ).resolves.toEqual({
       usersTotal: 1,
       warnings: [],
+    });
+  });
+
+  it("excludes trusted Smoke Accounts from the human account total", async () => {
+    const client = buildClient([
+      { id: "human", email: "learner@example.com" },
+      {
+        id: "smoke",
+        email: "smoke@example.com",
+        app_metadata: { is_smoke_account: true },
+      },
+      {
+        id: "user-marked",
+        email: "marked@example.com",
+        user_metadata: { is_smoke_account: true },
+      },
+    ]);
+
+    await expect(loadAdminShell(client, { allowlist: [] })).resolves.toMatchObject({
+      usersTotal: 2,
     });
   });
 

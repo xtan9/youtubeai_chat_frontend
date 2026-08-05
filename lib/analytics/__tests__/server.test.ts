@@ -10,6 +10,7 @@ vi.mock("posthog-node", () => ({
   PostHog: mocks.PostHog,
 }));
 
+import { ANALYTICS_SUBJECT_PROPERTY, ANALYTICS_SYNTHETIC_SUBJECT } from "../identity";
 import { captureSubscriptionActivated } from "../server";
 
 beforeEach(() => {
@@ -43,6 +44,7 @@ describe("captureSubscriptionActivated", () => {
       event: "subscription_activated",
       properties: {
         analytics_schema_version: 1,
+        [ANALYTICS_SUBJECT_PROPERTY]: "human",
         source_surface: "stripe_webhook",
         plan: "monthly",
         billing_interval: "monthly",
@@ -50,6 +52,48 @@ describe("captureSubscriptionActivated", () => {
       },
     });
     expect(mocks.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses a trusted Smoke Account before constructing the PostHog client", async () => {
+    await captureSubscriptionActivated(
+      "smoke-user",
+      {
+        source_surface: "stripe_webhook",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      },
+      { app_metadata: { is_smoke_account: true } },
+    );
+
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+    expect(mocks.captureImmediate).not.toHaveBeenCalled();
+  });
+
+  it("does not trust user-editable metadata for server suppression", async () => {
+    await captureSubscriptionActivated(
+      "human-user",
+      {
+        source_surface: "stripe_webhook",
+        plan: "yearly",
+        billing_interval: "yearly",
+        subscription_status: "trialing",
+      },
+      {
+        app_metadata: {},
+        user_metadata: { is_smoke_account: true },
+      },
+    );
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: "human-user",
+        properties: expect.objectContaining({
+          [ANALYTICS_SUBJECT_PROPERTY]: "human",
+        }),
+      }),
+    );
+    expect(ANALYTICS_SYNTHETIC_SUBJECT).toBe("synthetic_smoke_account");
   });
 
   it("does nothing outside production", async () => {

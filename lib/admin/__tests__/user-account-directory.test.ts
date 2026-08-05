@@ -111,6 +111,7 @@ describe("listUserAccounts", () => {
       bannedUntil: null,
       deletedAt: null,
       isAnonymous: false,
+      isSmokeAccount: false,
       isSsoUser: true,
       providers: ["google"],
       appMetadata: { is_admin: true, plan: "pro" },
@@ -145,6 +146,32 @@ describe("listUserAccounts", () => {
     expect(result.users.map((user) => user.id)).toEqual(["u-1", "u-2"]);
     expect(result.total).toBe(3);
     expect(result.truncated).toBe(true);
+  });
+
+  it("classifies Smoke Accounts from app_metadata only", async () => {
+    const client = buildClient([
+      {
+        users: [
+          {
+            id: "trusted-smoke",
+            app_metadata: { is_smoke_account: true },
+            user_metadata: { is_smoke_account: true },
+          },
+          {
+            id: "user-marked",
+            app_metadata: {},
+            user_metadata: { is_smoke_account: true },
+          },
+        ],
+      },
+    ]);
+
+    const result = await listUserAccounts(client);
+
+    expect(result.users.map((user) => [user.id, user.isSmokeAccount])).toEqual([
+      ["trusted-smoke", true],
+      ["user-marked", false],
+    ]);
   });
 
   it("throws the recognized admin data error when enumeration fails", async () => {

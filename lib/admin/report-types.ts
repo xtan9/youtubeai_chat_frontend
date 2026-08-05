@@ -120,6 +120,8 @@ export interface UserAccountReportRow {
   flagged: boolean;
   isAnonymous: boolean;
   isSsoUser: boolean;
+  /** Derived only from the trusted service-managed app_metadata marker. */
+  isSmokeAccount: boolean;
   bannedUntil: string | null;
   deletedAt: string | null;
   appMetadata: Record<string, unknown>;

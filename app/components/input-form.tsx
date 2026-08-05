@@ -6,14 +6,13 @@ import { isValidYouTubeUrl } from "@/lib/utils/youtube";
 import { ArrowRight, X } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 export function InputForm() {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const posthog = usePostHog();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +34,7 @@ export function InputForm() {
     }
 
     // Track the summary button click with PostHog
-    posthog?.capture("summary_button_clicked", {
+    captureAnalyticsEvent("summary_button_clicked", {
       source_surface: "homepage",
     });
 

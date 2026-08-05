@@ -236,7 +236,7 @@ async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
     const directory = await listUserAccounts(client);
     return {
       userIds: directory.users
-        .filter((user) => user.isAdministrator)
+        .filter((user) => user.isAdministrator || user.isSmokeAccount)
         .map((user) => user.id),
       warnings: directory.truncated
         ? [
@@ -247,7 +247,7 @@ async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
         : [],
     };
   } catch (error) {
-    console.error("[videos-report] administrator enumeration unavailable", {
+    console.error("[videos-report] business-account audience enumeration unavailable", {
       message: error instanceof Error ? error.message : String(error),
     });
     return {

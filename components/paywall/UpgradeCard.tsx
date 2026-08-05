@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Check, Sparkles } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { Button } from "@/components/ui/button";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 type Variant = "summary-cap" | "chat-cap" | "history-cap";
 
@@ -64,24 +64,7 @@ function formatNextResetDate(): string {
   return next.toLocaleDateString("en-US", { month: "long", day: "numeric" });
 }
 
-function safeCapture(
-  posthog: ReturnType<typeof usePostHog>,
-  event: string,
-  payload: Record<string, unknown>,
-) {
-  try {
-    posthog?.capture(event, payload);
-  } catch (err) {
-    console.error("[paywall] analytics capture failed", {
-      errorId: "PAYWALL_ANALYTICS_FAIL",
-      event,
-      err,
-    });
-  }
-}
-
 export function UpgradeCard({ variant }: { variant: Variant }) {
-  const posthog = usePostHog();
   const { data: ent, isError } = useEntitlements();
 
   // Cap displayed count at the limit so a transient race that leaves
@@ -123,16 +106,16 @@ export function UpgradeCard({ variant }: { variant: Variant }) {
   useEffect(() => {
     if (!ready || viewedRef.current) return;
     viewedRef.current = true;
-    safeCapture(posthog, "paywall_cap_hit_viewed", {
+    captureAnalyticsEvent("paywall_cap_hit_viewed", {
       variant,
       tier: ent?.tier ?? null,
       summaries_used: ent?.caps.summariesUsed ?? null,
       summaries_limit: ent?.caps.summariesLimit ?? null,
     });
-  }, [ready, posthog, variant, ent]);
+  }, [ready, variant, ent]);
 
   const handleCtaClick = (cta: "primary" | "secondary") => {
-    safeCapture(posthog, "paywall_cap_cta_clicked", {
+    captureAnalyticsEvent("paywall_cap_cta_clicked", {
       variant,
       cta,
       tier: ent?.tier ?? null,

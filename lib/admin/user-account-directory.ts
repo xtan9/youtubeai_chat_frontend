@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isSmokeAccount } from "@/lib/auth/smoke-account";
 import { QueryError } from "./errors";
 
 const USER_ACCOUNT_ROW_CAP_DEFAULT = 5_000;
@@ -18,6 +19,8 @@ export interface UserAccount {
   deletedAt: string | null;
   isAnonymous: boolean;
   isSsoUser: boolean;
+  /** Derived only from the trusted service-managed app_metadata marker. */
+  isSmokeAccount: boolean;
   providers: string[];
   appMetadata: Record<string, unknown>;
   userMetadata: Record<string, unknown>;
@@ -80,6 +83,7 @@ function mapUserAccount(user: AuthUserRecord): UserAccount {
     deletedAt: user.deleted_at ?? null,
     isAnonymous: user.is_anonymous === true,
     isSsoUser: user.is_sso_user === true,
+    isSmokeAccount: isSmokeAccount({ app_metadata: appMetadata }),
     providers,
     appMetadata,
     userMetadata: user.user_metadata ?? {},

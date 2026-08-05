@@ -39,6 +39,7 @@ const baseRow = (over: Partial<UserAccountRow>): UserAccountRow => ({
   flagged: false,
   isAnonymous: false,
   isSsoUser: false,
+  isSmokeAccount: false,
   bannedUntil: null,
   deletedAt: null,
   appMetadata: { provider: "email" },
@@ -87,6 +88,21 @@ describe("UsersTable", () => {
     expect(screen.getByText("google")).toBeTruthy();
     expect(screen.getByText(/Last sign-in/i)).toBeTruthy();
     expect(screen.getByText(/Last activity/i)).toBeTruthy();
+  });
+
+  it("labels Smoke Accounts in the operational all-accounts view", () => {
+    render(
+      <UsersTable
+        report={reportFor([
+          baseRow({ userId: "smoke", email: "smoke@x", isSmokeAccount: true }),
+        ])}
+        activeTab="all"
+        activeSort="createdAt"
+        activeDir="desc"
+      />,
+    );
+
+    expect(screen.getByText("smoke account")).toBeTruthy();
   });
 
   it("renders report completeness warnings from the cohesive result", () => {
