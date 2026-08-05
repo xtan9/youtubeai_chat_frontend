@@ -15,7 +15,10 @@ import {
   type AdminCreds,
   type SmokeCreds,
 } from "./helpers";
-import { buildRecoveryRedirectUrl } from "../lib/auth/recovery-redirect";
+import {
+  buildRecoveryRedirectUrl,
+  parseRecoveryFragment,
+} from "../lib/auth/recovery-redirect";
 
 const BASE_URL = (
   process.env.BASE_URL?.trim() || "http://localhost:3000"
@@ -47,6 +50,16 @@ type SessionPolicyEvidence = {
   };
 };
 
+type RememberedSessionCredential = {
+  refreshToken: string;
+};
+
+type SessionRefreshOutcome = {
+  succeeded: boolean;
+  rejected: boolean;
+  status: number;
+};
+
 function newMutationEvidence(): MutationEvidence {
   return {
     localSignOutMarkerVerified: false,
@@ -64,13 +77,23 @@ async function writeEvidence(evidence: SessionPolicyEvidence): Promise<void> {
   await writeFile(target, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
 }
 
-async function login(page: Page, creds: SmokeCreds): Promise<void> {
+async function login(
+  page: Page,
+  creds: SmokeCreds,
+): Promise<RememberedSessionCredential> {
   await page.goto(`${BASE_URL}/auth/login`);
   await page.fill("#email", creds.email);
   await page.fill("#password", creds.password);
-  await Promise.all([
+  const [, tokenResponse] = await Promise.all([
     page.waitForURL(
       (url) => url.pathname === "/" || url.pathname === "/dashboard",
+      { timeout: 15_000 },
+    ),
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().includes(AUTH_REFRESH_PATH) &&
+        response.url().includes("grant_type=password"),
       { timeout: 15_000 },
     ),
     page.getByRole("button", { name: /^login$/i }).click(),
@@ -78,6 +101,19 @@ async function login(page: Page, creds: SmokeCreds): Promise<void> {
   await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible({
     timeout: 15_000,
   });
+
+  const tokenPayload: unknown = await tokenResponse.json();
+  if (
+    !tokenPayload ||
+    typeof tokenPayload !== "object" ||
+    !("refresh_token" in tokenPayload) ||
+    typeof tokenPayload.refresh_token !== "string" ||
+    tokenPayload.refresh_token.length === 0
+  ) {
+    throw new Error("browser sign-in returned no refresh credential");
+  }
+
+  return { refreshToken: tokenPayload.refresh_token };
 }
 
 async function expectSignedOut(page: Page): Promise<void> {
@@ -142,18 +178,68 @@ async function forceRefresh(page: Page): Promise<void> {
   });
 }
 
-async function expectRefreshRejected(page: Page): Promise<void> {
+async function probeSessionRefresh(
+  creds: Pick<AdminCreds, "supabaseUrl" | "secretKey">,
+  session: RememberedSessionCredential,
+): Promise<SessionRefreshOutcome> {
+  const { createClient } = await import("@supabase/supabase-js");
+  const refreshProbe = createClient(creds.supabaseUrl, creds.secretKey, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  });
+  const { data, error } = await refreshProbe.auth.refreshSession({
+    refresh_token: session.refreshToken,
+  });
+
+  return {
+    succeeded: error === null && data.session !== null,
+    rejected: error !== null && data.session === null,
+    status: error?.status ?? 0,
+  };
+}
+
+async function expectRefreshAccepted(
+  creds: Pick<AdminCreds, "supabaseUrl" | "secretKey">,
+  session: RememberedSessionCredential,
+): Promise<void> {
+  const outcome = await probeSessionRefresh(creds, session);
+  expect(
+    outcome.succeeded,
+    "recovery Remembered Session refresh must remain valid",
+  ).toBe(true);
+}
+
+async function expectRefreshRejected(
+  page: Page,
+  creds: Pick<AdminCreds, "supabaseUrl" | "secretKey">,
+  session: RememberedSessionCredential,
+): Promise<void> {
+  // A Next.js navigation can consume the revoked refresh token in the server
+  // proxy before the browser SDK starts. That server-side 4xx is deliberately
+  // invisible to Playwright's page response events, so waiting for only a
+  // browser request races the server and intermittently times out even though
+  // the page has become signed out. Probe the exact refresh credential issued
+  // to this older browser through Supabase Auth first, outside the trace, then
+  // verify the real browser context transitions to the signed-out UI.
+  const outcome = await probeSessionRefresh(creds, session);
+  expect(
+    outcome.rejected,
+    "revoked Remembered Session refresh must be rejected by Supabase Auth",
+  ).toBe(true);
+  expect(
+    outcome.status,
+    "revoked Remembered Session refresh must return an Auth rejection",
+  ).toBeGreaterThanOrEqual(400);
+  expect(
+    outcome.status,
+    "a Supabase server failure must not count as session revocation",
+  ).toBeLessThan(500);
+
   await advanceAuthClock(page, REFRESH_OFFSET);
-  const refreshResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().includes(AUTH_REFRESH_PATH) &&
-      response.url().includes("grant_type=refresh_token"),
-    { timeout: 15_000 },
-  );
   await page.reload({ waitUntil: "domcontentloaded" });
-  const response = await refreshResponse;
-  expect(response.status(), "revoked refresh must be rejected").toBeGreaterThanOrEqual(400);
   await expectSignedOut(page);
 }
 
@@ -305,14 +391,32 @@ test.describe("Production session policy @session-policy", () => {
     recoveryOlderContext = await browser.newContext();
     await installAuthClock(recoveryOlderContext);
     const olderPage = await recoveryOlderContext.newPage();
-    await login(olderPage, adminCreds);
+    const olderSession = await login(olderPage, adminCreds);
 
     const actionLink = await getProductionRecoveryActionLink(
       adminCreds,
       adminCreds.email,
       buildRecoveryRedirectUrl(BASE_URL),
     );
-    await page.goto(actionLink);
+    const [verifyResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname.endsWith("/auth/v1/verify"),
+        { timeout: 15_000 },
+      ),
+      page.goto(actionLink),
+    ]);
+    const recoveryRedirect = verifyResponse.headers().location;
+    const recoveryTokens = recoveryRedirect
+      ? parseRecoveryFragment(new URL(recoveryRedirect, actionLink).hash)
+      : null;
+    if (!recoveryTokens) {
+      throw new Error("recovery redirect returned no session credential");
+    }
+    const recoverySession: RememberedSessionCredential = {
+      refreshToken: recoveryTokens.refreshToken,
+    };
     await page.waitForURL(/\/auth\/update-password(?:#|$)/, {
       timeout: 15_000,
     });
@@ -353,8 +457,9 @@ test.describe("Production session policy @session-policy", () => {
     evidence.completedCases.push("account-recovery");
 
     await expect(olderPage.getByRole("button", { name: /user menu/i })).toBeVisible();
-    await expectRefreshRejected(olderPage);
+    await expectRefreshRejected(olderPage, adminCreds, olderSession);
 
+    await expectRefreshAccepted(adminCreds, recoverySession);
     await page.goto(`${BASE_URL}/account`);
     await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
     await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible();
@@ -367,7 +472,7 @@ test.describe("Production session policy @session-policy", () => {
     const initiatingPage = await globalInitiatingContext.newPage();
     const otherPage = await globalOtherContext.newPage();
     await login(initiatingPage, nonAdminCreds);
-    await login(otherPage, nonAdminCreds);
+    const otherSession = await login(otherPage, nonAdminCreds);
     await initiatingPage.goto(`${BASE_URL}/account`);
     await expect(
       initiatingPage.getByRole("button", { name: /^sign out everywhere$/i }),
@@ -398,7 +503,11 @@ test.describe("Production session policy @session-policy", () => {
     expect(evidence.markerChecks.globalSignOutMarkerVerified).toBe(true);
 
     await expect(otherPage.getByRole("button", { name: /user menu/i })).toBeVisible();
-    await expectRefreshRejected(otherPage);
+    await expectRefreshRejected(
+      otherPage,
+      { supabaseUrl: adminCreds.supabaseUrl, secretKey: adminCreds.secretKey },
+      otherSession,
+    );
     evidence.completedCases.push("sign-out-everywhere");
 
     await closeContext(globalInitiatingContext);
