@@ -11,10 +11,14 @@ vi.mock("posthog-js", () => ({
   },
 }));
 
-import { captureAnalyticsEvent } from "../client";
+import {
+  captureAnalyticsEvent,
+  setBusinessAnalyticsCaptureSuppressed,
+} from "../client";
 
 beforeEach(() => {
   mocks.capture.mockReset();
+  setBusinessAnalyticsCaptureSuppressed(false);
 });
 
 describe("client analytics", () => {
@@ -33,5 +37,32 @@ describe("client analytics", () => {
       plan: "yearly",
       billing_interval: "yearly",
     });
+  });
+
+  it("does not emit business events while the client identity is synthetic", () => {
+    setBusinessAnalyticsCaptureSuppressed(true);
+
+    captureAnalyticsEvent("checkout_started", {
+      account_type: "free",
+      source_surface: "pricing",
+      plan: "monthly",
+      billing_interval: "monthly",
+    });
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("resumes business events after synthetic suppression is cleared", () => {
+    setBusinessAnalyticsCaptureSuppressed(true);
+    setBusinessAnalyticsCaptureSuppressed(false);
+
+    captureAnalyticsEvent("checkout_started", {
+      account_type: "free",
+      source_surface: "pricing",
+      plan: "monthly",
+      billing_interval: "monthly",
+    });
+
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 });

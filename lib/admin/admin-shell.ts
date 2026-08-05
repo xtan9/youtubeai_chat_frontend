@@ -24,7 +24,7 @@ export async function loadAdminShell(
     const directory = await listUserAccounts(client);
     const allowlist = new Set(input.allowlist.map(normalizeEmail));
     const usersTotal = directory.users.reduce((count, user) => {
-      if (user.isAnonymous || !user.email) return count;
+      if (user.isAnonymous || user.isSmokeAccount || !user.email) return count;
       return allowlist.has(normalizeEmail(user.email)) ? count : count + 1;
     }, 0);
 

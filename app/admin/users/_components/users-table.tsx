@@ -243,6 +243,11 @@ export function UsersTable({
                               flagged
                             </Pill>
                           )}
+                          {u.isSmokeAccount && (
+                            <Pill tone="warn" style={{ marginLeft: 6 }}>
+                              smoke account
+                            </Pill>
+                          )}
                         </div>
                       </td>
                       <td>

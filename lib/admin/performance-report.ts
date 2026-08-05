@@ -64,9 +64,10 @@ export async function loadPerformanceReport(
 ): Promise<PerformanceReport> {
   const currentWindow = lastNDays(input.windowDays);
   const previousWindow = comparisonWindow(currentWindow);
-  const adminFilter: AdminFilter = input.includeAdministrators
-    ? { excludeUserIds: [], warnings: [] }
-    : await loadAdminFilter(client);
+  const adminFilter = await loadAdminFilter(
+    client,
+    input.includeAdministrators,
+  );
   const wantFilter = adminFilter.excludeUserIds.length > 0;
 
   const [currentRead, previousRead, currentActivity, previousActivity] =
@@ -196,12 +197,19 @@ function serializeWindow(window: TimeWindow): { start: string; end: string } {
   return { start: window.start.toISOString(), end: window.end.toISOString() };
 }
 
-async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
+async function loadAdminFilter(
+  client: SupabaseClient,
+  includeAdministrators: boolean,
+): Promise<AdminFilter> {
   try {
     const directory = await listUserAccounts(client);
     return {
       excludeUserIds: directory.users
-        .filter((user) => user.isAdministrator)
+        .filter(
+          (user) =>
+            user.isSmokeAccount ||
+            (!includeAdministrators && user.isAdministrator),
+        )
         .map((user) => user.id),
       warnings: directory.truncated
         ? [
@@ -212,7 +220,7 @@ async function loadAdminFilter(client: SupabaseClient): Promise<AdminFilter> {
         : [],
     };
   } catch (error) {
-    console.error("[performance-report] administrator enumeration unavailable", {
+    console.error("[performance-report] business-account audience enumeration unavailable", {
       message: error instanceof Error ? error.message : String(error),
     });
     return {

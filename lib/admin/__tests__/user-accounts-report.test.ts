@@ -131,6 +131,15 @@ describe("loadUserAccountsReport", () => {
             is_anonymous: false,
           },
           {
+            id: "smoke",
+            email: "smoke@example.com",
+            created_at: "2026-04-03T12:00:00Z",
+            email_confirmed_at: "2026-04-03T12:00:00Z",
+            app_metadata: { is_smoke_account: true },
+            user_metadata: { is_smoke_account: true },
+            is_anonymous: false,
+          },
+          {
             id: "banned",
             email: "banned@example.com",
             created_at: "2026-04-04T00:00:00Z",
@@ -180,9 +189,57 @@ describe("loadUserAccountsReport", () => {
       status: "active",
       appMetadata: { is_admin: true },
     });
+    expect(byId.get("smoke")).toMatchObject({
+      status: "active",
+      isSmokeAccount: true,
+    });
     expect(byId.get("banned")?.status).toBe("banned");
     expect(byId.get("deleted")?.status).toBe("deleted");
     expect(byId.get("unverified")?.status).toBe("unverified");
+  });
+
+  it("excludes trusted Smoke Accounts from the default human report while keeping them in all", async () => {
+    const users = [
+      {
+        id: "human",
+        email: "human@example.com",
+        created_at: "2026-04-01T00:00:00Z",
+      },
+      {
+        id: "smoke",
+        email: "smoke@example.com",
+        created_at: "2026-04-02T00:00:00Z",
+        app_metadata: { is_smoke_account: true },
+      },
+    ];
+    const emptyActivity = {
+      table: "user_video_history",
+      response: { data: [], error: null },
+    };
+
+    const humanReport = await loadUserAccountsReport(
+      buildClient(users, [emptyActivity]),
+      {
+        search: null,
+        tab: "exclude_anon",
+        sort: "createdAt",
+        direction: "desc",
+        page: 1,
+        expandedAccountId: null,
+      },
+    );
+    expect(humanReport.rows.map((row) => row.userId)).toEqual(["human"]);
+
+    const allReport = await loadUserAccountsReport(buildClient(users, [emptyActivity]), {
+      search: null,
+      tab: "all",
+      sort: "createdAt",
+      direction: "desc",
+      page: 1,
+      expandedAccountId: null,
+    });
+    expect(allReport.rows.map((row) => row.userId)).toEqual(["smoke", "human"]);
+    expect(allReport.rows[0]?.isSmokeAccount).toBe(true);
   });
 
   it("aggregates summary counts, Whisper percentages, timestamps, and flags", async () => {

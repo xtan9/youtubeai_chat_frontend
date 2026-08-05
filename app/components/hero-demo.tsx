@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTheme } from "next-themes";
-import { usePostHog } from "posthog-js/react";
 import type { YouTubePlayer } from "react-youtube";
 
 import { ChatTab } from "@/app/summary/components/chat-tab";
@@ -14,6 +13,7 @@ import { LanguagePicker } from "@/app/summary/components/language-picker";
 import { useAnonSession } from "@/lib/hooks/useAnonSession";
 import { buildSummaryMarkdownComponents } from "@/app/summary/components/summary-markdown-renderer";
 import { PlayerRefProvider } from "@/lib/contexts/player-ref";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import {
   SUPPORTED_LANGUAGE_CODES,
@@ -83,7 +83,6 @@ export default function HeroDemo() {
 
 function HeroDemoInner() {
   useAnonSession();
-  const posthog = usePostHog();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const markdownComponents = buildSummaryMarkdownComponents({ isDark });
@@ -179,7 +178,7 @@ function HeroDemoInner() {
     const next = SAMPLES.find((s) => s.id === id);
     if (!next) return;
     setActiveId(id);
-    posthog?.capture("hero_demo_sample_selected", {
+    captureAnalyticsEvent("hero_demo_sample_selected", {
       sample_id: next.id,
     });
   };

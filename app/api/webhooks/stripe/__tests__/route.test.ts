@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   upsert: vi.fn(),
   fromUserSubsLookup: vi.fn(),
   deleteEvent: vi.fn(),
+  getAnalyticsUser: vi.fn(),
   captureSubscriptionActivated: vi.fn(),
 }));
 
@@ -30,6 +31,7 @@ vi.mock("@/lib/services/stripe", async () => {
 
 vi.mock("@/lib/supabase/service-role", () => ({
   getServiceRoleClient: () => ({
+    auth: { admin: { getUserById: mocks.getAnalyticsUser } },
     from: (table: string) => {
       if (table === "stripe_webhook_events") {
         return {
@@ -58,6 +60,10 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_PRICE_MONTHLY", "price_M");
   vi.stubEnv("STRIPE_PRICE_YEARLY", "price_Y");
   mocks.deleteEvent.mockResolvedValue({ error: null });
+  mocks.getAnalyticsUser.mockResolvedValue({
+    data: { user: { app_metadata: {} } },
+    error: null,
+  });
 });
 
 describe("Stripe webhook signature + idempotency", () => {
@@ -372,7 +378,62 @@ describe("checkout.session.completed", () => {
       plan: "monthly",
       billing_interval: "monthly",
       subscription_status: "active",
+    }, { app_metadata: {} });
+  });
+
+  it("passes the trusted Auth marker into server analytics", async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: "evt_smoke_checkout",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          client_reference_id: "smoke-user",
+          customer: "cus_smoke",
+          subscription: "sub_smoke",
+          metadata: { user_id: "smoke-user" },
+        },
+      },
     });
+    mocks.insertEvent.mockResolvedValue({
+      data: [{ event_id: "evt_smoke_checkout" }],
+      error: null,
+    });
+    mocks.retrieveSub.mockResolvedValue({
+      id: "sub_smoke",
+      status: "active",
+      cancel_at_period_end: false,
+      current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+      items: { data: [{ price: { id: "price_M" } }] },
+    });
+    mocks.upsert.mockResolvedValue({ error: null });
+    mocks.getAnalyticsUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "smoke-user",
+          app_metadata: { is_smoke_account: true },
+          user_metadata: { is_smoke_account: false },
+        },
+      },
+      error: null,
+    });
+
+    const { POST } = await import("../route");
+    await POST(new Request("http://x", {
+      method: "POST", body: "{}", headers: { "stripe-signature": "t=1,v1=x" },
+    }));
+
+    expect(mocks.captureSubscriptionActivated).toHaveBeenCalledWith(
+      "smoke-user",
+      expect.objectContaining({
+        source_surface: "stripe_webhook",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      }),
+      expect.objectContaining({
+        app_metadata: { is_smoke_account: true },
+      }),
+    );
   });
 
   it("basil-shape (period_end on items only) → tier=pro [PR #104 regression]", async () => {

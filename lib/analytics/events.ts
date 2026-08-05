@@ -2,6 +2,9 @@ export const ANALYTICS_SCHEMA_VERSION = 1;
 
 export type AccountType = "anonymous" | "registered" | "free" | "pro";
 export type BillingPlan = "monthly" | "yearly" | "unknown";
+export type PaywallVariant = "summary-cap" | "chat-cap" | "history-cap";
+export type PaywallCta = "primary" | "secondary";
+export type EntitlementTier = "anon" | "free" | "pro";
 
 export interface AnalyticsEventProperties {
   signup_completed: {
@@ -46,6 +49,26 @@ export interface AnalyticsEventProperties {
     plan: BillingPlan;
     billing_interval: BillingPlan;
     subscription_status: "active" | "trialing";
+  };
+  summary_button_clicked: {
+    source_surface: "homepage";
+  };
+  new_summary_button_clicked: {
+    source_surface: "summary";
+  };
+  hero_demo_sample_selected: {
+    sample_id: string;
+  };
+  paywall_cap_hit_viewed: {
+    variant: PaywallVariant;
+    tier: EntitlementTier | null;
+    summaries_used: number | null;
+    summaries_limit: number | null;
+  };
+  paywall_cap_cta_clicked: {
+    variant: PaywallVariant;
+    cta: PaywallCta;
+    tier: EntitlementTier | null;
   };
 }
 

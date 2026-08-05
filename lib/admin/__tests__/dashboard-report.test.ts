@@ -92,7 +92,10 @@ describe("loadDashboardReport", () => {
       includeAdministrators: true,
     });
 
-    expect(client.auth.admin.listUsers).not.toHaveBeenCalled();
+    expect(client.auth.admin.listUsers).toHaveBeenCalledWith({
+      page: 1,
+      perPage: 200,
+    });
     expect(result).toMatchObject({
       summaries: { current: 0, previous: 0 },
       whisper: { current: 0, previous: 0 },
@@ -114,6 +117,52 @@ describe("loadDashboardReport", () => {
     expect(result.dauPerDay).toHaveLength(7);
     expect(result.cacheHitPerDay).toHaveLength(7);
     expect(() => JSON.stringify(result)).not.toThrow();
+  });
+
+  it("keeps Smoke Accounts excluded even when administrator activity is included", async () => {
+    const expectSmokeExclusion = (calls: ChainCall[]) => {
+      expect(calls.find((call) => call.method === "not")?.args).toEqual([
+        "user_id",
+        "in",
+        "(smoke)",
+      ]);
+    };
+    const client = buildClient(
+      [
+        { table: "summaries", response: { data: [], error: null } },
+        { table: "summaries", response: { data: [], error: null } },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: expectSmokeExclusion,
+        },
+        {
+          table: "user_video_history",
+          response: { data: [], error: null },
+          expect: expectSmokeExclusion,
+        },
+      ],
+      {
+        listUsers: {
+          data: {
+            users: [
+              {
+                id: "smoke",
+                email: "smoke@example.com",
+                app_metadata: { is_smoke_account: true },
+              },
+            ],
+            total: 1,
+          },
+          error: null,
+        },
+      },
+    );
+
+    await loadDashboardReport(client, {
+      windowDays: 7,
+      includeAdministrators: true,
+    });
   });
 
   it("preserves current and comparison aggregation and stable User-Account mapping", async () => {
@@ -454,7 +503,7 @@ describe("loadDashboardReport", () => {
             expect(calls.find((call) => call.method === "not")?.args).toEqual([
               "user_id",
               "in",
-              "(u-admin)",
+              "(u-admin,smoke)",
             ]);
           },
         },
@@ -469,6 +518,11 @@ describe("loadDashboardReport", () => {
                 id: "u-admin",
                 email: "admin@example.com",
                 app_metadata: { is_admin: true },
+              },
+              {
+                id: "smoke",
+                email: "smoke@example.com",
+                app_metadata: { is_smoke_account: true },
               },
             ],
             total: 1,
