@@ -194,7 +194,9 @@ export function AccountView() {
           status: error.status ?? null,
           message: error.message,
         });
-        setSignOutError("Couldn't sign you out everywhere. Check your connection and try again.");
+        setSignOutError(
+          "Couldn't confirm that your other sessions were revoked. Check your connection and try again.",
+        );
         return;
       }
       router.push("/");
@@ -202,7 +204,9 @@ export function AccountView() {
       console.error("[account] global signOut threw", {
         message: error instanceof Error ? error.message : String(error),
       });
-      setSignOutError("Couldn't sign you out everywhere. Check your connection and try again.");
+      setSignOutError(
+        "Couldn't confirm that your other sessions were revoked. Check your connection and try again.",
+      );
     } finally {
       setActiveSignOutScope(null);
     }
@@ -268,7 +272,7 @@ export function AccountView() {
               {activeSignOutScope === "global" ? "Signing out everywhere…" : "Sign out everywhere"}
             </Button>
             <p className="max-w-prose text-body-sm text-text-muted">
-              This ends remembered sessions on your other devices too. Other devices may remain active briefly until their current access tokens expire.
+              Sign Out Everywhere revokes refresh access for your other devices immediately. Other devices may remain active until their already-issued short-lived access tokens expire.
             </p>
           </div>
         </div>
