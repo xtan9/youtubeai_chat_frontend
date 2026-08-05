@@ -38,7 +38,6 @@ jobs:
       TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      SESSION_POLICY_EVIDENCE_PATH: test-results/session-policy-evidence.json
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -50,12 +49,58 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
-      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). The dedicated session
-      # policy journey is the final browser phase and is intentionally serial:
-      # its recovery and global-revocation mutations cannot race the earlier
-      # authenticated smoke checks.
+      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). Live Summary journeys
+      # retain real production coverage but run without retry: one full live
+      # timeout is already strong outage evidence and must not spend the job
+      # budget twice.
       - name: Run non-mutating browser smoke
-        run: pnpm exec playwright test --grep-invert "@session-policy|@account-mutating|@account-recovery"
+        run: pnpm exec playwright test --grep-invert "@session-policy|@account-mutating|@account-recovery|@live-summary"
+      - name: Run live Summary browser smoke
+        if: ${{ !cancelled() }}
+        run: >-
+          pnpm exec playwright test
+          smoke-tests/e2e-language-picker.spec.ts
+          smoke-tests/e2e-summarize.spec.ts
+          smoke-tests/e2e-summary-cjk.spec.ts
+          --grep "@live-summary"
+          --workers=2
+          --retries=0
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-report-e2e
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  # Account Recovery and global revocation must start only after every other
+  # authenticated browser check has stopped. A separate job preserves that
+  # ordering while giving the destructive journey an independent budget even
+  # when a real live Summary check correctly reports a production failure.
+  session-policy-smoke:
+    runs-on: ubuntu-latest
+    needs: [api-smoke, e2e-smoke]
+    if: ${{ always() && !cancelled() && needs.api-smoke.result == 'success' }}
+    timeout-minutes: 10
+    env:
+      BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+      TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+      TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
+      TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SESSION_POLICY_EVIDENCE_PATH: test-results/session-policy-evidence.json
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
       - name: Run serial production session policy journey
         run: pnpm exec playwright test smoke-tests/e2e-auth-session-policy.spec.ts --grep "@session-policy" --workers=1
       - name: Preserve redacted session-policy evidence
@@ -69,7 +114,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-session-policy
           path: |
             playwright-report/
             test-results/

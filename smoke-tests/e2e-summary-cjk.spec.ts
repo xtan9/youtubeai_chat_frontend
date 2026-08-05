@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { loadSmokeCreds } from "./helpers";
+import { waitForLiveSummarySuccess } from "./live-summary";
 
 const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
@@ -26,7 +27,7 @@ const CASES: Array<{ url: string; label: string; matcher: RegExp }> = [
 ];
 
 for (const { url, label, matcher } of CASES) {
-  test(`${label} video produces a summary in source script`, async ({
+  test(`${label} video produces a summary in source script @live-summary`, async ({
     page,
   }) => {
     const creds = await loadSmokeCreds();
@@ -50,19 +51,14 @@ for (const { url, label, matcher } of CASES) {
     );
 
     const summaryProse = page.locator(".prose").first();
-    const errorBanner = page.getByTestId("stream-error-banner");
 
-    await Promise.race([
-      expect(
+    await waitForLiveSummarySuccess({
+      page,
+      success: expect(
         summaryProse,
-        `summary should contain ${label} script characters`
+        `summary should contain ${label} script characters`,
       ).toContainText(matcher, { timeout: SUMMARY_TIMEOUT_MS }),
-      errorBanner
-        .waitFor({ state: "visible", timeout: SUMMARY_TIMEOUT_MS })
-        .then(async () => {
-          const text = await errorBanner.innerText().catch(() => "(no text)");
-          throw new Error(`stream-error-banner appeared: ${text}`);
-        }),
-    ]);
+      terminalTimeoutMs: SUMMARY_TIMEOUT_MS,
+    });
   });
 }
