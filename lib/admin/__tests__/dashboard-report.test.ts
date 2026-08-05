@@ -124,7 +124,7 @@ describe("loadDashboardReport", () => {
       expect(calls.find((call) => call.method === "not")?.args).toEqual([
         "user_id",
         "in",
-        "(smoke)",
+        "(administrator-smoke,smoke)",
       ]);
     };
     const client = buildClient(
@@ -147,12 +147,31 @@ describe("loadDashboardReport", () => {
           data: {
             users: [
               {
+                id: "human",
+                email: "human@example.com",
+              },
+              {
+                id: "administrator",
+                email: "administrator@example.com",
+                app_metadata: { is_admin: true },
+              },
+              {
+                id: "anonymous",
+                email: null,
+                is_anonymous: true,
+              },
+              {
+                id: "administrator-smoke",
+                email: "administrator-smoke@example.com",
+                app_metadata: { is_admin: true, is_smoke_account: true },
+              },
+              {
                 id: "smoke",
                 email: "smoke@example.com",
                 app_metadata: { is_smoke_account: true },
               },
             ],
-            total: 1,
+            total: 5,
           },
           error: null,
         },
@@ -503,7 +522,7 @@ describe("loadDashboardReport", () => {
             expect(calls.find((call) => call.method === "not")?.args).toEqual([
               "user_id",
               "in",
-              "(u-admin,smoke)",
+              "(u-admin,administrator-smoke,smoke)",
             ]);
           },
         },
@@ -520,12 +539,17 @@ describe("loadDashboardReport", () => {
                 app_metadata: { is_admin: true },
               },
               {
+                id: "administrator-smoke",
+                email: "administrator-smoke@example.com",
+                app_metadata: { is_admin: true, is_smoke_account: true },
+              },
+              {
                 id: "smoke",
                 email: "smoke@example.com",
                 app_metadata: { is_smoke_account: true },
               },
             ],
-            total: 1,
+            total: 3,
           },
           error: null,
         },

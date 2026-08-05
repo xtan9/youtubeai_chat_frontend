@@ -538,7 +538,7 @@ describe("loadVideosReport", () => {
           expect: (calls) => {
             expect(calls.find((call) => call.method === "in")?.args).toEqual([
               "user_id",
-              ["a1", "smoke"],
+              ["a1", "administrator-smoke", "smoke"],
             ]);
           },
         },
@@ -577,12 +577,17 @@ describe("loadVideosReport", () => {
               app_metadata: { is_admin: true },
             },
             {
+              id: "administrator-smoke",
+              email: "administrator-smoke@example.com",
+              app_metadata: { is_admin: true, is_smoke_account: true },
+            },
+            {
               id: "smoke",
               email: "smoke@example.com",
               app_metadata: { is_smoke_account: true },
             },
           ],
-          total: 1,
+          total: 3,
         },
         error: null,
       },

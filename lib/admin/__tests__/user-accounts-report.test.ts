@@ -140,6 +140,14 @@ describe("loadUserAccountsReport", () => {
             is_anonymous: false,
           },
           {
+            id: "administrator-smoke",
+            email: "administrator-smoke@example.com",
+            created_at: "2026-04-03T13:00:00Z",
+            email_confirmed_at: "2026-04-03T13:00:00Z",
+            app_metadata: { is_admin: true, is_smoke_account: true },
+            is_anonymous: false,
+          },
+          {
             id: "banned",
             email: "banned@example.com",
             created_at: "2026-04-04T00:00:00Z",
@@ -193,6 +201,11 @@ describe("loadUserAccountsReport", () => {
       status: "active",
       isSmokeAccount: true,
     });
+    expect(byId.get("administrator-smoke")).toMatchObject({
+      status: "active",
+      isSmokeAccount: true,
+      appMetadata: { is_admin: true, is_smoke_account: true },
+    });
     expect(byId.get("banned")?.status).toBe("banned");
     expect(byId.get("deleted")?.status).toBe("deleted");
     expect(byId.get("unverified")?.status).toBe("unverified");
@@ -210,6 +223,12 @@ describe("loadUserAccountsReport", () => {
         email: "smoke@example.com",
         created_at: "2026-04-02T00:00:00Z",
         app_metadata: { is_smoke_account: true },
+      },
+      {
+        id: "administrator-smoke",
+        email: "administrator-smoke@example.com",
+        created_at: "2026-04-02T12:00:00Z",
+        app_metadata: { is_admin: true, is_smoke_account: true },
       },
     ];
     const emptyActivity = {
@@ -238,7 +257,11 @@ describe("loadUserAccountsReport", () => {
       page: 1,
       expandedAccountId: null,
     });
-    expect(allReport.rows.map((row) => row.userId)).toEqual(["smoke", "human"]);
+    expect(allReport.rows.map((row) => row.userId)).toEqual([
+      "administrator-smoke",
+      "smoke",
+      "human",
+    ]);
     expect(allReport.rows[0]?.isSmokeAccount).toBe(true);
   });
 
