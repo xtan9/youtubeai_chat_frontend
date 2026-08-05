@@ -20,6 +20,7 @@ export function AdminTopbar({
   const pathname = usePathname() ?? "/admin";
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const menuWrapperRef = useRef<HTMLDivElement>(null);
   const { email: adminEmail } = useAdmin();
   const current = findNavLabel(pathname);
@@ -28,15 +29,26 @@ export function AdminTopbar({
 
   async function handleSignOut() {
     const supabase = createClient();
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+    setSignOutError(null);
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) {
+        console.error("[admin-topbar] signOut failed", {
+          status: error.status ?? null,
+          message: error.message,
+        });
+        setSignOutError("Couldn't sign you out. Check your connection and try again.");
+        return;
+      }
+      router.push("/");
+      router.refresh();
+    } catch (error: unknown) {
       console.error("[admin-topbar] signOut failed", {
-        status: error.status ?? null,
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
       });
+      setSignOutError("Couldn't sign you out. Check your connection and try again.");
     }
-    router.push("/");
-    router.refresh();
   }
 
   return (
@@ -81,6 +93,11 @@ export function AdminTopbar({
           </div>
         </div>
       </div>
+      {signOutError ? (
+        <div className="auth-action-error" role="alert" aria-live="assertive">
+          {signOutError}
+        </div>
+      ) : null}
       <ReportCompletenessNotice warnings={completenessWarnings} />
     </>
   );

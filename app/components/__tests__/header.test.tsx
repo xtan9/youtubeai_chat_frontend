@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -7,8 +7,11 @@ import { Header } from "../header";
 
 afterEach(cleanup);
 
+const signOutSpy = vi.fn();
+const mockPush = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
 }));
 
 vi.mock("next-themes", () => ({
@@ -17,7 +20,7 @@ vi.mock("next-themes", () => ({
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: { signOut: vi.fn().mockResolvedValue({}) },
+    auth: { signOut: signOutSpy },
   }),
 }));
 
@@ -52,6 +55,7 @@ function openDropdown(trigger: Element) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  signOutSpy.mockResolvedValue({ error: null });
 });
 
 describe("Header user menu", () => {
@@ -69,6 +73,31 @@ describe("Header user menu", () => {
     expect(anchor?.getAttribute("href")).toBe("/account");
     expect(screen.queryByText(/manage subscription/i)).toBeNull();
     expect(screen.getByText(/sign out/i)).not.toBeNull();
+  });
+
+  it("signs out only the current browser session before routing home", async () => {
+    const qc = freshQueryClient();
+    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    openDropdown(screen.getByRole("button", { name: /user menu/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+
+    await waitFor(() => {
+      expect(signOutSpy).toHaveBeenCalledWith({ scope: "local" });
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+  });
+
+  it("keeps the header actionable when local sign out fails", async () => {
+    signOutSpy.mockResolvedValueOnce({ error: new Error("Auth unavailable") });
+    const qc = freshQueryClient();
+    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    openDropdown(screen.getByRole("button", { name: /user menu/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/couldn't sign you out/i));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
 

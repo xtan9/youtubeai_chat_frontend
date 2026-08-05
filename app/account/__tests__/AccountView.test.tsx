@@ -242,7 +242,7 @@ describe("AccountView — entitlements loading and error states", () => {
     expect(skeleton.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByTestId("plan-card-skeleton")).not.toBeNull();
     // Sign out is always reachable.
-    expect(screen.getByRole("button", { name: /sign out/i })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^sign out$/i })).not.toBeNull();
   });
 
   it("renders an explicit error message when entitlements fetch errors", () => {
@@ -255,7 +255,7 @@ describe("AccountView — entitlements loading and error states", () => {
     render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toMatch(/couldn't load your plan details/i);
-    expect(screen.getByRole("button", { name: /sign out/i })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^sign out$/i })).not.toBeNull();
   });
 
   it("renders the error card on an unknown tier", () => {
@@ -271,7 +271,7 @@ describe("AccountView — entitlements loading and error states", () => {
 });
 
 describe("AccountView — Sign Out", () => {
-  it("calls supabase.auth.signOut and routes to / on click", async () => {
+  it("signs out only the current browser session and routes to / on click", async () => {
     setEntitlements({
       data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
       isPending: false,
@@ -280,9 +280,56 @@ describe("AccountView — Sign Out", () => {
     const qc = freshQueryClient();
     render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
 
-    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
 
-    await waitFor(() => expect(signOutSpy).toHaveBeenCalled());
+    await waitFor(() => expect(signOutSpy).toHaveBeenCalledWith({ scope: "local" }));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
+  });
+
+  it("keeps the account page actionable when local sign out fails", async () => {
+    signOutSpy.mockResolvedValueOnce({ error: new Error("Auth unavailable") });
+    setEntitlements({
+      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
+      isPending: false,
+      isError: false,
+    });
+    const qc = freshQueryClient();
+    render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/couldn't sign you out/i));
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("offers a separate global sign-out action", async () => {
+    setEntitlements({
+      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
+      isPending: false,
+      isError: false,
+    });
+    const qc = freshQueryClient();
+    render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out everywhere/i }));
+
+    await waitFor(() => expect(signOutSpy).toHaveBeenCalledWith({ scope: "global" }));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
+  });
+
+  it("reports a global sign-out failure without leaving the account page", async () => {
+    signOutSpy.mockResolvedValueOnce({ error: new Error("Auth unavailable") });
+    setEntitlements({
+      data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
+      isPending: false,
+      isError: false,
+    });
+    const qc = freshQueryClient();
+    render(<AccountView />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out everywhere/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/couldn't sign you out everywhere/i));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

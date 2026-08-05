@@ -23,6 +23,8 @@ export function UpdatePasswordForm({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [needsGlobalSignOut, setNeedsGlobalSignOut] = useState(false);
+  const [isGlobalSignOutLoading, setIsGlobalSignOutLoading] = useState(false);
   const router = useRouter();
 
   // Recovery emails redirect here with `#access_token=...&type=recovery` in
@@ -62,15 +64,66 @@ export function UpdatePasswordForm({
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
+    setNeedsGlobalSignOut(false);
 
     try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) {
+        setError(updateError.message);
+        return;
+      }
+
+      // Keep the recovery browser's new Remembered Session while ending every
+      // older session. Unlike global sign-out, the `others` scope does not
+      // clear this browser's session.
+      const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });
+      if (revokeError) {
+        console.error("[update-password] other-session signOut failed", {
+          status: revokeError.status ?? null,
+          message: revokeError.message,
+        });
+        setNeedsGlobalSignOut(true);
+        setError(
+          "Your password was changed, but we couldn't sign out your other sessions. Try again or sign out everywhere below.",
+        );
+        return;
+      }
+
       router.push("/");
     } catch (error: unknown) {
+      console.error("[update-password] password recovery threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSignOutEverywhere = async () => {
+    if (isGlobalSignOutLoading) return;
+    const supabase = createClient();
+    setIsGlobalSignOutLoading(true);
+    setError(null);
+
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: "global" });
+      if (signOutError) {
+        console.error("[update-password] global signOut failed", {
+          status: signOutError.status ?? null,
+          message: signOutError.message,
+        });
+        setError("Couldn't sign you out everywhere. Check your connection and try again.");
+        return;
+      }
+      router.push("/");
+    } catch (error: unknown) {
+      console.error("[update-password] global signOut threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      setError("Couldn't sign you out everywhere. Check your connection and try again.");
+    } finally {
+      setIsGlobalSignOutLoading(false);
     }
   };
 
@@ -97,10 +150,25 @@ export function UpdatePasswordForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-accent-danger">{error}</p>}
+              {error && (
+                <p role="alert" className="text-sm text-accent-danger">
+                  {error}
+                </p>
+              )}
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Saving..." : "Save new password"}
               </Button>
+              {needsGlobalSignOut ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full"
+                  onClick={handleSignOutEverywhere}
+                  disabled={isGlobalSignOutLoading}
+                >
+                  {isGlobalSignOutLoading ? "Signing out everywhere…" : "Sign out everywhere"}
+                </Button>
+              ) : null}
             </div>
           </form>
         </CardContent>
