@@ -90,6 +90,14 @@ import HeroDemo from "../hero-demo";
 afterEach(() => cleanup());
 
 describe("HeroDemo", () => {
+  it("uses the homepage gutter without adding a second horizontal inset", () => {
+    const { container } = render(<HeroDemo />);
+    const section = container.querySelector("section");
+
+    expect(section).toBeTruthy();
+    expect(section?.classList.contains("px-4")).toBe(false);
+  });
+
   it("activates sample 1 by default and renders its title", async () => {
     render(<HeroDemo />);
     await waitFor(() => {
