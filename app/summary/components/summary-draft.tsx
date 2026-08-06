@@ -26,9 +26,9 @@ export function SummaryDraft({ text }: SummaryDraftProps) {
       aria-live="polite"
       data-summary-state="draft"
       data-testid="summary-draft"
-      className="mb-5 rounded-xl border border-border-subtle bg-surface-raised p-5 shadow-inner"
+      className="mb-5 rounded-xl border border-border-subtle bg-surface-raised p-4 shadow-inner sm:p-5"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-h5 text-text-primary">Summary Draft</h2>
         <span className="rounded-full bg-accent-warning/15 px-3 py-1 text-caption text-accent-warning">
           Not ready for actions
