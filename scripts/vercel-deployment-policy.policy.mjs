@@ -1,9 +1,24 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { classifyPaths } from "./vercel-deployment-policy.mjs";
+
+const ciWorkflow = readFileSync(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
+
+test("allows deployment-policy enough time for runner lifecycle overhead", () => {
+  const start = ciWorkflow.indexOf("\n  deployment-policy:");
+  const end = ciWorkflow.indexOf("\n  lint:", start);
+
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(ciWorkflow.slice(start, end), /timeout-minutes:\s*5/);
+});
 
 test("skips documentation, CI, test, script, and migration-only changes", () => {
   const result = classifyPaths([
