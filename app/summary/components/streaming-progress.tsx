@@ -35,9 +35,9 @@ export function StreamingProgressIndicator({
   const gradientClass = stageGradients[progress.stage];
 
   return (
-    <div className="mb-5 rounded-xl border border-border-subtle bg-surface-raised px-5 py-4 shadow-inner">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+    <div className="mb-5 rounded-xl border border-border-subtle bg-surface-raised p-4 shadow-inner sm:px-5">
+      <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 items-center gap-3">
           <div
             className={`flex h-10 w-10 items-center justify-center rounded-full ${gradientClass} shadow-sm`}
           >
@@ -47,7 +47,7 @@ export function StreamingProgressIndicator({
               }`}
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-body-lg font-semibold capitalize text-text-primary">
               {progress.stage}
             </p>
@@ -66,6 +66,7 @@ export function StreamingProgressIndicator({
           size="sm"
           onClick={onCancel}
           aria-label="Cancel summary"
+          className="self-end sm:self-auto"
         >
           Cancel summary
         </Button>

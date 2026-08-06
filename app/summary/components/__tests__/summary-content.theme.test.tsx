@@ -45,7 +45,7 @@ describe("SummaryContent dark-mode detection", () => {
   it("renders the dark branch when theme='system' resolves to dark", () => {
     themeMock.mockReturnValue({ theme: "system", resolvedTheme: "dark" });
     const { container } = render(<SummaryContent summary={summary} />);
-    const card = container.querySelector(".rounded-2xl.p-8");
+    const card = container.querySelector('[data-testid="summary-card"]');
     expect(card?.className).toContain("bg-white/10");
     expect(card?.className).not.toContain("bg-slate-100");
   });
@@ -53,7 +53,7 @@ describe("SummaryContent dark-mode detection", () => {
   it("renders the light branch when theme='system' resolves to light", () => {
     themeMock.mockReturnValue({ theme: "system", resolvedTheme: "light" });
     const { container } = render(<SummaryContent summary={summary} />);
-    const card = container.querySelector(".rounded-2xl.p-8");
+    const card = container.querySelector('[data-testid="summary-card"]');
     expect(card?.className).toContain("bg-slate-100");
     expect(card?.className).not.toContain("bg-white/10");
   });
@@ -61,7 +61,7 @@ describe("SummaryContent dark-mode detection", () => {
   it("renders the dark branch when user explicitly picks dark", () => {
     themeMock.mockReturnValue({ theme: "dark", resolvedTheme: "dark" });
     const { container } = render(<SummaryContent summary={summary} />);
-    const card = container.querySelector(".rounded-2xl.p-8");
+    const card = container.querySelector('[data-testid="summary-card"]');
     expect(card?.className).toContain("bg-white/10");
   });
 
@@ -72,8 +72,58 @@ describe("SummaryContent dark-mode detection", () => {
   it("renders the light branch before next-themes mounts (resolvedTheme undefined)", () => {
     themeMock.mockReturnValue({ theme: undefined, resolvedTheme: undefined });
     const { container } = render(<SummaryContent summary={summary} />);
-    const card = container.querySelector(".rounded-2xl.p-8");
+    const card = container.querySelector('[data-testid="summary-card"]');
     expect(card?.className).toContain("bg-slate-100");
     expect(card?.className).not.toContain("bg-white/10");
+  });
+});
+
+describe("SummaryContent responsive reading surface", () => {
+  it("reclaims the page gutter and removes nested scrolling on mobile", () => {
+    themeMock.mockReturnValue({ resolvedTheme: "light" });
+    const { getByTestId } = render(<SummaryContent summary={summary} />);
+
+    expect(getByTestId("summary-card").className).toContain("-mx-4");
+    expect(getByTestId("summary-card").className).toContain("sm:mx-0");
+    expect(getByTestId("summary-card").className).toContain("p-4");
+    expect(getByTestId("summary-card").className).toContain("sm:p-8");
+
+    const markdown = getByTestId("summary-markdown-surface");
+    expect(markdown.className).toContain("max-h-none");
+    expect(markdown.className).toContain("overflow-visible");
+    expect(markdown.className).toContain("sm:overflow-auto");
+    expect(markdown.className).toContain("sm:p-6");
+  });
+
+  it("uses a compact three-column telemetry strip on mobile", () => {
+    themeMock.mockReturnValue({ resolvedTheme: "light" });
+    const { getByTestId } = render(<SummaryContent summary={summary} />);
+
+    expect(getByTestId("summary-stats").className).toContain("grid-cols-3");
+  });
+
+  it("gives mobile actions two equal secondary controls and one full-width primary action", () => {
+    themeMock.mockReturnValue({ resolvedTheme: "light" });
+    const { getByRole, getByTestId } = render(
+      <SummaryContent
+        summary={summary}
+        onCopySummary={vi.fn()}
+        onNewSummary={vi.fn()}
+        outputLanguage={null}
+        browserLanguage="en"
+        onSelectLanguage={vi.fn()}
+      />,
+    );
+
+    expect(getByTestId("summary-actions").className).toContain("grid-cols-2");
+    expect(
+      getByRole("button", { name: /summary language/i }).className,
+    ).toContain("w-full");
+    expect(getByRole("button", { name: /copy summary/i }).className).toContain(
+      "w-full",
+    );
+    expect(getByRole("button", { name: /new summary/i }).className).toContain(
+      "col-span-2",
+    );
   });
 });

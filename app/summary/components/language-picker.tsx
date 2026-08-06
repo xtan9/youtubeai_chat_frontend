@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   SUPPORTED_OUTPUT_LANGUAGES,
   getLanguage,
@@ -28,6 +29,7 @@ interface LanguagePickerProps {
   readonly onSelect: (code: SupportedLanguageCode) => void;
   readonly isDark: boolean;
   readonly disabled?: boolean;
+  readonly triggerClassName?: string;
 }
 
 export function LanguagePicker({
@@ -36,6 +38,7 @@ export function LanguagePicker({
   onSelect,
   isDark,
   disabled,
+  triggerClassName,
 }: LanguagePickerProps) {
   const current = currentLanguage ? getLanguage(currentLanguage) : null;
   const buttonLabel = current ? current.native : "Auto";
@@ -50,11 +53,12 @@ export function LanguagePicker({
           variant="outline"
           disabled={disabled}
           aria-label={ariaLabel}
-          className={
+          className={cn(
             isDark
               ? "bg-white/5 border-white/20 text-white hover:bg-white/10"
-              : "bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200"
-          }
+              : "bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200",
+            triggerClassName,
+          )}
         >
           <Globe className="mr-2 h-4 w-4" />
           {buttonLabel}

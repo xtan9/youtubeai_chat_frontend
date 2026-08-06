@@ -52,23 +52,24 @@ export function SummaryContent({
   }, [onNewSummary]);
 
   return (
-    <div className="relative group">
-      <div className="absolute -inset-1 bg-gradient-brand-soft rounded-2xl blur-lg opacity-0 group-hover:opacity-100 transition-all"></div>
+    <div className="group relative" data-testid="summary-reading-surface">
+      <div className="absolute -inset-1 hidden rounded-2xl bg-gradient-brand-soft opacity-0 blur-lg transition-all sm:block sm:group-hover:opacity-100"></div>
       <div
+        data-testid="summary-card"
         className={`relative ${
           isDark
             ? "bg-white/10 border-white/20"
             : "bg-slate-100 border-slate-300"
-        } backdrop-blur-sm border rounded-2xl p-8`}
+        } -mx-4 rounded-none border-y p-4 backdrop-blur-sm sm:mx-0 sm:rounded-2xl sm:border sm:p-8`}
       >
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-accent-brand-secondary rounded-xl flex items-center justify-center">
-              <Brain className="w-6 h-6 text-white" />
+        <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:mb-8 md:flex-row md:items-center">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-brand-secondary sm:h-12 sm:w-12">
+              <Brain className="h-5 w-5 text-white sm:h-6 sm:w-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2
-                className={`text-2xl font-bold ${
+                className={`text-xl font-bold leading-tight sm:text-2xl ${
                   isDark ? "text-white" : "text-slate-900"
                 }`}
               >
@@ -85,7 +86,10 @@ export function SummaryContent({
           </div>
 
           {onCopySummary && onNewSummary && (
-            <div className="flex flex-wrap gap-3 mt-2 md:mt-0">
+            <div
+              className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-3 md:mt-0"
+              data-testid="summary-actions"
+            >
               {onSelectLanguage && browserLanguage && (
                 <LanguagePicker
                   currentLanguage={outputLanguage ?? null}
@@ -93,12 +97,13 @@ export function SummaryContent({
                   onSelect={onSelectLanguage}
                   isDark={isDark}
                   disabled={languageDisabled}
+                  triggerClassName="w-full sm:w-auto"
                 />
               )}
               <Button
                 variant="outline"
                 onClick={onCopySummary}
-                className={`${
+                className={`w-full sm:w-auto ${
                   isDark
                     ? "bg-white/5 border-white/20 text-white hover:bg-white/10"
                     : "bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200"
@@ -118,7 +123,7 @@ export function SummaryContent({
               </Button>
               <Button
                 onClick={handleNewSummary}
-                className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white"
+                className="col-span-2 w-full bg-gradient-brand-primary text-white hover:bg-gradient-brand-primary-hover sm:w-auto"
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 New Summary
@@ -130,11 +135,12 @@ export function SummaryContent({
         <div className="space-y-6">
           {/* Render summary with ReactMarkdown */}
           <div
+            data-testid="summary-markdown-surface"
             className={`${
               isDark
                 ? "bg-slate-800/80 border-slate-600/50"
                 : "bg-white border-slate-300"
-            } rounded-xl p-6 border shadow-inner overflow-auto max-h-[calc(100vh-300px)]`}
+            } -mx-4 max-h-none overflow-visible rounded-none border-y p-4 shadow-inner sm:mx-0 sm:max-h-[calc(100vh-300px)] sm:overflow-auto sm:rounded-xl sm:border sm:p-6`}
           >
             <div className="prose max-w-none dark:prose-invert">
               <ReactMarkdown

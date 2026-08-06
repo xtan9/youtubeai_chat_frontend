@@ -182,7 +182,10 @@ export function YouTubeSummarizerApp({
 
   return (
     <PlayerRefProvider>
-      <div className="mx-auto max-w-page px-4 py-8">
+      <div
+        className="mx-auto max-w-page px-4 py-5 sm:py-8"
+        data-testid="summary-page-shell"
+      >
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <SummaryTabs
