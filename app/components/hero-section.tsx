@@ -4,7 +4,7 @@ import { Captions, Globe, MessageCircle } from "lucide-react";
 // component renders server-side and ships zero JS.
 export function HeroSection() {
   return (
-    <section className="w-full max-w-6xl mx-auto py-16 text-center">
+    <section className="w-full max-w-6xl mx-auto overflow-x-clip py-16 text-center">
       <div className="relative">
         {/* Animated gradient background */}
         <div className="pointer-events-none absolute -top-24 left-1/2 transform -translate-x-1/2 w-[600px] h-[600px] bg-gradient-brand-soft rounded-full blur-3xl opacity-50 animate-pulse"></div>

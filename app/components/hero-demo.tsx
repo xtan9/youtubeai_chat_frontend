@@ -184,7 +184,7 @@ function HeroDemoInner() {
   };
 
   return (
-    <section className="mx-auto max-w-page px-4 mb-16 w-full">
+    <section className="mx-auto max-w-page mb-16 w-full">
       <div className="grid gap-6 lg:grid-cols-[3fr_3.5fr_3.5fr] lg:items-stretch">
         {/* Col 1 — playable video + 2×3 thumbnail grid */}
         <div className="flex flex-col gap-4 min-w-0">

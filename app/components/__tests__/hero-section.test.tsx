@@ -6,6 +6,13 @@ import { HeroSection } from "../hero-section";
 afterEach(cleanup);
 
 describe("HeroSection", () => {
+  it("contains the oversized background glow within the mobile viewport", () => {
+    const { container } = render(<HeroSection />);
+    const section = container.querySelector("section");
+
+    expect(section?.classList.contains("overflow-x-clip")).toBe(true);
+  });
+
   it("keeps decorative layers from intercepting controls below the hero", () => {
     const { container } = render(<HeroSection />);
     const decorations = container.querySelectorAll(

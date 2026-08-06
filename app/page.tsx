@@ -19,7 +19,7 @@ import { buildHowToSchema } from "@/components/seo/howto-schema";
 // shift when the chunk lands.
 const HeroDemo = dynamic(() => import("./components/hero-demo"), {
   loading: () => (
-    <section className="mx-auto max-w-page px-4 mb-16 w-full">
+    <section className="mx-auto max-w-page mb-16 w-full">
       <div className="grid gap-6 lg:grid-cols-[3fr_3.5fr_3.5fr] min-h-[480px]">
         <div className="bg-surface-sunken animate-pulse rounded-xl" />
         <div className="bg-surface-sunken animate-pulse rounded-xl" />
