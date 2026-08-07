@@ -3,13 +3,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SummaryRunSnapshot } from "@/lib/summary-run";
 
+const { navigationSearchParams } = vi.hoisted(() => ({
+  navigationSearchParams: { value: new URLSearchParams() },
+}));
+
 vi.mock("posthog-js/react", () => ({
   usePostHog: () => ({ capture: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/summary",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => navigationSearchParams.value,
 }));
 vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
@@ -32,7 +36,26 @@ vi.mock("../results-display", () => ({
     </>
   ),
 }));
-vi.mock("../chat-tab", () => ({ ChatTab: () => <div>chat</div> }));
+vi.mock("../chat-tab", () => ({
+  ChatTab: ({
+    youtubeUrl,
+    active,
+    className,
+  }: {
+    youtubeUrl: string | null;
+    active: boolean;
+    className?: string;
+  }) => (
+    <div
+      data-testid="chat-tab"
+      data-youtube-url={youtubeUrl}
+      data-active={String(active)}
+      className={className}
+    >
+      chat
+    </div>
+  ),
+}));
 vi.mock("../youtube-video", () => ({
   default: () => <div data-testid="youtube-video" />,
 }));
@@ -50,6 +73,7 @@ vi.mock("@/lib/contexts/user-context", () => ({
 
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { YouTubeSummarizerApp } from "../youtube-summarizer-app";
+import { setViewportWidth } from "./viewport";
 
 const mockUseYouTubeSummarizer = useYouTubeSummarizer as ReturnType<typeof vi.fn>;
 
@@ -85,6 +109,8 @@ function runningSnapshot(): SummaryRunSnapshot {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  navigationSearchParams.value = new URLSearchParams();
+  setViewportWidth(1024);
 });
 
 afterEach(() => {
@@ -92,6 +118,45 @@ afterEach(() => {
 });
 
 describe("YouTubeSummarizerApp Summary Run presentation", () => {
+  it("places the persistent Video before the three-tab workspace on mobile", () => {
+    setViewportWidth(390);
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      snapshot: runningSnapshot(),
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+    const videoRegion = screen.getByTestId("summary-video-region");
+    const tabRail = screen.getByTestId("summary-tab-rail");
+    expect(
+      videoRegion.compareDocumentPosition(tabRail) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(screen.getByRole("tab", { name: "Transcript" })).toBeTruthy();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+  });
+
+  it("keeps a processing Chat deep link inert until the Summary succeeds", () => {
+    navigationSearchParams.value = new URLSearchParams({ tab: "chat" });
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      snapshot: runningSnapshot(),
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+    expect(
+      screen.getByRole("tab", { name: "Chat" }).getAttribute("data-state"),
+    ).toBe("active");
+    expect(
+      screen.getByTestId("chat-tab").getAttribute("data-youtube-url"),
+    ).toBeNull();
+    expect(screen.getByTestId("chat-tab").getAttribute("data-active")).toBe(
+      "false",
+    );
+  });
+
   it("renders a non-actionable Summary Draft and keeps Chat locked while running", () => {
     mockUseYouTubeSummarizer.mockReturnValue({
       ...commonCommands(),

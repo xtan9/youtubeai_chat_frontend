@@ -1,20 +1,22 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // vi.hoisted runs before vi.mock factories AND before the module imports
 // vitest hoists; lets us share refs between this file and the mock factory
 // without "Cannot access 'replaceMock' before initialization".
-const { replaceMock, searchParamsState, routerInstance } = vi.hoisted(() => {
+const { pushMock, replaceMock, searchParamsState, routerInstance } = vi.hoisted(() => {
+  const pushMock = vi.fn();
   const replaceMock = vi.fn();
   return {
+    pushMock,
     replaceMock,
     searchParamsState: { value: new URLSearchParams() },
     // Stable router instance — Next.js's real `useRouter()` returns a
     // memoized object; recreating it per call would make any effect
     // with `router` in its dep array re-run on every parent re-render,
     // canceling our setTimeout-based bounce timer.
-    routerInstance: { replace: replaceMock },
+    routerInstance: { push: pushMock, replace: replaceMock },
   };
 });
 
@@ -25,6 +27,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { SummaryTabs } from "../summary-tabs";
+import { setViewportWidth } from "./viewport";
 
 afterEach(() => {
   cleanup();
@@ -32,8 +35,10 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  pushMock.mockReset();
   replaceMock.mockReset();
   searchParamsState.value = new URLSearchParams();
+  setViewportWidth(1024);
 });
 
 function renderTabs(opts: {
@@ -49,6 +54,7 @@ function renderTabs(opts: {
       chatLocked={opts.chatLocked ?? false}
       chatPermanentlyLocked={opts.chatPermanentlyLocked}
       summaryContent={<div>SUMMARY-CONTENT</div>}
+      transcriptContent={<div>TRANSCRIPT-CONTENT</div>}
       chatContent={<div>CHAT-CONTENT</div>}
     />
   );
@@ -67,6 +73,105 @@ describe("SummaryTabs", () => {
     renderTabs({ tabParam: "chat", chatLocked: false });
     const chatTrigger = screen.getByRole("tab", { name: "Chat" });
     expect(chatTrigger.getAttribute("data-state")).toBe("active");
+  });
+
+  it("shows Transcript as an equal mobile tab and honors ?tab=transcript", () => {
+    setViewportWidth(390);
+
+    renderTabs({ tabParam: "transcript", chatLocked: true });
+
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Summary",
+      "Transcript",
+      "Chat",
+    ]);
+    expect(
+      screen.getByRole("tab", { name: "Transcript" }).getAttribute("data-state"),
+    ).toBe("active");
+    expect(screen.getByText("TRANSCRIPT-CONTENT")).toBeTruthy();
+  });
+
+  it("keeps the larger-screen two-tab layout and treats transcript deep links as Summary", () => {
+    renderTabs({ tabParam: "transcript" });
+
+    expect(screen.queryByRole("tab", { name: "Transcript" })).toBeNull();
+    expect(
+      screen.getByRole("tab", { name: "Summary" }).getAttribute("data-state"),
+    ).toBe("active");
+    expect(screen.getByText("SUMMARY-CONTENT")).toBeTruthy();
+  });
+
+  it("uses a sticky, full-width mobile tab rail", () => {
+    setViewportWidth(390);
+
+    renderTabs();
+
+    const rail = screen.getByTestId("summary-tab-rail");
+    expect(rail.className).toContain("sticky");
+    expect(rail.className).toContain(
+      "top-[var(--summary-tabs-sticky-top,73px)]",
+    );
+    expect(screen.getByRole("tablist").className).toContain("w-full");
+  });
+
+  it("pushes user-selected tabs without browser-managed scrolling", () => {
+    setViewportWidth(390);
+    renderTabs();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Transcript" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(pushMock).toHaveBeenCalledWith("/summary?tab=transcript", {
+      scroll: false,
+    });
+  });
+
+  it("restores each mobile panel's last document position", () => {
+    setViewportWidth(390);
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 420,
+      writable: true,
+    });
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    const { rerender } = renderTabs();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Transcript" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    searchParamsState.value = new URLSearchParams({ tab: "transcript" });
+    rerender(
+      <SummaryTabs
+        chatLocked={false}
+        summaryContent={<div>SUMMARY-CONTENT</div>}
+        transcriptContent={<div>TRANSCRIPT-CONTENT</div>}
+        chatContent={<div>CHAT-CONTENT</div>}
+      />,
+    );
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
+
+    window.scrollY = 900;
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Summary" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    searchParamsState.value = new URLSearchParams();
+    rerender(
+      <SummaryTabs
+        chatLocked={false}
+        summaryContent={<div>SUMMARY-CONTENT</div>}
+        transcriptContent={<div>TRANSCRIPT-CONTENT</div>}
+        chatContent={<div>CHAT-CONTENT</div>}
+      />,
+    );
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 420, behavior: "auto" });
   });
 
   it("disables the Chat trigger when chatLocked is true", () => {
@@ -119,6 +224,7 @@ describe("SummaryTabs", () => {
         chatLocked={true}
         chatPermanentlyLocked={false}
         summaryContent={<div>SUMMARY-CONTENT</div>}
+        transcriptContent={<div>TRANSCRIPT-CONTENT</div>}
         chatContent={<div>CHAT-CONTENT</div>}
       />,
     );
@@ -128,6 +234,7 @@ describe("SummaryTabs", () => {
         chatLocked={true}
         chatPermanentlyLocked={true}
         summaryContent={<div>SUMMARY-CONTENT</div>}
+        transcriptContent={<div>TRANSCRIPT-CONTENT</div>}
         chatContent={<div>CHAT-CONTENT</div>}
       />,
     );

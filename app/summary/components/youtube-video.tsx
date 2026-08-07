@@ -1,18 +1,15 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  type MutableRefObject,
+} from "react";
 import dynamic from "next/dynamic";
 import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
-import {
-  hasTimedTranscriptSegments,
-  type TranscriptSegment,
-  type TranscriptSource,
-} from "@/lib/types";
-import type { SummaryTranscriptState } from "@/lib/summary-run";
-import TranscriptParagraphs from "./transcript-paragraphs";
 import { usePlayerRef } from "@/lib/contexts/player-ref";
-import { TranscriptTimingNotice } from "./transcript-timing-notice";
 
 // next/dynamic with ssr:false because react-youtube touches `window` and
 // PropTypes during render; importing it server-side trips the Next.js
@@ -23,25 +20,21 @@ const YouTubeNoSSR = dynamic(() => import("react-youtube"), { ssr: false });
 interface YoutubeVideoProps {
   url: string;
   width: number; // becomes the maximum width
-  segments?: readonly TranscriptSegment[];
-  transcriptSource?: TranscriptSource;
-  transcriptState?: SummaryTranscriptState;
-  streamingComplete?: boolean;
+  playerRef?: MutableRefObject<YouTubePlayer | null>;
 }
 
 const YoutubeVideo = ({
   url,
   width,
-  segments,
-  transcriptSource,
-  transcriptState,
+  playerRef: providedPlayerRef,
 }: YoutubeVideoProps) => {
   const [containerWidth, setContainerWidth] = useState(width);
   const containerRef = useRef<HTMLDivElement>(null);
   // YouTubePlayer instance is captured on the IFrame Player API's `onReady`
   // event. The transcript card uses it to seek + play on timestamp click
   // and to poll getCurrentTime() for the active-paragraph highlight.
-  const playerRef = useRef<YouTubePlayer | null>(null);
+  const internalPlayerRef = useRef<YouTubePlayer | null>(null);
+  const playerRef = providedPlayerRef ?? internalPlayerRef;
   // Register the player handle with the page-level context so the chat
   // tab's timestamp chips can seek it (no prop-drilling from this leaf).
   // Falls back to a no-op when the page isn't wrapped in PlayerRefProvider
@@ -52,27 +45,6 @@ const YoutubeVideo = ({
   // for the height — that's the default YouTube embed contract.
   const height = Math.floor((containerWidth / 16) * 9);
   const videoId = getYoutubeVideoId(url);
-  const inferredTimingAvailable =
-    segments !== undefined && hasTimedTranscriptSegments(segments);
-  const transcriptTimingStatus =
-    transcriptState?.status ??
-    (segments === undefined
-      ? undefined
-      : inferredTimingAvailable
-        ? "available"
-        : "unavailable");
-  const displaySegments =
-    transcriptState?.status === "available"
-      ? transcriptState.segments
-      : segments;
-  const canRenderTranscript =
-    transcriptTimingStatus === "available" &&
-    displaySegments !== undefined &&
-    hasTimedTranscriptSegments(displaySegments);
-  const displayTranscriptSource =
-    transcriptState?.status === "available"
-      ? transcriptState.source
-      : transcriptSource;
 
   useEffect(() => {
     const updateWidth = () => {
@@ -98,7 +70,7 @@ const YoutubeVideo = ({
   }
 
   return (
-    <div className="flex flex-col gap-4 w-full" ref={containerRef}>
+    <div className="w-full" ref={containerRef}>
       <YouTubeNoSSR
         videoId={videoId}
         iframeClassName="rounded-lg w-full"
@@ -120,16 +92,6 @@ const YoutubeVideo = ({
           });
         }}
       />
-      {transcriptTimingStatus && transcriptTimingStatus !== "available" && (
-        <TranscriptTimingNotice status={transcriptTimingStatus} />
-      )}
-      {canRenderTranscript && displaySegments && (
-        <TranscriptParagraphs
-          segments={displaySegments}
-          playerRef={playerRef}
-          transcriptSource={displayTranscriptSource}
-        />
-      )}
     </div>
   );
 };

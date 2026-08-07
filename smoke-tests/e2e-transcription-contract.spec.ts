@@ -354,6 +354,77 @@ test("caption success flows from URL to Transcript, Summary, and Video Chat", as
   ).toBeVisible();
 });
 
+test("mobile Summary workspace keeps Video first and navigates three sticky tabs", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS);
+  await submitVideoUrl(page);
+
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  const videoRegion = page.getByTestId("summary-video-region");
+  const tabRail = page.getByTestId("summary-tab-rail");
+  await expect(videoRegion).toBeVisible();
+  await expect(page.getByRole("tab")).toHaveText([
+    "Summary",
+    "Transcript",
+    "Chat",
+  ]);
+  expect(
+    await videoRegion.evaluate(
+      (video, rail) =>
+        Boolean(
+          video.compareDocumentPosition(rail as Node) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      await tabRail.elementHandle(),
+    ),
+  ).toBe(true);
+
+  await page.getByRole("tab", { name: "Transcript" }).click();
+  await expect(page).toHaveURL(/(?:\?|&)tab=transcript(?:&|$)/);
+  await expectUsableTranscript(page, CAPTION_SUCCESS);
+
+  await page.evaluate(() => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "1600px";
+    document
+      .querySelector<HTMLElement>('[role="tabpanel"][data-state="active"]')
+      ?.append(spacer);
+    window.scrollTo(0, 900);
+  });
+  await expect
+    .poll(async () => {
+      const [headerBox, railBox] = await Promise.all([
+        page.locator("header").first().boundingBox(),
+        tabRail.boundingBox(),
+      ]);
+      if (!headerBox || !railBox) return Number.POSITIVE_INFINITY;
+      return Math.abs(railBox.y - (headerBox.y + headerBox.height));
+    })
+    .toBeLessThanOrEqual(1);
+
+  await page.getByRole("tab", { name: "Chat" }).click();
+  await expect(page).toHaveURL(/(?:\?|&)tab=chat(?:&|$)/);
+  const chatInput = page.getByRole("textbox", { name: "Chat message" });
+  await expect(chatInput).toBeVisible();
+  await expect
+    .poll(async () => {
+      const chatBox = await chatInput
+        .locator("xpath=ancestor::div[@data-slot='tabs-content']/div")
+        .boundingBox();
+      return chatBox ? chatBox.y + chatBox.height : Number.POSITIVE_INFINITY;
+    })
+    .toBeLessThanOrEqual(845);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/(?:\?|&)tab=transcript(?:&|$)/);
+  await expect(page.getByRole("tab", { name: "Transcript" })).toHaveAttribute(
+    "data-state",
+    "active",
+  );
+});
+
 test("documented Whisper fallback keeps a multilingual timestamped Transcript usable", async ({
   page,
 }) => {
