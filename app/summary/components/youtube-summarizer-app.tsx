@@ -254,6 +254,9 @@ export function YouTubeSummarizerApp({
                   youtubeUrl={chatLocked ? null : url || null}
                   active={!chatLocked}
                   transcriptTimingStatus={completedTranscript?.status}
+                  onTimestampActivated={
+                    isMobile ? handleRevealVideo : undefined
+                  }
                   className="h-[calc(100dvh-var(--summary-tabs-sticky-top,73px)-4rem)] min-h-0 md:h-[640px]"
                 />
               }

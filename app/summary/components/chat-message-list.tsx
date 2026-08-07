@@ -10,6 +10,7 @@ interface ChatMessageListProps {
   readonly draft: { user: string; assistant: string } | null;
   readonly streaming: boolean;
   readonly transcriptTimingStatus?: TranscriptTimingStatus;
+  readonly onTimestampActivated?: () => void;
 }
 
 /**
@@ -23,6 +24,7 @@ export function ChatMessageList({
   draft,
   streaming,
   transcriptTimingStatus = "available",
+  onTimestampActivated,
 }: ChatMessageListProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +49,7 @@ export function ChatMessageList({
           role={m.role}
           content={m.content}
           transcriptTimingStatus={transcriptTimingStatus}
+          onTimestampActivated={onTimestampActivated}
         />
       ))}
       {draft && (
@@ -61,6 +64,7 @@ export function ChatMessageList({
               role="assistant"
               content={draft.assistant}
               transcriptTimingStatus={transcriptTimingStatus}
+              onTimestampActivated={onTimestampActivated}
             />
           ) : streaming ? (
             <ThinkingIndicator />

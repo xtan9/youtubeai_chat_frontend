@@ -9,11 +9,13 @@ interface ChatMessageProps {
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly transcriptTimingStatus?: TranscriptTimingStatus;
+  readonly onTimestampActivated?: () => void;
 }
 
 function renderContent(
   content: string,
   transcriptTimingStatus: TranscriptTimingStatus,
+  onTimestampActivated?: () => void,
 ): ReactNode {
   return parseCitations(content).map((part, idx) => {
     if (part.type === "timestamp") {
@@ -23,6 +25,7 @@ function renderContent(
           seconds={part.seconds}
           raw={part.raw}
           transcriptTimingStatus={transcriptTimingStatus}
+          onActivated={onTimestampActivated}
         />
       );
     }
@@ -39,6 +42,7 @@ export function ChatMessage({
   role,
   content,
   transcriptTimingStatus = "available",
+  onTimestampActivated,
 }: ChatMessageProps) {
   if (role === "user") {
     return (
@@ -53,7 +57,11 @@ export function ChatMessage({
     <div className="flex justify-start">
       <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-2 text-text-primary">
         <p className="whitespace-pre-wrap text-body-md">
-          {renderContent(content, transcriptTimingStatus)}
+          {renderContent(
+            content,
+            transcriptTimingStatus,
+            onTimestampActivated,
+          )}
         </p>
       </div>
     </div>

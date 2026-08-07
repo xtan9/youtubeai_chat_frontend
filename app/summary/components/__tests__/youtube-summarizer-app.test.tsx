@@ -41,10 +41,12 @@ vi.mock("../chat-tab", () => ({
     youtubeUrl,
     active,
     className,
+    onTimestampActivated,
   }: {
     youtubeUrl: string | null;
     active: boolean;
     className?: string;
+    onTimestampActivated?: () => void;
   }) => (
     <div
       data-testid="chat-tab"
@@ -53,6 +55,13 @@ vi.mock("../chat-tab", () => ({
       className={className}
     >
       chat
+      <button
+        type="button"
+        data-testid="chat-timestamp"
+        onClick={onTimestampActivated}
+      >
+        [0:12]
+      </button>
     </div>
   ),
 }));
@@ -107,6 +116,37 @@ function runningSnapshot(): SummaryRunSnapshot {
   };
 }
 
+function succeededSnapshot(): SummaryRunSnapshot {
+  return {
+    status: "succeeded",
+    runId: "run-succeeded",
+    input: {
+      video: { youtubeUrl: "https://youtu.be/x" },
+      outputLanguage: null,
+      includeTranscript: true,
+    },
+    summary: {
+      title: "Video Summary",
+      duration: "3.0s total",
+      summary: "A completed Summary.",
+      transcriptionTime: 1,
+      summaryTime: 2,
+      origin: "generated",
+    },
+    origin: "generated",
+    progress: {
+      stage: "complete",
+      message: "Summary complete",
+      elapsedSeconds: 3,
+    },
+    transcript: {
+      status: "available",
+      source: "manual_captions",
+      segments: [{ start: 12, duration: 8, text: "The key point" }],
+    },
+  };
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   navigationSearchParams.value = new URLSearchParams();
@@ -135,6 +175,26 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
     ).not.toBe(0);
     expect(screen.getByRole("tab", { name: "Transcript" })).toBeTruthy();
     expect(screen.getAllByRole("tab")).toHaveLength(3);
+  });
+
+  it("reveals the Video when a Chat timestamp is activated on mobile", () => {
+    setViewportWidth(390);
+    navigationSearchParams.value = new URLSearchParams({ tab: "chat" });
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commonCommands(),
+      snapshot: succeededSnapshot(),
+    });
+
+    render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
+
+    const scrollIntoView = vi.fn();
+    screen.getByTestId("summary-video-region").scrollIntoView = scrollIntoView;
+    fireEvent.click(screen.getByTestId("chat-timestamp"));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
   });
 
   it("keeps a processing Chat deep link inert until the Summary succeeds", () => {
