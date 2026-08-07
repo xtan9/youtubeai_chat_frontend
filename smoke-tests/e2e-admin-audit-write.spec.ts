@@ -38,17 +38,7 @@ test("admin viewing a transcript writes a row to admin_audit_log", async ({
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
 
-  // Read /admin/audit BEFORE the click so we can compare against an
-  // observed delta, not just "any row exists" — that catches the case
-  // where the page already had pre-existing view_transcript rows.
-  await page.goto(`${PROD_URL}/admin/audit`);
-  await expect(page.getByRole("heading", { name: /^Audit log$/ })).toBeVisible();
-  const auditTable = page.locator("table.tbl");
-  const beforeCount = await auditTable
-    .locator('tr:has-text("view transcript")')
-    .count();
-
-  // Open transcript modal from /admin/users
+  // Open transcript modal from /admin/users.
   await page.goto(`${PROD_URL}/admin/users`);
   await expect(page.getByRole("heading", { name: /^Users$/ })).toBeVisible();
   // Expand the first user row that has a transcript button.
@@ -60,18 +50,25 @@ test("admin viewing a transcript writes a row to admin_audit_log", async ({
     page.getByText(/viewing as admin.*is logged/i),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Verify a row is rendered — header value or summary content lands.
-  // We don't assert specific text since prod content varies.
-  await expect(page.locator(".banner-audit")).toBeVisible();
+  // The server action returns the inserted audit-row ID. Use that stable
+  // identity for the read-back assertion; counting action labels is invalid
+  // once the audit page reaches its fixed 50-row window (the newest row
+  // replaces an older row, so the count stays exactly 50).
+  const auditBanner = page.locator('.banner-audit[data-state="audited"]');
+  await expect(auditBanner).toBeVisible({ timeout: 10_000 });
+  const auditId = await auditBanner.getAttribute("data-audit-id");
+  expect(auditId).toMatch(/^[0-9a-f-]{8,}$/i);
 
-  // Wait for the audit row to be readable on /admin/audit. Insert latency
-  // is typically sub-second; allow up to 15s for replication / rendering.
+  // Wait for the exact audit row to be readable on /admin/audit. Insert
+  // latency is typically sub-second; allow up to 15s for replication /
+  // rendering.
   await page.goto(`${PROD_URL}/admin/audit`);
   await expect(async () => {
     await page.reload();
-    const afterCount = await auditTable
-      .locator('tr:has-text("view transcript")')
-      .count();
-    expect(afterCount).toBeGreaterThan(beforeCount);
+    const auditRow = page.locator(`tr[data-audit-id="${auditId}"]`);
+    await expect(auditRow).toHaveCount(1);
+    await expect(
+      auditRow.getByText("view transcript", { exact: true }),
+    ).toBeVisible();
   }).toPass({ timeout: 15_000 });
 });

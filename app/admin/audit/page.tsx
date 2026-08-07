@@ -103,7 +103,7 @@ function AuditEventRow({ event }: { event: AuditRow }) {
   const adminLabel = event.adminEmail.slice(0, 2).toUpperCase();
   const adminIdx = hashToIdx(event.adminEmail);
   return (
-    <tr>
+    <tr data-audit-id={event.id}>
       <td className="mono">{formatTime(event.createdAt)}</td>
       <td>
         <div className="user-cell">
