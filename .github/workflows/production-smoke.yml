@@ -34,8 +34,12 @@ jobs:
       PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
       TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
       TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+      # TEST_NON_ADMIN_* is the Free quota/paywall Smoke Account. Keep it
+      # separate from the account used for successful live Summary requests.
       TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
       TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
+      TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
+      TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
     steps:
@@ -47,12 +51,16 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify dedicated live Summary account
+        run: pnpm exec tsx smoke-tests/verify-live-summary-account.ts
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
       # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). Live Summary journeys
-      # retain real production coverage but run without retry: one full live
-      # timeout is already strong outage evidence and must not spend the job
-      # budget twice.
+      # use a separate Pro-entitled non-admin Smoke Account. The Free
+      # TEST_NON_ADMIN account remains available to quota/paywall coverage and
+      # session-policy checks. Live Summary journeys run without retry: one
+      # full live timeout is already strong outage evidence and must not spend
+      # the job budget twice.
       - name: Run non-mutating browser smoke
         run: pnpm exec playwright test --grep-invert "@session-policy|@account-mutating|@account-recovery|@live-summary"
       - name: Run live Summary browser smoke

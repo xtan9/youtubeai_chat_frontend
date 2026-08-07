@@ -1,6 +1,6 @@
 # Production smoke session-policy runbook
 
-This runbook maintains the two synthetic identities used by the hourly
+This runbook maintains the three synthetic identities used by the hourly
 production smoke workflow. It is deliberately credential-free: passwords,
 service keys, recovery links, screenshots containing account data, and raw
 Auth log payloads must never be committed, pasted into issues, or uploaded as
@@ -8,17 +8,23 @@ artifacts.
 
 ## Smoke Account invariant
 
-Maintain exactly two dedicated accounts for this workflow:
+Maintain exactly three dedicated accounts for this workflow:
 
 - `TEST_ADMIN_EMAIL` / `TEST_ADMIN_PASSWORD`: one administrator Smoke Account.
-- `TEST_NON_ADMIN_EMAIL` / `TEST_NON_ADMIN_PASSWORD`: one non-administrator
-  Smoke Account.
+- `TEST_NON_ADMIN_EMAIL` / `TEST_NON_ADMIN_PASSWORD`: one Free,
+  non-administrator Smoke Account used for quota/paywall and session-policy
+  coverage.
+- `TEST_LIVE_SUMMARY_EMAIL` / `TEST_LIVE_SUMMARY_PASSWORD`: a separate
+  non-administrator Smoke Account with an approved successful-summary
+  entitlement (currently `user_subscriptions.tier = 'pro'`) used only for
+  live Summary journeys.
 
-Both accounts must have the trusted service-managed Auth application metadata
-marker `app_metadata.is_smoke_account = true`. The administrator account must
-remain in the production administrator allowlist; the non-administrator must
-remain outside it. The marker is not user-editable metadata and does not grant
-authorization, entitlements, or quota exceptions.
+All three accounts must have the trusted service-managed Auth application
+metadata marker `app_metadata.is_smoke_account = true`. The administrator
+account must remain in the production administrator allowlist; both
+non-administrator accounts must remain outside it. The marker is not
+user-editable metadata and does not grant authorization, entitlements, or
+quota exceptions.
 
 When provisioning or rotating an account:
 
@@ -27,15 +33,16 @@ When provisioning or rotating an account:
    captured by shell history.
 2. Set the trusted application marker and verify the resulting Auth user has
    the expected administrator status.
-3. Update the four protected GitHub Actions secrets without displaying their
-   values. Keep the secret descriptions explicit: dedicated synthetic Smoke
-   Account only; personal, employee, customer, or other human accounts are
-   forbidden.
+3. Update the six protected GitHub Actions credential secrets without
+   displaying their values. Keep the secret descriptions explicit: dedicated
+   synthetic Smoke Account only; personal, employee, customer, or other human
+   accounts are forbidden. The live-summary account must have its approved
+   successful-summary entitlement before the workflow is enabled.
 4. Run the production smoke workflow manually once. Confirm the redacted
    session-policy evidence artifact reports all cases passed and password
    restoration completed.
-5. Do not delete or rotate the other account in the same maintenance window;
-   the next hourly run needs both identities available.
+5. Do not delete or rotate another account in the same maintenance window; the
+   next hourly run needs all three identities available.
 
 If either marker check fails, stop the workflow and repair the account before
 retrying. Never weaken the marker guard to make a run pass.
@@ -49,9 +56,12 @@ order:
 1. API smoke against the configured production URL.
 2. Browser smoke cases that do not make a live Summary request, mutate a
    password, or revoke sessions.
-3. The live Summary browser journeys in a dedicated no-retry phase. These
-   journeys still exercise the production Summary, authorization, and quota
-   paths, but any public terminal failure state ends the wait immediately.
+3. The live Summary browser journeys in a dedicated no-retry phase, using the
+   separate successful-summary account. These journeys exercise the
+   production Summary and authorization paths; any public terminal failure
+   state, including an unexpected quota response for the Pro-entitled account,
+   ends the wait immediately. Quota/paywall behavior remains covered by the
+   Free account in the non-live browser smoke cases.
 4. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
    app and real Supabase Auth. It proves browser restart, repeated refresh,
    concurrent contexts, local Sign Out, Account Recovery, and Sign Out
@@ -83,7 +93,7 @@ After a deployment that includes session-policy changes:
    do not invoke the test from a laptop with copied secrets.
 2. In Supabase Dashboard, open the project Auth logs for that UTC window.
    Inspect password-update and logout mutations and compare their user IDs
-   with the two Auth users whose trusted marker is set. Record only the run
+   with the three Auth users whose trusted marker is set. Record only the run
    ID, UTC window, mutation categories, and a redacted pass/fail statement in
    the issue or release notes. Do not paste emails, passwords, tokens, or raw
    log rows.
@@ -101,7 +111,7 @@ run, record a redacted before/after check that:
 
 - business analytics acquisition, activation, engagement, retention,
   conversion, and active-user totals do not increase from synthetic activity;
-- the administrative real-user total excludes both Smoke Accounts; and
+- the administrative real-user total excludes all three Smoke Accounts; and
 - administrative business-activity reports exclude their smoke activity while
   operational account lists, if viewed, label the accounts as synthetic.
 
@@ -115,10 +125,13 @@ event payloads.
 ## Failure handling
 
 A live Summary quota, authentication, rate-limit, request, network, processing,
-or protocol state is a real production-smoke failure. The live Summary phase
-must report it promptly, without retrying the full journey. Do not reset usage,
-upgrade a Smoke Account, or add a quota exception merely to make the smoke run
-green; any entitlement change requires a separate product or billing decision.
+or protocol state is a real production-smoke failure for the separate
+successful-summary account. The live Summary phase must report it promptly,
+without retrying the full journey. The Free account's quota/paywall result is
+expected only in quota-specific coverage; do not reuse it for live Summary
+success checks. Do not reset usage, upgrade a Smoke Account, or add a quota
+exception merely to make the smoke run green; any entitlement change requires
+a separate product or billing decision.
 
 If a password restore, marker verification, or cleanup step fails, treat the
 Smoke Account as not ready. Do not start the next hourly run until a maintainer

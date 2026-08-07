@@ -4,6 +4,7 @@ import {
   hasFrenchAnchors,
   loadAdminCreds,
   loadAdminSmokeCreds,
+  loadLiveSummaryCreds,
   loadSmokeCreds,
   parseEnvFile,
   withTrustedSmokeAccount,
@@ -179,6 +180,42 @@ describe("loadSmokeCreds", () => {
 
     const creds = await loadSmokeCreds();
     expect(creds).toBeNull();
+  });
+});
+
+describe("loadLiveSummaryCreds", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("uses the dedicated live Summary credential pair", async () => {
+    vi.stubEnv("TEST_LIVE_SUMMARY_EMAIL", "live-summary@example.com");
+    vi.stubEnv("TEST_LIVE_SUMMARY_PASSWORD", "live-summary-password");
+
+    await expect(loadLiveSummaryCreds()).resolves.toEqual({
+      email: "live-summary@example.com",
+      password: "live-summary-password",
+      source: "env",
+    });
+  });
+
+  it("does not fall back to the Free quota account", async () => {
+    vi.stubEnv("TEST_NON_ADMIN_EMAIL", "quota-smoke@example.com");
+    vi.stubEnv("TEST_NON_ADMIN_PASSWORD", "quota-password");
+
+    await expect(loadLiveSummaryCreds()).resolves.toBeNull();
+  });
+
+  it("refuses an incomplete dedicated pair", async () => {
+    vi.stubEnv("TEST_LIVE_SUMMARY_EMAIL", "live-summary@example.com");
+    vi.stubEnv("TEST_LIVE_SUMMARY_PASSWORD", "");
+
+    await expect(loadLiveSummaryCreds()).resolves.toBeNull();
   });
 });
 
