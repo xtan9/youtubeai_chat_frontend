@@ -47,7 +47,6 @@ export function YouTubeSummarizerApp({
     useState<SupportedLanguageCode>("en");
   const isMobile = useIsMobile();
   const playerRef = useRef<YouTubePlayer | null>(null);
-  const videoRegionRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<SummaryTabsHandle>(null);
 
   useEffect(() => {
@@ -157,6 +156,7 @@ export function YouTubeSummarizerApp({
         <StreamingProgressIndicator
           progress={currentSnapshot.progress}
           onCancel={cancel}
+          autoScroll={!isMobile}
         />
       )}
 
@@ -202,14 +202,14 @@ export function YouTubeSummarizerApp({
     void retry();
   };
 
-  const handleRevealVideo = () => {
-    tabsRef.current?.preserveActiveScrollPosition();
+  const handleRevealVideo = (scrollPosition?: number) => {
+    tabsRef.current?.preserveActiveScrollPosition(scrollPosition);
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    videoRegionRef.current?.scrollIntoView({
+    window.scrollTo({
+      top: 0,
       behavior: reducedMotion ? "auto" : "smooth",
-      block: "start",
     });
   };
 
@@ -231,7 +231,6 @@ export function YouTubeSummarizerApp({
       >
         <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
           <div
-            ref={videoRegionRef}
             data-testid="summary-video-region"
             className="order-1 w-full md:order-2"
           >

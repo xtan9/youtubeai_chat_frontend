@@ -22,7 +22,7 @@ interface TranscriptParagraphsProps {
   segments: readonly TranscriptSegment[];
   playerRef: MutableRefObject<YouTubePlayer | null>;
   transcriptSource?: TranscriptSource;
-  onTimestampActivated?: () => void;
+  onTimestampActivated?: (scrollPosition: number) => void;
 }
 
 // Long-paragraph threshold for the per-paragraph "Read More" toggle. Picked
@@ -179,6 +179,7 @@ const TranscriptParagraphs = ({
   const handleTimestampClick = async (start: number) => {
     const player = playerRef.current;
     if (!player) return;
+    const scrollPosition = window.scrollY;
     // The mobile Transcript uses document scrolling. Mark this as a manual
     // navigation before revealing the player so the follow-along effect does
     // not immediately pull the Learner back down to the active paragraph.
@@ -199,7 +200,7 @@ const TranscriptParagraphs = ({
       });
       return;
     }
-    onTimestampActivated?.();
+    onTimestampActivated?.(scrollPosition);
     try {
       await player.playVideo();
     } catch (err) {

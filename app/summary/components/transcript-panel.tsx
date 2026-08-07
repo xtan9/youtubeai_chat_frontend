@@ -18,7 +18,7 @@ interface TranscriptPanelProps {
   readonly transcript?: SummaryTranscriptState;
   readonly playerRef: MutableRefObject<YouTubePlayer | null>;
   readonly onRetry: () => void;
-  readonly onRevealVideo?: () => void;
+  readonly onRevealVideo?: (scrollPosition: number) => void;
 }
 
 function TranscriptStateMessage({

@@ -9,15 +9,18 @@ import type { SummaryRunProgress } from "@/lib/summary-run";
 export function StreamingProgressIndicator({
   progress,
   onCancel,
+  autoScroll,
 }: {
   readonly progress: SummaryRunProgress;
   readonly onCancel: () => void;
+  readonly autoScroll: boolean;
 }) {
   const messageRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
+    if (!autoScroll) return;
     messageRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [progress.message]);
+  }, [autoScroll, progress.message]);
 
   const stageIcons = {
     preparing: Loader2,

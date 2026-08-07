@@ -90,6 +90,10 @@ describe("TranscriptPanel", () => {
   });
 
   it("reveals the Video after a timestamp successfully seeks", async () => {
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 240,
+    });
     const onRevealVideo = vi.fn();
     const seekTo = vi.fn().mockResolvedValue(undefined);
     const playVideo = vi.fn().mockResolvedValue(undefined);
@@ -116,7 +120,7 @@ describe("TranscriptPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Jump to 00:12" }));
 
-    await waitFor(() => expect(onRevealVideo).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onRevealVideo).toHaveBeenCalledWith(240));
     expect(seekTo).toHaveBeenCalledWith(12, true);
     expect(playVideo).toHaveBeenCalledTimes(1);
   });
