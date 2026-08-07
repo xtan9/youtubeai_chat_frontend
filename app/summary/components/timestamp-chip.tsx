@@ -11,9 +11,9 @@ interface TimestampChipProps {
 }
 
 /**
- * Inline chip rendered for each parsed [mm:ss] / [hh:mm:ss] in an
- * assistant message. Click seeks the embedded YouTube player on the
- * right-hand side of the page (no-op if no player is mounted).
+ * Inline chip rendered for each parsed timestamp or timestamp range in an
+ * assistant message. Click seeks the embedded YouTube player to the cited
+ * time (or range start) and resumes playback (no-op if no player is mounted).
  */
 export function TimestampChip({
   seconds,

@@ -26,6 +26,19 @@ describe("parseCitations", () => {
     ]);
   });
 
+  it.each([
+    ["[4:32-5:10]", 4 * 60 + 32],
+    ["[4:32 - 5:10]", 4 * 60 + 32],
+    ["[1:24:05–1:25:00]", 1 * 3600 + 24 * 60 + 5],
+    ["[1:24:05 — 1:25:00]", 1 * 3600 + 24 * 60 + 5],
+  ])("parses timestamp range %s using its start time", (raw, seconds) => {
+    expect(parseCitations(`See ${raw} for the explanation.`)).toEqual([
+      { type: "text", value: "See " },
+      { type: "timestamp", raw, seconds },
+      { type: "text", value: " for the explanation." },
+    ]);
+  });
+
   it("parses multiple timestamps in one string", () => {
     const parts = parseCitations("[0:30] then [12:08] then [1:00:00].");
     const stamps = parts.filter((p) => p.type === "timestamp");
@@ -42,6 +55,14 @@ describe("parseCitations", () => {
     const parts = parseCitations("Look [99:99] here.");
     expect(parts).toContainEqual({ type: "text", value: "[99:99]" });
     expect(parts.every((p) => p.type === "text")).toBe(true);
+  });
+
+  it("treats a backwards timestamp range as plain text", () => {
+    expect(parseCitations("Look [5:10-4:32] here.")).toEqual([
+      { type: "text", value: "Look " },
+      { type: "text", value: "[5:10-4:32]" },
+      { type: "text", value: " here." },
+    ]);
   });
 
   it("keeps the [m:s] zero-padded form parsable", () => {
