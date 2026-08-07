@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import type { YouTubePlayer } from "react-youtube";
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { useClipboard } from "@/lib/hooks/useClipboard";
 import { AuthErrorBanner } from "./auth-error-banner";
@@ -11,7 +12,7 @@ import { SummaryDraft } from "./summary-draft";
 import { StreamingProgressIndicator } from "./streaming-progress";
 import { StreamErrorBanner } from "./stream-error-banner";
 import { LanguagePicker } from "./language-picker";
-import { SummaryTabs } from "./summary-tabs";
+import { SummaryTabs, type SummaryTabsHandle } from "./summary-tabs";
 import { ChatTab } from "./chat-tab";
 import { PlayerRefProvider } from "@/lib/contexts/player-ref";
 import { UpgradeCard } from "@/components/paywall/UpgradeCard";
@@ -21,8 +22,13 @@ import {
 } from "@/lib/constants/languages";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import YoutubeVideo from "./youtube-video";
+import {
+  TranscriptPanel,
+  type TranscriptPanelPhase,
+} from "./transcript-panel";
 import { Button } from "@/components/ui/button";
 import { getSummaryRunFailureMessage } from "@/lib/summary-run";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
@@ -39,6 +45,10 @@ export function YouTubeSummarizerApp({
     useState<SupportedLanguageCode | null>(null);
   const [browserLanguage, setBrowserLanguage] =
     useState<SupportedLanguageCode>("en");
+  const isMobile = useIsMobile();
+  const playerRef = useRef<YouTubePlayer | null>(null);
+  const videoRegionRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<SummaryTabsHandle>(null);
 
   useEffect(() => {
     const langs =
@@ -171,14 +181,47 @@ export function YouTubeSummarizerApp({
   const chatPermanentlyLocked =
     currentSnapshot?.status === "failed" ||
     currentSnapshot?.status === "cancelled";
-  const completedSummary =
-    currentSnapshot?.status === "succeeded"
-      ? currentSnapshot.summary
-      : undefined;
   const completedTranscript =
     currentSnapshot?.status === "succeeded"
       ? currentSnapshot.transcript
       : undefined;
+  const transcriptPhase: TranscriptPanelPhase =
+    currentSnapshot?.status === "succeeded"
+      ? "complete"
+      : currentSnapshot?.status === "failed"
+        ? "failed"
+        : currentSnapshot?.status === "cancelled"
+          ? "cancelled"
+          : "processing";
+
+  const handleTranscriptRetry = () => {
+    if (currentSnapshot?.status === "cancelled") {
+      void start(currentSnapshot.input);
+      return;
+    }
+    void retry();
+  };
+
+  const handleRevealVideo = () => {
+    tabsRef.current?.preserveActiveScrollPosition();
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    videoRegionRef.current?.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+
+  const transcriptContent = (
+    <TranscriptPanel
+      phase={transcriptPhase}
+      transcript={completedTranscript}
+      playerRef={playerRef}
+      onRetry={handleTranscriptRetry}
+      onRevealVideo={isMobile ? handleRevealVideo : undefined}
+    />
+  );
 
   return (
     <PlayerRefProvider>
@@ -186,29 +229,34 @@ export function YouTubeSummarizerApp({
         className="mx-auto max-w-page px-4 py-5 sm:py-8"
         data-testid="summary-page-shell"
       >
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+          <div
+            ref={videoRegionRef}
+            data-testid="summary-video-region"
+            className="order-1 w-full md:order-2"
+          >
+            <div className="flex w-full flex-col gap-4 md:sticky md:top-[138px]">
+              <YoutubeVideo url={url} width={600} playerRef={playerRef} />
+              {!isMobile && currentSnapshot?.status === "succeeded" ? (
+                <div className="hidden md:block">{transcriptContent}</div>
+              ) : null}
+            </div>
+          </div>
+          <div className="order-2 md:order-1 lg:col-span-2">
             <SummaryTabs
+              ref={tabsRef}
               chatLocked={chatLocked}
               chatPermanentlyLocked={chatPermanentlyLocked}
               summaryContent={summaryContent}
+              transcriptContent={transcriptContent}
               chatContent={
                 <ChatTab
-                  youtubeUrl={url || null}
+                  youtubeUrl={chatLocked ? null : url || null}
                   active={!chatLocked}
                   transcriptTimingStatus={completedTranscript?.status}
+                  className="h-[calc(100dvh-var(--summary-tabs-sticky-top,73px)-4rem)] min-h-0 md:h-[640px]"
                 />
               }
-            />
-          </div>
-          <div className="sticky top-[138px] w-full">
-            <YoutubeVideo
-              url={url}
-              width={600}
-              segments={completedSummary?.segments}
-              transcriptSource={completedSummary?.transcriptSource}
-              transcriptState={completedTranscript}
-              streamingComplete={currentSnapshot?.status === "succeeded"}
             />
           </div>
         </div>

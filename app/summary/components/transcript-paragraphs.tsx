@@ -22,6 +22,7 @@ interface TranscriptParagraphsProps {
   segments: readonly TranscriptSegment[];
   playerRef: MutableRefObject<YouTubePlayer | null>;
   transcriptSource?: TranscriptSource;
+  onTimestampActivated?: () => void;
 }
 
 // Long-paragraph threshold for the per-paragraph "Read More" toggle. Picked
@@ -50,6 +51,7 @@ const TranscriptParagraphs = ({
   segments,
   playerRef,
   transcriptSource,
+  onTimestampActivated,
 }: TranscriptParagraphsProps) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -159,7 +161,11 @@ const TranscriptParagraphs = ({
       lastUserScrollAt.current = Date.now();
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   if (paragraphs.length === 0) return null;
@@ -170,9 +176,13 @@ const TranscriptParagraphs = ({
   // inline — better than letting the user think the timestamps are broken.
   const hasNoTimingData = paragraphs.every((p) => p.end === p.start);
 
-  const onTimestampClick = async (start: number) => {
+  const handleTimestampClick = async (start: number) => {
     const player = playerRef.current;
     if (!player) return;
+    // The mobile Transcript uses document scrolling. Mark this as a manual
+    // navigation before revealing the player so the follow-along effect does
+    // not immediately pull the Learner back down to the active paragraph.
+    lastUserScrollAt.current = Number.POSITIVE_INFINITY;
     // Split into two stages so the failure modes don't blur:
     //   - seekTo failure means the click felt inert (cursor unchanged) —
     //     promote to errorId-tagged error so it's alertable.
@@ -189,6 +199,7 @@ const TranscriptParagraphs = ({
       });
       return;
     }
+    onTimestampActivated?.();
     try {
       await player.playVideo();
     } catch (err) {
@@ -225,7 +236,7 @@ const TranscriptParagraphs = ({
         // innerText() to assert transcript-language correctness.
         data-testid="transcript-container"
         data-transcript-source={transcriptSource}
-        className="overflow-y-auto max-h-[600px] pr-2 space-y-4"
+        className="max-h-none space-y-4 overflow-visible pr-0 md:max-h-[600px] md:overflow-y-auto md:pr-2"
       >
         {paragraphs.map((p, i) => {
           const isLong = p.text.length > LONG_PARAGRAPH_CHAR_THRESHOLD;
@@ -247,7 +258,7 @@ const TranscriptParagraphs = ({
             >
               <button
                 type="button"
-                onClick={() => onTimestampClick(p.start)}
+                onClick={() => handleTimestampClick(p.start)}
                 className="text-sm font-semibold mb-1 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 text-accent-brand focus:ring-accent-brand"
                 aria-label={`Jump to ${formatTimestamp(p.start)}`}
               >
