@@ -108,9 +108,7 @@ describe("SummaryTabs", () => {
 
     const rail = screen.getByTestId("summary-tab-rail");
     expect(rail.className).toContain("sticky");
-    expect(rail.className).toContain(
-      "top-[var(--summary-tabs-sticky-top,73px)]",
-    );
+    expect(rail.className).toContain("top-0");
     expect(screen.getByRole("tablist").className).toContain("w-full");
   });
 
