@@ -1,58 +1,68 @@
 // youtubeai_chat_frontend/lib/services/model-routing.ts
 
 // Two-tier routing for YouTube summarization: token count gates the obvious
-// cases (very short → Haiku, very long → Sonnet), classifier handles the
-// middle zone, dimensions map to a model via rules. See
+// cases, the classifier handles the middle zone, and dimensions remain
+// available for observability. Every branch resolves to Codex Spark. See
 // docs/superpowers/specs/2026-04-19-model-routing-design.md for rationale.
 
 import type { PromptLocale } from "./summarize-cache";
 import { z } from "zod";
 import { callLlmJson } from "./llm-client";
 import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
-import { HAIKU, SONNET, type KnownModel } from "./models";
+import { HAIKU, SONNET, SPARK, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 // Re-export so existing consumers (route.ts, tests) keep their import path.
-export { HAIKU, SONNET };
+export { HAIKU, SONNET, SPARK };
 export type { KnownModel };
 
-// Rough estimator: one English word ≈ 1.3 Claude tokens. Good enough for
+// Rough estimator: one English word ≈ 1.3 tokens. Good enough for
 // routing thresholds; the actual tokenizer would add a gateway round trip we
 // don't need.
 export const TOKENS_PER_WORD = 1.3;
 
 // Chinese has no whitespace word boundaries — count CJK characters directly.
-// Claude's tokenizer averages ~1.5 tokens per CJK char in practice. Without
+// The gateway tokenizer averages ~1.5 tokens per CJK char in practice. Without
 // this, `split(/\s+/)` on a ZH transcript yields wordCount=1 for any length,
 // routing every Chinese video to `very_short` and (since the 15K char cap was
-// lifted) potentially blowing past Haiku's 200K context on long videos.
+// lifted) potentially exceeding the model's context on long videos.
 export const TOKENS_PER_ZH_CHAR = 1.5;
 
-// Below this we don't bother classifying — short content never shows a
-// noticeable Haiku vs Sonnet quality gap.
+// Below this we don't bother classifying — short content does not need the
+// additional classifier round trip.
 export const SHORT_TOKENS = 5_000;
 
-// Above this we force Sonnet. Haiku's context ceiling is 200K, so 150K
-// leaves prompt-overhead headroom AND matches the research finding that
-// Haiku drifts on long content.
+// Above this we skip classification for long content. The threshold leaves
+// prompt-overhead headroom while preserving the existing telemetry fence.
 export const LONG_TOKENS = 150_000;
 
 // Threshold used only when the classifier failed — we still want token
 // count to pick something reasonable.
 export const FALLBACK_HAIKU_TOKENS = 25_000;
 
-// Character budgets for prompt truncation (replaces the old 15_000 cap).
-// Roughly chars = tokens × 4 for English; CJK is denser (~1.5 tokens/char)
-// so these char limits correspond to far more tokens in ZH. Safe in practice
-// because LONG_TOKENS gates any transcript long enough to exceed Haiku's
-// context before it reaches the Haiku branch.
-export const HAIKU_CHAR_BUDGET = 720_000; // ≈ 180K EN tokens
-export const SONNET_CHAR_BUDGET = 2_000_000; // ≈ 500K EN tokens — cost guardrail, not context
+// Spark has a 128K context window. Keep the transcript prompt below 100K
+// estimated English tokens so the system prompt, title, and generated answer
+// have headroom.
+export const SPARK_CHAR_BUDGET = 400_000;
+export const SPARK_CJK_CHAR_BUDGET = 64_000;
+
+/** @deprecated Use SPARK_CHAR_BUDGET. */
+export const HAIKU_CHAR_BUDGET = SPARK_CHAR_BUDGET;
+/** @deprecated Use SPARK_CHAR_BUDGET. */
+export const SONNET_CHAR_BUDGET = SPARK_CHAR_BUDGET;
+
+/**
+ * Choose a transcript character budget that stays under Spark's context
+ * window for both English and the denser CJK tokenization path.
+ */
+export function getSparkCharBudget(language: "en" | "zh"): number {
+  return language === "zh" ? SPARK_CJK_CHAR_BUDGET : SPARK_CHAR_BUDGET;
+}
 
 // How much of the transcript to feed the classifier. 4K chars covers ~1K
 // tokens of English (≈650 words) or ~6K tokens of CJK/kana at our 1.5
 // tokens-per-char estimate (conservative for kana-heavy Japanese, which
-// tokenizes closer to 1:1) — enough signal for Haiku to classify style
+// tokenizes closer to 1:1) — enough signal for Spark to classify style
 // without materially inflating classifier cost or latency.
 export const CLASSIFIER_EXCERPT_CHARS = 4_000;
 
@@ -156,30 +166,30 @@ export function chooseModel(
   // the discriminated union so a future refactor can't silently leak a
   // leftover classifier result into a token-gate reason.
   if (metadata.tokens > LONG_TOKENS) {
-    return { model: SONNET, reason: "long_content", dimensions: null };
+    return { model: SPARK, reason: "long_content", dimensions: null };
   }
   if (metadata.tokens < SHORT_TOKENS) {
-    return { model: HAIKU, reason: "very_short", dimensions: null };
+    return { model: SPARK, reason: "very_short", dimensions: null };
   }
   if (classifier === null) {
     if (metadata.tokens < FALLBACK_HAIKU_TOKENS) {
-      return { model: HAIKU, reason: "classifier_failed_short", dimensions: null };
+      return { model: SPARK, reason: "classifier_failed_short", dimensions: null };
     }
-    return { model: SONNET, reason: "classifier_failed_long", dimensions: null };
+    return { model: SPARK, reason: "classifier_failed_long", dimensions: null };
   }
   if (classifier.density === "high") {
-    return { model: SONNET, reason: "high_density", dimensions: classifier };
+    return { model: SPARK, reason: "high_density", dimensions: classifier };
   }
   if (classifier.type === "lecture" || classifier.type === "news") {
-    return { model: SONNET, reason: "structured_fidelity", dimensions: classifier };
+    return { model: SPARK, reason: "structured_fidelity", dimensions: classifier };
   }
   if (classifier.structure === "rambling" && classifier.density === "low") {
-    return { model: HAIKU, reason: "low_density_casual", dimensions: classifier };
+    return { model: SPARK, reason: "low_density_casual", dimensions: classifier };
   }
-  return { model: HAIKU, reason: "default_haiku", dimensions: classifier };
+  return { model: SPARK, reason: "default_haiku", dimensions: classifier };
 }
 
-// 5s is the hard cap on classifier latency. Haiku classification of a ~1K
+// 5s is the hard cap on classifier latency. Spark classification of a ~1K
 // token prompt returns in <2s under normal load, so 5s leaves headroom for
 // gateway cold-start without letting a stuck classifier dominate end-to-end
 // summarization latency (classifier runs BEFORE the main LLM call).
@@ -204,7 +214,7 @@ export interface ClassifyContentOptions {
 }
 
 /**
- * Single Haiku call that classifies a transcript excerpt along three
+ * Single Spark call that classifies a transcript excerpt along three
  * dimensions. Returns `null` on any failure so routing degrades to the
  * token-count fallback — never throws.
  *
@@ -225,7 +235,7 @@ export async function classifyContent(
   let raw: string;
   try {
     raw = await callLlmJson({
-      model: HAIKU,
+      model: SPARK,
       prompt,
       timeoutMs: CLASSIFIER_TIMEOUT_MS,
       signal: options.signal,

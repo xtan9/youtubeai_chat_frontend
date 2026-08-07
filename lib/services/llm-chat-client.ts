@@ -1,6 +1,6 @@
 import "server-only";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import { SONNET, type KnownModel } from "./models";
+import { SPARK, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 export type ChatLlmEvent =
@@ -30,9 +30,10 @@ export async function* streamChatCompletion(
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
-  const explicitModel = options.model?.trim() || undefined;
-  const configuredModel = process.env.LLM_MODEL?.trim() || undefined;
-  const model = explicitModel ?? configuredModel ?? SONNET;
+  // Chat is intentionally pinned to Spark for every video and every turn.
+  // Do not let a stale deployment-level LLM_MODEL value silently route chat
+  // back to a different model after this rollout.
+  const model = SPARK;
 
   const response = await fetch(
     `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,

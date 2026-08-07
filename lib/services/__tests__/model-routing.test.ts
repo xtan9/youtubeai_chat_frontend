@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
+  getSparkCharBudget,
   getTranscriptMetadata,
+  SPARK_CHAR_BUDGET,
+  SPARK_CJK_CHAR_BUDGET,
   TOKENS_PER_WORD,
   TOKENS_PER_ZH_CHAR,
 } from "../model-routing";
@@ -61,6 +64,16 @@ import {
   type ClassifierResult,
   type TranscriptMetadata,
 } from "../model-routing";
+
+describe("getSparkCharBudget", () => {
+  it("keeps English transcripts near the 100K-token budget", () => {
+    expect(getSparkCharBudget("en")).toBe(SPARK_CHAR_BUDGET);
+  });
+
+  it("uses a denser budget for Chinese transcripts", () => {
+    expect(getSparkCharBudget("zh")).toBe(SPARK_CJK_CHAR_BUDGET);
+  });
+});
 
 function meta(tokens: number): TranscriptMetadata {
   return { tokens, wordCount: Math.round(tokens / 1.3) };
@@ -338,7 +351,7 @@ describe("classifyContent", () => {
 
     expect(callLlmJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-5.4-mini",
+        model: "gpt-5.3-codex-spark",
         timeoutMs: 5_000,
       })
     );

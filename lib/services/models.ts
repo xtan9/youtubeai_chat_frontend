@@ -11,12 +11,17 @@
 // enforcing it today — so reviewers should flag new gateway model
 // literals that bypass this file.
 
-// These legacy constant names are retained to keep the routing change small:
-// HAIKU is the low-cost path and SONNET is the quality path. Both values are
-// now explicit OpenAI models allowlisted by llm-gateway.
-export const HAIKU = "gpt-5.4-mini";
-export const SONNET = "gpt-5.6-sol";
+// YouTubeAI intentionally uses one model for both summaries and chat. The
+// gateway is CLIProxyAPI, which accepts the canonical Codex model ID below.
+export const SPARK = "gpt-5.3-codex-spark";
+
+// Backward-compatible aliases for legacy routing names. Both routes now use
+// the same Spark model; these are not separate model choices.
+/** @deprecated Use SPARK. */
+export const HAIKU = SPARK;
+/** @deprecated Use SPARK. */
+export const SONNET = SPARK;
 
 // The narrow union we guarantee internally. Arbitrary strings still flow
 // through optional params (env var overrides) via `KnownModel | (string & {})`.
-export type KnownModel = typeof HAIKU | typeof SONNET;
+export type KnownModel = typeof SPARK;

@@ -12,7 +12,7 @@ Browser ──> Next.js (Vercel)
              │    ├─ VPS /metadata     (detect video language + available caption codes)
              │    ├─ VPS /captions     (language-pinned caption extraction)
              │    ├─ VPS /transcribe   (Whisper fallback, audio → text)
-             │    └─ llm-gateway       (OpenAI-compatible Claude proxy)
+             │    └─ llm-gateway       (CLIProxyAPI OpenAI-compatible gateway)
              └─ Supabase (Auth + Postgres: videos, summaries, rate_limits, user_video_history)
 ```
 
@@ -32,7 +32,7 @@ Copy `.env.example` to `.env.local` and fill in:
 | `VPS_CAPTIONS_TIMEOUT_MS` | server only, optional | VPS captions timeout in milliseconds; values are bounded to a positive 60s maximum |
 | `LLM_GATEWAY_URL` | server only | OpenAI-compatible endpoint (e.g. `https://llm.betterr.me/v1`) |
 | `LLM_GATEWAY_API_KEY` | server only | Bearer token for the gateway |
-| `LLM_MODEL` | server only, optional | Legacy fallback for `streamLlmSummary` callers that don't pass an explicit model. The summarize route does NOT use this — see "Model routing" below. |
+| `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 
 ## Local development
@@ -108,11 +108,14 @@ The Stripe webhook plus all `/api/billing/*` routes and `/api/me/entitlements` a
 
 ## Model routing
 
-The summarize route picks between Claude Haiku 4.5 and Claude Sonnet 4.6 automatically per request. Routing happens in `lib/services/model-routing.ts`:
+The summarize and chat routes use `gpt-5.3-codex-spark` for every video. The
+gateway is CLIProxyAPI's OpenAI-compatible endpoint. The summary route still
+records the existing routing reasons for observability, but no video type is
+sent to a different model:
 
-1. **Token-count gate** — `tokens < 5K` → Haiku via `very_short`; `tokens > 150K` → Sonnet via `long_content`. Classifier is skipped in both cases.
-2. **Classifier (middle zone)** — first 4K chars of transcript + title sent to Haiku with a strict JSON schema prompt (`lib/prompts/routing-classifier.ts`). Returns `{density, type, structure}`.
-3. **Rules** map classifier dimensions to a model: `high_density` → Sonnet, `type ∈ {lecture, news}` → Sonnet, low-density rambling → Haiku, else `default_haiku`. First-match-wins; see `chooseModel` for the full table.
+1. **Token-count gate** — the existing thresholds preserve `very_short` and `long_content` telemetry.
+2. **Classifier (middle zone)** — the first 4K chars of transcript + title are sent to Spark with a strict JSON schema prompt (`lib/prompts/routing-classifier.ts`). Returns `{density, type, structure}`.
+3. **Single model** — every branch returns Spark, including lectures, news, casual videos, and long transcripts.
 4. **Graceful degradation** — if the classifier fails (timeout, malformed JSON, schema miss), routing falls back to token-count only (`classifier_failed_short`/`classifier_failed_long`). Caller-abort exits silently.
 
 Every request emits one structured log line for later analysis:
@@ -122,7 +125,7 @@ Every request emits one structured log line for later analysis:
   "event": "routing_decision",
   "youtubeUrl": "https://www.youtube.com/watch?v=abc",
   "userId": "...",
-  "model": "claude-haiku-4-5",
+  "model": "gpt-5.3-codex-spark",
   "reason": "default_haiku",
   "tokens": 18420,
   "wordCount": 14170,
@@ -144,7 +147,7 @@ lib/services/                       One module per external boundary
   vps-client.ts                     VPS /transcribe client (whisper, language-pinned)
   vps-metadata.ts                   VPS /metadata client (detected language + caption codes)
   llm-client.ts                     Streaming LLM gateway + callLlmJson helper
-  model-routing.ts                  Haiku vs Sonnet routing: metadata + classifier + rules
+  model-routing.ts                  Spark routing: metadata + classifier + telemetry reasons
   summarize-cache.ts                Supabase cache read/write
   rate-limit.ts                     Atomic per-user quota
   video-metadata.ts                 YouTube oEmbed (title/channel for Whisper path)

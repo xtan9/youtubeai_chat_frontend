@@ -12,7 +12,7 @@ export function buildSummarizationPrompt(
   const truncated = transcript.slice(0, charBudget);
   // Truncation used to be the common case at 15K chars; now that charBudget
   // is model-aware (hundreds of K), this log fires only for genuinely
-  // long content that's brushing up against Haiku/Sonnet practical limits.
+  // long content that's brushing up against Spark's context window.
   if (truncated.length < transcript.length) {
     logAppEvent("warn", "[summarization] transcript truncated to prompt budget", {
       errorId: "TRANSCRIPT_TRUNCATED",
