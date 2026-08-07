@@ -57,6 +57,7 @@ export type CacheWriteParams = VideoMetadata &
   SummaryBody & {
     readonly youtubeUrl: string;
     readonly userId?: string;
+    readonly smokeProEntitled?: boolean;
     readonly outputLanguage?: CachedOutputLanguage;
   };
 
@@ -394,7 +395,10 @@ export async function writeCachedSummary(
         cause: historyError,
       });
     }
-    const tier = await getUserTier(params.userId);
+    const tier = await getUserTier(
+      params.userId,
+      params.smokeProEntitled === true,
+    );
     if (tier === "free") {
       await enforceFreeHistoryCap(supabase, params.userId, FREE_LIMITS.historyItems);
     }

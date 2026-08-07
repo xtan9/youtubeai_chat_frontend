@@ -58,10 +58,19 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
-function resolvedPrincipal(userId: string, isAnonymous = false) {
+function resolvedPrincipal(
+  userId: string,
+  isAnonymous = false,
+  smokeProEntitled?: boolean,
+) {
   return {
     kind: "resolved" as const,
-    principal: { userId, isAnonymous, email: isAnonymous ? "" : "user@example.com" },
+    principal: {
+      userId,
+      isAnonymous,
+      email: isAnonymous ? "" : "user@example.com",
+      smokeProEntitled,
+    },
   };
 }
 
@@ -648,6 +657,7 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkChatEntitlement).toHaveBeenCalledWith(
       "u1",
       "video-uuid",
+      undefined,
     );
     expect(mocks.loadGrounding).toHaveBeenCalledTimes(1);
     expect(mocks.appendChatTurn).toHaveBeenCalledWith(
@@ -657,6 +667,26 @@ describe("POST /api/chat/stream", () => {
         userMessage: "Hi",
         assistantMessage: "Hello world.",
       })
+    );
+  });
+
+  it("propagates a trusted smoke Pro entitlement to the chat quota check", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("smoke-u1", false, true),
+    );
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "done" as const };
+    });
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "Hi" }),
+    );
+    await readSse(res.body!);
+
+    expect(mocks.checkChatEntitlement).toHaveBeenCalledWith(
+      "smoke-u1",
+      "video-uuid",
+      true,
     );
   });
 
@@ -691,7 +721,11 @@ describe("POST /api/chat/stream", () => {
     const res = await POST(makeRequest({ youtube_url: VALID_URL, message: "Hi" }));
     await readSse(res.body!);
 
-    expect(mocks.checkChatEntitlement).toHaveBeenCalledWith("u1", "video-uuid");
+    expect(mocks.checkChatEntitlement).toHaveBeenCalledWith(
+      "u1",
+      "video-uuid",
+      undefined,
+    );
     expect(mocks.listChatMessages).not.toHaveBeenCalled();
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();

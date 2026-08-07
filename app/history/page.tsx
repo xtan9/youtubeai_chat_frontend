@@ -9,6 +9,7 @@ import { HistoryFetchError } from "@/app/components/history/history-fetch-error"
 import { HistoryPagination } from "./components/history-pagination";
 import { HistoryAnonEmpty } from "@/components/paywall/HistoryAnonEmpty";
 import { HistoryFreeBanner } from "@/components/paywall/HistoryFreeBanner";
+import { hasSmokeProEntitlement } from "@/lib/auth/smoke-account";
 
 export const metadata: Metadata = {
   title: "Your summaries - YouTube AI Chat",
@@ -40,7 +41,7 @@ export default async function HistoryPage({
     );
   }
 
-  const tier = await getUserTier(user.id);
+  const tier = await getUserTier(user.id, hasSmokeProEntitlement(user));
 
   const params = await searchParams;
   const parsed = parseInt(params.page ?? "1", 10);

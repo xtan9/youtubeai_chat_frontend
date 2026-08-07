@@ -61,6 +61,7 @@ describe("resolveRequestPrincipal", () => {
         userId: "user-123",
         isAnonymous: false,
         email: "  Person@Example.COM  ",
+        smokeProEntitled: false,
       },
     });
     expect(Object.keys(result)).toEqual(["kind", "principal"]);
@@ -69,6 +70,7 @@ describe("resolveRequestPrincipal", () => {
       "userId",
       "isAnonymous",
       "email",
+      "smokeProEntitled",
     ]);
   });
 
@@ -94,6 +96,7 @@ describe("resolveRequestPrincipal", () => {
         userId: "anon-123",
         isAnonymous: true,
         email: "",
+        smokeProEntitled: false,
       },
     });
   });
@@ -116,6 +119,7 @@ describe("resolveRequestPrincipal", () => {
         userId: "user-123",
         isAnonymous: false,
         email: "  Person@Example.COM  ",
+        smokeProEntitled: false,
       },
     });
   });
@@ -140,7 +144,35 @@ describe("resolveRequestPrincipal", () => {
         userId: "user-no-email",
         isAnonymous: false,
         email: null,
+        smokeProEntitled: false,
       },
+    });
+  });
+
+  it("derives the smoke Pro entitlement only from trusted app metadata", async () => {
+    configureClient();
+    mockGetUser.mockResolvedValue({
+      data: {
+        user: {
+          ...registeredUser,
+          app_metadata: {
+            is_smoke_account: true,
+            smoke_entitlement: "pro",
+          },
+          user_metadata: {
+            is_smoke_account: false,
+            smoke_entitlement: "free",
+          },
+        },
+      },
+      error: null,
+    });
+
+    const result = await resolveRequestPrincipal({ source: DEFAULT_SOURCE });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      principal: { smokeProEntitled: true },
     });
   });
 

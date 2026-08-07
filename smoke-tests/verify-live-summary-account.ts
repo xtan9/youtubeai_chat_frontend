@@ -1,5 +1,8 @@
 import { createClient, type User } from "@supabase/supabase-js";
-import { isSmokeAccount } from "../lib/auth/smoke-account";
+import {
+  hasSmokeProEntitlement,
+  isSmokeAccount,
+} from "../lib/auth/smoke-account";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -61,25 +64,14 @@ async function main(): Promise<void> {
   if (user.app_metadata?.is_admin === true) {
     throw new Error("live Summary account must not be marked administrator");
   }
-
-  const { data: subscription, error: subscriptionError } = await client
-    .from("user_subscriptions")
-    .select("tier")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (subscriptionError) {
+  if (!hasSmokeProEntitlement(user)) {
     throw new Error(
-      `live Summary entitlement lookup failed: ${subscriptionError.message}`,
-    );
-  }
-  if (subscription?.tier !== "pro") {
-    throw new Error(
-      "live Summary account must have an approved Pro entitlement",
+      "live Summary account is missing the trusted smoke-only Pro entitlement",
     );
   }
 
   console.log(
-    "Dedicated live Summary Smoke Account verified: distinct, trusted, non-admin, and Pro-entitled.",
+    "Dedicated live Summary Smoke Account verified: distinct, trusted, non-admin, and smoke-Pro-entitled.",
   );
 }
 

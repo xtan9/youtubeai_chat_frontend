@@ -127,7 +127,7 @@ export async function POST(request: Request) {
   }
 
   const { principal } = principalResult;
-  const { userId, isAnonymous } = principal;
+  const { userId, isAnonymous, smokeProEntitled } = principal;
 
   const rateLimit = await checkRateLimit(userId, isAnonymous);
   // Bind the user + URL to the bypass in one log line so dashboards can
@@ -194,7 +194,11 @@ export async function POST(request: Request) {
       };
     }
   } else {
-    entitlement = await checkSummaryEntitlement({ userId, isAnon: false });
+    entitlement = await checkSummaryEntitlement({
+      userId,
+      isAnon: false,
+      smokeProEntitled,
+    });
   }
 
   if (entitlement.reason === "fail_open") {
@@ -604,6 +608,7 @@ export async function POST(request: Request) {
                 transcribeTimeSeconds: transcribeSeconds,
                 summarizeTimeSeconds: summarizeSecondsFinal,
                 userId,
+                smokeProEntitled,
                 outputLanguage: outputLanguageCode ?? null,
               });
             } catch (err) {

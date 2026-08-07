@@ -15,16 +15,18 @@ Maintain exactly three dedicated accounts for this workflow:
   non-administrator Smoke Account used for quota/paywall and session-policy
   coverage.
 - `TEST_LIVE_SUMMARY_EMAIL` / `TEST_LIVE_SUMMARY_PASSWORD`: a separate
-  non-administrator Smoke Account with an approved successful-summary
-  entitlement (currently `user_subscriptions.tier = 'pro'`) used only for
-  live Summary journeys.
+  non-administrator Smoke Account with the trusted smoke-only entitlement
+  `app_metadata.smoke_entitlement = 'pro'`, used only for live Summary
+  journeys. Do not create or modify a Stripe subscription row for it.
 
 All three accounts must have the trusted service-managed Auth application
-metadata marker `app_metadata.is_smoke_account = true`. The administrator
-account must remain in the production administrator allowlist; both
-non-administrator accounts must remain outside it. The marker is not
-user-editable metadata and does not grant authorization, entitlements, or
-quota exceptions.
+metadata marker `app_metadata.is_smoke_account = true`. Only the live-summary
+account also has `app_metadata.smoke_entitlement = 'pro'`; the application
+honors that entitlement only when both trusted markers are present. The
+administrator account must remain in the production administrator allowlist;
+both non-administrator accounts must remain outside it. Neither marker is
+user-editable, and the Smoke Account marker alone does not grant
+authorization, entitlements, or quota exceptions.
 
 When provisioning or rotating an account:
 
@@ -36,8 +38,8 @@ When provisioning or rotating an account:
 3. Update the six protected GitHub Actions credential secrets without
    displaying their values. Keep the secret descriptions explicit: dedicated
    synthetic Smoke Account only; personal, employee, customer, or other human
-   accounts are forbidden. The live-summary account must have its approved
-   successful-summary entitlement before the workflow is enabled.
+   accounts are forbidden. The live-summary account must have both trusted
+   application-metadata markers before the workflow is enabled.
 4. Run the production smoke workflow manually once. Confirm the redacted
    session-policy evidence artifact reports all cases passed and password
    restoration completed.
@@ -59,7 +61,7 @@ order:
 3. The live Summary browser journeys in a dedicated no-retry phase, using the
    separate successful-summary account. These journeys exercise the
    production Summary and authorization paths; any public terminal failure
-   state, including an unexpected quota response for the Pro-entitled account,
+   state, including an unexpected quota response for the smoke-Pro account,
    ends the wait immediately. Quota/paywall behavior remains covered by the
    Free account in the non-live browser smoke cases.
 4. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
@@ -129,9 +131,10 @@ or protocol state is a real production-smoke failure for the separate
 successful-summary account. The live Summary phase must report it promptly,
 without retrying the full journey. The Free account's quota/paywall result is
 expected only in quota-specific coverage; do not reuse it for live Summary
-success checks. Do not reset usage, upgrade a Smoke Account, or add a quota
-exception merely to make the smoke run green; any entitlement change requires
-a separate product or billing decision.
+success checks. Do not reset usage, modify Stripe subscription data, or grant
+the smoke-only entitlement to a human account merely to make the smoke run
+green. Any change to the trusted entitlement marker requires an explicit
+production-operations decision.
 
 If a password restore, marker verification, or cleanup step fails, treat the
 Smoke Account as not ready. Do not start the next hourly run until a maintainer

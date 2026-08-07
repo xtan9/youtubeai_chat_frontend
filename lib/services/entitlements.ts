@@ -28,11 +28,20 @@ export function getYearMonthUtc(d: Date = new Date()): string {
 }
 
 /**
- * Reads `user_subscriptions.tier` directly. Fail-open to 'free' on infra
- * errors — preferable to 500-ing a legitimate request, and the worst case
- * is a paying user briefly hitting free caps until the read recovers.
+ * Honors a trusted smoke-only entitlement, then reads
+ * `user_subscriptions.tier` for every other account. Fail-open to 'free' on
+ * infra errors — preferable to 500-ing a legitimate request, and the worst
+ * case is a paying user briefly hitting free caps until the read recovers.
  */
-export async function getUserTier(userId: string): Promise<"free" | "pro"> {
+export async function getUserTier(
+  userId: string,
+  smokeProEntitled = false,
+): Promise<"free" | "pro"> {
+  // This boolean is derived from trusted Auth app_metadata by server code;
+  // request input can never set it. Stripe remains the sole writer of
+  // customer subscription tiers in user_subscriptions.
+  if (smokeProEntitled) return "pro";
+
   const supabase = getServiceRoleClient();
   if (!supabase) {
     if (process.env.NODE_ENV === "production") {
@@ -61,7 +70,7 @@ export async function getUserTier(userId: string): Promise<"free" | "pro"> {
 }
 
 type CheckSummaryArgs =
-  | { userId: string; isAnon: false }
+  | { userId: string; isAnon: false; smokeProEntitled?: boolean }
   | { anonId: string; isAnon: true };
 
 export async function checkSummaryEntitlement(
@@ -70,13 +79,17 @@ export async function checkSummaryEntitlement(
   if (args.isAnon) {
     return checkAnonSummaryEntitlement(args.anonId);
   }
-  return checkSignedInSummaryEntitlement(args.userId);
+  return checkSignedInSummaryEntitlement(
+    args.userId,
+    args.smokeProEntitled === true,
+  );
 }
 
 async function checkSignedInSummaryEntitlement(
-  userId: string
+  userId: string,
+  smokeProEntitled: boolean,
 ): Promise<EntitlementResult> {
-  const tier = await getUserTier(userId);
+  const tier = await getUserTier(userId, smokeProEntitled);
   if (tier === "pro") {
     return { tier: "pro", allowed: true, remaining: Number.POSITIVE_INFINITY, reason: "unlimited" };
   }
@@ -203,9 +216,10 @@ async function checkAnonSummaryEntitlement(
  */
 export async function checkChatEntitlement(
   userId: string,
-  videoId: string
+  videoId: string,
+  smokeProEntitled = false,
 ): Promise<EntitlementResult> {
-  const tier = await getUserTier(userId);
+  const tier = await getUserTier(userId, smokeProEntitled);
   if (tier === "pro") {
     return { tier: "pro", allowed: true, remaining: Number.POSITIVE_INFINITY, reason: "unlimited" };
   }
