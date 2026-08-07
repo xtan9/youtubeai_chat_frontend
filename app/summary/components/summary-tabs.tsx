@@ -26,9 +26,10 @@ export interface SummaryTabsHandle {
   /**
    * Saves the current tab's document position before another interaction
    * temporarily reveals content above the tab rail (for example, a
-   * Transcript timestamp revealing the Video).
+   * Transcript timestamp revealing the Video). A caller can provide the
+   * position captured before asynchronous activation work begins.
    */
-  preserveActiveScrollPosition: () => void;
+  preserveActiveScrollPosition: (position?: number) => void;
 }
 
 interface SummaryTabsProps {
@@ -96,9 +97,9 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
     useImperativeHandle(
       ref,
       () => ({
-        preserveActiveScrollPosition: () => {
+        preserveActiveScrollPosition: (position = window.scrollY) => {
           if (!isMobile) return;
-          scrollPositionsRef.current[active] = window.scrollY;
+          scrollPositionsRef.current[active] = position;
           preservedBeforeRevealRef.current = active;
         },
       }),
@@ -152,7 +153,7 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
     const setTab = useCallback(
       (value: string) => {
         if (!isValidTab(value)) return;
-        if (isMobile) {
+        if (isMobile && preservedBeforeRevealRef.current !== active) {
           scrollPositionsRef.current[active] = window.scrollY;
         }
         const next = new URLSearchParams(searchParams.toString());

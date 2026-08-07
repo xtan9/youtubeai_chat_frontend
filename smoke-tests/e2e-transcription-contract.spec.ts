@@ -152,11 +152,18 @@ async function submitVideoUrl(page: Page) {
   await page.waitForURL(/\/summary\?/);
 }
 
+async function openSummaryUrl(page: Page) {
+  const summaryUrl = new URL("/summary", BASE_URL);
+  summaryUrl.searchParams.set("url", VIDEO_URL);
+  await page.goto(summaryUrl.toString(), { waitUntil: "domcontentloaded" });
+}
+
 async function mockSuccessfulJourney(
   page: Page,
   scenario: TranscriptScenario,
   options: {
     readonly cached?: boolean;
+    readonly responseDelayMs?: number;
     readonly transcriptMode?: TranscriptWireMode;
   } = {},
 ) {
@@ -173,6 +180,11 @@ async function mockSuccessfulJourney(
       youtube_url: VIDEO_URL,
       include_transcript: true,
     });
+    if (options.responseDelayMs) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, options.responseDelayMs),
+      );
+    }
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream",
@@ -332,6 +344,33 @@ async function expectUsableTranscript(
   ).toBeVisible();
 }
 
+async function expectFullVideoAtPageTop(page: Page) {
+  const videoRegion = page.getByTestId("summary-video-region");
+  await expect
+    .poll(async () => page.evaluate(() => window.scrollY), { timeout: 3_000 })
+    .toBeLessThanOrEqual(1);
+
+  const [headerBox, videoBox] = await Promise.all([
+    page.locator("header").first().boundingBox(),
+    videoRegion.boundingBox(),
+  ]);
+  expect(headerBox).not.toBeNull();
+  expect(videoBox).not.toBeNull();
+  expect(videoBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height);
+  expect(videoBox!.y + videoBox!.height).toBeLessThanOrEqual(844);
+}
+
+async function expectMobileVideoAspectRatio(page: Page) {
+  const iframe = page.getByTestId("summary-video-region").locator("iframe");
+  await expect
+    .poll(async () => {
+      const box = await iframe.boundingBox();
+      if (!box || box.height === 0) return Number.POSITIVE_INFINITY;
+      return Math.abs(box.width / box.height - 16 / 9);
+    })
+    .toBeLessThan(0.02);
+}
+
 test("caption success flows from URL to Transcript, Summary, and Video Chat", async ({
   page,
 }) => {
@@ -395,12 +434,9 @@ test("mobile Summary workspace keeps Video first and navigates three sticky tabs
   });
   await expect
     .poll(async () => {
-      const [headerBox, railBox] = await Promise.all([
-        page.locator("header").first().boundingBox(),
-        tabRail.boundingBox(),
-      ]);
-      if (!headerBox || !railBox) return Number.POSITIVE_INFINITY;
-      return Math.abs(railBox.y - (headerBox.y + headerBox.height));
+      const railBox = await tabRail.boundingBox();
+      if (!railBox) return Number.POSITIVE_INFINITY;
+      return Math.abs(railBox.y);
     })
     .toBeLessThanOrEqual(1);
 
@@ -423,6 +459,74 @@ test("mobile Summary workspace keeps Video first and navigates three sticky tabs
     "data-state",
     "active",
   );
+});
+
+test("mobile completed Summary reload settles at the top with the full Video visible", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS, {
+    responseDelayMs: 500,
+  });
+  await openSummaryUrl(page);
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expectMobileVideoAspectRatio(page);
+
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expectFullVideoAtPageTop(page);
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+
+  await expectFullVideoAtPageTop(page);
+  await page.waitForTimeout(500);
+  await expectFullVideoAtPageTop(page);
+});
+
+test("mobile Transcript timestamp reveals the full Video from the page top", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS);
+  await openSummaryUrl(page);
+  await expect(page.getByTestId("summary-results")).toBeVisible();
+  await expectMobileVideoAspectRatio(page);
+
+  await page.getByRole("tab", { name: "Transcript" }).click();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const timestampButton = page.getByRole("button", { name: "Jump to 00:45" });
+  await timestampButton.scrollIntoViewIfNeeded();
+  const transcriptScrollPosition = await page.evaluate(() => window.scrollY);
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(
+          (position) => window.scrollTo(0, position),
+          transcriptScrollPosition,
+        );
+        await timestampButton.click();
+        return page.evaluate(() => window.scrollY);
+      },
+      { timeout: 15_000, intervals: [250] },
+    )
+    .toBeLessThanOrEqual(1);
+
+  await expectFullVideoAtPageTop(page);
+  await page.getByRole("tab", { name: "Summary" }).click();
+  await expect(page.getByRole("tab", { name: "Summary" })).toHaveAttribute(
+    "data-state",
+    "active",
+  );
+  await page.getByRole("tab", { name: "Transcript" }).click();
+  await expect(page.getByRole("tab", { name: "Transcript" })).toHaveAttribute(
+    "data-state",
+    "active",
+  );
+  await expect
+    .poll(async () => page.evaluate(() => window.scrollY))
+    .toBe(transcriptScrollPosition);
 });
 
 test("documented Whisper fallback keeps a multilingual timestamped Transcript usable", async ({

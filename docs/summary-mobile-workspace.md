@@ -15,6 +15,8 @@ the Video or Transcript.
 - The Video remains mounted while the Learner switches content panels.
 - The Video uses the existing 16:9 presentation and mobile page gutter and
   scrolls away normally.
+- Reloading a completed result starts at the page top with the full Video
+  visible; processing updates never pull the phone viewport down the page.
 - Summary, Transcript, and Chat are equal tabs on phones. Summary is the default.
 - Once the Video scrolls away, the tab rail pins beneath the app header.
 - Only the active panel is visible.
@@ -28,8 +30,9 @@ the Video or Transcript.
   it will appear when processing finishes.
 - Failed and cancelled Transcript states explain the outcome and provide the
   Summary retry path. Existing unavailable and not-requested explanations remain.
-- Selecting a Timestamp Citation seeks and plays the Video, smoothly reveals it,
-  and preserves the Learner's Transcript position.
+- Selecting a Timestamp Citation seeks and plays the Video, smoothly returns
+  the phone page to the top so the full Video is visible, and preserves the
+  Learner's Transcript position.
 - Chat remains unavailable until the Summary Run succeeds. A permanently locked
   `?tab=chat` deep link returns to Summary.
 - Chat uses the available phone viewport beneath the pinned tabs, keeps messages

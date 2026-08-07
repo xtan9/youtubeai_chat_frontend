@@ -177,7 +177,7 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
-  it("reveals the Video when a Chat timestamp is activated on mobile", () => {
+  it("reveals the full Video from page top when a Chat timestamp is activated on mobile", () => {
     setViewportWidth(390);
     navigationSearchParams.value = new URLSearchParams({ tab: "chat" });
     mockUseYouTubeSummarizer.mockReturnValue({
@@ -187,13 +187,12 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
 
     render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
 
-    const scrollIntoView = vi.fn();
-    screen.getByTestId("summary-video-region").scrollIntoView = scrollIntoView;
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     fireEvent.click(screen.getByTestId("chat-timestamp"));
 
-    expect(scrollIntoView).toHaveBeenCalledWith({
+    expect(scrollTo).toHaveBeenCalledWith({
+      top: 0,
       behavior: "smooth",
-      block: "start",
     });
   });
 
