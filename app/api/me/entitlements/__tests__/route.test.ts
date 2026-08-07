@@ -114,6 +114,27 @@ describe("GET /api/me/entitlements", () => {
     });
   });
 
+  it("passes the trusted smoke entitlement into effective-tier resolution", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "smoke-u1",
+        isAnonymous: false,
+        email: "smoke@example.test",
+        smokeProEntitled: true,
+      },
+    });
+    mocks.getUserTier.mockResolvedValue("pro");
+    mocks.fromSub.mockResolvedValue({ data: null, error: null });
+
+    const { GET } = await import("../route");
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(mocks.getUserTier).toHaveBeenCalledWith("smoke-u1", true);
+    expect((await res.json()).tier).toBe("pro");
+  });
+
   it("returns free tier with current monthly + history counts", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",

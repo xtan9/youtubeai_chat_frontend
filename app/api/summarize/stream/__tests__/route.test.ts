@@ -100,13 +100,18 @@ const DEFAULT_SEGMENTS = [
   { text: "captioned transcript", start: 0, duration: 10 },
 ] as const;
 
-function resolvedPrincipal(userId: string, isAnonymous = false) {
+function resolvedPrincipal(
+  userId: string,
+  isAnonymous = false,
+  smokeProEntitled?: boolean,
+) {
   return {
     kind: "resolved" as const,
     principal: {
       userId,
       isAnonymous,
       email: isAnonymous ? "" : "user@example.com",
+      smokeProEntitled,
     },
   };
 }
@@ -406,6 +411,22 @@ describe("POST /api/summarize/stream", () => {
       });
       expect(response.headers.get("X-Error-ID")).toBe("QUOTA_EXCEEDED");
       expect(mocks.acquireTranscript).not.toHaveBeenCalled();
+    });
+
+    it("propagates a trusted smoke Pro entitlement to the summary quota check", async () => {
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("smoke-u1", false, true),
+      );
+      mocks.getCachedSummary.mockResolvedValue(cachedSummary());
+
+      const response = await POST(makeRequest({ youtube_url: VALID_URL }));
+      await readEvents(response);
+
+      expect(mocks.checkSummaryEntitlement).toHaveBeenCalledWith({
+        userId: "smoke-u1",
+        isAnon: false,
+        smokeProEntitled: true,
+      });
     });
 
     it("returns the anonymous upgrade response and minted cookie", async () => {

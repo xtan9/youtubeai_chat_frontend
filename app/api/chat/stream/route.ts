@@ -180,7 +180,7 @@ export async function POST(request: Request) {
     return jsonError(401, "Unauthorized", requestId, "AUTH_REQUIRED");
   }
 
-  const { userId, isAnonymous } = principalResult.principal;
+  const { userId, isAnonymous, smokeProEntitled } = principalResult.principal;
 
   // Never spend upstream tokens for anonymous users. The former hero-demo
   // exception was an unmetered public relay: callers could rotate anonymous
@@ -278,7 +278,11 @@ export async function POST(request: Request) {
   const videoId = grounding.transcript.videoId;
 
   if (entitlementTarget) {
-    const entitlement = await checkChatEntitlement(userId, entitlementTarget.videoId);
+    const entitlement = await checkChatEntitlement(
+      userId,
+      entitlementTarget.videoId,
+      smokeProEntitled,
+    );
     if (entitlement.reason === "fail_open") {
       logAppEvent("error", "[chat/stream] entitlement bypassed (fail-open)", {
         errorId: "ENTITLEMENT_FAIL_OPEN_REQUEST",

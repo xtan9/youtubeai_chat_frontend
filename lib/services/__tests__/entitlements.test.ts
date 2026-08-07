@@ -66,6 +66,12 @@ describe("getUserTier", () => {
     expect(await getUserTier("u1")).toBe("pro");
   });
 
+  it("returns 'pro' for a trusted smoke entitlement without a subscription read", async () => {
+    const { getUserTier } = await loadFreshModule();
+    expect(await getUserTier("smoke-u1", true)).toBe("pro");
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it("returns 'free' on infra error (fail-open to free)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     stubRow(null, { code: "PGRST301" });
@@ -99,6 +105,18 @@ describe("checkSummaryEntitlement (signed-in users)", () => {
     const { checkSummaryEntitlement } = await loadFreshModule();
     const r = await checkSummaryEntitlement({ userId: "u1", isAnon: false });
     expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+  });
+
+  it("Smoke Pro: returns unlimited without reading or incrementing quota", async () => {
+    const { checkSummaryEntitlement } = await loadFreshModule();
+    const r = await checkSummaryEntitlement({
+      userId: "smoke-u1",
+      isAnon: false,
+      smokeProEntitled: true,
+    });
+    expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
   it("Free under cap: allowed=true, remaining=limit-count", async () => {
@@ -266,6 +284,13 @@ describe("checkChatEntitlement", () => {
     const { checkChatEntitlement } = await loadFreshModule();
     const r = await checkChatEntitlement("u1", "summary-1");
     expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+  });
+
+  it("Smoke Pro: unlimited without subscription or chat-count reads", async () => {
+    const { checkChatEntitlement } = await loadFreshModule();
+    const r = await checkChatEntitlement("smoke-u1", "summary-1", true);
+    expect(r).toMatchObject({ tier: "pro", allowed: true, reason: "unlimited" });
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("Free under cap: allowed", async () => {

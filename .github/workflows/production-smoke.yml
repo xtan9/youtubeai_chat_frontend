@@ -56,7 +56,7 @@ jobs:
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
       # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). Live Summary journeys
-      # use a separate Pro-entitled non-admin Smoke Account. The Free
+      # use a separate smoke-Pro-entitled non-admin Smoke Account. The Free
       # TEST_NON_ADMIN account remains available to quota/paywall coverage and
       # session-policy checks. Live Summary journeys run without retry: one
       # full live timeout is already strong outage evidence and must not spend

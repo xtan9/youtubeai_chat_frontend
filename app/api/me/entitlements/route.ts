@@ -61,7 +61,11 @@ export async function GET() {
   }
 
   // ─── Signed-in branch ──────────────────────────────────────────
-  const { userId, isAnonymous: isAnonAuth } = principalResult.principal;
+  const {
+    userId,
+    isAnonymous: isAnonAuth,
+    smokeProEntitled,
+  } = principalResult.principal;
   const sr = getServiceRoleClient();
 
   if (!sr && process.env.NODE_ENV === "production") {
@@ -71,7 +75,7 @@ export async function GET() {
     });
   }
 
-  const tier = await getUserTier(userId);
+  const tier = await getUserTier(userId, smokeProEntitled);
 
   // Pro: even if service-role is briefly missing, return tier:"pro" with
   // unlimited caps. We won't be able to fetch subscription metadata, but
