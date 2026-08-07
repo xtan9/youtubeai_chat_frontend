@@ -1,7 +1,7 @@
 import "server-only";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { callLlmJson } from "./llm-client";
-import { SONNET, type KnownModel } from "./models";
+import { SPARK, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 // Validated via zod so a future schema-drift in either the LLM output
 // OR a hand-edit of the cached row surfaces as a parse error rather
@@ -126,7 +126,7 @@ export async function generateSuggestedFollowups(
 ): Promise<SuggestedFollowups> {
   const prompt = FOLLOWUPS_PROMPT.replace("{{SUMMARY}}", options.summary);
   const raw = await callLlmJson({
-    model: options.model ?? SONNET,
+    model: options.model ?? SPARK,
     prompt,
     timeoutMs: options.timeoutMs,
     signal: options.signal,

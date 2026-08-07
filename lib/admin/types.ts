@@ -15,7 +15,13 @@ export interface AdminPrincipal {
   readonly email: string;
 }
 
-export type TranscriptModel = "claude-opus-4-7" | "claude-sonnet-4-6" | "claude-haiku-4-5";
+// Spark is the current production model. Keep historical Claude IDs so
+// previously stored summaries remain representable in the admin console.
+export type TranscriptModel =
+  | "gpt-5.3-codex-spark"
+  | "claude-opus-4-7"
+  | "claude-sonnet-4-6"
+  | "claude-haiku-4-5";
 
 export function assertNever(x: never): never {
   throw new Error(`unhandled value: ${String(x)}`);

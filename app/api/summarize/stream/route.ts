@@ -14,9 +14,7 @@ import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import { streamLlmSummary } from "@/lib/services/llm-client";
 import {
   CLASSIFIER_EXCERPT_CHARS,
-  HAIKU_CHAR_BUDGET,
-  SONNET_CHAR_BUDGET,
-  HAIKU,
+  getSparkCharBudget,
   LONG_TOKENS,
   SHORT_TOKENS,
   chooseModel,
@@ -476,11 +474,9 @@ export async function POST(request: Request) {
           dimensions: decision.dimensions,
         });
 
-        // Model-aware truncation: Haiku's 200K context can't absorb the same
-        // transcript length Sonnet's 1M can. Budgets exported from
-        // model-routing.ts — replaces the old 15K-char cap for all models.
-        const charBudget =
-          decision.model === HAIKU ? HAIKU_CHAR_BUDGET : SONNET_CHAR_BUDGET;
+        // Spark has a 128K context window. Keep enough headroom for the
+        // summary instructions and generated answer after the transcript.
+        const charBudget = getSparkCharBudget(language);
         const prompt = buildSummarizationPrompt(
           transcriptText,
           charBudget,

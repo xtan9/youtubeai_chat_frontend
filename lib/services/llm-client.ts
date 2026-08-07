@@ -1,5 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
-import { SONNET, type KnownModel } from "./models";
+import { SPARK, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 export type LlmEvent =
@@ -33,9 +33,9 @@ export interface LlmStreamOptions {
 const MAX_MALFORMED_WARNINGS = 1;
 
 // Shared so cache-write and gateway request don't drift. Referenced against
-// the shared `SONNET` constant so a model-ID bump in `./models` flows here
+// the shared `SPARK` constant so a model-ID bump in `./models` flows here
 // automatically — not duplicated as a string literal.
-export const DEFAULT_LLM_MODEL: KnownModel = SONNET;
+export const DEFAULT_LLM_MODEL: KnownModel = SPARK;
 
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion

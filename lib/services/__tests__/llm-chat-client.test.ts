@@ -57,6 +57,10 @@ describe("streamChatCompletion", () => {
       { type: "delta", text: "lo" },
       { type: "done" },
     ]);
+    const requestBody = JSON.parse(
+      fetchMock.mock.calls[0]?.[1]?.body as string,
+    ) as { model?: string };
+    expect(requestBody.model).toBe("gpt-5.3-codex-spark");
   });
 
   it("throws on non-2xx", async () => {

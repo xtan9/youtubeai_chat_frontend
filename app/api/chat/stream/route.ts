@@ -32,10 +32,20 @@ import { logAppEvent, videoIdForLog } from "@/lib/observability";
 // step.
 export const maxDuration = 120;
 
-// Hard cap on transcript size to keep prompt sane. ~4 chars/token; 600k
-// chars ≈ 150k tokens leaves headroom under the configured model context
-// after the system instructions and chat history are added.
-const TRANSCRIPT_HARD_CAP_CHARS = 600_000;
+// Spark has a 128K context window. 400K transcript characters are roughly
+// 100K English tokens, leaving room for the system prompt, summary, history,
+// and the current turn.
+const TRANSCRIPT_HARD_CAP_CHARS = 400_000;
+const CJK_TRANSCRIPT_HARD_CAP_CHARS = 64_000;
+const CJK_CHAR_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g;
+
+function transcriptHardCapChars(transcript: string): number {
+  const cjkChars = transcript.match(CJK_CHAR_REGEX)?.length ?? 0;
+  const cjkRatio = cjkChars / Math.max(transcript.length, 1);
+  return cjkRatio >= 0.2
+    ? CJK_TRANSCRIPT_HARD_CAP_CHARS
+    : TRANSCRIPT_HARD_CAP_CHARS;
+}
 
 const USER_ERROR_GENERIC =
   "Something went wrong answering your question. Please try again.";
@@ -307,7 +317,7 @@ export async function POST(request: Request) {
   const transcriptText = grounding.transcript.segments
     .map((s) => `${formatTimestamp(s.start)} ${s.text}`)
     .join("\n");
-  if (transcriptText.length > TRANSCRIPT_HARD_CAP_CHARS) {
+  if (transcriptText.length > transcriptHardCapChars(transcriptText)) {
     return jsonError(
       413,
       USER_ERROR_TRANSCRIPT_TOO_LONG,
