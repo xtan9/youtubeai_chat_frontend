@@ -23,22 +23,26 @@ describe("ChatMessage", () => {
 
   it("renders assistant timestamps as clickable chips that seek the player", () => {
     const seekTo = vi.fn();
+    const onTimestampActivated = vi.fn();
     render(
       <PlayerRefProvider>
         <PlayerRegister seekTo={seekTo} />
         <ChatMessage
           role="assistant"
           content="They explain it [4:32] very clearly."
+          onTimestampActivated={onTimestampActivated}
         />
       </PlayerRefProvider>
     );
     const chip = screen.getByRole("button", { name: /Seek video to \[4:32\]/i });
     fireEvent.click(chip);
     expect(seekTo).toHaveBeenCalledWith(4 * 60 + 32, true);
+    expect(onTimestampActivated).toHaveBeenCalledTimes(1);
   });
 
   it("renders timestamp citations as disabled when Transcript timing is unavailable", () => {
     const seekTo = vi.fn();
+    const onTimestampActivated = vi.fn();
     render(
       <PlayerRefProvider>
         <PlayerRegister seekTo={seekTo} />
@@ -46,6 +50,7 @@ describe("ChatMessage", () => {
           role="assistant"
           content="They explain it [4:32] clearly."
           transcriptTimingStatus="unavailable"
+          onTimestampActivated={onTimestampActivated}
         />
       </PlayerRefProvider>,
     );
@@ -56,6 +61,7 @@ describe("ChatMessage", () => {
     expect((chip as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(chip);
     expect(seekTo).not.toHaveBeenCalled();
+    expect(onTimestampActivated).not.toHaveBeenCalled();
   });
 
   it("keeps malformed timestamps as plain text (no chip)", () => {

@@ -37,6 +37,7 @@ interface ChatTabProps {
   readonly suggestionsOverride?: readonly string[];
   readonly analyticsSurface?: "summary" | "hero_demo";
   readonly transcriptTimingStatus?: TranscriptTimingStatus;
+  readonly onTimestampActivated?: () => void;
 }
 
 /**
@@ -51,6 +52,7 @@ export function ChatTab({
   suggestionsOverride,
   analyticsSurface = "summary",
   transcriptTimingStatus,
+  onTimestampActivated,
 }: ChatTabProps) {
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
@@ -165,6 +167,7 @@ export function ChatTab({
           draft={stream.draft}
           streaming={stream.streaming}
           transcriptTimingStatus={transcriptTimingStatus}
+          onTimestampActivated={onTimestampActivated}
         />
       )}
 

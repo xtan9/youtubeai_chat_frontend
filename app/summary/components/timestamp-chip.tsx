@@ -7,6 +7,7 @@ interface TimestampChipProps {
   readonly seconds: number;
   readonly raw: string;
   readonly transcriptTimingStatus?: TranscriptTimingStatus;
+  readonly onActivated?: () => void;
 }
 
 /**
@@ -18,6 +19,7 @@ export function TimestampChip({
   seconds,
   raw,
   transcriptTimingStatus = "available",
+  onActivated,
 }: TimestampChipProps) {
   const { seekTo } = usePlayerRef();
   const timingAvailable = transcriptTimingStatus === "available";
@@ -32,7 +34,9 @@ export function TimestampChip({
     <button
       type="button"
       onClick={() => {
-        if (timingAvailable) seekTo(seconds);
+        if (!timingAvailable) return;
+        seekTo(seconds);
+        onActivated?.();
       }}
       disabled={!timingAvailable}
       aria-disabled={!timingAvailable}
