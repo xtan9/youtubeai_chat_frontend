@@ -75,6 +75,9 @@ describe("<TranscriptModal>", () => {
     expect(screen.getByText("Authoritative title")).toBeTruthy();
     // Footer shows the audit-row prefix.
     expect(screen.getByText(/audit-/i)).toBeTruthy();
+    expect(document.querySelector(".banner-audit")?.getAttribute("data-audit-id")).toBe(
+      "audit-row-1",
+    );
   });
 
   it("shows 'audit write failed' headline + reason when audit insert fails (fail-open)", async () => {

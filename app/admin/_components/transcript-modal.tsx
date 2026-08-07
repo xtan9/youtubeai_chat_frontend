@@ -247,7 +247,11 @@ function AuditBanner({
 }) {
   const headline = bannerHeadline(state);
   return (
-    <div className="banner-audit" data-state={state.kind}>
+    <div
+      className="banner-audit"
+      data-state={state.kind}
+      data-audit-id={state.kind === "audited" ? state.data.auditId : undefined}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="dot" />
         <strong>{headline}</strong>

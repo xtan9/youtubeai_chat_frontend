@@ -21,34 +21,64 @@ async function rejectOnSummaryFailure(
   // stable terminal marker covers quota, authentication, rate-limit, request,
   // network, processing, and protocol failures without guessing from progress
   // copy or transport events.
-  await page
-    .getByTestId("summary-retry")
-    .waitFor({ state: "visible", timeout: timeoutMs });
+  const retry = page.getByTestId("summary-retry");
+  const shell = page.getByTestId("summary-page-shell");
+  const deadline = Date.now() + timeoutMs;
 
-  const quotaCard = page.locator('[data-paywall-variant="summary-cap"]');
-  if (await quotaCard.isVisible()) {
-    const detail = await visibleText(quotaCard);
-    throw new Error(
-      `live Summary ended in quota state${detail ? `: ${detail}` : ""}`,
-    );
+  while (true) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    await retry.waitFor({ state: "visible", timeout: remainingMs });
+
+    // The auth/session provider can briefly render a failed run before the
+    // access token is hydrated and the page starts the real run. Ignore that
+    // stale retry marker; otherwise a transient AUTH_REQUIRED state masks the
+    // actual production Summary result (the CJK smoke hit this race).
+    const failureKind = await shell.getAttribute("data-summary-failure-kind");
+    const quotaCard = page.locator('[data-paywall-variant="summary-cap"]');
+    const quotaVisible = await quotaCard.isVisible();
+    if (failureKind === "quota" || quotaVisible) {
+      const detail = await visibleText(quotaCard);
+      throw new Error(
+        `live Summary ended in quota state${detail ? `: ${detail}` : ""}`,
+      );
+    }
+
+    const streamError = page.getByTestId("stream-error-banner");
+    const streamErrorVisible = await streamError.isVisible();
+    if (streamErrorVisible) {
+      const detail = await visibleText(streamError);
+      throw new Error(
+        `live Summary ended in stream-error state${detail ? `: ${detail}` : ""}`,
+      );
+    }
+
+    const authenticationError = page.getByText("Authentication Error", {
+      exact: true,
+    });
+    const authenticationErrorVisible = await authenticationError.isVisible();
+    if (failureKind === "authentication" || authenticationErrorVisible) {
+      throw new Error("live Summary ended in authentication-error state");
+    }
+
+    if (failureKind) {
+      throw new Error(`live Summary ended in ${failureKind} state`);
+    }
+
+    // If none of the terminal cards is mounted, the retry marker was from a
+    // superseded run. Wait for it to disappear and observe the current run.
+    // If it remains visible, preserve the unclassified failure rather than
+    // hiding a genuinely new terminal state.
+    const status = await shell.getAttribute("data-summary-status");
+    if (!status || status === "running" || status === "idle") {
+      const hideTimeoutMs = Math.min(remainingMs, 5_000);
+      await retry
+        .waitFor({ state: "hidden", timeout: hideTimeoutMs })
+        .catch(() => undefined);
+      if (!(await retry.isVisible()) && Date.now() < deadline) continue;
+    }
+
+    throw new Error("live Summary ended in an unclassified failure state");
   }
-
-  const streamError = page.getByTestId("stream-error-banner");
-  if (await streamError.isVisible()) {
-    const detail = await visibleText(streamError);
-    throw new Error(
-      `live Summary ended in stream-error state${detail ? `: ${detail}` : ""}`,
-    );
-  }
-
-  const authenticationError = page.getByText("Authentication Error", {
-    exact: true,
-  });
-  if (await authenticationError.isVisible()) {
-    throw new Error("live Summary ended in authentication-error state");
-  }
-
-  throw new Error("live Summary ended in an unclassified failure state");
 }
 
 /**

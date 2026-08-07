@@ -228,6 +228,8 @@ export function YouTubeSummarizerApp({
       <div
         className="mx-auto max-w-page px-4 py-5 sm:py-8"
         data-testid="summary-page-shell"
+        data-summary-status={currentSnapshot?.status}
+        data-summary-failure-kind={failure?.kind}
       >
         <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
           <div
