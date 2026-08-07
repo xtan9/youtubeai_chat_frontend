@@ -116,4 +116,15 @@ describe("Header brand link", () => {
     expect(home.querySelector('svg[aria-label="YT AI"]')).not.toBeNull();
     expect(home.textContent).toContain("YouTube AI Chat");
   });
+
+  it("scrolls with the page instead of sticking to the viewport", () => {
+    const qc = freshQueryClient();
+    const { container } = render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    const header = container.querySelector("header");
+    expect(header?.classList.contains("sticky")).toBe(false);
+    expect(header?.classList.contains("top-0")).toBe(false);
+  });
 });

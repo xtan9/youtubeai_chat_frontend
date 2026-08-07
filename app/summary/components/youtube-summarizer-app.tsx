@@ -235,7 +235,7 @@ export function YouTubeSummarizerApp({
             data-testid="summary-video-region"
             className="order-1 w-full md:order-2"
           >
-            <div className="flex w-full flex-col gap-4 md:sticky md:top-[138px]">
+            <div className="flex w-full flex-col gap-4 md:sticky md:top-16">
               <YoutubeVideo url={url} width={600} playerRef={playerRef} />
               {!isMobile && currentSnapshot?.status === "succeeded" ? (
                 <div className="hidden md:block">{transcriptContent}</div>
@@ -257,7 +257,7 @@ export function YouTubeSummarizerApp({
                   onTimestampActivated={
                     isMobile ? handleRevealVideo : undefined
                   }
-                  className="h-[calc(100dvh-var(--summary-tabs-sticky-top,73px)-4rem)] min-h-0 md:h-[640px]"
+                  className="h-[calc(100dvh-4rem)] min-h-0 md:h-[640px]"
                 />
               }
             />

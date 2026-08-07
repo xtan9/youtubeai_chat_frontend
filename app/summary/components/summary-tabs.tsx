@@ -47,8 +47,6 @@ interface SummaryTabsProps {
   readonly chatContent: ReactNode;
 }
 
-const MOBILE_STICKY_TOP_FALLBACK_PX = 73;
-
 function getDocumentOffsetTop(element: HTMLElement): number {
   let top = 0;
   let current: HTMLElement | null = element;
@@ -95,36 +93,6 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
     const scrollPositionsRef = useRef<Partial<Record<SummaryTabValue, number>>>({});
     const preservedBeforeRevealRef = useRef<SummaryTabValue | null>(null);
 
-    // The app header grows from 73px to 89px when its brand wraps on narrow
-    // phones. Reflect the measured height into a CSS variable instead of
-    // pinning the rail to a brittle breakpoint-specific constant.
-    useEffect(() => {
-      if (!isMobile) return;
-      const rail = railRef.current;
-      const header = document.querySelector<HTMLElement>("header");
-      if (!rail || !header) return;
-      const workspace = rail.parentElement;
-      if (!workspace) return;
-
-      const updateStickyTop = () => {
-        workspace.style.setProperty(
-          "--summary-tabs-sticky-top",
-          `${Math.ceil(header.getBoundingClientRect().height)}px`,
-        );
-      };
-      updateStickyTop();
-
-      const observer =
-        typeof ResizeObserver === "undefined"
-          ? null
-          : new ResizeObserver(updateStickyTop);
-      observer?.observe(header);
-      return () => {
-        observer?.disconnect();
-        workspace.style.removeProperty("--summary-tabs-sticky-top");
-      };
-    }, [isMobile]);
-
     useImperativeHandle(
       ref,
       () => ({
@@ -155,16 +123,7 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
 
         const savedPosition = scrollPositionsRef.current[active];
         const rail = railRef.current;
-        const stickyTop = rail
-          ? Number.parseFloat(
-              getComputedStyle(rail).getPropertyValue(
-                "--summary-tabs-sticky-top",
-              ),
-            ) || MOBILE_STICKY_TOP_FALLBACK_PX
-          : MOBILE_STICKY_TOP_FALLBACK_PX;
-        const railTop = rail
-          ? getDocumentOffsetTop(rail) - stickyTop
-          : 0;
+        const railTop = rail ? getDocumentOffsetTop(rail) : 0;
         const target = Math.max(0, savedPosition ?? railTop);
         const frame = window.requestAnimationFrame(() => {
           window.scrollTo({ top: target, behavior: "auto" });
@@ -215,7 +174,7 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
         <div
           ref={railRef}
           data-testid="summary-tab-rail"
-          className="sticky top-[var(--summary-tabs-sticky-top,73px)] z-40 -mx-4 bg-surface-base/95 px-4 py-2 backdrop-blur-md md:static md:z-auto md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none"
+          className="sticky top-0 z-40 -mx-4 bg-surface-base/95 px-4 py-2 backdrop-blur-md md:static md:z-auto md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none"
         >
           <TabsList className="w-full self-start md:w-fit">
             <TabsTrigger value="summary">Summary</TabsTrigger>
