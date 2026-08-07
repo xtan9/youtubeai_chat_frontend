@@ -6,9 +6,27 @@ export type CitationPart =
       readonly seconds: number;
     };
 
-// Match [mm:ss] or [hh:mm:ss]. The bracket boundaries make false positives
-// like "in 2:30 minutes" (without brackets) safe.
-const TIMESTAMP_RE = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/g;
+// Match [mm:ss], [hh:mm:ss], or a range containing either shape. The bracket
+// boundaries make false positives like "in 2:30 minutes" (without brackets)
+// safe. Ranges accept the common hyphen, en dash, and em dash separators.
+const TIMESTAMP_VALUE = String.raw`\d{1,2}:\d{2}(?::\d{2})?`;
+const TIMESTAMP_RE = new RegExp(
+  String.raw`\[(${TIMESTAMP_VALUE})(?:\s*[-–—]\s*(${TIMESTAMP_VALUE}))?\]`,
+  "g",
+);
+
+function parseTimestampValue(value: string): number | null {
+  const components = value.split(":").map(Number);
+  if (components.length === 2) {
+    const [minutes, seconds] = components;
+    return seconds < 60 ? minutes * 60 + seconds : null;
+  }
+
+  const [hours, minutes, seconds] = components;
+  return minutes < 60 && seconds < 60
+    ? hours * 3600 + minutes * 60 + seconds
+    : null;
+}
 
 /**
  * Parse a string into alternating text + timestamp parts. Timestamps that
@@ -26,17 +44,15 @@ export function parseCitations(input: string): CitationPart[] {
     if (idx > lastIndex) {
       parts.push({ type: "text", value: input.slice(lastIndex, idx) });
     }
-    const a = Number(m[1]);
-    const b = Number(m[2]);
-    const c = m[3] !== undefined ? Number(m[3]) : null;
-    const valid =
-      Number.isFinite(a) &&
-      Number.isFinite(b) &&
-      b < 60 &&
-      (c === null || (Number.isFinite(c) && c < 60));
-    if (valid) {
-      const seconds = c === null ? a * 60 + b : a * 3600 + b * 60 + c;
-      parts.push({ type: "timestamp", raw: m[0], seconds });
+    const startSeconds = parseTimestampValue(m[1]);
+    const endSeconds = m[2] ? parseTimestampValue(m[2]) : null;
+    const validRange =
+      !m[2] ||
+      (startSeconds !== null &&
+        endSeconds !== null &&
+        endSeconds >= startSeconds);
+    if (startSeconds !== null && validRange) {
+      parts.push({ type: "timestamp", raw: m[0], seconds: startSeconds });
     } else {
       parts.push({ type: "text", value: m[0] });
     }

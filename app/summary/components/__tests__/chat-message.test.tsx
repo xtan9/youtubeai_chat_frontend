@@ -7,11 +7,17 @@ import { useEffect } from "react";
 
 afterEach(() => cleanup());
 
-function PlayerRegister({ seekTo }: { seekTo: (s: number, b?: boolean) => void }) {
+function PlayerRegister({
+  seekTo,
+  playVideo,
+}: {
+  seekTo: (s: number, b?: boolean) => void;
+  playVideo?: () => void;
+}) {
   const { registerPlayer } = usePlayerRef();
   useEffect(() => {
-    registerPlayer({ seekTo });
-  }, [registerPlayer, seekTo]);
+    registerPlayer({ seekTo, playVideo });
+  }, [playVideo, registerPlayer, seekTo]);
   return null;
 }
 
@@ -38,6 +44,29 @@ describe("ChatMessage", () => {
     fireEvent.click(chip);
     expect(seekTo).toHaveBeenCalledWith(4 * 60 + 32, true);
     expect(onTimestampActivated).toHaveBeenCalledTimes(1);
+  });
+
+  it("plays a timestamp range from its start timestamp", () => {
+    const seekTo = vi.fn();
+    const playVideo = vi.fn();
+    render(
+      <PlayerRefProvider>
+        <PlayerRegister seekTo={seekTo} playVideo={playVideo} />
+        <ChatMessage
+          role="assistant"
+          content="The example runs from [4:32 - 5:10]."
+        />
+      </PlayerRefProvider>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Seek video to \[4:32 - 5:10\]/i,
+      }),
+    );
+
+    expect(seekTo).toHaveBeenCalledWith(4 * 60 + 32, true);
+    expect(playVideo).toHaveBeenCalledTimes(1);
   });
 
   it("renders timestamp citations as disabled when Transcript timing is unavailable", () => {
