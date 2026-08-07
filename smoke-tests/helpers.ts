@@ -111,13 +111,16 @@ export async function restoreSmokeAccountPassword(
   if (error) throw new Error("Smoke Account password restoration failed");
 }
 
-// Resolve the dedicated non-administrator Smoke Account credentials with a
+// Resolve the dedicated Free non-administrator Smoke Account credentials with a
 // strict precedence:
 //   1. TEST_NON_ADMIN_EMAIL / TEST_NON_ADMIN_PASSWORD (production CI path)
 //   2. TEST_USER_EMAIL / TEST_USER_PASSWORD (legacy/local compatibility path)
 //   3. ~/.config/claude-test-creds/youtubeai.env (local dev path)
 // Returns null when neither source is usable — callers decide whether to
-// skip or hard-fail.
+// skip or hard-fail. This account intentionally remains Free so quota/paywall
+// coverage can use the real production entitlement boundary. Live-summary
+// success tests must use loadLiveSummaryCreds instead and must never fall back
+// to this account.
 export async function loadSmokeCreds(): Promise<SmokeCreds | null> {
   const smokeEmail = process.env.TEST_NON_ADMIN_EMAIL?.trim();
   const smokePassword = process.env.TEST_NON_ADMIN_PASSWORD?.trim();
@@ -150,6 +153,20 @@ export async function loadSmokeCreds(): Promise<SmokeCreds | null> {
   const password = parsed.TEST_USER_PASSWORD?.trim();
   if (!email || !password) return null;
   return { email, password, source: "file" };
+}
+
+/**
+ * Resolve the separate non-administrator Smoke Account used only for
+ * successful live Summary journeys. Production CI supplies this pair through
+ * protected TEST_LIVE_SUMMARY_* secrets. There is deliberately no legacy or
+ * file fallback: silently reusing the Free quota account would make the live
+ * Summary job consume quota and recreate the failure this split prevents.
+ */
+export async function loadLiveSummaryCreds(): Promise<SmokeCreds | null> {
+  const email = process.env.TEST_LIVE_SUMMARY_EMAIL?.trim();
+  const password = process.env.TEST_LIVE_SUMMARY_PASSWORD?.trim();
+  if (!email || !password) return null;
+  return { email, password, source: "env" };
 }
 
 // Minimal dotenv-style parser. Strips `export` prefix, surrounding quotes,

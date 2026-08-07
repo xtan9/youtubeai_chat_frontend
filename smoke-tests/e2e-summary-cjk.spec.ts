@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loadSmokeCreds } from "./helpers";
+import { loadLiveSummaryCreds } from "./helpers";
 import { waitForLiveSummarySuccess } from "./live-summary";
 
 const PROD_URL = (
@@ -30,8 +30,11 @@ for (const { url, label, matcher } of CASES) {
   test(`${label} video produces a summary in source script @live-summary`, async ({
     page,
   }) => {
-    const creds = await loadSmokeCreds();
-    expect(creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required").not.toBeNull();
+    const creds = await loadLiveSummaryCreds();
+    expect(
+      creds,
+      "TEST_LIVE_SUMMARY_EMAIL/TEST_LIVE_SUMMARY_PASSWORD required",
+    ).not.toBeNull();
     if (!creds) return;
 
     await page.goto(`${PROD_URL}/auth/login`);

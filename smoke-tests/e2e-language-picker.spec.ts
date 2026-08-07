@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loadSmokeCreds } from "./helpers";
+import { loadLiveSummaryCreds } from "./helpers";
 import { waitForLiveSummarySuccess } from "./live-summary";
 
 // Golden-path regression guard for the summary-language picker:
@@ -32,8 +32,11 @@ const SUMMARY_TIMEOUT_MS = 180_000;
 test("summary language picker regenerates the summary in Spanish @live-summary", async ({
   page,
 }) => {
-  const creds = await loadSmokeCreds();
-  expect(creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required").not.toBeNull();
+  const creds = await loadLiveSummaryCreds();
+  expect(
+    creds,
+    "TEST_LIVE_SUMMARY_EMAIL/TEST_LIVE_SUMMARY_PASSWORD required",
+  ).not.toBeNull();
   if (!creds) return;
 
   await page.goto(`${PROD_URL}/auth/login`);

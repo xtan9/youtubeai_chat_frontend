@@ -56,6 +56,21 @@ test("isolates live Summary checks with a bounded retry budget", () => {
   );
 });
 
+test("requires a distinct verified live Summary Smoke Account", () => {
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+
+  assert.match(browserJob, /TEST_LIVE_SUMMARY_EMAIL:/);
+  assert.match(browserJob, /TEST_LIVE_SUMMARY_PASSWORD:/);
+  assert.match(
+    browserJob,
+    /pnpm exec tsx smoke-tests\/verify-live-summary-account\.ts/,
+  );
+});
+
 test("runs the session-policy journey after browser smoke in its own job budget", () => {
   const browserSmoke = workflow.indexOf("  e2e-smoke:");
   const sessionJob = workflow.indexOf("  session-policy-smoke:");
