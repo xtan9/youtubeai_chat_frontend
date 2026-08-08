@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import PricingPage from "../page";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
-import { cleanup } from "@testing-library/react";
+import PricingPage from "../page";
 
 const analyticsMocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -14,13 +13,11 @@ vi.mock("@/lib/analytics/client", () => ({
   captureAnalyticsEvent: analyticsMocks.capture,
 }));
 
-// push fn lives inside the factory closure — available at hoisting time
 vi.mock("next/navigation", () => {
   const push = vi.fn();
   return { useRouter: () => ({ push, replace: vi.fn() }), _push: push };
 });
 
-// Mock useEntitlements so tests control tier without fetch
 vi.mock("@/lib/hooks/useEntitlements", () => ({
   useEntitlements: vi.fn(),
 }));
@@ -28,17 +25,29 @@ vi.mock("@/lib/hooks/useEntitlements", () => ({
 function freshQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
+
 function Wrapper({ children, qc }: { children: ReactNode; qc: QueryClient }) {
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
+function renderPage() {
+  return render(<PricingPage />, {
+    wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper>,
+  });
+}
+
+async function getRouterPush() {
+  const navMod = await import("next/navigation");
+  return (navMod as unknown as { _push: ReturnType<typeof vi.fn> })._push;
+}
+
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default entitlements: free tier (re-applied after each clear)
   (useEntitlements as unknown as Mock).mockReturnValue({
     data: { tier: "free", caps: { summariesUsed: 0, summariesLimit: 10 } },
   });
@@ -49,100 +58,115 @@ beforeEach(() => {
 });
 
 describe("PricingPage", () => {
-  it("renders free + pro cards and toggles between yearly and monthly prices", () => {
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
+  it("shows Free, Pro Monthly, and Pro Yearly together without a billing-period control", () => {
+    renderPage();
 
-    // Default plan is yearly
-    expect(screen.getByText(/\$4\.99\/mo/)).not.toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: /^Monthly$/i }));
-    expect(screen.getByText(/\$6\.99\/mo/)).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Free" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Pro Monthly" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Pro Yearly" })).not.toBeNull();
+    expect(screen.getByText("$6.99/mo")).not.toBeNull();
+    expect(screen.getByText("$4.99/mo")).not.toBeNull();
+    expect(screen.getByText("Save 28%")).not.toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: /billing period/i })).toBeNull();
+    expect(document.querySelectorAll("[data-pricing-card]")).toHaveLength(3);
   });
 
-  it("CTA shows 'Current plan' for pro user", () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({
-      data: { tier: "pro", caps: { summariesUsed: 0, summariesLimit: -1 } },
-    });
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
-    expect(screen.getByRole("button", { name: /current plan/i })).not.toBeNull();
-  });
+  it.each([
+    ["monthly", "https://checkout.stripe.com/monthly"],
+    ["yearly", "https://checkout.stripe.com/yearly"],
+  ] as const)("starts %s checkout with the matching plan", async (plan, checkoutUrl) => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ url: checkoutUrl }), { status: 200 }),
+    );
+    renderPage();
 
-  it("upgrade click POSTs to /api/billing/checkout and assigns the returned url", async () => {
-    // free tier: button says Upgrade, click triggers checkout
-    const fetchSpy = vi
-      .spyOn(global, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ url: "https://checkout.stripe.com/x" }), { status: 200 }),
-      );
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
-
-    fireEvent.click(screen.getAllByRole("button", { name: /upgrade/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: `Choose ${plan}` }));
 
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        "/api/billing/checkout",
-        expect.objectContaining({ method: "POST" }),
-      );
-      expect(window.location.assign).toHaveBeenCalledWith("https://checkout.stripe.com/x");
+      expect(fetchSpy).toHaveBeenCalledWith("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      expect(window.location.assign).toHaveBeenCalledWith(checkoutUrl);
       expect(analyticsMocks.capture).toHaveBeenCalledWith("checkout_started", {
         account_type: "free",
         source_surface: "pricing",
-        plan: "yearly",
-        billing_interval: "yearly",
+        plan,
+        billing_interval: plan,
       });
     });
   });
 
-  it("anon user clicking Upgrade pushes to signup with encoded redirect_to=/pricing?intent=upgrade", async () => {
+  it("marks the subscriber's interval current and routes the other interval to account", async () => {
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: {
+        tier: "pro",
+        caps: { summariesUsed: 0, summariesLimit: -1 },
+        subscription: { plan: "yearly" },
+      },
+    });
+    const fetchSpy = vi.spyOn(global, "fetch");
+    renderPage();
+
+    const currentPlan = screen.getByRole("button", { name: "Current plan" }) as HTMLButtonElement;
+    expect(currentPlan.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Manage subscription" }));
+
+    expect(await getRouterPush()).toHaveBeenCalledWith("/account");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes both paid cards to account when a Pro subscriber's interval is unknown", async () => {
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: {
+        tier: "pro",
+        caps: { summariesUsed: 0, summariesLimit: -1 },
+        subscription: { plan: null },
+      },
+    });
+    renderPage();
+
+    const manageButtons = screen.getAllByRole("button", { name: "Manage subscription" });
+    expect(manageButtons).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Current plan" })).toBeNull();
+    fireEvent.click(manageButtons[0]);
+
+    expect(await getRouterPush()).toHaveBeenCalledWith("/account");
+  });
+
+  it("sends an anonymous learner to signup for the selected interval", async () => {
     (useEntitlements as unknown as Mock).mockReturnValue({
       data: { tier: "anon", caps: { summariesUsed: 0, summariesLimit: 1 } },
     });
-
-    // Spy on fetch — should NOT be called (anon path does router.push, no fetch)
     const fetchSpy = vi.spyOn(global, "fetch");
+    renderPage();
 
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
+    fireEvent.click(screen.getByRole("button", { name: "Choose monthly" }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: /upgrade/i })[0]);
-
-    // A small tick to let any async code settle
-    await new Promise((r) => setTimeout(r, 0));
-
-    // The anon path calls router.push and returns — no fetch should happen
-    expect(fetchSpy).not.toHaveBeenCalledWith(
-      "/api/billing/checkout",
-      expect.anything(),
-    );
-    // The redirect target must contain the encoded redirect_to param.
-    // We verify by checking window.location was NOT changed (no assign call)
-    // and by checking that the router mock was invoked.
-    // Since the push fn is from the vi.mock factory (not spied), retrieve it via the _push export.
-    const navMod = await import("next/navigation");
-    const push = (navMod as unknown as { _push: ReturnType<typeof vi.fn> })._push;
-    expect(push).toHaveBeenCalledWith(
-      expect.stringContaining("/auth/sign-up"),
-    );
+    const push = await getRouterPush();
+    expect(push).toHaveBeenCalledWith(expect.stringContaining("/auth/sign-up"));
     expect(push.mock.calls.at(-1)?.[0]).toContain(
       "redirect_to=" + encodeURIComponent("/pricing?intent=upgrade"),
     );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(window.location.assign).not.toHaveBeenCalled();
   });
 
-  it("shows inline error text when checkout fetch fails", async () => {
+  it("shows inline error text on the card whose checkout fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(global, "fetch").mockResolvedValueOnce(
-      new Response("", { status: 500 }),
-    );
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(new Response("", { status: 500 }));
+    renderPage();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /upgrade/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Choose yearly" }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).not.toBeNull()
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBeNull());
     expect(screen.getByRole("alert").textContent).toMatch(/checkout/i);
   });
 
-  it("FAQ renders all 4 items", () => {
-    render(<PricingPage />, { wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper> });
+  it("renders all four FAQ items", () => {
+    renderPage();
+
     expect(screen.getAllByText(/Can I cancel anytime\?/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/end of my paid period/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Do you offer refunds\?/i).length).toBeGreaterThan(0);
