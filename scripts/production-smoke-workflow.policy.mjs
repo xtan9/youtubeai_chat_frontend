@@ -50,7 +50,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
 
   assert.match(
     nonMutatingStep,
-    /playwright test\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary"\s+--workers=1\s+--retries=0/,
+    /playwright test\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"\s+--workers=1\s+--retries=0/,
   );
   assert.match(
     liveSummaryStep,
