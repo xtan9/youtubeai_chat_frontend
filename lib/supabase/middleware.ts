@@ -2,13 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
 
+function isAuthPath(pathname: string): boolean {
+  return pathname === "/auth" || pathname.startsWith("/auth/");
+}
+
 function isPublicPath(pathname: string): boolean {
   return (
     // Public product, auth, and marketing surfaces must remain crawlable and
     // usable before a Learner has a session.
     pathname === "/" ||
     pathname.startsWith("/summary") ||
-    pathname.startsWith("/auth") ||
+    isAuthPath(pathname) ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/privacy") ||
     pathname.startsWith("/terms") ||
@@ -33,21 +37,51 @@ function hasSupabaseAuthCookie(request: NextRequest): boolean {
     .some(({ name }) => /^sb-.+-auth-token(?:\.\d+)?$/.test(name));
 }
 
-function redirectToLogin(request: NextRequest): NextResponse {
-  const url = request.nextUrl.clone();
-  url.pathname = "/auth/login";
-  return NextResponse.redirect(url);
+function copySupabaseResponseState(
+  source: NextResponse,
+  target: NextResponse
+): NextResponse {
+  source.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+  source.headers.forEach((value, name) => {
+    // These headers control the current middleware continuation and do not
+    // belong on a terminal redirect response. Supabase's cache-prevention
+    // headers and any other ordinary response headers must be preserved.
+    if (!name.toLowerCase().startsWith("x-middleware-")) {
+      target.headers.set(name, value);
+    }
+  });
+  return target;
 }
 
-function redirectToDashboard(request: NextRequest): NextResponse {
-  return NextResponse.redirect(new URL("/dashboard", request.url));
+function redirectToLogin(
+  request: NextRequest,
+  supabaseResponse?: NextResponse
+): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = "/auth/login";
+  const response = NextResponse.redirect(url);
+  return supabaseResponse
+    ? copySupabaseResponseState(supabaseResponse, response)
+    : response;
+}
+
+function redirectToDashboard(
+  request: NextRequest,
+  supabaseResponse: NextResponse
+): NextResponse {
+  const response = NextResponse.redirect(new URL("/dashboard", request.url));
+  return copySupabaseResponseState(supabaseResponse, response);
 }
 
 function isAuthenticatedEntryPath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/auth/login" ||
-    pathname === "/auth/login/"
+    pathname === "/auth/login/" ||
+    pathname === "/auth/sign-up" ||
+    pathname === "/auth/sign-up/" ||
+    pathname === "/auth/sign-up-success" ||
+    pathname === "/auth/sign-up-success/"
   );
 }
 
@@ -78,7 +112,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
@@ -87,6 +121,9 @@ export async function updateSession(request: NextRequest) {
           });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
+          );
+          Object.entries(headers).forEach(([name, value]) =>
+            supabaseResponse.headers.set(name, value)
           );
         },
       },
@@ -116,12 +153,12 @@ export async function updateSession(request: NextRequest) {
     !(user.is_anonymous ?? false) &&
     isAuthenticatedEntryPath(request.nextUrl.pathname)
   ) {
-    return redirectToDashboard(request);
+    return redirectToDashboard(request, supabaseResponse);
   }
 
   if (!user && !publicPath) {
     // no user and not accessing a public path, redirect to login
-    return redirectToLogin(request);
+    return redirectToLogin(request, supabaseResponse);
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
