@@ -23,6 +23,12 @@ function req(pathname: string): NextRequest {
   return new NextRequest(`https://example.com${pathname}`);
 }
 
+function reqWithAuthCookie(pathname: string): NextRequest {
+  return new NextRequest(`https://example.com${pathname}`, {
+    headers: { cookie: "sb-project-ref-auth-token=fake-token" },
+  });
+}
+
 describe("updateSession", () => {
   beforeEach(() => {
     mockGetUser.mockReset();
@@ -67,6 +73,29 @@ describe("updateSession", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
+  it("does not call Supabase for an unauthenticated public request", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const response = await updateSession(req("/faq"));
+
+    expect(response.status).toBe(200);
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+    expect(mockGetUser).not.toHaveBeenCalled();
+  });
+
+  it("redirects an unauthenticated protected request without calling Supabase", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const response = await updateSession(req("/dashboard"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/auth/login"
+    );
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+    expect(mockGetUser).not.toHaveBeenCalled();
+  });
+
   it("redirects /api/me/entitlementsX (entitlements is exact-match, /api/me/* is NOT public)", async () => {
     // Pins the deliberate use of `===` rather than `startsWith` for
     // /api/me/entitlements. If a future refactor broadens the predicate
@@ -95,7 +124,7 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },
     });
-    const response = await updateSession(req("/dashboard"));
+    const response = await updateSession(reqWithAuthCookie("/dashboard"));
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
@@ -131,7 +160,7 @@ describe("updateSession", () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "  https://supabase.example.com  ");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "  anon-key\n");
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
-    await updateSession(req("/dashboard"));
+    await updateSession(reqWithAuthCookie("/dashboard"));
     expect(mockCreateServerClient).toHaveBeenCalledWith(
       "https://supabase.example.com",
       "anon-key",
@@ -143,7 +172,7 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },
     });
-    const response = await updateSession(req("/"));
+    const response = await updateSession(reqWithAuthCookie("/"));
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
       "https://example.com/dashboard"
@@ -159,7 +188,7 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com", is_anonymous: false } },
     });
-    const response = await updateSession(req("/"));
+    const response = await updateSession(reqWithAuthCookie("/"));
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
       "https://example.com/dashboard"
@@ -182,7 +211,7 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "anon-1", email: "", is_anonymous: true } },
     });
-    const response = await updateSession(req("/"));
+    const response = await updateSession(reqWithAuthCookie("/"));
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
@@ -195,7 +224,9 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "anon-1", email: "", is_anonymous: true } },
     });
-    const response = await updateSession(req("/api/chat/stream"));
+    const response = await updateSession(
+      reqWithAuthCookie("/api/chat/stream")
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
@@ -204,7 +235,7 @@ describe("updateSession", () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "u1", email: "u@example.com" } },
     });
-    const response = await updateSession(req("/summary"));
+    const response = await updateSession(reqWithAuthCookie("/summary"));
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
@@ -214,7 +245,7 @@ describe("updateSession", () => {
       data: { user: { id: "u1" } },
     });
     const response = await updateSession(
-      new NextRequest("https://example.com/?utm_source=email")
+      reqWithAuthCookie("/?utm_source=email")
     );
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(

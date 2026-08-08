@@ -16,8 +16,19 @@ function sectionBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("retains the hourly production smoke cadence", () => {
+test("keeps hourly API checks while limiting browser smoke to daily or manual runs", () => {
   assert.match(workflow, /cron:\s*"0 \* \* \* \*"/);
+  assert.match(workflow, /cron:\s*"17 15 \* \* \*"/);
+
+  const browserJobHeader = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n    env:",
+  );
+  assert.match(
+    browserJobHeader,
+    /if:\s*\$\{\{\s*github\.event_name\s*==\s*'workflow_dispatch'\s*\|\|\s*github\.event\.schedule\s*==\s*'17 15 \* \* \*'\s*\}\}/,
+  );
 });
 
 test("isolates live Summary checks with a bounded retry budget", () => {
@@ -39,7 +50,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
 
   assert.match(
     nonMutatingStep,
-    /playwright test --grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary"/,
+    /playwright test\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary"\s+--workers=1\s+--retries=0/,
   );
   assert.match(
     liveSummaryStep,
@@ -47,7 +58,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
   );
   assert.match(
     liveSummaryStep,
-    /pnpm exec playwright test\s+--grep "@live-summary"\s+--workers=2\s+--retries=0/,
+    /pnpm exec playwright test\s+--grep "@live-summary"\s+--workers=1\s+--retries=0/,
   );
   assert.doesNotMatch(
     liveSummaryStep,
@@ -101,17 +112,18 @@ test("runs the session-policy journey after browser smoke in its own job budget"
   assert.match(sessionJobHeader, /needs:\s*\[api-smoke, e2e-smoke\]/);
   assert.match(
     sessionJobHeader,
-    /if:\s*\$\{\{\s*always\(\)\s*&&\s*!cancelled\(\)\s*&&\s*needs\.api-smoke\.result\s*==\s*'success'\s*\}\}/,
+    /if:\s*\$\{\{\s*always\(\)\s*&&\s*!cancelled\(\)\s*&&\s*needs\.api-smoke\.result\s*==\s*'success'\s*&&\s*needs\.e2e-smoke\.result\s*!=\s*'skipped'\s*\}\}/,
+    "hourly API-only runs must not trigger the browser session-policy journey",
   );
   assert.doesNotMatch(
     sessionJobHeader,
-    /needs\.e2e-smoke\.result/,
-    "browser failures must not gate the downstream session-policy job",
+    /needs\.e2e-smoke\.result\s*==\s*'success'/,
+    "browser failures must not gate the downstream session-policy job; only skipped hourly runs should",
   );
   assert.match(sessionJobHeader, /timeout-minutes:\s*10/);
   assert.match(
     sessionPolicyStep,
-    /playwright test smoke-tests\/e2e-auth-session-policy\.spec\.ts --grep "@session-policy" --workers=1/,
+    /playwright test smoke-tests\/e2e-auth-session-policy\.spec\.ts --grep "@session-policy" --workers=1 --retries=0/,
   );
   assert.doesNotMatch(
     sessionPolicyStep,
