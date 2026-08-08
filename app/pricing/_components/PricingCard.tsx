@@ -18,7 +18,10 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       router.push("/auth/sign-up?redirect_to=" + encodeURIComponent("/pricing?intent=upgrade"));
       return;
     }
-    if (ent.tier === "pro") return; // already pro
+    if (ent.tier === "pro") {
+      router.push("/account");
+      return;
+    }
     setError(null);
     setPending(true);
     try {
@@ -57,17 +60,36 @@ export function PricingProCard({ plan }: { plan: Plan }) {
   const price = plan === "yearly" ? "$4.99/mo" : "$6.99/mo";
   const billed = plan === "yearly" ? "billed $59.88 yearly" : "billed monthly";
   const isPro = ent?.tier === "pro";
-  const cta = isPro ? "Current plan" : pending ? "Redirecting…" : "Upgrade";
+  const isCurrentPlan = isPro && ent.subscription?.plan === plan;
+  const cta = isCurrentPlan
+    ? "Current plan"
+    : isPro
+      ? "Manage subscription"
+      : pending
+        ? "Redirecting…"
+        : `Choose ${plan}`;
+  const isYearly = plan === "yearly";
 
   return (
     <section
-      className="rounded-2xl border border-accent-brand bg-surface-raised p-6"
-      data-pricing-card="pro"
+      className={`flex h-full flex-col rounded-2xl border bg-surface-raised p-6 ${
+        isYearly ? "border-accent-brand" : "border-border-subtle"
+      }`}
+      data-pricing-card={`pro-${plan}`}
     >
-      <h3 className="text-h4 text-text-primary">Pro</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-h4 text-text-primary">
+          Pro {isYearly ? "Yearly" : "Monthly"}
+        </h2>
+        {isYearly ? (
+          <span className="shrink-0 rounded-full bg-accent-brand px-2.5 py-1 text-caption text-text-inverse">
+            Save 28%
+          </span>
+        ) : null}
+      </div>
       <p className="mt-1 text-h2 text-text-primary">{price}</p>
       <p className="text-caption text-text-muted">{billed}</p>
-      <ul className="mt-4 space-y-2 text-body-md text-text-secondary">
+      <ul className="mt-4 flex-1 space-y-2 text-body-md text-text-secondary">
         <li>Unlimited summaries</li>
         <li>Unlimited chat per video</li>
         <li>Unlimited history</li>
@@ -76,7 +98,7 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       <Button
         className="mt-6 w-full"
         onClick={onClick}
-        disabled={pending || isPro}
+        disabled={pending || isCurrentPlan}
       >
         {cta}
       </Button>
@@ -92,10 +114,10 @@ export function PricingProCard({ plan }: { plan: Plan }) {
 export function PricingFreeCard() {
   return (
     <section
-      className="rounded-2xl border border-border-subtle bg-surface-raised p-6"
+      className="h-full rounded-2xl border border-border-subtle bg-surface-raised p-6"
       data-pricing-card="free"
     >
-      <h3 className="text-h4 text-text-primary">Free</h3>
+      <h2 className="text-h4 text-text-primary">Free</h2>
       <p className="mt-1 text-h2 text-text-primary">$0</p>
       <p className="text-caption text-text-muted">forever</p>
       <ul className="mt-4 space-y-2 text-body-md text-text-secondary">
