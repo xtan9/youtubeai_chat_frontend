@@ -39,8 +39,9 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
-      // Redirect to home page where persisted URL will be restored
-      router.push("/");
+      // Authenticated users land on their dashboard instead of the public
+      // marketing homepage.
+      router.push("/dashboard");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {

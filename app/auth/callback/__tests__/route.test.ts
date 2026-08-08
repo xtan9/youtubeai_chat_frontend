@@ -54,7 +54,7 @@ describe("GET /auth/callback", () => {
     );
   });
 
-  it("redirects to '/' when next is absent", async () => {
+  it("redirects to /dashboard when next is absent", async () => {
     exchangeCodeForSession.mockResolvedValue({ error: null });
 
     const res = await GET(
@@ -63,10 +63,12 @@ describe("GET /auth/callback", () => {
       })
     );
 
-    expect(res.headers.get("location")).toBe("https://www.youtubeai.chat/");
+    expect(res.headers.get("location")).toBe(
+      "https://www.youtubeai.chat/dashboard",
+    );
   });
 
-  it("falls back to '/' when next is not a relative path (open-redirect guard)", async () => {
+  it("falls back to /dashboard when next is not a relative path (open-redirect guard)", async () => {
     exchangeCodeForSession.mockResolvedValue({ error: null });
 
     const res = await GET(
@@ -76,7 +78,9 @@ describe("GET /auth/callback", () => {
       )
     );
 
-    expect(res.headers.get("location")).toBe("https://www.youtubeai.chat/");
+    expect(res.headers.get("location")).toBe(
+      "https://www.youtubeai.chat/dashboard",
+    );
   });
 
   it("prefers x-forwarded-host over origin in production (Vercel sets it)", async () => {
