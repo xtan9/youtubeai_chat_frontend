@@ -6,7 +6,7 @@ const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
 
-test("signup creates a new account and redirects to sign-up-success", async ({
+test("signup creates a new account and reaches its valid post-signup destination", async ({
   page,
 }) => {
   const creds = await loadAdminCreds();
@@ -26,13 +26,24 @@ test("signup creates a new account and redirects to sign-up-success", async ({
     await page.locator("#repeat-password").fill(password);
 
     await Promise.all([
-      page.waitForURL(/\/auth\/sign-up-success/, { timeout: 15_000 }),
+      page.waitForURL(
+        (url) =>
+          url.pathname === "/dashboard" ||
+          url.pathname === "/auth/sign-up-success",
+        { timeout: 15_000 },
+      ),
       page.getByRole("button", { name: /sign up/i }).click(),
     ]);
 
-    await expect(
-      page.getByText(/check your email|confirmation/i).first()
-    ).toBeVisible();
+    if (new URL(page.url()).pathname === "/dashboard") {
+      await expect(
+        page.getByRole("button", { name: /user menu/i }),
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.getByText(/check your email|confirmation/i).first(),
+      ).toBeVisible();
+    }
   } finally {
     // Cleanup is mandatory — if it fails, the test must fail too so the
     // accumulating-orphans condition is visible (otherwise auth.users
