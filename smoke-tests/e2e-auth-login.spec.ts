@@ -29,6 +29,12 @@ test("login → logout round-trip", async ({ page }) => {
   const accountMenu = page.getByRole("button", { name: /user menu/i });
   await expect(accountMenu).toBeVisible({ timeout: 10_000 });
 
+  // A remembered session must not be shown the cached login form. The
+  // request middleware should recognize the auth cookie and send the Learner
+  // straight back to their dashboard.
+  await page.goto(`${PROD_URL}/auth/login`);
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
+
   // An authenticated navigation to the public root must not render the
   // marketing homepage. The dashboard is the only post-login landing page.
   await page.goto(`${PROD_URL}/`);

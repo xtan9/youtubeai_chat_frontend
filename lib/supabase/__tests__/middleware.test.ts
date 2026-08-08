@@ -179,6 +179,29 @@ describe("updateSession", () => {
     );
   });
 
+  it.each(["/auth/login", "/auth/login/"])(
+    "redirects authenticated user from %s to /dashboard",
+    async (pathname) => {
+      mockGetUser.mockResolvedValue({
+        data: { user: { id: "u1", email: "u@example.com" } },
+      });
+      const response = await updateSession(reqWithAuthCookie(pathname));
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://example.com/dashboard"
+      );
+    }
+  );
+
+  it("does NOT redirect Supabase-anonymous user from /auth/login", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: "anon-1", email: "", is_anonymous: true } },
+    });
+    const response = await updateSession(reqWithAuthCookie("/auth/login"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
   it("redirects user with is_anonymous=false explicitly set from / to /dashboard", async () => {
     // The above test omits `is_anonymous`, which is `undefined` (legacy /
     // pre-anon-auth JWT shape). Pinning the explicit-false case too
