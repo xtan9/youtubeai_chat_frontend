@@ -11,6 +11,7 @@ export type PaymentE2EConfig = {
   productionSupabaseUrl: string;
   supabaseSecretKey: string;
   stripeSecretKey: string;
+  stripeAccountId: string;
   stripePriceIds: Record<PaymentPlan, string>;
 };
 
@@ -50,6 +51,7 @@ const REQUIRED_ENV = [
   "PRODUCTION_SUPABASE_URL",
   "PAYMENT_E2E_SUPABASE_SECRET_KEY",
   "PAYMENT_E2E_STRIPE_SECRET_KEY",
+  "PAYMENT_E2E_STRIPE_ACCOUNT_ID",
   "PAYMENT_E2E_STRIPE_PRICE_MONTHLY",
   "PAYMENT_E2E_STRIPE_PRICE_YEARLY",
 ] as const;
@@ -127,6 +129,11 @@ export function loadPaymentE2EConfig(
     throw new Error("PAYMENT_E2E_STRIPE_SECRET_KEY must be a Stripe test-mode secret key");
   }
 
+  const stripeAccountId = requiredEnv(env, "PAYMENT_E2E_STRIPE_ACCOUNT_ID");
+  if (!stripeAccountId.startsWith("acct_")) {
+    throw new Error("PAYMENT_E2E_STRIPE_ACCOUNT_ID account ID must start with acct_");
+  }
+
   const monthlyPrice = requiredEnv(env, "PAYMENT_E2E_STRIPE_PRICE_MONTHLY");
   const yearlyPrice = requiredEnv(env, "PAYMENT_E2E_STRIPE_PRICE_YEARLY");
   if (!monthlyPrice.startsWith("price_") || !yearlyPrice.startsWith("price_")) {
@@ -143,6 +150,7 @@ export function loadPaymentE2EConfig(
     productionSupabaseUrl: productionSupabase.origin,
     supabaseSecretKey: requiredEnv(env, "PAYMENT_E2E_SUPABASE_SECRET_KEY"),
     stripeSecretKey,
+    stripeAccountId,
     stripePriceIds: { monthly: monthlyPrice, yearly: yearlyPrice },
   };
 }
@@ -159,6 +167,37 @@ export function createPaymentE2EClients(config: PaymentE2EConfig): PaymentE2ECli
     apiVersion: "2025-05-28.basil" as never,
   });
   return { supabase, stripe };
+}
+
+/** Verify the test key and prices belong to the explicitly approved Sandbox. */
+export async function verifyStripeSandboxConfiguration(
+  stripe: Stripe,
+  config: PaymentE2EConfig,
+): Promise<void> {
+  const account = await stripe.account.retrieveCurrent();
+  if (account.id !== config.stripeAccountId) {
+    throw new Error(
+      `Payment E2E expected Stripe Sandbox account ${config.stripeAccountId}, received ${account.id}`,
+    );
+  }
+
+  const expectedIntervals: Record<PaymentPlan, Stripe.Price.Recurring.Interval> = {
+    monthly: "month",
+    yearly: "year",
+  };
+  for (const plan of ["monthly", "yearly"] as const) {
+    const price = await stripe.prices.retrieve(config.stripePriceIds[plan]);
+    const expectedInterval = expectedIntervals[plan];
+    if (
+      !price.active ||
+      price.recurring?.interval !== expectedInterval ||
+      price.recurring.interval_count !== 1
+    ) {
+      throw new Error(
+        `${plan} Stripe price must recur every ${expectedInterval} and be active`,
+      );
+    }
+  }
 }
 
 export async function createPaymentTestUser(

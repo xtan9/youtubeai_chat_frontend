@@ -1,8 +1,22 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import PricingPage from "../page";
 
@@ -32,7 +46,9 @@ function Wrapper({ children, qc }: { children: ReactNode; qc: QueryClient }) {
 
 function renderPage() {
   return render(<PricingPage />, {
-    wrapper: ({ children }) => <Wrapper qc={freshQueryClient()}>{children}</Wrapper>,
+    wrapper: ({ children }) => (
+      <Wrapper qc={freshQueryClient()}>{children}</Wrapper>
+    ),
   });
 }
 
@@ -67,36 +83,46 @@ describe("PricingPage", () => {
     expect(screen.getByText("$6.99/mo")).not.toBeNull();
     expect(screen.getByText("$4.99/mo")).not.toBeNull();
     expect(screen.getByText("Save 28%")).not.toBeNull();
-    expect(screen.queryByRole("radiogroup", { name: /billing period/i })).toBeNull();
+    expect(
+      screen.queryByRole("radiogroup", { name: /billing period/i }),
+    ).toBeNull();
     expect(document.querySelectorAll("[data-pricing-card]")).toHaveLength(3);
   });
 
   it.each([
     ["monthly", "https://checkout.stripe.com/monthly"],
     ["yearly", "https://checkout.stripe.com/yearly"],
-  ] as const)("starts %s checkout with the matching plan", async (plan, checkoutUrl) => {
-    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ url: checkoutUrl }), { status: 200 }),
-    );
-    renderPage();
+  ] as const)(
+    "starts %s checkout with the matching plan",
+    async (plan, checkoutUrl) => {
+      const fetchSpy = vi
+        .spyOn(global, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ url: checkoutUrl }), { status: 200 }),
+        );
+      renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: `Choose ${plan}` }));
+      fireEvent.click(screen.getByRole("button", { name: `Choose ${plan}` }));
 
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith("/api/billing/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith("/api/billing/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan }),
+        });
+        expect(window.location.assign).toHaveBeenCalledWith(checkoutUrl);
+        expect(analyticsMocks.capture).toHaveBeenCalledWith(
+          "checkout_started",
+          {
+            account_type: "free",
+            source_surface: "pricing",
+            plan,
+            billing_interval: plan,
+          },
+        );
       });
-      expect(window.location.assign).toHaveBeenCalledWith(checkoutUrl);
-      expect(analyticsMocks.capture).toHaveBeenCalledWith("checkout_started", {
-        account_type: "free",
-        source_surface: "pricing",
-        plan,
-        billing_interval: plan,
-      });
-    });
-  });
+    },
+  );
 
   it("marks the subscriber's interval current and routes the other interval to account", async () => {
     (useEntitlements as unknown as Mock).mockReturnValue({
@@ -109,9 +135,13 @@ describe("PricingPage", () => {
     const fetchSpy = vi.spyOn(global, "fetch");
     renderPage();
 
-    const currentPlan = screen.getByRole("button", { name: "Current plan" }) as HTMLButtonElement;
+    const currentPlan = screen.getByRole("button", {
+      name: "Current plan",
+    }) as HTMLButtonElement;
     expect(currentPlan.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Manage subscription" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Manage subscription" }),
+    );
 
     expect(await getRouterPush()).toHaveBeenCalledWith("/account");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -127,7 +157,9 @@ describe("PricingPage", () => {
     });
     renderPage();
 
-    const manageButtons = screen.getAllByRole("button", { name: "Manage subscription" });
+    const manageButtons = screen.getAllByRole("button", {
+      name: "Manage subscription",
+    });
     expect(manageButtons).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Current plan" })).toBeNull();
     fireEvent.click(manageButtons[0]);
@@ -153,9 +185,26 @@ describe("PricingPage", () => {
     expect(window.location.assign).not.toHaveBeenCalled();
   });
 
+  it("does not route while the learner's entitlements are still loading", async () => {
+    (useEntitlements as unknown as Mock).mockReturnValue({ data: undefined });
+    const fetchSpy = vi.spyOn(global, "fetch");
+    renderPage();
+
+    const monthly = screen.getByRole("button", {
+      name: "Loading monthly pricing",
+    }) as HTMLButtonElement;
+    expect(monthly.disabled).toBe(true);
+    fireEvent.click(monthly);
+
+    expect(await getRouterPush()).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("shows inline error text on the card whose checkout fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(global, "fetch").mockResolvedValueOnce(new Response("", { status: 500 }));
+    vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response("", { status: 500 }),
+    );
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Choose yearly" }));
@@ -167,9 +216,15 @@ describe("PricingPage", () => {
   it("renders all four FAQ items", () => {
     renderPage();
 
-    expect(screen.getAllByText(/Can I cancel anytime\?/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/end of my paid period/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Do you offer refunds\?/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Can I cancel anytime\?/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/end of my paid period/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Do you offer refunds\?/i).length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText(/payment methods/i).length).toBeGreaterThan(0);
   });
 });

@@ -1,8 +1,8 @@
 name: payment-e2e
 
 # This suite creates subscriptions, so it is deliberately isolated from the
-# production smoke workflow and may run only against Stripe test mode plus a
-# separate staging Supabase project.
+# production smoke workflow. The application and Supabase run only inside the
+# job; Stripe uses a sandbox key and forwards signed events to localhost.
 on:
   schedule:
     - cron: "37 16 * * 1,4"
@@ -11,15 +11,15 @@ on:
 jobs:
   stripe-checkout:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       PAYMENT_E2E_ENABLED: "1"
-      PAYMENT_E2E_BASE_URL: ${{ vars.PAYMENT_E2E_BASE_URL }}
+      PAYMENT_E2E_BASE_URL: http://127.0.0.1:3000
+      BASE_URL: http://127.0.0.1:3000
       PRODUCTION_BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
-      PAYMENT_E2E_SUPABASE_URL: ${{ secrets.PAYMENT_E2E_SUPABASE_URL }}
       PRODUCTION_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      PAYMENT_E2E_SUPABASE_SECRET_KEY: ${{ secrets.PAYMENT_E2E_SUPABASE_SECRET_KEY }}
       PAYMENT_E2E_STRIPE_SECRET_KEY: ${{ secrets.PAYMENT_E2E_STRIPE_SECRET_KEY }}
+      PAYMENT_E2E_STRIPE_ACCOUNT_ID: ${{ vars.PAYMENT_E2E_STRIPE_ACCOUNT_ID }}
       PAYMENT_E2E_STRIPE_PRICE_MONTHLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_MONTHLY }}
       PAYMENT_E2E_STRIPE_PRICE_YEARLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_YEARLY }}
     steps:
@@ -29,17 +29,119 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: "2.113.0"
       - run: pnpm install --frozen-lockfile
+      - name: Require Stripe sandbox configuration
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "$PAYMENT_E2E_STRIPE_SECRET_KEY" ]] || missing+=(PAYMENT_E2E_STRIPE_SECRET_KEY)
+          [[ -n "$PAYMENT_E2E_STRIPE_ACCOUNT_ID" ]] || missing+=(PAYMENT_E2E_STRIPE_ACCOUNT_ID)
+          [[ -n "$PAYMENT_E2E_STRIPE_PRICE_MONTHLY" ]] || missing+=(PAYMENT_E2E_STRIPE_PRICE_MONTHLY)
+          [[ -n "$PAYMENT_E2E_STRIPE_PRICE_YEARLY" ]] || missing+=(PAYMENT_E2E_STRIPE_PRICE_YEARLY)
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required Stripe sandbox settings: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+      - name: Start isolated local Supabase
+        run: supabase start
+      - name: Export local Supabase environment
+        shell: bash
+        run: |
+          local_env="$RUNNER_TEMP/payment-e2e-supabase.env"
+          supabase status -o env \
+            --override-name api.url=PAYMENT_E2E_SUPABASE_URL \
+            --override-name auth.anon_key=PAYMENT_E2E_SUPABASE_ANON_KEY \
+            --override-name auth.service_role_key=PAYMENT_E2E_SUPABASE_SECRET_KEY \
+            > "$local_env"
+          set -a
+          source "$local_env"
+          set +a
+          {
+            echo "PAYMENT_E2E_SUPABASE_URL=$PAYMENT_E2E_SUPABASE_URL"
+            echo "PAYMENT_E2E_SUPABASE_ANON_KEY=$PAYMENT_E2E_SUPABASE_ANON_KEY"
+            echo "PAYMENT_E2E_SUPABASE_SECRET_KEY=$PAYMENT_E2E_SUPABASE_SECRET_KEY"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$PAYMENT_E2E_SUPABASE_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$PAYMENT_E2E_SUPABASE_ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$PAYMENT_E2E_SUPABASE_SECRET_KEY"
+          } >> "$GITHUB_ENV"
       - name: Refuse production or live-mode configuration
         run: pnpm smoke:payment:preflight
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Forward Stripe sandbox webhooks to localhost
+        shell: bash
+        run: |
+          docker run --detach --name payment-e2e-stripe-listener --network host \
+            stripe/stripe-cli:v1.45.1 listen \
+            --api-key "$PAYMENT_E2E_STRIPE_SECRET_KEY" \
+            --events checkout.session.completed,customer.subscription.updated,customer.subscription.deleted \
+            --forward-to http://127.0.0.1:3000/api/webhooks/stripe
+
+          webhook_secret=""
+          for _ in {1..30}; do
+            listener_logs="$(docker logs payment-e2e-stripe-listener 2>&1 || true)"
+            webhook_secret="$(printf '%s' "$listener_logs" | grep -o 'whsec_[A-Za-z0-9]*' | head -n 1 || true)"
+            [[ -n "$webhook_secret" ]] && break
+            sleep 1
+          done
+          if [[ -z "$webhook_secret" ]]; then
+            docker logs payment-e2e-stripe-listener >&2 || true
+            echo "Stripe CLI did not provide a webhook signing secret" >&2
+            exit 1
+          fi
+          echo "::add-mask::$webhook_secret"
+          echo "STRIPE_WEBHOOK_SECRET=$webhook_secret" >> "$GITHUB_ENV"
+      - name: Start local application
+        shell: bash
+        env:
+          ANON_COOKIE_SECRET: payment-e2e-local-cookie-secret-32chars
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+          STRIPE_SECRET_KEY: ${{ secrets.PAYMENT_E2E_STRIPE_SECRET_KEY }}
+          STRIPE_PRICE_MONTHLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_MONTHLY }}
+          STRIPE_PRICE_YEARLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_YEARLY }}
+        run: |
+          pnpm dev --hostname 127.0.0.1 > "$RUNNER_TEMP/payment-e2e-next.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/payment-e2e-next.pid"
+          for _ in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:3000/pricing > /dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/payment-e2e-next.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/payment-e2e-next.log" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/payment-e2e-next.log" >&2
+          echo "Local application did not become ready" >&2
+          exit 1
       - name: Run monthly and yearly Stripe Checkout promo-code journeys
         run: pnpm smoke:payment:e2e
+      - name: Collect payment E2E diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p payment-e2e-logs
+          cp "$RUNNER_TEMP/payment-e2e-next.log" payment-e2e-logs/next.log 2>/dev/null || true
+          docker logs payment-e2e-stripe-listener > payment-e2e-logs/stripe-listener.log 2>&1 || true
+          supabase status > payment-e2e-logs/supabase-status.txt 2>&1 || true
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: payment-e2e-playwright-report
           path: |
+            payment-e2e-logs/
             playwright-report/
             test-results/
           retention-days: 14
+      - name: Stop local payment services
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/payment-e2e-next.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/payment-e2e-next.pid")" 2>/dev/null || true
+          fi
+          docker rm --force payment-e2e-stripe-listener 2>/dev/null || true
+          supabase stop --no-backup || true

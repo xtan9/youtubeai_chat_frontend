@@ -5,6 +5,7 @@ import {
   cleanupPaymentTestUser,
   createPaymentTestPromotion,
   loadPaymentE2EConfig,
+  verifyStripeSandboxConfiguration,
   type PaymentE2EClients,
   type PaymentTestPromotion,
   type SubscriptionRow,
@@ -20,6 +21,7 @@ function validEnv(): Record<string, string | undefined> {
     PRODUCTION_SUPABASE_URL: "https://production-project.supabase.co",
     PAYMENT_E2E_SUPABASE_SECRET_KEY: "sb_secret_staging",
     PAYMENT_E2E_STRIPE_SECRET_KEY: "sk_test_example",
+    PAYMENT_E2E_STRIPE_ACCOUNT_ID: "acct_sandbox",
     PAYMENT_E2E_STRIPE_PRICE_MONTHLY: "price_monthly",
     PAYMENT_E2E_STRIPE_PRICE_YEARLY: "price_yearly",
   };
@@ -34,6 +36,7 @@ describe("payment E2E safety configuration", () => {
       monthly: "price_monthly",
       yearly: "price_yearly",
     });
+    expect(config.stripeAccountId).toBe("acct_sandbox");
   });
 
   it("lists every missing variable without printing secret values", () => {
@@ -78,6 +81,12 @@ describe("payment E2E safety configuration", () => {
     expect(() => loadPaymentE2EConfig(env)).toThrow(/must be different/);
   });
 
+  it("refuses a malformed Stripe sandbox account ID", () => {
+    const env = validEnv();
+    env.PAYMENT_E2E_STRIPE_ACCOUNT_ID = "sandbox";
+    expect(() => loadPaymentE2EConfig(env)).toThrow(/account ID must start with acct_/);
+  });
+
   it("allows HTTP only for local development", () => {
     const local = validEnv();
     local.PAYMENT_E2E_BASE_URL = "http://localhost:3000";
@@ -94,6 +103,71 @@ describe("payment E2E safety configuration", () => {
       /exactly 1/,
     );
   });
+});
+
+describe("Stripe sandbox preflight", () => {
+  function stripePreflightHarness(options?: {
+    accountId?: string;
+    monthlyInterval?: string;
+    yearlyInterval?: string;
+  }) {
+    const retrieveAccount = vi.fn().mockResolvedValue({
+      id: options?.accountId ?? "acct_sandbox",
+    });
+    const retrievePrice = vi.fn().mockImplementation(async (priceId: string) => ({
+      id: priceId,
+      active: true,
+      recurring: {
+        interval: priceId === "price_monthly"
+          ? (options?.monthlyInterval ?? "month")
+          : (options?.yearlyInterval ?? "year"),
+        interval_count: 1,
+      },
+    }));
+    const stripe = {
+      account: { retrieveCurrent: retrieveAccount },
+      prices: { retrieve: retrievePrice },
+    } as unknown as PaymentE2EClients["stripe"];
+    return { retrieveAccount, retrievePrice, stripe };
+  }
+
+  it("accepts prices from the expected sandbox with monthly and yearly cadence", async () => {
+    const config = loadPaymentE2EConfig(validEnv());
+    const harness = stripePreflightHarness();
+
+    await verifyStripeSandboxConfiguration(harness.stripe, config);
+
+    expect(harness.retrieveAccount).toHaveBeenCalledOnce();
+    expect(harness.retrievePrice).toHaveBeenNthCalledWith(1, "price_monthly");
+    expect(harness.retrievePrice).toHaveBeenNthCalledWith(2, "price_yearly");
+  });
+
+  it("refuses a test key for a different Stripe account", async () => {
+    const config = loadPaymentE2EConfig(validEnv());
+    const harness = stripePreflightHarness({ accountId: "acct_wrong" });
+
+    await expect(
+      verifyStripeSandboxConfiguration(harness.stripe, config),
+    ).rejects.toThrow(/expected Stripe Sandbox account/);
+    expect(harness.retrievePrice).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ monthlyInterval: "year" }, "monthly", "month"],
+    [{ yearlyInterval: "month" }, "yearly", "year"],
+  ] as const)(
+    "refuses an invalid %s price cadence",
+    async (options, plan, expectedInterval) => {
+      const config = loadPaymentE2EConfig(validEnv());
+      const harness = stripePreflightHarness(options);
+
+      await expect(
+        verifyStripeSandboxConfiguration(harness.stripe, config),
+      ).rejects.toThrow(
+        new RegExp(`${plan} Stripe price must recur every ${expectedInterval}`),
+      );
+    },
+  );
 });
 
 function cleanupClients(
