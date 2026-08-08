@@ -1,0 +1,45 @@
+name: payment-e2e
+
+# This suite creates subscriptions, so it is deliberately isolated from the
+# production smoke workflow and may run only against Stripe test mode plus a
+# separate staging Supabase project.
+on:
+  schedule:
+    - cron: "37 16 * * 1"
+  workflow_dispatch:
+
+jobs:
+  stripe-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PAYMENT_E2E_ENABLED: "1"
+      PAYMENT_E2E_BASE_URL: ${{ vars.PAYMENT_E2E_BASE_URL }}
+      PRODUCTION_BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      PAYMENT_E2E_SUPABASE_URL: ${{ secrets.PAYMENT_E2E_SUPABASE_URL }}
+      PRODUCTION_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      PAYMENT_E2E_SUPABASE_SECRET_KEY: ${{ secrets.PAYMENT_E2E_SUPABASE_SECRET_KEY }}
+      PAYMENT_E2E_STRIPE_SECRET_KEY: ${{ secrets.PAYMENT_E2E_STRIPE_SECRET_KEY }}
+      PAYMENT_E2E_STRIPE_PRICE_MONTHLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_MONTHLY }}
+      PAYMENT_E2E_STRIPE_PRICE_YEARLY: ${{ vars.PAYMENT_E2E_STRIPE_PRICE_YEARLY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Refuse production or live-mode configuration
+        run: pnpm smoke:payment:preflight
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run monthly and yearly Stripe Checkout journeys
+        run: pnpm smoke:payment:e2e
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: payment-e2e-playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

@@ -10,6 +10,9 @@
     "test:watch": "vitest",
     "smoke:api": "tsx smoke-tests/api-smoke.ts",
     "smoke:e2e": "playwright test",
+    "smoke:payment:preflight": "tsx smoke-tests/verify-payment-e2e-config.ts",
+    "smoke:payment:e2e": "playwright test smoke-tests/e2e-payment.spec.ts --workers=1 --retries=0",
+    "smoke:payment": "pnpm smoke:payment:preflight && pnpm smoke:payment:e2e",
     "smoke": "pnpm smoke:api && pnpm smoke:e2e"
   },
   "dependencies": {
