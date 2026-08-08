@@ -13,6 +13,10 @@ real flow.
 
 - A Stripe Dashboard account with access to coupons and promotion codes
   (https://dashboard.stripe.com/coupons).
+- Create the coupon and promotion code in the **same Stripe mode** as the
+  Checkout Session. Production Checkout Session IDs start with `cs_live_` and
+  can only redeem live-mode promotion codes; codes created while the Dashboard
+  shows **Test mode** or **Sandbox** only work with `cs_test_` sessions.
 - A test user that is **email-verified and not anonymous**. Anonymous
   Supabase users are rejected by `/api/billing/checkout`. Sign up via
   Google or complete the email-confirmation step first.
@@ -37,6 +41,9 @@ Stripe Dashboard → **Products → Coupons → + New**
 
 Same coupon page → **+ Add promotion code**
 (or https://dashboard.stripe.com/promotion-codes).
+
+Before creating it, confirm the Dashboard's account switcher is not showing
+**Test mode** or **Sandbox** when testing `https://www.youtubeai.chat`.
 
 - **Code:** easy to type, e.g. `SMOKE100`.
 - **Restrictions (recommended):** tick **Limit redemptions to 1** and set

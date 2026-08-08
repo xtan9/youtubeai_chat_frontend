@@ -119,6 +119,7 @@ it("creates customer + session for new user, returns url", async () => {
       customer: "cus_1",
       client_reference_id: "u1",
       line_items: [{ price: "price_M", quantity: 1 }],
+      allow_promotion_codes: true,
     })
   );
 });
