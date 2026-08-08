@@ -39,6 +39,18 @@ function redirectToLogin(request: NextRequest): NextResponse {
   return NextResponse.redirect(url);
 }
 
+function redirectToDashboard(request: NextRequest): NextResponse {
+  return NextResponse.redirect(new URL("/dashboard", request.url));
+}
+
+function isAuthenticatedEntryPath(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    pathname === "/auth/login" ||
+    pathname === "/auth/login/"
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -91,23 +103,20 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Logged-in users get the personal dashboard instead of the marketing
-  // homepage. The redirect lives here (not in `app/page.tsx`) so anonymous
-  // visitors and crawlers still see the marketing/SEO content at `/`.
+  // Logged-in users get the personal dashboard instead of public entry
+  // surfaces. The redirect lives here (not in a cached page component) so
+  // the decision always sees the request's current auth cookies.
   // The `!is_anonymous` guard excludes Supabase anonymous-auth sessions
   // (issued by the hero demo's signInAnonymously() so visitors can chat
   // without signing up) — those users have a real JWT but no account, so
-  // they should keep seeing the marketing homepage, not get bounced to a
-  // dashboard with an empty greeting and no history.
+  // they should keep seeing the marketing homepage and login form, not get
+  // bounced to a dashboard with an empty greeting and no history.
   if (
     user &&
     !(user.is_anonymous ?? false) &&
-    request.nextUrl.pathname === "/"
+    isAuthenticatedEntryPath(request.nextUrl.pathname)
   ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    url.search = "";
-    return NextResponse.redirect(url);
+    return redirectToDashboard(request);
   }
 
   if (!user && !publicPath) {
