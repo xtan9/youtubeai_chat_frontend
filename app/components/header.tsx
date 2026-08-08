@@ -40,8 +40,9 @@ export function Header() {
         setSignOutError("Couldn't sign you out. Check your connection and try again.");
         return;
       }
-      // Navigate to home page after the current browser session ends.
-      router.push("/");
+      // Force a document navigation so an authenticated App Router prefetch of
+      // `/` cannot reuse its cached `/dashboard` redirect after sign-out.
+      window.location.replace("/");
     } catch (error: unknown) {
       console.error("[header] signOut threw", {
         message: error instanceof Error ? error.message : String(error),
