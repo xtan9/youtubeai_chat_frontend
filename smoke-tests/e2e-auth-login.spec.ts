@@ -15,10 +15,9 @@ test("login → logout round-trip", async ({ page }) => {
   await page.fill("#email", creds.email);
   await page.fill("#password", creds.password);
   await Promise.all([
-    page.waitForURL(
-      (url) => url.pathname === "/" || url.pathname === "/dashboard",
-      { timeout: 15_000 },
-    ),
+    page.waitForURL((url) => url.pathname === "/dashboard", {
+      timeout: 15_000,
+    }),
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
 
@@ -29,6 +28,14 @@ test("login → logout round-trip", async ({ page }) => {
   //   - getByTestId("user-menu-trigger")
   const accountMenu = page.getByRole("button", { name: /user menu/i });
   await expect(accountMenu).toBeVisible({ timeout: 10_000 });
+
+  // An authenticated navigation to the public root must not render the
+  // marketing homepage. The dashboard is the only post-login landing page.
+  await page.goto(`${PROD_URL}/`);
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
+  await expect(
+    page.getByRole("heading", { name: /welcome back/i }),
+  ).toBeVisible();
 
   // --- Logout ---
   await accountMenu.click();
