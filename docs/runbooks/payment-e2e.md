@@ -65,9 +65,10 @@ The workflow also reads the existing production `PROD_URL` variable and
 `SUPABASE_URL` secret only to prove that the test targets are different. Those
 production values are never sent to the browser and are never mutated.
 
-The `payment-e2e` workflow runs weekly and can be dispatched manually. It runs
-one monthly journey and one yearly journey with retries disabled. Failure
-traces, screenshots, and video are retained for 14 days.
+The `payment-e2e` workflow runs every Monday and Thursday at 16:37 UTC and can
+also be dispatched manually. It runs one monthly journey and one yearly journey
+with retries disabled. Failure traces, screenshots, and video are retained for
+14 days.
 
 ## Local execution
 
