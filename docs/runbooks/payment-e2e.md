@@ -2,9 +2,10 @@
 
 The payment E2E proves that both paid plans work through the real hosted Stripe
 Checkout flow without making a real charge. It creates disposable users and
-test-mode subscriptions, verifies the Stripe webhook-derived Pro entitlement,
-checks the Account page and Billing Portal link, then removes the Stripe and
-Supabase artifacts.
+one-use 50%-off promotion codes, redeems each code in Stripe Checkout, verifies
+the promotion on the test-mode subscription and the webhook-derived Pro
+entitlement, checks the Account page and Billing Portal link, then removes the
+Stripe and Supabase artifacts.
 
 ## Safety boundary
 
@@ -19,6 +20,9 @@ The runner fails before creating data unless all of these conditions hold:
 
 The card number is Stripe's successful test card, `4242 4242 4242 4242`, with
 a future expiry and any CVC. Stripe test mode does not move money.
+Each journey creates its coupon and promotion code through the same test-mode
+Stripe account used by Checkout. This specifically guards against configuring a
+code in one Stripe mode while Checkout runs in the other.
 
 ## One-time staging setup
 
@@ -66,9 +70,9 @@ The workflow also reads the existing production `PROD_URL` variable and
 production values are never sent to the browser and are never mutated.
 
 The `payment-e2e` workflow runs every Monday and Thursday at 16:37 UTC and can
-also be dispatched manually. It runs one monthly journey and one yearly journey
-with retries disabled. Failure traces, screenshots, and video are retained for
-14 days.
+also be dispatched manually. It runs one monthly promo-code journey and one
+yearly promo-code journey with retries disabled. Failure traces, screenshots,
+and video are retained for 14 days.
 
 ## Local execution
 

@@ -33,7 +33,7 @@ jobs:
       - name: Refuse production or live-mode configuration
         run: pnpm smoke:payment:preflight
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Run monthly and yearly Stripe Checkout journeys
+      - name: Run monthly and yearly Stripe Checkout promo-code journeys
         run: pnpm smoke:payment:e2e
       - uses: actions/upload-artifact@v6
         if: failure()

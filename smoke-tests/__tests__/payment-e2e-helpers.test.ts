@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertPaymentE2EEnabled,
+  cleanupPaymentTestPromotion,
   cleanupPaymentTestUser,
+  createPaymentTestPromotion,
   loadPaymentE2EConfig,
   type PaymentE2EClients,
+  type PaymentTestPromotion,
   type SubscriptionRow,
+  verifyStripeSubscription,
 } from "../payment-e2e-helpers";
 
 function validEnv(): Record<string, string | undefined> {
@@ -205,5 +209,151 @@ describe("payment E2E cleanup", () => {
     expect(harness.deleteCustomer).toHaveBeenCalledWith("cus_test");
     expect(harness.deleteRow).toHaveBeenCalledWith("user_id", user.userId);
     expect(harness.deleteUser).toHaveBeenCalledWith(user.userId);
+  });
+});
+
+describe("payment E2E promotion codes", () => {
+  it("creates an isolated one-use test promotion", async () => {
+    const createCoupon = vi.fn().mockResolvedValue({ id: "coupon_test" });
+    const createPromotionCode = vi.fn().mockResolvedValue({
+      id: "promo_test",
+      code: "PAYMENT-E2E-ABC123",
+    });
+    const stripe = {
+      coupons: { create: createCoupon, del: vi.fn() },
+      promotionCodes: { create: createPromotionCode },
+    } as unknown as PaymentE2EClients["stripe"];
+
+    const promotion = await createPaymentTestPromotion(stripe, "monthly");
+
+    expect(createCoupon).toHaveBeenCalledWith({
+      duration: "once",
+      max_redemptions: 1,
+      metadata: { payment_e2e: "true", plan: "monthly" },
+      name: "YouTubeAI payment E2E 50% off once",
+      percent_off: 50,
+    });
+    expect(createPromotionCode).toHaveBeenCalledWith({
+      code: expect.stringMatching(/^PAYMENT-E2E-[A-F0-9]+$/),
+      max_redemptions: 1,
+      metadata: { payment_e2e: "true", plan: "monthly" },
+      promotion: { coupon: "coupon_test", type: "coupon" },
+    });
+    expect(promotion).toEqual({
+      couponId: "coupon_test",
+      promotionCodeId: "promo_test",
+      code: "PAYMENT-E2E-ABC123",
+    });
+  });
+
+  it("deletes the coupon when promotion creation fails", async () => {
+    const deleteCoupon = vi.fn().mockResolvedValue({ deleted: true });
+    const stripe = {
+      coupons: {
+        create: vi.fn().mockResolvedValue({ id: "coupon_test" }),
+        del: deleteCoupon,
+      },
+      promotionCodes: {
+        create: vi.fn().mockRejectedValue(new Error("Stripe unavailable")),
+      },
+    } as unknown as PaymentE2EClients["stripe"];
+
+    await expect(createPaymentTestPromotion(stripe, "yearly")).rejects.toThrow(
+      /Stripe unavailable/,
+    );
+    expect(deleteCoupon).toHaveBeenCalledWith("coupon_test");
+  });
+
+  it("deactivates the promotion code before deleting its coupon", async () => {
+    const calls: string[] = [];
+    const stripe = {
+      coupons: {
+        del: vi.fn().mockImplementation(async () => {
+          calls.push("coupon");
+          return { deleted: true };
+        }),
+      },
+      promotionCodes: {
+        update: vi.fn().mockImplementation(async () => {
+          calls.push("promotion");
+          return { active: false };
+        }),
+      },
+    } as unknown as PaymentE2EClients["stripe"];
+    const promotion: PaymentTestPromotion = {
+      couponId: "coupon_test",
+      promotionCodeId: "promo_test",
+      code: "PAYMENT-E2E-ABC123",
+    };
+
+    await cleanupPaymentTestPromotion(stripe, promotion);
+
+    expect(stripe.promotionCodes.update).toHaveBeenCalledWith("promo_test", {
+      active: false,
+    });
+    expect(stripe.coupons.del).toHaveBeenCalledWith("coupon_test");
+    expect(calls).toEqual(["promotion", "coupon"]);
+  });
+
+  it("verifies the redeemed promotion on the Stripe subscription", async () => {
+    const retrieveSubscription = vi.fn().mockResolvedValue({
+      customer: "cus_test",
+      discounts: [
+        {
+          id: "di_test",
+          promotion_code: "promo_test",
+        },
+      ],
+      items: { data: [{ price: { id: "price_monthly" } }] },
+      status: "active",
+    });
+    const retrievePromotionCode = vi.fn().mockResolvedValue({ times_redeemed: 1 });
+    const stripe = {
+      promotionCodes: { retrieve: retrievePromotionCode },
+      subscriptions: { retrieve: retrieveSubscription },
+    } as unknown as PaymentE2EClients["stripe"];
+    const row: SubscriptionRow = {
+      user_id: "user-1",
+      stripe_customer_id: "cus_test",
+      stripe_subscription_id: "sub_test",
+      tier: "pro",
+      plan: "monthly",
+      status: "active",
+    };
+
+    await verifyStripeSubscription(stripe, row, "price_monthly", "promo_test");
+
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_test", {
+      expand: ["discounts"],
+    });
+    expect(retrievePromotionCode).toHaveBeenCalledWith("promo_test");
+  });
+
+  it("rejects a subscription that did not redeem the expected promotion", async () => {
+    const stripe = {
+      promotionCodes: {
+        retrieve: vi.fn().mockResolvedValue({ times_redeemed: 0 }),
+      },
+      subscriptions: {
+        retrieve: vi.fn().mockResolvedValue({
+          customer: "cus_test",
+          discounts: [],
+          items: { data: [{ price: { id: "price_monthly" } }] },
+          status: "active",
+        }),
+      },
+    } as unknown as PaymentE2EClients["stripe"];
+    const row: SubscriptionRow = {
+      user_id: "user-1",
+      stripe_customer_id: "cus_test",
+      stripe_subscription_id: "sub_test",
+      tier: "pro",
+      plan: "monthly",
+      status: "active",
+    };
+
+    await expect(
+      verifyStripeSubscription(stripe, row, "price_monthly", "promo_test"),
+    ).rejects.toThrow(/promotion code/);
   });
 });
