@@ -75,7 +75,7 @@ describe("Header user menu", () => {
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
 
-  it("signs out only the current browser session before routing home", async () => {
+  it("signs out only the current Remembered Session", async () => {
     const qc = freshQueryClient();
     render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
 
@@ -84,8 +84,18 @@ describe("Header user menu", () => {
 
     await waitFor(() => {
       expect(signOutSpy).toHaveBeenCalledWith({ scope: "local" });
-      expect(mockPush).toHaveBeenCalledWith("/");
     });
+  });
+
+  it("leaves the dashboard for the homepage after successful sign out", async () => {
+    window.history.replaceState(null, "", "/dashboard");
+    const qc = freshQueryClient();
+    render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
+
+    openDropdown(screen.getByRole("button", { name: /user menu/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
   it("keeps the header actionable when local sign out fails", async () => {
