@@ -46,8 +46,17 @@ describe("updateSession", () => {
     ["/", "home"],
     ["/summary", "summary index"],
     ["/summary?url=foo", "summary with query"],
+    ["/auth", "auth root"],
     ["/auth/login", "auth login"],
+    ["/auth/login/", "auth login with trailing slash"],
     ["/auth/sign-up", "auth signup"],
+    ["/auth/sign-up/", "auth signup with trailing slash"],
+    ["/auth/sign-up-success", "auth signup success"],
+    ["/auth/sign-up-success/", "auth signup success with trailing slash"],
+    ["/auth/forgot-password", "auth forgot password"],
+    ["/auth/forgot-password/", "auth forgot password with trailing slash"],
+    ["/auth/callback", "auth callback"],
+    ["/auth/confirm", "auth confirm"],
     ["/login", "legacy login"],
     ["/privacy", "privacy"],
     ["/terms", "terms"],
@@ -193,6 +202,63 @@ describe("updateSession", () => {
     }
   );
 
+  it.each([
+    "/auth/sign-up",
+    "/auth/sign-up/",
+    "/auth/sign-up-success",
+    "/auth/sign-up-success/",
+  ])(
+    "redirects authenticated user from signed-out-only page %s to /dashboard",
+    async (pathname) => {
+      mockGetUser.mockResolvedValue({
+        data: { user: { id: "u1", email: "u@example.com" } },
+      });
+      const response = await updateSession(reqWithAuthCookie(pathname));
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://example.com/dashboard"
+      );
+    }
+  );
+
+  it.each([
+    "/auth/forgot-password",
+    "/auth/forgot-password/",
+    "/auth/update-password",
+    "/auth/callback",
+    "/auth/confirm",
+    "/auth/error",
+  ])(
+    "keeps recovery and auth-support routes public for an authenticated user at %s",
+    async (pathname) => {
+      mockGetUser.mockResolvedValue({
+        data: { user: { id: "u1", email: "u@example.com" } },
+      });
+      const response = await updateSession(reqWithAuthCookie(pathname));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+    }
+  );
+
+  it.each([
+    "/auth/login",
+    "/auth/login/",
+    "/auth/sign-up",
+    "/auth/sign-up/",
+    "/auth/sign-up-success",
+    "/auth/sign-up-success/",
+  ])(
+    "does NOT redirect Supabase-anonymous user from signed-out-only page %s",
+    async (pathname) => {
+      mockGetUser.mockResolvedValue({
+        data: { user: { id: "anon-1", email: "", is_anonymous: true } },
+      });
+      const response = await updateSession(reqWithAuthCookie(pathname));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+    }
+  );
+
   it("does NOT redirect Supabase-anonymous user from /auth/login", async () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: "anon-1", email: "", is_anonymous: true } },
@@ -216,6 +282,124 @@ describe("updateSession", () => {
     expect(response.headers.get("location")).toBe(
       "https://example.com/dashboard"
     );
+  });
+
+  it("preserves refreshed Supabase cookies when redirecting an authenticated user", async () => {
+    const refreshedCookie = {
+      name: "sb-project-ref-auth-token",
+      value: "refreshed-token",
+      options: {
+        httpOnly: true,
+        maxAge: 3600,
+        path: "/",
+        sameSite: "lax" as const,
+        secure: true,
+      },
+    };
+
+    mockGetUser.mockImplementationOnce(async () => {
+      const clientOptions = mockCreateServerClient.mock.calls[0]?.[2] as {
+        cookies: {
+          setAll: (
+            cookies: unknown[],
+            headers: Record<string, string>
+          ) => void;
+        };
+      };
+      clientOptions.cookies.setAll([refreshedCookie], {
+        "Cache-Control":
+          "private, no-cache, no-store, must-revalidate, max-age=0",
+        Expires: "0",
+        Pragma: "no-cache",
+      });
+      return { data: { user: { id: "u1", email: "u@example.com" } } };
+    });
+
+    const response = await updateSession(
+      reqWithAuthCookie("/auth/login?next=%2Fdashboard")
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/dashboard"
+    );
+    expect(response.cookies.getAll()).toEqual([
+      expect.objectContaining({
+        name: refreshedCookie.name,
+        value: refreshedCookie.value,
+        httpOnly: true,
+        maxAge: refreshedCookie.options.maxAge,
+        path: refreshedCookie.options.path,
+        sameSite: refreshedCookie.options.sameSite,
+        secure: true,
+      }),
+    ]);
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-cache, no-store, must-revalidate, max-age=0"
+    );
+    expect(response.headers.get("expires")).toBe("0");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+  });
+
+  it("preserves Supabase cookie cleanup and cache headers when redirecting an invalid session to login", async () => {
+    const expiredCookie = {
+      name: "sb-project-ref-auth-token",
+      value: "",
+      options: { maxAge: 0, path: "/" },
+    };
+
+    mockGetUser.mockImplementationOnce(async () => {
+      const clientOptions = mockCreateServerClient.mock.calls[0]?.[2] as {
+        cookies: {
+          setAll: (
+            cookies: unknown[],
+            headers: Record<string, string>
+          ) => void;
+        };
+      };
+      clientOptions.cookies.setAll([expiredCookie], {
+        "Cache-Control": "private, no-store",
+      });
+      return { data: { user: null } };
+    });
+
+    const response = await updateSession(reqWithAuthCookie("/dashboard"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/auth/login"
+    );
+    expect(response.cookies.get(expiredCookie.name)).toEqual(
+      expect.objectContaining({
+        name: expiredCookie.name,
+        value: "",
+        maxAge: 0,
+        path: "/",
+      })
+    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("keeps Supabase cache headers on a non-redirect response", async () => {
+    mockGetUser.mockImplementationOnce(async () => {
+      const clientOptions = mockCreateServerClient.mock.calls[0]?.[2] as {
+        cookies: {
+          setAll: (
+            cookies: unknown[],
+            headers: Record<string, string>
+          ) => void;
+        };
+      };
+      clientOptions.cookies.setAll([], {
+        "Cache-Control": "private, no-store",
+      });
+      return { data: { user: { id: "u1", email: "u@example.com" } } };
+    });
+
+    const response = await updateSession(reqWithAuthCookie("/dashboard"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("does NOT redirect anonymous user on /", async () => {
@@ -279,7 +463,6 @@ describe("updateSession", () => {
   it.each([
     ["/loginx", "extends /login prefix"],
     ["/summary-fake", "extends /summary prefix"],
-    ["/authxyz", "extends /auth prefix"],
   ])(
     "currently treats prefix-extending path %s as public (%s) — startsWith over-acceptance",
     async (pathname) => {
@@ -294,4 +477,13 @@ describe("updateSession", () => {
       expect(response.headers.get("location")).toBeNull();
     }
   );
+
+  it("does not treat /authxyz as a public auth path", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const response = await updateSession(req("/authxyz"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://example.com/auth/login"
+    );
+  });
 });

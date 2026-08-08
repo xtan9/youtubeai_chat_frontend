@@ -83,6 +83,21 @@ describe("GET /auth/callback", () => {
     );
   });
 
+  it("falls back to /dashboard when next is protocol-relative", async () => {
+    exchangeCodeForSession.mockResolvedValue({ error: null });
+
+    const res = await GET(
+      req(
+        "https://www.youtubeai.chat/auth/callback?code=abc&next=//evil.example.com/account",
+        { "x-forwarded-host": "www.youtubeai.chat" },
+      ),
+    );
+
+    expect(res.headers.get("location")).toBe(
+      "https://www.youtubeai.chat/dashboard",
+    );
+  });
+
   it("prefers x-forwarded-host over origin in production (Vercel sets it)", async () => {
     // OAuth providers (e.g. Google) sometimes redirect through the apex
     // origin while the production app lives on www. Vercel's edge sets
@@ -129,18 +144,20 @@ describe("GET /auth/callback", () => {
     expect(res.headers.get("location")).toBe("https://www.youtubeai.chat/foo");
   });
 
-  it("redirects to /auth/auth-code-error when code is missing", async () => {
+  it("redirects to the existing /auth/error page when code is missing", async () => {
     const res = await GET(
       req("https://www.youtubeai.chat/auth/callback?next=/foo")
     );
 
     expect(exchangeCodeForSession).not.toHaveBeenCalled();
-    expect(res.headers.get("location")).toBe(
-      "https://www.youtubeai.chat/auth/auth-code-error"
+    const location = new URL(res.headers.get("location")!);
+    expect(location.pathname).toBe("/auth/error");
+    expect(location.searchParams.get("error")).toBe(
+      "Authentication link is invalid or expired.",
     );
   });
 
-  it("redirects to /auth/auth-code-error when exchangeCodeForSession errors", async () => {
+  it("redirects to the existing /auth/error page when code exchange errors", async () => {
     exchangeCodeForSession.mockResolvedValue({
       error: new Error("invalid auth code"),
     });
@@ -152,8 +169,11 @@ describe("GET /auth/callback", () => {
     );
 
     expect(exchangeCodeForSession).toHaveBeenCalledWith("stale");
-    expect(res.headers.get("location")).toBe(
-      "https://www.youtubeai.chat/auth/auth-code-error"
+    const location = new URL(res.headers.get("location")!);
+    expect(location.pathname).toBe("/auth/error");
+    expect(location.searchParams.get("error")).toBe(
+      "Authentication link is invalid or expired.",
     );
+    expect(location.search).not.toContain("invalid auth code");
   });
 });

@@ -17,6 +17,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import {
+  buildAuthCallbackUrl,
+  getSafeAuthRedirect,
+} from "@/lib/auth/signup-redirect";
 
 export function SignUpForm({
   className,
@@ -42,11 +46,12 @@ export function SignUpForm({
     }
 
     try {
+      const next = getSafeAuthRedirect(window.location.href);
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/protected`,
+          emailRedirectTo: buildAuthCallbackUrl(window.location.origin, next),
         },
       });
       if (error) throw error;
@@ -60,7 +65,7 @@ export function SignUpForm({
           source_surface: "sign_up_form",
         });
       }
-      router.push("/auth/sign-up-success");
+      router.push(data.session ? next : "/auth/sign-up-success");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -77,7 +82,10 @@ export function SignUpForm({
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: buildAuthCallbackUrl(
+            window.location.origin,
+            getSafeAuthRedirect(window.location.href),
+          ),
         },
       });
       if (error) {

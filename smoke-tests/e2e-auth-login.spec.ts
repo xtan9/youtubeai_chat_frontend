@@ -35,6 +35,15 @@ test("login → logout round-trip", async ({ page }) => {
   await page.goto(`${PROD_URL}/auth/login`);
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
 
+  // The other signed-out-only auth surfaces must follow the same rule. A
+  // registered Learner should never be offered another account or stale
+  // post-signup instructions while their Remembered Session is active.
+  await page.goto(`${PROD_URL}/auth/sign-up`);
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
+
+  await page.goto(`${PROD_URL}/auth/sign-up-success`);
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10_000 });
+
   // An authenticated navigation to the public root must not render the
   // marketing homepage. The dashboard is the only post-login landing page.
   await page.goto(`${PROD_URL}/`);

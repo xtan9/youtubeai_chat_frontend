@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server";
 // The client you created from the Server-Side Auth instructions
+import {
+  DEFAULT_AUTH_REDIRECT,
+  normalizeAuthRedirect,
+} from "@/lib/auth/signup-redirect";
 import { createClient } from "@/lib/supabase/server";
+
+const CALLBACK_ERROR_MESSAGE = "Authentication link is invalid or expired.";
+
+function redirectToAuthError(origin: string): NextResponse {
+  const url = new URL("/auth/error", origin);
+  url.searchParams.set("error", CALLBACK_ERROR_MESSAGE);
+  return NextResponse.redirect(url);
+}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  // if "next" is in param, use it as the redirect URL
-  let next = searchParams.get("next") ?? "/dashboard";
-  if (!next.startsWith("/")) {
-    // if "next" is not a relative URL, use the authenticated default
-    next = "/dashboard";
-  }
+  const next = normalizeAuthRedirect(
+    searchParams.get("next") ?? DEFAULT_AUTH_REDIRECT,
+  );
 
   if (code) {
     const supabase = await createClient();
@@ -29,6 +38,5 @@ export async function GET(request: Request) {
     }
   }
 
-  // return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`);
+  return redirectToAuthError(origin);
 }
