@@ -20,6 +20,12 @@ export type PaymentTestUser = {
   password: string;
 };
 
+export type PaymentTestPromotion = {
+  couponId: string;
+  promotionCodeId: string;
+  code: string;
+};
+
 export type SubscriptionRow = {
   user_id: string;
   stripe_customer_id: string;
@@ -177,6 +183,63 @@ export async function createPaymentTestUser(
   return { userId: data.user.id, email, password };
 }
 
+export async function createPaymentTestPromotion(
+  stripe: Stripe,
+  plan: PaymentPlan,
+): Promise<PaymentTestPromotion> {
+  const coupon = await stripe.coupons.create({
+    duration: "once",
+    max_redemptions: 1,
+    metadata: { payment_e2e: "true", plan },
+    name: "YouTubeAI payment E2E 50% off once",
+    percent_off: 50,
+  });
+
+  try {
+    const promotionCode = await stripe.promotionCodes.create({
+      code: `PAYMENT-E2E-${randomUUID().replaceAll("-", "").toUpperCase()}`,
+      max_redemptions: 1,
+      metadata: { payment_e2e: "true", plan },
+      promotion: { coupon: coupon.id, type: "coupon" },
+    });
+    return {
+      couponId: coupon.id,
+      promotionCodeId: promotionCode.id,
+      code: promotionCode.code,
+    };
+  } catch (error) {
+    try {
+      await stripe.coupons.del(coupon.id);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Could not create payment E2E promotion or delete coupon ${coupon.id}`,
+      );
+    }
+    throw error;
+  }
+}
+
+export async function cleanupPaymentTestPromotion(
+  stripe: Stripe,
+  promotion: PaymentTestPromotion,
+): Promise<void> {
+  const errors: unknown[] = [];
+  try {
+    await stripe.promotionCodes.update(promotion.promotionCodeId, { active: false });
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await stripe.coupons.del(promotion.couponId);
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Payment E2E promotion cleanup failed");
+  }
+}
+
 export async function waitForActivatedSubscription(
   supabase: SupabaseClient,
   userId: string,
@@ -215,9 +278,12 @@ export async function verifyStripeSubscription(
   stripe: Stripe,
   row: SubscriptionRow,
   expectedPriceId: string,
+  expectedPromotionCodeId: string,
 ): Promise<void> {
   if (!row.stripe_subscription_id) throw new Error("Subscription row has no Stripe subscription ID");
-  const subscription = await stripe.subscriptions.retrieve(row.stripe_subscription_id);
+  const subscription = await stripe.subscriptions.retrieve(row.stripe_subscription_id, {
+    expand: ["discounts"],
+  });
   const customerId =
     typeof subscription.customer === "string"
       ? subscription.customer
@@ -231,6 +297,18 @@ export async function verifyStripeSubscription(
   const actualPriceId = subscription.items.data[0]?.price.id;
   if (actualPriceId !== expectedPriceId) {
     throw new Error("Stripe subscription used the wrong price ID");
+  }
+  const hasExpectedPromotion = subscription.discounts.some((discount) => {
+    if (typeof discount === "string") return false;
+    const promotionCode = discount.promotion_code;
+    return (
+      promotionCode === expectedPromotionCodeId ||
+      (typeof promotionCode === "object" && promotionCode?.id === expectedPromotionCodeId)
+    );
+  });
+  const promotionCode = await stripe.promotionCodes.retrieve(expectedPromotionCodeId);
+  if (!hasExpectedPromotion || promotionCode.times_redeemed !== 1) {
+    throw new Error("Stripe subscription did not redeem the expected promotion code");
   }
 }
 
