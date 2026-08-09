@@ -13,12 +13,17 @@ import {
   type ProjectConversation,
   type ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
+import {
+  PROJECT_DEFAULT_CONVERSATION_MODE,
+  type ProjectConversationMode,
+} from "@/lib/projects/project-grounded-synthesis";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { logAppEvent } from "@/lib/observability";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 export type ProjectConversationDraft = Readonly<{
   user: string;
+  mode: ProjectConversationMode;
   assistant: string;
   manifest: ProjectAnswerSourceManifest | null;
   coverage: ProjectAnswerCoverage | null;
@@ -272,7 +277,10 @@ export function useProjectGroundedConversation(args: {
   const abort = useCallback(() => abortRef.current?.abort(), []);
 
   const send = useCallback(
-    async (rawQuestion: string) => {
+    async (
+      rawQuestion: string,
+      mode: ProjectConversationMode = PROJECT_DEFAULT_CONVERSATION_MODE,
+    ) => {
       const question = rawQuestion.trim();
       if (!question || abortRef.current) return;
       lastQuestionRef.current = question;
@@ -284,6 +292,7 @@ export function useProjectGroundedConversation(args: {
       let upgradeWasRequired = false;
       let currentDraft: ProjectConversationDraft = {
         user: question,
+        mode,
         assistant: "",
         manifest: null,
         coverage: null,
@@ -306,6 +315,7 @@ export function useProjectGroundedConversation(args: {
               ...(activeConversationId
                 ? { conversationId: activeConversationId }
                 : {}),
+              ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
             }),
             signal: controller.signal,
           },
@@ -360,6 +370,7 @@ export function useProjectGroundedConversation(args: {
                 currentDraft = {
                   ...currentDraft,
                   classification: event.classification,
+                  mode: event.mode ?? currentDraft.mode,
                 };
                 break;
               case "delta":
@@ -383,6 +394,9 @@ export function useProjectGroundedConversation(args: {
                 ) {
                   captureAnalyticsEvent("project_grounded_answer_completed", {
                     classification: currentDraft.classification,
+                    ...(currentDraft.mode === PROJECT_DEFAULT_CONVERSATION_MODE
+                      ? {}
+                      : { mode: currentDraft.mode }),
                     source_set_revision:
                       currentDraft.manifest.sourceSetRevision,
                     total_videos: currentDraft.coverage.totalVideos,

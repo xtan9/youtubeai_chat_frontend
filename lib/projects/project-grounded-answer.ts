@@ -9,6 +9,7 @@ import {
   ProjectConversationDatabaseResultSchema,
   ProjectQuestionCancellationDatabaseResultSchema,
   ProjectQuestionStartDatabaseResultSchema,
+  PROJECT_DEFAULT_CONVERSATION_MODE,
   type ProjectAnswerCompletionResolution,
   type ProjectGroundedAnswerCapability,
   type ProjectGroundedAnswerResolution,
@@ -109,20 +110,32 @@ export function createProjectGroundedAnswerCapability(
       }
     },
 
-    async start(question, conversationId) {
+    async start(
+      question,
+      conversationId,
+      mode = PROJECT_DEFAULT_CONVERSATION_MODE,
+    ) {
       try {
+        const guided = mode !== PROJECT_DEFAULT_CONVERSATION_MODE;
         const result = await supabase.rpc(
           "start_project_grounded_question",
-          conversationId
+          guided
             ? {
                 p_project_id: target.projectId,
                 p_question: question,
-                p_conversation_id: conversationId,
+                p_conversation_id: conversationId ?? null,
+                p_mode: mode,
               }
-            : {
+            : conversationId
+              ? {
                 p_project_id: target.projectId,
                 p_question: question,
-              },
+                p_conversation_id: conversationId,
+                }
+              : {
+                  p_project_id: target.projectId,
+                  p_question: question,
+                },
         );
         if (result.error) {
           logGroundedAnswerFailure(
@@ -150,6 +163,7 @@ export function createProjectGroundedAnswerCapability(
               messagesUsed: parsed.data.messagesUsed,
               messagesLimit: parsed.data.messagesLimit,
               tier: parsed.data.tier,
+              mode: parsed.data.mode ?? mode,
               history: parsed.data.history,
             };
           }
@@ -230,6 +244,8 @@ export function createProjectGroundedAnswerCapability(
       }
 
       try {
+        const mode =
+          input.mode ?? input.reservation.mode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
         const result = await serviceRole.rpc(
           "complete_project_grounded_answer",
           {
@@ -240,6 +256,9 @@ export function createProjectGroundedAnswerCapability(
             p_attempt_token: input.reservation.attemptToken,
             p_assistant_content: input.assistantContent,
             p_answer_classification: input.classification,
+            ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE
+              ? {}
+              : { p_mode: mode }),
             p_source_set_revision:
               artifacts.data.evidenceSnapshot.sourceSetRevision,
             p_source_manifest: artifacts.data.sourceManifest,

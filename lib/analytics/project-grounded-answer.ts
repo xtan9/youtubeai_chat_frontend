@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { ProjectConversationModeSchema } from "@/lib/projects/project-grounded-synthesis";
 
 const ProjectGroundedAnswerCompletedPropertiesSchema = z
   .object({
     classification: z.enum(["supported", "abstained", "unsupported"]),
+    mode: ProjectConversationModeSchema.optional(),
     source_set_revision: z.number().int().nonnegative(),
     total_videos: z.number().int().min(0).max(5),
     ready_videos: z.number().int().min(0).max(5),

@@ -50,6 +50,80 @@ describe("ProjectConversation", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("offers accessible guided actions that remain editable and use the grounded stream mode", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              type: "source_manifest",
+              manifest: { projectId: PROJECT_ID, sourceSetRevision: 1, sources: [] },
+            })}`,
+            `data: ${JSON.stringify({
+              type: "source_coverage",
+              coverage: {
+                totalVideos: 0,
+                readyVideos: 0,
+                evidenceVideos: 0,
+                unavailableVideos: [],
+                passagesExamined: 0,
+                evidencePassages: 0,
+              },
+            })}`,
+            `data: ${JSON.stringify({
+              type: "answer_start",
+              classification: "unsupported",
+              mode: "compare_viewpoints",
+            })}`,
+            `data: ${JSON.stringify({
+              type: "delta",
+              text: "There is not enough evidence to compare these sources.",
+            })}`,
+            `data: ${JSON.stringify({ type: "citation_diagnostics", diagnostics: [] })}`,
+            `data: ${JSON.stringify({
+              type: "done",
+              assistantMessageId: "60000000-0000-4000-8000-000000000001",
+            })}`,
+          ].join("\n\n") + "\n\n",
+          { headers: { "Content-Type": "text/event-stream" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ conversation: conversation() }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Compare viewpoints" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find common themes" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Compare viewpoints" }));
+    const input = screen.getByLabelText("Ask the Project");
+    expect((input as HTMLTextAreaElement).value).toContain("Compare the viewpoints");
+    fireEvent.change(input, { target: { value: "Compare only the edited question" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Project" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          question: "Compare only the edited question",
+          mode: "compare_viewpoints",
+        }),
+      }),
+    );
+    expect(container.querySelector('[class*="overflow-y"]')).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it("renders a private evidence ledger before linked and diagnostic citations", async () => {
     const sourceManifest: ProjectAnswerSourceManifest = {
       projectId: PROJECT_ID,

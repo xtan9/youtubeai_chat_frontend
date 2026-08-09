@@ -7,6 +7,17 @@ import {
   ProjectSourceSetEventListSchema,
   ProjectSourceSetEventSchema,
 } from "./project-source-set-audit";
+import {
+  PROJECT_DEFAULT_CONVERSATION_MODE,
+  ProjectConversationModeSchema,
+  type ProjectConversationMode,
+} from "./project-grounded-synthesis";
+
+export {
+  PROJECT_DEFAULT_CONVERSATION_MODE,
+  ProjectConversationModeSchema,
+} from "./project-grounded-synthesis";
+export type { ProjectConversationMode } from "./project-grounded-synthesis";
 
 export const PROJECT_QUESTION_MIN_LENGTH = 2;
 export const PROJECT_QUESTION_MAX_LENGTH = 200;
@@ -43,6 +54,9 @@ export const ProjectGroundedQuestionRequestSchema = z
   .object({
     question: ProjectQuestionSchema,
     conversationId: z.uuid().optional(),
+    mode: ProjectConversationModeSchema
+      .optional()
+      .default(PROJECT_DEFAULT_CONVERSATION_MODE),
   })
   .strict();
 
@@ -279,6 +293,9 @@ const ConversationMessageBaseSchema = z.object({
 export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
   ConversationMessageBaseSchema.extend({
     role: z.literal("user"),
+    // Optional keeps legacy rows readable; new reservations always carry the
+    // server-selected synthesis mode.
+    mode: ProjectConversationModeSchema.optional(),
     inReplyToMessageId: z.null(),
     answerClassification: z.null(),
     // Legacy reservations may predate revision stamping. New reservations
@@ -291,6 +308,8 @@ export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
   }).strict(),
   ConversationMessageBaseSchema.extend({
     role: z.literal("assistant"),
+    // Assistant mode is immutable metadata paired with the user turn.
+    mode: ProjectConversationModeSchema.optional(),
     inReplyToMessageId: z.uuid(),
     answerClassification: ProjectAnswerClassificationSchema,
     sourceSetRevision: z.number().int().nonnegative(),
@@ -432,6 +451,7 @@ export const ProjectQuestionStartDatabaseResultSchema = z.discriminatedUnion(
         messagesUsed: z.number().int().positive(),
         messagesLimit: z.literal(5).nullable(),
         tier: z.enum(["free", "pro"]),
+        mode: ProjectConversationModeSchema.optional(),
         history: z.array(ProjectConversationMessageSchema).max(16),
       })
       .strict(),
@@ -452,9 +472,9 @@ export type ProjectQuestionReservation = Omit<
   Extract<
     z.infer<typeof ProjectQuestionStartDatabaseResultSchema>,
     { outcome: "started" }
-  >,
-  "outcome"
->;
+>,
+  "outcome" | "mode"
+> & { readonly mode?: ProjectConversationMode };
 
 export const ProjectQuestionCancellationDatabaseResultSchema =
   z.discriminatedUnion("outcome", [
@@ -513,6 +533,7 @@ export const ProjectGroundedSseEventSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("answer_start"),
       classification: ProjectAnswerClassificationSchema,
+      mode: ProjectConversationModeSchema.optional(),
     })
     .strict(),
   z.object({ type: z.literal("delta"), text: z.string().min(1) }).strict(),
@@ -554,12 +575,14 @@ export interface ProjectGroundedAnswerCapability {
   start(
     question: string,
     conversationId?: string,
+    mode?: ProjectConversationMode,
   ): Promise<ProjectQuestionStartResolution>;
   cancel(userMessageId: string): Promise<ProjectQuestionCancellationResolution>;
   complete(input: {
     readonly reservation: ProjectQuestionReservation;
     readonly assistantContent: string;
     readonly classification: ProjectAnswerClassification;
+    readonly mode?: ProjectConversationMode;
     readonly artifacts: z.infer<typeof ProjectAnswerArtifactsSchema>;
     readonly citationDiagnostics: readonly ProjectCitationDiagnostic[];
   }): Promise<ProjectAnswerCompletionResolution>;
