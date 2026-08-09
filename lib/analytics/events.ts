@@ -7,6 +7,7 @@ import type { ProjectLimitEventProperties } from "./project-limits";
 import type { ProjectSearchEventProperties } from "./project-search";
 import type { ProjectVideoProcessingEventProperties } from "./project-video-processing";
 import type { ProjectGroundedAnswerEventProperties } from "./project-grounded-answer";
+import type { ProjectArtifactEventProperties } from "./project-artifacts";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -40,6 +41,10 @@ export const ANALYTICS_EVENT_NAMES = [
   "project_video_processing_started",
   "project_video_processing_succeeded",
   "project_video_processing_failed",
+  "project_artifact_generation_requested",
+  "project_artifact_generation_completed",
+  "project_artifact_generation_blocked",
+  "project_artifact_exported",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -120,6 +125,10 @@ export interface AnalyticsEventProperties {
   project_video_processing_started: ProjectVideoProcessingEventProperties["project_video_processing_started"];
   project_video_processing_succeeded: ProjectVideoProcessingEventProperties["project_video_processing_succeeded"];
   project_video_processing_failed: ProjectVideoProcessingEventProperties["project_video_processing_failed"];
+  project_artifact_generation_requested: ProjectArtifactEventProperties["project_artifact_generation_requested"];
+  project_artifact_generation_completed: ProjectArtifactEventProperties["project_artifact_generation_completed"];
+  project_artifact_generation_blocked: ProjectArtifactEventProperties["project_artifact_generation_blocked"];
+  project_artifact_exported: ProjectArtifactEventProperties["project_artifact_exported"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;

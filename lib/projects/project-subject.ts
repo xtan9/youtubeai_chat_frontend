@@ -8,6 +8,8 @@ import { createProjectPassageSearchCapability } from "./project-passage-search";
 import type { ProjectPassageSearchCapability } from "./project-passage-search-contract";
 import { createProjectConversationCapability } from "./project-conversations";
 import type { ProjectConversationManagementCapability } from "./project-grounded-answer-contract";
+import { createProjectArtifactCapability } from "./project-artifacts";
+import type { ProjectArtifactCapability } from "./project-artifact-contract";
 
 export type Project = Readonly<{
   id: string;
@@ -39,6 +41,7 @@ export type ProjectSubject = Readonly<{
   passageSearch?: ProjectPassageSearchCapability;
   groundedAnswers?: ProjectGroundedAnswerCapability;
   conversations?: ProjectConversationManagementCapability;
+  artifacts?: ProjectArtifactCapability;
 }>;
 
 export type ProjectOutcome<T> =
@@ -264,6 +267,7 @@ export async function resolveProjectSubject(
       passageSearch: createProjectPassageSearchCapability(supabase, value),
       groundedAnswers: createProjectGroundedAnswerCapability(supabase, value),
       conversations: createProjectConversationCapability(supabase, value),
+      artifacts: createProjectArtifactCapability(supabase, value),
     },
   };
 }

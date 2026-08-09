@@ -54,11 +54,12 @@ export default async function ProjectPage({
     }
     return <ProjectOutcomeState kind="unavailable" />;
   }
-  if (!subject.value.groundedAnswers) {
+  if (!subject.value.groundedAnswers || !subject.value.artifacts) {
     return <ProjectOutcomeState kind="unavailable" />;
   }
   const groundedAnswers = subject.value.groundedAnswers;
   const conversationManagement = subject.value.conversations;
+  const artifacts = subject.value.artifacts;
 
   let project: Awaited<ReturnType<typeof openResolvedProject>>;
   let sourceSet: Awaited<ReturnType<typeof loadProjectSourceSet>>;
@@ -67,18 +68,20 @@ export default async function ProjectPage({
     ReturnType<typeof groundedAnswers.load>
   >;
   let conversationList: Awaited<ReturnType<NonNullable<typeof conversationManagement>["list"]>>;
+  let studyGuide: Awaited<ReturnType<typeof artifacts.load>>;
   try {
     await reconcileStaleProjectVideoProcessing(
       subject.value,
       principalResult.principal.smokeProEntitled === true,
     );
-    [project, sourceSet, candidates, conversation, conversationList] = await Promise.all([
+    [project, sourceSet, candidates, conversation, conversationList, studyGuide] = await Promise.all([
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),
       loadProjectHistoryCandidates(supabase, subject.value),
       groundedAnswers.load(),
       conversationManagement?.list() ??
         Promise.resolve({ status: "unavailable" as const }),
+      artifacts.load("study_guide"),
     ]);
 
     // A Project may contain named threads before the legacy default thread has
@@ -105,7 +108,8 @@ export default async function ProjectPage({
   if (
     project.kind !== "resolved" ||
     sourceSet.kind !== "resolved" ||
-    conversation.status !== "ready"
+    conversation.status !== "ready" ||
+    studyGuide.status !== "ready"
   ) {
     return <ProjectOutcomeState kind="unavailable" />;
   }
@@ -120,6 +124,7 @@ export default async function ProjectPage({
       initialCandidatePage={
         candidates.kind === "resolved" ? candidates.value : null
       }
+      initialStudyGuide={studyGuide}
     />
   );
 }

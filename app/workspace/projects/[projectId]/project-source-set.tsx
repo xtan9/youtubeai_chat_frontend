@@ -2,7 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -43,6 +50,7 @@ type ProjectSourceSetProps = {
   projectId: string;
   initialSourceSet: ProjectSourceSetValue;
   initialCandidatePage: ProjectHistoryCandidatePage | null;
+  onSourceSetChange?: (sourceSet: ProjectSourceSetValue) => void;
 };
 
 type SourceSetPayload = {
@@ -146,8 +154,10 @@ export function ProjectSourceSet({
   projectId,
   initialSourceSet,
   initialCandidatePage,
+  onSourceSetChange,
 }: ProjectSourceSetProps) {
   const [sourceSet, setSourceSet] = useState(initialSourceSet);
+  const sourceSetRevisionRef = useRef(initialSourceSet.revision);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -182,10 +192,15 @@ export function ProjectSourceSet({
       ? `History search results: ${candidatePage.total} processed ${candidatePage.total === 1 ? "Video" : "Videos"} available${appliedSearch ? ` for ${appliedSearch}` : ""}`
       : null;
 
-  function acceptLatest(next: ProjectSourceSetValue | undefined) {
-    if (!next) return;
-    setSourceSet((current) => (next.revision >= current.revision ? next : current));
-  }
+  const acceptLatest = useCallback(
+    (next: ProjectSourceSetValue | undefined) => {
+      if (!next || next.revision < sourceSetRevisionRef.current) return;
+      sourceSetRevisionRef.current = next.revision;
+      setSourceSet(next);
+      onSourceSetChange?.(next);
+    },
+    [onSourceSetChange],
+  );
 
   useEffect(() => {
     if (processingCount === 0) return;
@@ -199,10 +214,7 @@ export function ProjectSourceSet({
         });
         const payload = await readSourceSetPayload(response);
         if (!disposed && response.ok && payload.sourceSet) {
-          const next = payload.sourceSet;
-          setSourceSet((current) =>
-            next.revision >= current.revision ? next : current,
-          );
+          acceptLatest(payload.sourceSet);
         }
       } catch {
         // A later poll or explicit retry remains available. Keep the last
@@ -217,7 +229,7 @@ export function ProjectSourceSet({
       disposed = true;
       if (timer) clearTimeout(timer);
     };
-  }, [processingCount, projectId]);
+  }, [acceptLatest, processingCount, projectId]);
 
   async function refreshSourceSet() {
     try {

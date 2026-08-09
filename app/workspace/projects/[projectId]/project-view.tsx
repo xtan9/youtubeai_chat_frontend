@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import { ArrowLeft, Lightbulb, Save, Trash2 } from "lucide-react";
 import {
   AlertDialog,
@@ -29,9 +29,11 @@ import type {
   ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
 import type { Project } from "@/lib/projects/project-subject";
+import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 import { ProjectConversation } from "./project-conversation";
 import { ProjectSourceSet } from "./project-source-set";
 import { ProjectSearch } from "./project-search";
+import { ProjectStudyGuide } from "./project-study-guide";
 
 type ApiError = {
   message?: string;
@@ -44,6 +46,10 @@ type ProjectViewProps = {
   initialCandidatePage: ProjectHistoryCandidatePage | null;
   initialConversation: ProjectConversationValue;
   initialConversations: readonly ProjectConversationSummary[];
+  initialStudyGuide: Extract<
+    ProjectArtifactLoadResolution,
+    { status: "ready" }
+  >;
 };
 
 export function ProjectView({
@@ -52,6 +58,7 @@ export function ProjectView({
   initialCandidatePage,
   initialConversation,
   initialConversations,
+  initialStudyGuide,
 }: ProjectViewProps) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
@@ -62,6 +69,16 @@ export function ProjectView({
   const [error, setError] = useState<ApiError | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [currentSourceSetRevision, setCurrentSourceSetRevision] = useState(
+    initialSourceSet.revision,
+  );
+  const handleSourceSetChange = useCallback(
+    (next: ProjectSourceSetValue) =>
+      setCurrentSourceSetRevision((current) =>
+        Math.max(current, next.revision),
+      ),
+    [],
+  );
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -135,6 +152,14 @@ export function ProjectView({
         projectId={project.id}
         initialSourceSet={initialSourceSet}
         initialCandidatePage={initialCandidatePage}
+        onSourceSetChange={handleSourceSetChange}
+      />
+
+      <ProjectStudyGuide
+        projectId={project.id}
+        projectName={project.name}
+        currentSourceSetRevision={currentSourceSetRevision}
+        initialStudyGuide={initialStudyGuide}
       />
 
       <ProjectConversation
