@@ -120,7 +120,11 @@ Never add any of the following to general product analytics:
 
 Use enumerated categories, booleans, counts, durations, status codes, and
 billing-plan labels instead. PostHog capture failures must never block signup,
-summarization, chat, logout, checkout, or webhook processing.
+summarization, chat, logout, or checkout. The Stripe activation webhook first
+records a durable `pending` outbox state, then returns 5xx so Stripe retries
+the same delivery; a later `customer.subscription.updated` replay can also
+retry that marker, while the processing lease recovers a worker crash. A
+failure to persist the outbox state likewise returns 5xx.
 
 Smoke Account events are suppressed at the authenticated client identity
 boundary and at the trusted server activation boundary. Canonical business

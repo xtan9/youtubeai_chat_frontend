@@ -51,8 +51,8 @@ test.describe("public plan discovery", () => {
       "href",
       "https://www.youtubeai.chat/pricing",
     );
-    await expect(page.getByText("$4.99/mo equivalent")).toBeVisible();
-    await expect(page.getByText("Billed annually at $59.88")).toBeVisible();
+    await expect(page.getByText("$4.99/month equivalent")).toBeVisible();
+    await expect(page.getByText("$59.88 charged once per year.")).toBeVisible();
 
     await page.screenshot({
       path: testInfo.outputPath("public-plan-discovery-desktop.png"),
@@ -89,8 +89,8 @@ test.describe("public plan discovery", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Simple pricing" }),
     ).toBeVisible();
-    await expect(page.getByText("$4.99/mo equivalent")).toBeVisible();
-    await expect(page.getByText("Billed annually at $59.88")).toBeVisible();
+    await expect(page.getByText("$4.99/month equivalent")).toBeVisible();
+    await expect(page.getByText("$59.88 charged once per year.")).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

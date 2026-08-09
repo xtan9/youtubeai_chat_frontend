@@ -79,14 +79,14 @@ Spec: [`docs/superpowers/specs/2026-04-29-paywall-design.md`](docs/superpowers/s
 
 - **Anon:** 1 lifetime summary per browser (HMAC-signed cookie via `lib/services/anon-cookie.ts`). No chat. No history.
 - **Free:** 10 summaries/month (UTC reset on the 1st), 5 chat messages/video, 10-item history with FIFO eviction.
-- **Pro:** unlimited summaries / chat / history. $4.99/mo billed yearly ($59.88/yr) or $6.99/mo monthly via Stripe.
+- **Pro:** unlimited summaries / chat / history. Yearly is $4.99/month equivalent and $59.88 charged once per year; monthly is $6.99 charged every month via Stripe.
 - Pricing page at `/pricing`. Manage subscription via the user dropdown (Pro users only) → opens Stripe Customer Portal.
 
 ### Paywall endpoints
 
 | Path | Purpose |
 |---|---|
-| `POST /api/billing/checkout` | Auth-required. Creates Stripe Customer + Checkout Session. Body `{ plan: "monthly" \| "yearly" }`. |
+| `POST /api/billing/checkout` | Auth-required. Creates Stripe Customer + Checkout Session. Body `{ plan: "monthly" \| "yearly", source_surface?: string, device_class?: "desktop" \| "mobile", attempt_id?: string }`; send a stable valid `attempt_id` matching `[A-Za-z0-9][A-Za-z0-9._:-]{7,127}` in the body or `Idempotency-Key` (if both are present they must match) so a lost response can be retried safely. Approved source/device attribution is copied to both Checkout and Subscription metadata. The cancel URL preserves Pricing intent/source; the success URL is session-scoped (`/billing/success?session_id=...`). |
 | `POST /api/billing/portal` | Auth-required. Returns Stripe Customer Portal URL. |
 | `POST /api/webhooks/stripe` | Signature-verified, idempotent. Source of truth for `user_subscriptions.tier`. |
 | `GET /api/me/entitlements` | Returns `{ tier, caps, subscription? }` for the UI. |
