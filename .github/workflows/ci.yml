@@ -130,6 +130,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_grounded_answers.sql
       - name: Project Grounded Answer concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_grounded_answer_concurrency.sql
+      - name: Project Conversation management - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_conversation_management.sql
       - name: Workspace and Project contract - fresh migration replay
         run: |
           set -eo pipefail
@@ -151,6 +153,7 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_grounded_answers.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_grounded_answer_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_conversation_management.sql
       # Reproduces the cache-write upsert that broke translation caching
       # in prod (verified 2026-04-25). Specifically guards against a
       # UNIQUE that conflicts when two summaries differ only by

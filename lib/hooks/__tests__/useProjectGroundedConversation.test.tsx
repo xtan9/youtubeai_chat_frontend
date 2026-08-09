@@ -317,4 +317,97 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.conversation.messagesUsed).toBe(5);
   });
+
+  it("switches, creates, renames, and clears through the management boundaries", async () => {
+    const firstId = "40000000-0000-4000-8000-000000000001";
+    const secondId = "40000000-0000-4000-8000-000000000002";
+    const createdId = "40000000-0000-4000-8000-000000000003";
+    const summary = (conversationId: string, name: string, messageCount = 0) => ({
+      conversationId,
+      name,
+      createdAt: "2026-08-09T00:00:00.000Z",
+      updatedAt: "2026-08-09T00:00:00.000Z",
+      messageCount,
+    });
+    const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes(`conversation?conversationId=${secondId}`)) {
+        return Promise.resolve(json({ conversation: { ...INITIAL, conversationId: secondId } }));
+      }
+      if (url === `/api/projects/${PROJECT_ID}/conversations` && init?.method === "POST") {
+        return Promise.resolve(json({ conversation: summary(createdId, "New conversation") }, 201));
+      }
+      if (url.endsWith(`/conversations/${createdId}`) && init?.method === "PATCH") {
+        return Promise.resolve(json({ outcome: "renamed" }));
+      }
+      if (url.endsWith(`/conversations/${createdId}`) && init?.method === "DELETE") {
+        return Promise.resolve(json({ outcome: "cleared" }));
+      }
+      if (url.includes(`conversation?conversationId=${createdId}`)) {
+        return Promise.resolve(json({ conversation: { ...INITIAL, conversationId: createdId } }));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: { ...INITIAL, conversationId: firstId },
+        initialConversations: [summary(firstId, "Launch questions", 1), summary(secondId, "Comparison")],
+      }),
+    );
+
+    await act(() => result.current.selectConversation(secondId));
+    expect(result.current.activeConversationId).toBe(secondId);
+    await act(() => result.current.createConversation());
+    expect(result.current.activeConversationId).toBe(createdId);
+    await act(() => result.current.renameConversation(createdId, "Launch questions"));
+    expect(result.current.conversations[0]?.name).toBe("Launch questions");
+    await act(() => result.current.clearConversation(createdId));
+    expect(result.current.conversation.messages).toEqual([]);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/projects/${PROJECT_ID}/conversation?conversationId=${secondId}`,
+      { cache: "no-store" },
+    );
+  });
+
+  it("retries a failed question as a fresh durable attempt", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse({ type: "error", message: "Generation failed" }),
+      )
+      .mockResolvedValueOnce(json({ conversation: USER_ONLY }))
+      .mockResolvedValueOnce(
+        sse(
+          { type: "source_manifest", manifest: MANIFEST },
+          { type: "source_coverage", coverage: COVERAGE },
+          { type: "answer_start", classification: "supported" },
+          { type: "delta", text: "April [S1 @ 00:42]." },
+          { type: "citation_diagnostics", diagnostics: [] },
+          { type: "done", assistantMessageId: ASSISTANT_ID },
+        ),
+      )
+      .mockResolvedValueOnce(json({ conversation: USER_ONLY }));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: INITIAL,
+      }),
+    );
+
+    await act(() => result.current.send("When was the launch?"));
+    expect(result.current.error).toBe("Generation failed");
+    await act(() => result.current.retry());
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      `/api/projects/${PROJECT_ID}/conversation/stream`,
+      expect.objectContaining({
+        body: JSON.stringify({
+          question: "When was the launch?",
+          conversationId: USER_ONLY.conversationId,
+        }),
+      }),
+    );
+  });
 });

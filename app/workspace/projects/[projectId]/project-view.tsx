@@ -24,7 +24,10 @@ import type {
   ProjectHistoryCandidatePage,
   ProjectSourceSet as ProjectSourceSetValue,
 } from "@/lib/projects/project-source-set";
-import type { ProjectConversation as ProjectConversationValue } from "@/lib/projects/project-grounded-answer-contract";
+import type {
+  ProjectConversation as ProjectConversationValue,
+  ProjectConversationSummary,
+} from "@/lib/projects/project-grounded-answer-contract";
 import type { Project } from "@/lib/projects/project-subject";
 import { ProjectConversation } from "./project-conversation";
 import { ProjectSourceSet } from "./project-source-set";
@@ -40,6 +43,7 @@ type ProjectViewProps = {
   initialSourceSet: ProjectSourceSetValue;
   initialCandidatePage: ProjectHistoryCandidatePage | null;
   initialConversation: ProjectConversationValue;
+  initialConversations: readonly ProjectConversationSummary[];
 };
 
 export function ProjectView({
@@ -47,6 +51,7 @@ export function ProjectView({
   initialSourceSet,
   initialCandidatePage,
   initialConversation,
+  initialConversations,
 }: ProjectViewProps) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
@@ -135,6 +140,7 @@ export function ProjectView({
       <ProjectConversation
         projectId={project.id}
         initialConversation={initialConversation}
+        initialConversations={initialConversations}
       />
 
       <ProjectSearch projectId={project.id} />

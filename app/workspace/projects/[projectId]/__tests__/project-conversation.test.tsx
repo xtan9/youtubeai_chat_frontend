@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { axe } from "@/tests-utils/axe";
 import { renderWithProviders } from "@/tests-utils/renderWithProviders";
 import type {
@@ -149,6 +149,60 @@ describe("ProjectConversation", () => {
     expect(screen.queryByRole("link", { name: /\[S9 @ 00:10\]/ })).toBeNull();
     expect(screen.getByRole("note").textContent).toContain(
       "1 citation could not be linked",
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("renders keyboard-labelled thread controls without a nested scrolling region", async () => {
+    const firstId = "40000000-0000-4000-8000-000000000001";
+    const secondId = "40000000-0000-4000-8000-000000000002";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          conversation: conversation({ conversationId: secondId }),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({ conversationId: firstId })}
+        initialConversations={[
+          {
+            conversationId: firstId,
+            name: "Launch questions",
+            createdAt: "2026-08-09T00:00:00.000Z",
+            updatedAt: "2026-08-09T00:00:00.000Z",
+            messageCount: 1,
+          },
+          {
+            conversationId: secondId,
+            name: "Comparison",
+            createdAt: "2026-08-09T00:01:00.000Z",
+            updatedAt: "2026-08-09T00:01:00.000Z",
+            messageCount: 0,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Conversation threads" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename Launch questions" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear Launch questions" })).toBeTruthy();
+    const comparisonButton = screen.getByRole("button", {
+      name: /^Comparison\s+0\s+messages$/,
+    });
+    expect(comparisonButton).toBeTruthy();
+    expect(container.querySelector('[class*="overflow-y"]')).toBeNull();
+
+    fireEvent.click(comparisonButton);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/projects/${PROJECT_ID}/conversation?conversationId=${secondId}`,
+        { cache: "no-store" },
+      ),
     );
     expect(await axe(container)).toHaveNoViolations();
   });
