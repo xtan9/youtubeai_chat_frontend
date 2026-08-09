@@ -92,6 +92,7 @@ type FixtureConversationMessage = {
   sourceCoverage: unknown | null;
   evidenceSnapshot?: unknown;
   citationDiagnostics: unknown[] | null;
+  mode?: "question" | "compare_viewpoints" | "common_themes";
   attemptToken?: string;
   completionState?: "reserved" | "completed" | "cancelled";
 };
@@ -557,6 +558,50 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
+});
+
+test("guided Project Conversation actions preserve editable mode metadata on desktop and mobile", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Guided synthesis lab",
+  );
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await expect(
+    page.getByRole("button", { name: "Compare viewpoints" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Find common themes" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Compare viewpoints" }).click();
+  const question = page.getByLabel("Ask the Project");
+  await expect(question).toHaveValue(/Compare/);
+  await question.fill("Compare the edited viewpoints without averaging them.");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByText("Compare viewpoints", { exact: true })).toBeVisible();
+  await expect(page.getByText("Preparing answer")).toBeVisible();
+
+  gatewayGate.release();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  const persisted = projectConversations.get(projectId);
+  expect(persisted?.messages).toMatchObject([
+    { role: "user", mode: "compare_viewpoints" },
+    { role: "assistant", mode: "compare_viewpoints" },
+  ]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByText("Compare viewpoints", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  expect(await page.locator('[class*="overflow-y"]').count()).toBe(0);
 });
 
 test("Project Conversation preserves Source Set boundaries across desktop and mobile", async ({
@@ -1715,6 +1760,7 @@ async function handleSourceSetRpc(
     p_source_coverage?: unknown;
     p_evidence_snapshot?: unknown;
     p_citation_diagnostics?: unknown[];
+    p_mode?: "question" | "compare_viewpoints" | "common_themes";
     p_user_id?: string;
   };
   const projectId = body.p_project_id;
@@ -1778,6 +1824,7 @@ async function handleSourceSetRpc(
       sourceCoverage: body.p_source_coverage,
       evidenceSnapshot: body.p_evidence_snapshot,
       citationDiagnostics: body.p_citation_diagnostics,
+      mode: body.p_mode ?? userMessage.mode ?? "question",
     });
     userMessage.completionState = "completed";
     return sendJson(response, 200, {
@@ -1971,6 +2018,7 @@ async function handleSourceSetRpc(
       sourceManifest: null,
       sourceCoverage: null,
       citationDiagnostics: null,
+      mode: body.p_mode ?? "question",
       attemptToken,
       completionState: "reserved",
     });
@@ -2244,6 +2292,7 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
       ? { evidenceSnapshot: message.evidenceSnapshot }
       : {}),
     citationDiagnostics: message.citationDiagnostics,
+    ...(message.mode ? { mode: message.mode } : {}),
   };
 }
 

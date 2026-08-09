@@ -8,12 +8,17 @@ import {
 } from "@/lib/projects/api-outcomes";
 import {
   ProjectGroundedQuestionRequestSchema,
+  PROJECT_DEFAULT_CONVERSATION_MODE,
   PROJECT_GROUNDED_RETRIEVAL_LIMIT,
   PROJECT_QUESTION_MESSAGE_ID_HEADER,
   type ProjectAnswerClassification,
   type ProjectGroundedSseEvent,
   type ProjectQuestionReservation,
 } from "@/lib/projects/project-grounded-answer-contract";
+import {
+  buildProjectSynthesisAbstention,
+  type ProjectConversationMode,
+} from "@/lib/projects/project-grounded-synthesis";
 import { inspectProjectCitations } from "@/lib/projects/project-grounded-citations";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
 import { buildProjectGroundedMessages } from "@/lib/projects/project-grounded-prompt";
@@ -130,10 +135,19 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
-  const started = await subject.value.groundedAnswers.start(
-    parsed.data.question,
-    parsed.data.conversationId,
-  );
+  const mode: ProjectConversationMode =
+    parsed.data.mode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
+  const started =
+    mode === PROJECT_DEFAULT_CONVERSATION_MODE
+      ? await subject.value.groundedAnswers.start(
+          parsed.data.question,
+          parsed.data.conversationId,
+        )
+      : await subject.value.groundedAnswers.start(
+          parsed.data.question,
+          parsed.data.conversationId,
+          mode,
+        );
   switch (started.status) {
     case "limit_reached":
       return quotaResponse(requestId);
@@ -188,6 +202,7 @@ export async function POST(request: Request, context: RouteContext) {
     messagesLimit: started.messagesLimit,
     tier: started.tier,
     history: started.history,
+    mode: started.mode ?? mode,
   };
 
   let cancellationPromise: Promise<void> | null = null;
@@ -249,6 +264,7 @@ export async function POST(request: Request, context: RouteContext) {
           reservation,
           assistantContent: content,
           classification,
+          mode,
           artifacts,
           citationDiagnostics: citationInspection.diagnostics,
         });
@@ -294,10 +310,23 @@ export async function POST(request: Request, context: RouteContext) {
 
         if (artifacts.evidenceSnapshot.passages.length === 0) {
           const content =
-            search.status === "not_ready"
-              ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
-              : "The available Project passages do not support an answer to this question.";
-          send({ type: "answer_start", classification: "unsupported" });
+            mode === PROJECT_DEFAULT_CONVERSATION_MODE
+              ? search.status === "not_ready"
+                ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
+                : "The available Project passages do not support an answer to this question."
+              : buildProjectSynthesisAbstention(
+                  mode,
+                  search.status === "not_ready"
+                    ? "no_ready_evidence"
+                    : mode === "common_themes"
+                      ? "no_repeated_theme"
+                      : "insufficient_comparison",
+                );
+          send({
+            type: "answer_start",
+            classification: "unsupported",
+            ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
+          });
           send({ type: "delta", text: content });
           await persist(content, "unsupported");
           return;
@@ -310,6 +339,7 @@ export async function POST(request: Request, context: RouteContext) {
           history: started.history,
           sourceManifest: artifacts.sourceManifest,
           evidenceSnapshot: artifacts.evidenceSnapshot,
+          mode,
         });
         let classification: ProjectAnswerClassification | null = null;
         let protocolBuffer = "";
@@ -337,7 +367,11 @@ export async function POST(request: Request, context: RouteContext) {
             else if (controlLine === "ABSTAINED") classification = "abstained";
             else throw new Error("Grounded answer classification line is invalid.");
 
-            send({ type: "answer_start", classification });
+            send({
+              type: "answer_start",
+              classification,
+              ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
+            });
             const visibleRemainder = protocolBuffer.slice(newlineIndex + 1);
             protocolBuffer = "";
             if (visibleRemainder.length > 0) {
@@ -368,7 +402,15 @@ export async function POST(request: Request, context: RouteContext) {
           throw new Error("Grounded answer contained an extra control line.");
         }
         if (classification === "abstained") {
-          assistantBuffer = SAFE_ABSTENTION;
+          assistantBuffer =
+            mode === PROJECT_DEFAULT_CONVERSATION_MODE
+              ? SAFE_ABSTENTION
+              : buildProjectSynthesisAbstention(
+                  mode,
+                  mode === "common_themes"
+                    ? "no_repeated_theme"
+                    : "insufficient_comparison",
+                );
           send({ type: "delta", text: assistantBuffer });
         } else if (assistantBuffer.trim().length === 0) {
           throw new Error("Grounded answer was empty.");

@@ -26,6 +26,18 @@ describe("Project Grounded Answer analytics privacy contract", () => {
     ).toEqual({ success: true, properties: SAFE_PROPERTIES });
   });
 
+  it("accepts guided mode metadata without accepting research content", () => {
+    expect(
+      validateProjectGroundedAnswerEvent(
+        "project_grounded_answer_completed",
+        { ...SAFE_PROPERTIES, mode: "compare_viewpoints" },
+      ),
+    ).toEqual({
+      success: true,
+      properties: { ...SAFE_PROPERTIES, mode: "compare_viewpoints" },
+    });
+  });
+
   it.each([
     { project_id: "10000000-0000-4000-8000-000000000001" },
     { conversation_id: "private" },

@@ -4,6 +4,11 @@ import type {
   ProjectEvidenceSnapshot,
   ProjectAnswerSourceManifest,
 } from "./project-grounded-answer-contract";
+import {
+  PROJECT_DEFAULT_CONVERSATION_MODE,
+  buildProjectSynthesisInstructions,
+  type ProjectConversationMode,
+} from "./project-grounded-synthesis";
 
 function timestampValue(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -47,6 +52,7 @@ export function buildProjectGroundedMessages(args: {
   readonly history: readonly ProjectConversationMessage[];
   readonly sourceManifest: ProjectAnswerSourceManifest;
   readonly evidenceSnapshot: ProjectEvidenceSnapshot;
+  readonly mode?: ProjectConversationMode;
 }): readonly ChatGatewayMessage[] {
   const sourceByVideo = new Map(
     args.sourceManifest.sources.map((source) => [source.videoId, source]),
@@ -68,6 +74,11 @@ export function buildProjectGroundedMessages(args: {
     };
   });
   const guidanceHistory = boundedConversationHistory(args.history);
+  const mode = args.mode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
+  const synthesisInstructions =
+    mode === PROJECT_DEFAULT_CONVERSATION_MODE
+      ? ""
+      : buildProjectSynthesisInstructions(mode);
 
   const primer = `Answer one question about a YouTube research Project.
 
@@ -79,6 +90,8 @@ NON-NEGOTIABLE RULES:
 - If the passages do not adequately support an answer, abstain. Output ABSTAINED on the first line and no other text; the application supplies the safe user-visible abstention. Do not bridge gaps with inference presented as fact.
 - Match the language of CURRENT_QUESTION and be concise.
 - Your first line must be exactly SUPPORTED or ABSTAINED with no extra text. This control line is not part of the answer. Begin a supported user-visible answer on line two.
+
+${synthesisInstructions ? `${synthesisInstructions}\n` : ""}
 
 PROJECT_NAME_GUIDANCE_NOT_EVIDENCE:
 ${JSON.stringify(args.projectName)}

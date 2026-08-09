@@ -7,6 +7,7 @@ import type { ProjectTranscriptPassage } from "../project-passage-search-contrac
 export const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 export const VIDEO_ONE_ID = "20000000-0000-4000-8000-000000000001";
 export const VIDEO_TWO_ID = "20000000-0000-4000-8000-000000000002";
+export const VIDEO_THREE_ID = "20000000-0000-4000-8000-000000000003";
 
 export function passage(overrides: Partial<ProjectTranscriptPassage> = {}) {
   const videoId = overrides.videoId ?? VIDEO_ONE_ID;
@@ -80,4 +81,62 @@ export function priorAssistant(content: string): ProjectConversationMessage {
     },
     citationDiagnostics: [],
   };
+}
+
+/** Fixtures for guided synthesis: conflicting positions, repeated evidence,
+ * and supported multilingual source text must remain source-identifiable. */
+export function conflictingViewpointPassages() {
+  return [
+    passage({
+      text: "The launch should happen in April because the team is ready.",
+      segmentOrdinal: 1,
+      startSeconds: 12,
+    }),
+    passage({
+      videoId: VIDEO_TWO_ID,
+      youtubeVideoId: "bbbbbbb0002",
+      title: "Counterpoint interview",
+      text: "The launch should wait until June because testing is incomplete.",
+      segmentOrdinal: 1,
+      startSeconds: 18,
+    }),
+  ];
+}
+
+export function repeatedThemePassages() {
+  return [
+    passage({
+      text: "Both speakers say that transparent testing builds trust.",
+      segmentOrdinal: 2,
+      startSeconds: 24,
+    }),
+    passage({
+      videoId: VIDEO_TWO_ID,
+      youtubeVideoId: "bbbbbbb0002",
+      title: "Counterpoint interview",
+      text: "Transparent testing helps people trust the launch.",
+      segmentOrdinal: 2,
+      startSeconds: 31,
+    }),
+  ];
+}
+
+export function multilingualPassages() {
+  return [
+    passage({
+      text: "La transparencia en las pruebas genera confianza.",
+      language: "es",
+      segmentOrdinal: 3,
+      startSeconds: 40,
+    }),
+    passage({
+      videoId: VIDEO_THREE_ID,
+      youtubeVideoId: "ccccccc0003",
+      title: "日本語のインタビュー",
+      text: "透明なテストは信頼を築きます。",
+      language: "ja",
+      segmentOrdinal: 3,
+      startSeconds: 52,
+    }),
+  ];
 }
