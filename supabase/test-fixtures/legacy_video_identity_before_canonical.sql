@@ -86,6 +86,41 @@ values
     'en'
   );
 
+-- Production incident rows. The redirect has one deterministic Video ID;
+-- channel URLs do not identify a Video and must be preserved outside the
+-- active cache rather than assigned a synthetic identity.
+insert into public.videos (
+  id, youtube_url, url_hash, title, channel_name, language, created_at
+)
+values
+  (
+    '8a37686a-e461-4388-a087-ac030d0bf7f0',
+    'https://www.youtube.com/redirect?event=video_description&redir_token=QUFFLUhqa2psQ1R6aVdtR2R3eFczRnpZUDI2cmQxbUMzZ3xBQ3Jtc0tuNXU1UXowb2F2b3VzbkhHY0R4VWxsUDlwQjNMNUdqU0JqM2hEdEJoWTF3dVlWU3hsR2labDZsNDVfdERpTUVtcnBWYXY5bnlYVkUtcnE0eDlQUEN6eFhsRG5nY1YwSWtVMFdzZUg0RHFNZUQ0cFk1UQ&q=https%3A%2F%2Funogeeks.com%2Foracle-fusion-hcm-online-training%2F&v=_b1b-uMuzKQ',
+    '34aef0dd8636c55d3c23a6fa334b2001',
+    'Recoverable redirect Video',
+    'Incident Fixture',
+    'en',
+    '2026-08-04T00:00:00Z'
+  ),
+  (
+    'a456bf8d-5413-452c-82d2-6f4d6923101d',
+    'https://youtube.com/@waseemiq1?si=WGN0uguYUo-ivemT',
+    '9e45ba7aa82c74c496bbd9d412e8fe13',
+    'Unsupported channel one',
+    'Incident Fixture',
+    'en',
+    '2026-08-05T00:00:00Z'
+  ),
+  (
+    'f83123c7-4e6a-4a95-9554-1978dac3e535',
+    'https://youtube.com/@richmovies-k3q?si=iolcO_gyLvcEMBYq',
+    '1ac8645240c853aba638dfba8364a9cf',
+    'Unsupported channel two',
+    'Incident Fixture',
+    'zh',
+    '2026-08-06T00:00:00Z'
+  );
+
 insert into public.summaries (
   id, video_id, summary, transcript_source, output_language
 )
@@ -154,6 +189,32 @@ values
     'manual_captions',
     'en',
     '[{"text":"Legacy Shorts evidence Transcript","start":11,"duration":4}]'::jsonb
+  );
+
+insert into public.video_transcripts (
+  video_id, transcript_source, language, segments, created_at
+)
+values
+  (
+    '8a37686a-e461-4388-a087-ac030d0bf7f0',
+    'manual_captions',
+    'en',
+    '[{"text":"Recoverable redirect Transcript","start":13,"duration":4}]'::jsonb,
+    '2026-08-04T00:01:00Z'
+  ),
+  (
+    'a456bf8d-5413-452c-82d2-6f4d6923101d',
+    'auto_captions',
+    'en',
+    '[{"text":"Quarantined channel one Transcript","start":17,"duration":4}]'::jsonb,
+    '2026-08-05T00:01:00Z'
+  ),
+  (
+    'f83123c7-4e6a-4a95-9554-1978dac3e535',
+    'whisper',
+    'zh',
+    '[{"text":"Quarantined channel two Transcript","start":19,"duration":4}]'::jsonb,
+    '2026-08-06T00:01:00Z'
   );
 
 insert into public.user_video_history (id, user_id, video_id, accessed_at)
