@@ -9,6 +9,7 @@ const ADMIN_PATHS = [
   "/admin/users",
   "/admin/audit",
   "/admin/performance",
+  "/admin/subscriptions",
 ];
 
 test.describe("admin gate", () => {
