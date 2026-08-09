@@ -1,5 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import type {
+  ResolvedSubscriptionPresentation,
+  SubscriptionPresentation,
+} from "@/lib/services/subscription-presentation";
+
+export type {
+  ResolvedSubscriptionPresentation,
+  SubscriptionPresentation,
+} from "@/lib/services/subscription-presentation";
 
 export type EntitlementsData = {
   tier: "anon" | "free" | "pro";
@@ -14,6 +23,7 @@ export type EntitlementsData = {
     current_period_end?: string | null;
     cancel_at_period_end?: boolean | null;
   } | null;
+  subscriptionPresentation: ResolvedSubscriptionPresentation;
 };
 
 async function fetchEntitlements(): Promise<EntitlementsData> {
@@ -42,12 +52,27 @@ export function useEntitlements() {
 
   useEffect(() => {
     if (query.error) {
-      console.error("[useEntitlements] fetch failed (paywall surfaces will silently degrade)", {
+      console.error("[useEntitlements] fetch failed", {
         errorId: "USE_ENTITLEMENTS_FETCH_FAIL",
         err: query.error,
       });
     }
   }, [query.error]);
 
-  return query;
+  const subscriptionPresentation: SubscriptionPresentation = query.isPending
+    ? { state: "loading" }
+    : query.isError || !query.data?.subscriptionPresentation
+      ? { state: "lookup_failure" }
+      : query.data.subscriptionPresentation;
+
+  return {
+    data: query.data,
+    error: query.error,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    isPending: query.isPending,
+    isSuccess: query.isSuccess,
+    refetch: query.refetch,
+    subscriptionPresentation,
+  };
 }

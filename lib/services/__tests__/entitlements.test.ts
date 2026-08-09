@@ -34,6 +34,192 @@ describe("getYearMonthUtc", () => {
   });
 });
 
+describe("resolveRegisteredSubscription", () => {
+  beforeEach(() => {
+    mocks.rpc.mockReset();
+    mocks.from.mockReset();
+    mocks.createClient.mockClear();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function stubSubscriptionRow(
+    row: unknown,
+    error: { code?: string } | null = null,
+  ) {
+    mocks.from.mockImplementation((table: string) => {
+      if (table !== "user_subscriptions") {
+        throw new Error(`unexpected from(${table})`);
+      }
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: row, error }),
+          }),
+        }),
+      };
+    });
+  }
+
+  it("resolves access, metadata, and active presentation from one row", async () => {
+    stubSubscriptionRow({
+      tier: "pro",
+      plan: "yearly",
+      status: "trialing",
+      current_period_end: "2027-04-01T00:00:00Z",
+      cancel_at_period_end: false,
+    });
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "resolved",
+      tier: "pro",
+      subscription: {
+        plan: "yearly",
+        current_period_end: "2027-04-01T00:00:00Z",
+        cancel_at_period_end: false,
+      },
+      presentation: {
+        state: "active_pro",
+        plan: "yearly",
+        renewsAt: "2027-04-01T00:00:00Z",
+      },
+    });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a recoverable billing relationship after access becomes Free", async () => {
+    stubSubscriptionRow({
+      tier: "free",
+      plan: "monthly",
+      status: "past_due",
+      current_period_end: "2026-08-01T00:00:00Z",
+      cancel_at_period_end: false,
+    });
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "resolved",
+      tier: "free",
+      subscription: {
+        plan: "monthly",
+        current_period_end: "2026-08-01T00:00:00Z",
+        cancel_at_period_end: false,
+      },
+      presentation: { state: "billing_issue", plan: "monthly" },
+    });
+  });
+
+  it("normalizes missing and invalid optional metadata", async () => {
+    stubSubscriptionRow({
+      tier: "pro",
+      plan: "legacy",
+      status: null,
+      current_period_end: null,
+      cancel_at_period_end: null,
+    });
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "resolved",
+      tier: "pro",
+      subscription: {
+        plan: null,
+        current_period_end: null,
+        cancel_at_period_end: false,
+      },
+      presentation: { state: "active_pro", plan: null, renewsAt: null },
+    });
+  });
+
+  it("normalizes a missing Subscription row as Free", async () => {
+    stubSubscriptionRow(null);
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "resolved",
+      tier: "free",
+      subscription: null,
+      presentation: { state: "free" },
+    });
+  });
+
+  it("returns unavailable instead of guessing Free when the query fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubSubscriptionRow(null, { code: "08006" });
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[entitlements] subscription presentation read failed",
+      expect.objectContaining({
+        errorId: "SUBSCRIPTION_PRESENTATION_READ_FAILED",
+        userId: "u1",
+        code: "08006",
+      }),
+    );
+  });
+
+  it("returns unavailable when the Subscription query throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.from.mockImplementation(() => {
+      throw new Error("connection lost");
+    });
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[entitlements] subscription presentation read threw",
+      expect.objectContaining({
+        errorId: "SUBSCRIPTION_PRESENTATION_READ_THREW",
+        userId: "u1",
+      }),
+    );
+  });
+
+  it("keeps a trusted smoke entitlement Pro without service credentials", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("smoke-u1", true)).toEqual({
+      kind: "resolved",
+      tier: "pro",
+      subscription: null,
+      presentation: { state: "active_pro", plan: null, renewsAt: null },
+    });
+    expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it("returns unavailable without service credentials for a normal user", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+
+    const { resolveRegisteredSubscription } = await loadFreshModule();
+
+    expect(await resolveRegisteredSubscription("u1")).toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
 describe("getUserTier", () => {
   beforeEach(() => {
     mocks.rpc.mockReset();
