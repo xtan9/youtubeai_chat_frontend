@@ -145,7 +145,12 @@ test.describe("Contextual limit Upgrade journeys", () => {
 
     await openSummary(page);
 
-    const upgrade = page.getByRole("link", { name: /^upgrade to pro$/i });
+    // The authenticated global header also exposes an Upgrade to Pro link.
+    // Scope this assertion to the summary paywall so it verifies the
+    // contextual journey's attributed destination rather than the header.
+    const upgrade = page
+      .getByRole("main")
+      .getByRole("link", { name: /^upgrade to pro$/i });
     await expect(upgrade).toBeVisible();
     await expect(page.getByText(/\$4\.99\/mo/i)).toHaveCount(0);
     expect(await upgrade.getAttribute("href")).toBe(
