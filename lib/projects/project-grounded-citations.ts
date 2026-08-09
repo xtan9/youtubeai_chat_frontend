@@ -68,6 +68,12 @@ function diagnosticRaw(raw: string) {
   return raw.slice(0, 80);
 }
 
+function isPresentationHeading(prose: string) {
+  return /^(?:#{1,6}\s*)?(?:project assessment|source-supported observations|proposed questions and creative opportunities|repeated evidence|model interpretation|agreements|disagreements|competing positions|criteria|confidence(?:\s*:\s*(?:high|medium|low))?)\s*:?$/iu.test(
+    prose.trim(),
+  );
+}
+
 function parseTimestamp(value: string): number | null {
   const components = value.split(":").map(Number);
   if (
@@ -146,6 +152,7 @@ export function inspectProjectCitations(
 ) {
   const diagnostics: ProjectCitationDiagnostic[] = [];
   const validCitations: Array<BracketCandidate> = [];
+  const validSourceIds = new Set<string>();
   for (const candidate of bracketCandidates(content)) {
     const match = candidate.closed
       ? CANONICAL_CITATION.exec(candidate.raw)
@@ -169,7 +176,10 @@ export function inspectProjectCitations(
       manifest,
       match[3],
     );
-    if (validation.citation) validCitations.push(candidate);
+    if (validation.citation) {
+      validCitations.push(candidate);
+      validSourceIds.add(match[1]);
+    }
     if (validation.diagnostic && diagnostics.length < 20) {
       diagnostics.push(validation.diagnostic);
     }
@@ -187,7 +197,7 @@ export function inspectProjectCitations(
       prose =
         prose.slice(0, candidate.start) + prose.slice(candidate.end);
     }
-    if (/[\p{L}\p{N}]/u.test(prose)) {
+    if (/[\p{L}\p{N}]/u.test(prose) && !isPresentationHeading(prose)) {
       hasClaim = true;
       if (
         !validCitations.some(
@@ -208,6 +218,7 @@ export function inspectProjectCitations(
   return {
     diagnostics,
     validCitationCount: validCitations.length,
+    validSourceIds: [...validSourceIds].sort(),
     allClaimsCited: hasClaim && allClaimsCited,
   } as const;
 }

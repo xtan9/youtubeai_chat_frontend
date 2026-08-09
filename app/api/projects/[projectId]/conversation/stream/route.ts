@@ -17,6 +17,7 @@ import {
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
   buildProjectSynthesisAbstention,
+  validateProjectSynthesisResponse,
   type ProjectConversationMode,
 } from "@/lib/projects/project-grounded-synthesis";
 import { inspectProjectCitations } from "@/lib/projects/project-grounded-citations";
@@ -35,6 +36,30 @@ const GENERIC_ERROR =
   "Something went wrong answering your Project question. Please try again.";
 const SAFE_ABSTENTION =
   "The Evidence Snapshot does not support a confident answer to this question.";
+
+type GuidedAbstentionReason = Parameters<
+  typeof buildProjectSynthesisAbstention
+>[1];
+
+function guidedAbstentionReason(
+  mode: ProjectConversationMode,
+  noReadyEvidence: boolean,
+): GuidedAbstentionReason {
+  if (noReadyEvidence) return "no_ready_evidence";
+  if (mode === "question") {
+    throw new Error("Ordinary questions use the default abstention path.");
+  }
+  switch (mode) {
+    case "common_themes":
+      return "no_repeated_theme";
+    case "compare_viewpoints":
+      return "insufficient_comparison";
+    case "find_gaps":
+      return "no_supported_gaps";
+    case "project_assessment":
+      return "insufficient_assessment";
+  }
+}
 
 function jsonError(
   status: number,
@@ -169,6 +194,7 @@ export async function POST(request: Request, context: RouteContext) {
   const search = await subject.value.passageSearch.search({
     query: parsed.data.question,
     limit: PROJECT_GROUNDED_RETRIEVAL_LIMIT,
+    balanceSources: mode === "project_assessment",
   });
   if (search.status === "missing") {
     return projectOutcomeResponse({ kind: "missing" });
@@ -316,11 +342,7 @@ export async function POST(request: Request, context: RouteContext) {
                 : "The available Project passages do not support an answer to this question."
               : buildProjectSynthesisAbstention(
                   mode,
-                  search.status === "not_ready"
-                    ? "no_ready_evidence"
-                    : mode === "common_themes"
-                      ? "no_repeated_theme"
-                      : "insufficient_comparison",
+                  guidedAbstentionReason(mode, search.status === "not_ready"),
                 );
           send({
             type: "answer_start",
@@ -344,6 +366,8 @@ export async function POST(request: Request, context: RouteContext) {
         let classification: ProjectAnswerClassification | null = null;
         let protocolBuffer = "";
         let assistantBuffer = "";
+        const requiresStructuredSynthesis =
+          mode === "find_gaps" || mode === "project_assessment";
 
         for await (const event of streamChatCompletion({
           messages,
@@ -367,16 +391,18 @@ export async function POST(request: Request, context: RouteContext) {
             else if (controlLine === "ABSTAINED") classification = "abstained";
             else throw new Error("Grounded answer classification line is invalid.");
 
-            send({
-              type: "answer_start",
-              classification,
-              ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
-            });
+            if (!requiresStructuredSynthesis) {
+              send({
+                type: "answer_start",
+                classification,
+                ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
+              });
+            }
             const visibleRemainder = protocolBuffer.slice(newlineIndex + 1);
             protocolBuffer = "";
             if (visibleRemainder.length > 0) {
               assistantBuffer += visibleRemainder;
-              if (classification === "supported") {
+              if (classification === "supported" && !requiresStructuredSynthesis) {
                 send({ type: "delta", text: visibleRemainder });
               }
             }
@@ -386,7 +412,7 @@ export async function POST(request: Request, context: RouteContext) {
           if (assistantBuffer.length > 20_000) {
             throw new Error("Grounded answer exceeded its technical limit.");
           }
-          if (classification === "supported") {
+          if (classification === "supported" && !requiresStructuredSynthesis) {
             send({ type: "delta", text: event.text });
           }
         }
@@ -407,11 +433,39 @@ export async function POST(request: Request, context: RouteContext) {
               ? SAFE_ABSTENTION
               : buildProjectSynthesisAbstention(
                   mode,
-                  mode === "common_themes"
-                    ? "no_repeated_theme"
-                    : "insufficient_comparison",
+                  guidedAbstentionReason(mode, false),
                 );
+          if (requiresStructuredSynthesis) {
+            send({
+              type: "answer_start",
+              classification: "abstained",
+              mode,
+            });
+          }
           send({ type: "delta", text: assistantBuffer });
+        } else if (requiresStructuredSynthesis) {
+          const validation = validateProjectSynthesisResponse(mode, assistantBuffer);
+          const citationInspection = inspectProjectCitations(
+            assistantBuffer,
+            artifacts.sourceManifest,
+          );
+          const allMaterialPositionsCited =
+            mode !== "project_assessment" ||
+            artifacts.sourceManifest.sources.every((source) =>
+              citationInspection.validSourceIds.includes(source.sourceId),
+            );
+          if (!validation.valid || !allMaterialPositionsCited) {
+            classification = "abstained";
+            assistantBuffer = buildProjectSynthesisAbstention(
+              mode,
+              guidedAbstentionReason(mode, false),
+            );
+            send({ type: "answer_start", classification, mode });
+            send({ type: "delta", text: assistantBuffer });
+          } else {
+            send({ type: "answer_start", classification: "supported", mode });
+            send({ type: "delta", text: assistantBuffer });
+          }
         } else if (assistantBuffer.trim().length === 0) {
           throw new Error("Grounded answer was empty.");
         }

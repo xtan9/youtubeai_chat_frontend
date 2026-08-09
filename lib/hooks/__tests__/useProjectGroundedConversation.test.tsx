@@ -221,6 +221,76 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     );
   });
 
+  it("carries Project Assessment mode through reservation, stream, and durable reload", async () => {
+    const durable = {
+      ...USER_ONLY,
+      messages: [
+        { ...USER_ONLY.messages[0], mode: "project_assessment" as const },
+        {
+          id: ASSISTANT_ID,
+          inReplyToMessageId: USER_ID,
+          role: "assistant" as const,
+          content: "Project Assessment\nApril is better supported [S1 @ 00:42].",
+          createdAt: "2026-08-09T12:00:01.000Z",
+          answerClassification: "supported" as const,
+          sourceSetRevision: 3,
+          sourceManifest: MANIFEST,
+          sourceCoverage: COVERAGE,
+          citationDiagnostics: [],
+          mode: "project_assessment" as const,
+        },
+      ],
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse(
+          { type: "source_manifest", manifest: MANIFEST },
+          { type: "source_coverage", coverage: COVERAGE },
+          {
+            type: "answer_start",
+            classification: "supported",
+            mode: "project_assessment",
+          },
+          { type: "delta", text: "Project Assessment\nApril is better supported [S1 @ 00:42]." },
+          { type: "citation_diagnostics", diagnostics: [] },
+          { type: "done", assistantMessageId: ASSISTANT_ID },
+        ),
+      )
+      .mockResolvedValueOnce(json({ conversation: durable }));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: INITIAL,
+      }),
+    );
+
+    await act(() =>
+      result.current.send(
+        "Which timing is better supported?",
+        "project_assessment",
+      ),
+    );
+
+    expect(fetch.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          question: "Which timing is better supported?",
+          mode: "project_assessment",
+        }),
+      }),
+    );
+    expect(result.current.conversation.messages).toMatchObject([
+      { role: "user", mode: "project_assessment" },
+      { role: "assistant", mode: "project_assessment" },
+    ]);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "project_grounded_answer_completed",
+      expect.objectContaining({ mode: "project_assessment" }),
+    );
+  });
+
   it("keeps the next send fenced until canonical reload finishes", async () => {
     let releaseReload!: () => void;
     const reloadGate = new Promise<void>((resolve) => {
@@ -502,6 +572,48 @@ describe("useProjectGroundedConversation canonical persistence", () => {
         body: JSON.stringify({
           question: "When was the launch?",
           conversationId: USER_ONLY.conversationId,
+        }),
+      }),
+    );
+  });
+
+  it("retries a failed guided question with the same mode contract", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse({ type: "error", message: "Generation failed" }),
+      )
+      .mockResolvedValueOnce(json({ conversation: USER_ONLY }))
+      .mockResolvedValueOnce(
+        sse(
+          { type: "source_manifest", manifest: MANIFEST },
+          { type: "source_coverage", coverage: COVERAGE },
+          { type: "answer_start", classification: "abstained", mode: "find_gaps" },
+          { type: "delta", text: "No supported gap." },
+          { type: "citation_diagnostics", diagnostics: [] },
+          { type: "done", assistantMessageId: ASSISTANT_ID },
+        ),
+      )
+      .mockResolvedValueOnce(json({ conversation: USER_ONLY }));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: INITIAL,
+      }),
+    );
+
+    await act(() => result.current.send("Find supported gaps.", "find_gaps"));
+    expect(result.current.error).toBe("Generation failed");
+    await act(() => result.current.retry());
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      `/api/projects/${PROJECT_ID}/conversation/stream`,
+      expect.objectContaining({
+        body: JSON.stringify({
+          question: "Find supported gaps.",
+          conversationId: USER_ONLY.conversationId,
+          mode: "find_gaps",
         }),
       }),
     );

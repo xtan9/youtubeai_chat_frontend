@@ -71,6 +71,35 @@ const READY_SEARCH = {
   passages: [PASSAGE],
 };
 
+const PASSAGE_TWO = {
+  passageId: `${"70000000-0000-4000-8000-000000000002"}:1:0:14`,
+  videoId: "70000000-0000-4000-8000-000000000002",
+  youtubeVideoId: "bbbbbbb0002",
+  title: "五月观点",
+  channelName: "研究频道",
+  text: "五月方案应等待本地测试完成。",
+  segmentOrdinal: 1,
+  excerptStartCharacter: 0,
+  excerptEndCharacter: 14,
+  startSeconds: 44,
+  endSeconds: 59,
+  language: "zh",
+  truncatedStart: false,
+  truncatedEnd: false,
+} as const;
+
+const BALANCED_SEARCH = {
+  status: "ready" as const,
+  sourceSetRevision: 3,
+  coverage: {
+    totalVideos: 2,
+    readyVideos: 2,
+    unavailableVideos: [],
+    passagesExamined: 10,
+  },
+  passages: [PASSAGE, PASSAGE_TWO],
+};
+
 const STARTED = {
   status: "started" as const,
   conversationId: CONVERSATION_ID,
@@ -103,7 +132,12 @@ function request(
   question = "When did the launch happen?",
   signal?: AbortSignal,
   conversationId?: string,
-  mode?: "question" | "compare_viewpoints" | "common_themes",
+  mode?:
+    | "question"
+    | "compare_viewpoints"
+    | "common_themes"
+    | "find_gaps"
+    | "project_assessment",
 ) {
   return new Request(`http://test/api/projects/${PROJECT_ID}/conversation/stream`, {
     method: "POST",
@@ -264,6 +298,287 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       .content as string;
     expect(prompt).toContain("GUIDED_SYNTHESIS_MODE: COMPARE_VIEWPOINTS");
     expect(prompt).toContain("Do not average, merge, or manufacture consensus");
+  });
+
+  it("keeps Project Assessment source claims, criteria, and confidence on the grounded path", async () => {
+    model(
+      "SUPPORTED\nProject Assessment\n\nCompeting positions\nThe launch-in-April position is supported by the available passage [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium",
+    );
+    const response = await POST(
+      request(
+        "Which launch timing is better supported?",
+        undefined,
+        undefined,
+        "project_assessment",
+      ),
+      CONTEXT,
+    );
+    const streamed = await events(response);
+
+    expect(mocks.start).toHaveBeenCalledWith(
+      "Which launch timing is better supported?",
+      undefined,
+      "project_assessment",
+    );
+    expect(mocks.search).toHaveBeenCalledWith({
+      query: "Which launch timing is better supported?",
+      limit: 10,
+      balanceSources: true,
+    });
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "supported",
+      mode: "project_assessment",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "project_assessment" }),
+    );
+    const prompt = mocks.streamChatCompletion.mock.calls[0]?.[0].messages[0]
+      .content as string;
+    expect(prompt).toContain("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT");
+    expect(prompt).toContain("directness and relevance");
+    expect(prompt).toContain("not externally verified truth");
+  });
+
+  it("abstains deterministically instead of persisting malformed Project Assessment prose", async () => {
+    model("SUPPORTED\nProject Assessment\nApril seems better supported [S1 @ 00:42].");
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(streamed).not.toContainEqual({
+      type: "answer_start",
+      classification: "supported",
+      mode: "project_assessment",
+    });
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "abstained",
+      mode: "project_assessment",
+    });
+    expect(streamed).toContainEqual({
+      type: "delta",
+      text: "The Project evidence cannot resolve which position is better supported, so I can't provide a Project Assessment without guessing.",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        classification: "abstained",
+        assistantContent:
+          "The Project evidence cannot resolve which position is better supported, so I can't provide a Project Assessment without guessing.",
+      }),
+    );
+  });
+
+  it("buffers every structured model chunk until the response contract passes", async () => {
+    model(
+      "SUPPORTED\nProject Assessment\n\nCompeting positions\nLeaked before validation [S1 @ 00:42].",
+      "\n\nThis unstructured continuation is also not safe [S1 @ 00:42].",
+    );
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(JSON.stringify(streamed)).not.toContain("Leaked before validation");
+    expect(JSON.stringify(streamed)).not.toContain("unstructured continuation");
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "abstained",
+      mode: "project_assessment",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "abstained" }),
+    );
+  });
+
+  it("requires every balanced Project Assessment position to have a valid citation", async () => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
+    model(
+      "SUPPORTED\nProject Assessment\n\nCompeting positions\nApril is supported [S1 @ 00:42]. June is also represented.\n\nCriteria\nDirectness and corroboration support the comparison [S1 @ 00:42].\n\nConfidence: low",
+    );
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(JSON.stringify(streamed)).not.toContain("April is supported");
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "abstained",
+      mode: "project_assessment",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "abstained" }),
+    );
+  });
+
+  it("emits a fragmented Project Assessment only after every position is cited", async () => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
+    model(
+      "SUPPORTED\nProject Assessment\n\nCompeting positions\nApril is supported [S1 @ 00:42]. ",
+      "五月方案应等待本地测试完成 [S2 @ 00:44].\n\nCriteria\nDirectness and corroboration support both positions [S1 @ 00:42].\n\nConfidence: low",
+    );
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "supported",
+      mode: "project_assessment",
+    });
+    expect(streamed).toContainEqual({
+      type: "delta",
+      text: expect.stringContaining("April is supported"),
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "supported" }),
+    );
+    const completion = mocks.complete.mock.calls[0]?.[0] as {
+      assistantContent: string;
+      artifacts: {
+        sourceManifest: { sources: Array<{ sourceId: string }> };
+      };
+    };
+    expect(completion.assistantContent).toContain("[S1 @ 00:42]");
+    expect(completion.assistantContent).toContain("[S2 @ 00:44]");
+    expect(completion.artifacts.sourceManifest.sources.map((source) => source.sourceId)).toEqual([
+      "S1",
+      "S2",
+    ]);
+  });
+
+  it("uses a deterministic Project Assessment abstention when evidence cannot resolve a position", async () => {
+    model("ABSTAINED\nThe model must not expose this unsupported claim.");
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(JSON.stringify(streamed)).not.toContain("unsupported claim");
+    expect(streamed).toContainEqual({
+      type: "delta",
+      text: "The Project evidence cannot resolve which position is better supported, so I can't provide a Project Assessment without guessing.",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        classification: "abstained",
+        mode: "project_assessment",
+      }),
+    );
+  });
+
+  it("names the evidence gap for a guided unexplored-angle request with no passages", async () => {
+    mocks.search.mockResolvedValue({
+      status: "no_results",
+      sourceSetRevision: 4,
+      coverage: {
+        totalVideos: 1,
+        readyVideos: 1,
+        unavailableVideos: [],
+        passagesExamined: 7,
+      },
+      passages: [],
+    });
+
+    const streamed = await events(
+      await POST(
+        request(
+          "Find gaps and unexplored angles.",
+          undefined,
+          undefined,
+          "find_gaps",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(streamed[2]).toEqual({
+      type: "answer_start",
+      classification: "unsupported",
+      mode: "find_gaps",
+    });
+    expect(streamed[3]).toEqual({
+      type: "delta",
+      text: "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
+    });
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("abstains deterministically instead of persisting malformed gap sections", async () => {
+    model(
+      "SUPPORTED\nSource-supported observations\nThe source covers the launch timing [S1 @ 00:42].",
+    );
+    const streamed = await events(
+      await POST(
+        request(
+          "Find gaps and unexplored angles.",
+          undefined,
+          undefined,
+          "find_gaps",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(streamed).not.toContainEqual({
+      type: "answer_start",
+      classification: "supported",
+      mode: "find_gaps",
+    });
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "abstained",
+      mode: "find_gaps",
+    });
+    expect(streamed).toContainEqual({
+      type: "delta",
+      text: "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        classification: "abstained",
+        assistantContent:
+          "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
+      }),
+    );
   });
 
   it("preserves the stable 402 chat envelope and consumes no retrieval/provider work", async () => {

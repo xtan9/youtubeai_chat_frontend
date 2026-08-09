@@ -61,11 +61,16 @@ export function createProjectPassageSearchCapability(
       input: ProjectPassageSearchInput,
     ): Promise<ProjectPassageSearchResolution> {
       try {
-        const result = await supabase.rpc("search_project_transcript_passages", {
+        const result = await supabase.rpc(
+          input.balanceSources
+            ? "search_project_transcript_passages_balanced"
+            : "search_project_transcript_passages",
+          {
           p_project_id: target.projectId,
           p_query: input.query,
           p_limit: input.limit,
-        });
+          },
+        );
 
         if (result.error) {
           logSearchFailure(target, "DatabaseError", result.error.code);

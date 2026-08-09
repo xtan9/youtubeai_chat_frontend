@@ -220,6 +220,74 @@ describe("Project Grounded Answer persistence adapter", () => {
     );
   });
 
+  it("passes Project Assessment mode through authenticated reservation and service completion RPCs", async () => {
+    const authenticatedRpc = vi.fn().mockResolvedValue({
+      error: null,
+      data: {
+        outcome: "started",
+        conversationId: CONVERSATION_ID,
+        userMessageId: USER_MESSAGE_ID,
+        attemptToken: ATTEMPT_TOKEN,
+        messagesUsed: 1,
+        messagesLimit: 5,
+        tier: "free",
+        mode: "project_assessment",
+        history: [],
+      },
+    });
+    const target = capability(authenticatedRpc).capability;
+    await expect(
+      target.start(
+        "Which position is better supported?",
+        undefined,
+        "project_assessment",
+      ),
+    ).resolves.toMatchObject({ status: "started", mode: "project_assessment" });
+    expect(authenticatedRpc).toHaveBeenCalledWith(
+      "start_project_grounded_question",
+      {
+        p_project_id: PROJECT_ID,
+        p_question: "Which position is better supported?",
+        p_conversation_id: null,
+        p_mode: "project_assessment",
+      },
+    );
+
+    mocks.serviceRpc.mockResolvedValue({
+      error: null,
+      data: { outcome: "completed", assistantMessageId: ASSISTANT_ID },
+    });
+    await expect(
+      target.complete({
+        reservation: {
+          conversationId: CONVERSATION_ID,
+          userMessageId: USER_MESSAGE_ID,
+          attemptToken: ATTEMPT_TOKEN,
+          messagesUsed: 1,
+          messagesLimit: 5,
+          tier: "free",
+          mode: "project_assessment",
+          history: [],
+        },
+        assistantContent: "Project Assessment\nApril is better supported [S1 @ 00:42].",
+        classification: "supported",
+        mode: "project_assessment",
+        artifacts: artifacts(),
+        citationDiagnostics: [],
+      }),
+    ).resolves.toEqual({
+      outcome: "completed",
+      assistantMessageId: ASSISTANT_ID,
+    });
+    expect(mocks.serviceRpc).toHaveBeenCalledWith(
+      "complete_project_grounded_answer",
+      expect.objectContaining({
+        p_mode: "project_assessment",
+        p_owner_id: OWNER_ID,
+      }),
+    );
+  });
+
   it("fails cancellation closed when the authenticated RPC contract is unavailable", async () => {
     const databaseFailure = capability(
       vi.fn().mockResolvedValue({

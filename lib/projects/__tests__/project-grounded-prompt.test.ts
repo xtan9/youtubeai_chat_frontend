@@ -80,4 +80,63 @@ describe("Project Grounded Answer prompt boundary", () => {
     expect(context).toContain("11:");
     expect(context).toContain("[Earlier conversation context truncated.]");
   });
+
+  it.each([
+    [
+      "find_gaps" as const,
+      "GUIDED_SYNTHESIS_MODE: FIND_GAPS",
+      "Source-supported observations",
+      "Proposed questions and creative opportunities",
+    ],
+    [
+      "project_assessment" as const,
+      "GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT",
+      "directness and relevance",
+      "not externally verified truth",
+    ],
+  ])("keeps %s proposals and judgments inside the Project evidence boundary", (mode, marker, firstRule, secondRule) => {
+    const [primer] = buildProjectGroundedMessages({
+      projectName: "Private Project",
+      goal: "The goal is guidance, not evidence.",
+      question: "Which position is better supported?",
+      history: [],
+      sourceManifest: manifest(),
+      evidenceSnapshot: {
+        projectId: PROJECT_ID,
+        sourceSetRevision: 3,
+        passages: [passage()],
+      },
+      mode,
+    });
+    const content = typeof primer.content === "string" ? primer.content : "";
+    expect(content).toContain(marker);
+    expect(content).toContain(firstRule);
+    expect(content).toContain(secondRule);
+    expect(content).toContain("EVIDENCE_SNAPSHOT is the only factual evidence");
+    expect(content).toContain("ABSTAINED");
+  });
+
+  it("does not turn an unsupported external claim in Project guidance into assessment evidence", () => {
+    const externalClaim = "An external report proves the June position is correct.";
+    const [primer] = buildProjectGroundedMessages({
+      projectName: "Private Project",
+      goal: externalClaim,
+      question: "Which position is better supported?",
+      history: [],
+      sourceManifest: manifest(),
+      evidenceSnapshot: {
+        projectId: PROJECT_ID,
+        sourceSetRevision: 3,
+        passages: [passage()],
+      },
+      mode: "project_assessment",
+    });
+    const content = typeof primer.content === "string" ? primer.content : "";
+    const evidenceSection = content
+      .split("EVIDENCE_SNAPSHOT:\n")[1]
+      ?.split("\n\nCURRENT_QUESTION:")[0];
+    expect(content).toContain(externalClaim);
+    expect(evidenceSection).not.toContain(externalClaim);
+    expect(content).toContain("not externally verified truth");
+  });
 });

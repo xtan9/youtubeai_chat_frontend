@@ -40,6 +40,11 @@ type ConversationListResponse = {
   message?: string;
 };
 
+type LastQuestionIntent = Readonly<{
+  question: string;
+  mode: ProjectConversationMode;
+}>;
+
 function parseEvent(line: string) {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return null;
@@ -74,7 +79,7 @@ export function useProjectGroundedConversation(args: {
     useState<UpgradeRequiredError | null>(null);
   const [conversationLoading, setConversationLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const lastQuestionRef = useRef<string | null>(null);
+  const lastQuestionRef = useRef<LastQuestionIntent | null>(null);
 
   const reload = useCallback(async (conversationId = activeConversationId) => {
     const query = conversationId
@@ -283,7 +288,7 @@ export function useProjectGroundedConversation(args: {
     ) => {
       const question = rawQuestion.trim();
       if (!question || abortRef.current) return;
-      lastQuestionRef.current = question;
+      lastQuestionRef.current = { question, mode };
       const controller = new AbortController();
       abortRef.current = controller;
       setStreaming(true);
@@ -493,7 +498,12 @@ export function useProjectGroundedConversation(args: {
     // A retry is a fresh durable user turn. The failed turn remains visible
     // under the Project's existing durability rule, so the server's shared
     // Free quota intentionally counts the new attempt as another question.
-    if (lastQuestionRef.current) return send(lastQuestionRef.current);
+    if (lastQuestionRef.current) {
+      return send(
+        lastQuestionRef.current.question,
+        lastQuestionRef.current.mode,
+      );
+    }
     return Promise.resolve();
   }, [send]);
 

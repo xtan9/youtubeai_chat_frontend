@@ -92,7 +92,12 @@ type FixtureConversationMessage = {
   sourceCoverage: unknown | null;
   evidenceSnapshot?: unknown;
   citationDiagnostics: unknown[] | null;
-  mode?: "question" | "compare_viewpoints" | "common_themes";
+  mode?:
+    | "question"
+    | "compare_viewpoints"
+    | "common_themes"
+    | "find_gaps"
+    | "project_assessment";
   attemptToken?: string;
   completionState?: "reserved" | "completed" | "cancelled";
 };
@@ -578,26 +583,61 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   await expect(
     page.getByRole("button", { name: "Find common themes" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Find gaps and unexplored angles" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Project Assessment" }),
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "Compare viewpoints" }).click();
+  await page.getByRole("button", { name: "Project Assessment" }).click();
   const question = page.getByLabel("Ask the Project");
-  await expect(question).toHaveValue(/Compare/);
-  await question.fill("Compare the edited viewpoints without averaging them.");
+  await expect(question).toHaveValue(/Which position is better supported/);
+  await question.fill("Which edited position is better supported?");
   await page.getByRole("button", { name: "Ask Project" }).click();
-  await expect(page.getByText("Compare viewpoints", { exact: true })).toBeVisible();
+  await expect(page.getByText("Project Assessment", { exact: true })).toBeVisible();
   await expect(page.getByText("Preparing answer")).toBeVisible();
 
   gatewayGate.release();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  await expect(
+    page.getByText(/not externally verified truth/i),
+  ).toBeVisible();
   const persisted = projectConversations.get(projectId);
   expect(persisted?.messages).toMatchObject([
-    { role: "user", mode: "compare_viewpoints" },
-    { role: "assistant", mode: "compare_viewpoints" },
+    { role: "user", mode: "project_assessment" },
+    { role: "assistant", mode: "project_assessment" },
   ]);
+
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await expect(
+    page.getByRole("button", { name: "Find gaps and unexplored angles" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Find gaps and unexplored angles" }).click();
+  await expect(page.getByLabel("Ask the Project")).toHaveValue(/Find gaps/);
+  await page.getByLabel("Ask the Project").fill("Find supported gaps and counterarguments.");
+  gatewayGate = createGatewayGate();
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(
+    page.getByText("Find gaps and unexplored angles", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Preparing answer")).toBeVisible();
+  gatewayGate.release();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  expect(
+    [...projectConversationThreads.get(projectId) ?? []].some((thread) =>
+      thread.messages.some((message) => message.mode === "find_gaps"),
+    ),
+  ).toBe(true);
+  await expect(
+    page.getByText("Find gaps and unexplored angles", { exact: true }).first(),
+  ).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByText("Compare viewpoints", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Project Assessment", { exact: true }),
+  ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -1486,6 +1526,17 @@ async function handleSupabaseRequest(
   const serviceRole = isServiceRoleRequest(request);
 
   if (url.pathname === "/chat/completions" && request.method === "POST") {
+    const gatewayBody = (await readJson(request)) as {
+      messages?: Array<{ content?: unknown }>;
+    };
+    const prompt = gatewayBody.messages
+      ?.map((message) => (typeof message.content === "string" ? message.content : ""))
+      .join("\n") ?? "";
+    const responseContent = prompt.includes("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT")
+      ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium"
+      : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
+        ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
+        : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
     const activeGatewayGate = gatewayGate;
     await activeGatewayGate.waitForRelease;
     if (response.destroyed || response.writableEnded) return;
@@ -1502,8 +1553,7 @@ async function handleSupabaseRequest(
         choices: [
           {
             delta: {
-              content:
-                "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].",
+              content: responseContent,
             },
           },
         ],
@@ -1760,7 +1810,12 @@ async function handleSourceSetRpc(
     p_source_coverage?: unknown;
     p_evidence_snapshot?: unknown;
     p_citation_diagnostics?: unknown[];
-    p_mode?: "question" | "compare_viewpoints" | "common_themes";
+    p_mode?:
+      | "question"
+      | "compare_viewpoints"
+      | "common_themes"
+      | "find_gaps"
+      | "project_assessment";
     p_user_id?: string;
   };
   const projectId = body.p_project_id;
@@ -2035,7 +2090,10 @@ async function handleSourceSetRpc(
     });
   }
 
-  if (url.pathname.endsWith("/search_project_transcript_passages")) {
+  if (
+    url.pathname.endsWith("/search_project_transcript_passages") ||
+    url.pathname.endsWith("/search_project_transcript_passages_balanced")
+  ) {
     const memberships = orderedMemberships(projectId);
     const ready = memberships.filter((membership) => membership.status === "ready");
     const unavailableVideos = memberships

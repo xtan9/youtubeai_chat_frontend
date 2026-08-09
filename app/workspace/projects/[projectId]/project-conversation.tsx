@@ -28,6 +28,7 @@ import {
 import {
   PROJECT_DEFAULT_CONVERSATION_MODE,
   PROJECT_GUIDED_ACTIONS,
+  getProjectGuidedAction,
   type ProjectConversationMode,
 } from "@/lib/projects/project-grounded-synthesis";
 
@@ -200,11 +201,28 @@ function ClassificationBadge({
 
 function ModeBadge({ mode }: { mode?: ProjectConversationMode }) {
   if (!mode || mode === PROJECT_DEFAULT_CONVERSATION_MODE) return null;
-  const label =
-    mode === "compare_viewpoints"
-      ? "Compare viewpoints"
-      : "Find common themes";
-  return <Badge variant="secondary">{label}</Badge>;
+  const action = getProjectGuidedAction(mode);
+  return action ? <Badge variant="secondary">{action.label}</Badge> : null;
+}
+
+function ModeTrustBoundary({ mode }: { mode?: ProjectConversationMode }) {
+  if (mode === "find_gaps") {
+    return (
+      <p role="note" className="text-caption text-text-muted">
+        Source-supported observations are kept separate from proposed questions
+        and creative opportunities.
+      </p>
+    );
+  }
+  if (mode === "project_assessment") {
+    return (
+      <p role="note" className="text-caption text-text-muted">
+        Project Assessment judges support within this Project; it is not
+        externally verified truth.
+      </p>
+    );
+  }
+  return null;
 }
 
 function AssistantAnswer({
@@ -235,6 +253,7 @@ function AssistantAnswer({
           <ClassificationBadge classification={classification} />
         </div>
       </div>
+      <ModeTrustBoundary mode={mode} />
       <SourceManifest manifest={manifest} />
       <CoverageLedger coverage={coverage} />
       <EvidenceSnapshotLedger snapshot={evidenceSnapshot} />
@@ -521,7 +540,7 @@ export function ProjectConversation({
                   aria-label="Guided Project Conversation actions"
                 >
                   <p className="text-caption font-medium text-text-secondary">
-                    Start with a guided comparison
+                    Start with a guided exploration
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {PROJECT_GUIDED_ACTIONS.map((action) => (

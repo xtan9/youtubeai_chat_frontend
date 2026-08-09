@@ -42,12 +42,24 @@ export const projectPassageSearchInputSchema = z
       .min(1)
       .max(PROJECT_PASSAGE_SEARCH_MAX_LIMIT)
       .default(PROJECT_PASSAGE_SEARCH_DEFAULT_LIMIT),
+    balanceSources: z.boolean().optional(),
   })
   .strict();
 
-export type ProjectPassageSearchInput = z.infer<
+type ProjectPassageSearchInputFromSchema = z.infer<
   typeof projectPassageSearchInputSchema
 >;
+
+/**
+ * Callers may omit the optional balancing hint; the parsed request schema
+ * supplies its false default before an RPC boundary is reached.
+ */
+export type ProjectPassageSearchInput = Omit<
+  ProjectPassageSearchInputFromSchema,
+  "balanceSources"
+> & {
+  balanceSources?: boolean;
+};
 
 export const ProjectUnavailableVideoSchema = z
   .object({

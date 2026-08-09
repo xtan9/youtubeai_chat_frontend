@@ -73,6 +73,34 @@ describe("Project passage-search capability", () => {
     expect(PASSAGE).not.toHaveProperty("rank");
   });
 
+  it("uses the source-balanced RPC only for Project Assessment retrieval", async () => {
+    const supabase = client({
+      data: {
+        outcome: "ready",
+        sourceSetRevision: 7,
+        coverage: COVERAGE,
+        passages: [PASSAGE],
+      },
+      error: null,
+    });
+    const capability = createProjectPassageSearchCapability(
+      supabase as never,
+      TARGET,
+    );
+
+    await expect(
+      capability.search({ query: "which position", limit: 10, balanceSources: true }),
+    ).resolves.toMatchObject({ status: "ready", passages: [PASSAGE] });
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "search_project_transcript_passages_balanced",
+      {
+        p_project_id: PROJECT_ID,
+        p_query: "which position",
+        p_limit: 10,
+      },
+    );
+  });
+
   it.each([
     [
       "no_results",
