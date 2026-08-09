@@ -176,6 +176,31 @@ describe("client analytics", () => {
     );
   });
 
+  it("rejects private Video processing metadata before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "project_video_processing_failed",
+      {
+        status: "failed",
+        ordinal: 2,
+        error_class: "processing",
+        processing_seconds: 4,
+        youtube_url: "https://www.youtube.com/watch?v=private0001",
+        title: "Private research",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Video processing event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
+        event: "project_video_processing_failed",
+      }),
+    );
+  });
+
   it("rejects invalid discovery attribution before it reaches transport", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

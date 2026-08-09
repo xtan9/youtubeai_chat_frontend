@@ -15,7 +15,7 @@ export type SseEvent = SummarySseEvent;
 
 export type SendEvent = (data: SseEvent) => void;
 
-/** Validate before handing an event to the route's wire emitter. */
+/** Validate before handing an event to the server Summary Run wire emitter. */
 export function validateSummarySseEvent(event: unknown): SseEvent {
   return SummarySseEventSchema.parse(event);
 }

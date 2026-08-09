@@ -122,6 +122,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search.sql
       - name: Project passage Search concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search_concurrency.sql
+      - name: Project Video processing contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing.sql
+      - name: Project Video processing concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing_concurrency.sql
       - name: Workspace and Project contract - fresh migration replay
         run: |
           set -eo pipefail
@@ -139,6 +143,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_set_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing_concurrency.sql
       # Reproduces the cache-write upsert that broke translation caching
       # in prod (verified 2026-04-25). Specifically guards against a
       # UNIQUE that conflicts when two summaries differ only by

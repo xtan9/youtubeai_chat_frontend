@@ -8,6 +8,7 @@ import {
   reorderProjectVideos,
 } from "@/lib/projects/project-source-set";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
+import { reconcileStaleProjectVideoProcessing } from "@/lib/projects/project-video-processing";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { sourceSetMutationResponse } from "@/lib/projects/source-set-api-outcomes";
@@ -46,12 +47,22 @@ async function sourceSetContext(context: RouteContext) {
   if (subject.kind !== "resolved") {
     return { kind: "error", response: projectOutcomeResponse(subject) } as const;
   }
-  return { kind: "resolved", supabase, subject: subject.value } as const;
+  return {
+    kind: "resolved",
+    supabase,
+    subject: subject.value,
+    principal: researcher.principal,
+  } as const;
 }
 
 export async function GET(_request: Request, context: RouteContext) {
   const routeContext = await sourceSetContext(context);
   if (routeContext.kind === "error") return routeContext.response;
+
+  await reconcileStaleProjectVideoProcessing(
+    routeContext.subject,
+    routeContext.principal.smokeProEntitled === true,
+  );
 
   const result = await loadProjectSourceSet(
     routeContext.supabase,
