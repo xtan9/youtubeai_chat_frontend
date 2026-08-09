@@ -3,18 +3,28 @@ import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/re
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { Footer } from "../footer";
 
-const analyticsMocks = vi.hoisted(() => ({ capture: vi.fn() }));
+const { analyticsMocks, userState } = vi.hoisted(() => ({
+  analyticsMocks: { capture: vi.fn() },
+  userState: {
+    value: {
+      user: null,
+      isLoading: false,
+      error: null as Error | null,
+    },
+  },
+}));
 
 vi.mock("@/lib/analytics/client", () => ({
   captureAnalyticsEvent: analyticsMocks.capture,
 }));
 
 vi.mock("@/lib/contexts/user-context", () => ({
-  useUser: () => ({ user: null, isLoading: false }),
+  useUser: () => userState.value,
 }));
 
 beforeEach(() => {
   analyticsMocks.capture.mockReset();
+  userState.value = { user: null, isLoading: false, error: null };
   vi.stubGlobal("innerWidth", 1024);
   vi.stubGlobal(
     "matchMedia",
@@ -87,6 +97,21 @@ describe("Footer", () => {
     render(<Footer />);
 
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(analyticsMocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not classify an auth lookup failure as logged out", async () => {
+    userState.value = {
+      user: null,
+      isLoading: false,
+      error: new Error("auth unavailable"),
+    };
+    render(<Footer />);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(analyticsMocks.capture).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("link", { name: "Pricing" }));
     expect(analyticsMocks.capture).not.toHaveBeenCalled();
   });
 });

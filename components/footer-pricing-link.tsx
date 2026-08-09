@@ -6,7 +6,7 @@ import { useUser } from "@/lib/contexts/user-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export function FooterPricingLink() {
-  const { user, isLoading } = useUser();
+  const { user, isLoading, error } = useUser();
   const isMobile = useIsMobile();
   const authenticationState = user?.is_anonymous
     ? "anonymous_session"
@@ -17,7 +17,7 @@ export function FooterPricingLink() {
     sourceSurface: "public_footer",
     presentationState: "pricing",
     authenticationState,
-    enabled: !isLoading && !isMobile,
+    enabled: !isLoading && !error && !isMobile,
   });
 
   return (
