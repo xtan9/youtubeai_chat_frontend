@@ -104,6 +104,10 @@ describe("ProjectConversation", () => {
 
     expect(screen.getByRole("button", { name: "Compare viewpoints" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Find common themes" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Find gaps and unexplored angles" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Project Assessment" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Compare viewpoints" }));
     const input = screen.getByLabelText("Ask the Project");
@@ -121,6 +125,72 @@ describe("ProjectConversation", () => {
       }),
     );
     expect(container.querySelector('[class*="overflow-y"]')).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("labels a Project Assessment and states its within-Project trust boundary", async () => {
+    const sourceManifest: ProjectAnswerSourceManifest = {
+      projectId: PROJECT_ID,
+      sourceSetRevision: 1,
+      sources: [
+        {
+          sourceId: "S1",
+          videoId: VIDEO_ID,
+          youtubeVideoId: "aaaaaaa0001",
+          title: "Launch notes",
+          channelName: null,
+          passages: [{ passageId: "p1", startSeconds: 42, endSeconds: 58 }],
+        },
+      ],
+    };
+    const { container } = renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          conversationId: "40000000-0000-4000-8000-000000000001",
+          messages: [
+            {
+              id: USER_MESSAGE_ID,
+              inReplyToMessageId: null,
+              role: "user",
+              content: "Which timing is better supported?",
+              createdAt: "2026-08-09T12:00:00.000Z",
+              mode: "project_assessment",
+              answerClassification: null,
+              sourceSetRevision: 1,
+              sourceManifest: null,
+              sourceCoverage: null,
+              citationDiagnostics: null,
+            },
+            {
+              id: "50000000-0000-4000-8000-000000000001",
+              inReplyToMessageId: USER_MESSAGE_ID,
+              role: "assistant",
+              mode: "project_assessment",
+              content: "Project Assessment\nThe April timing is better supported [S1 @ 00:42].",
+              createdAt: "2026-08-09T12:00:01.000Z",
+              answerClassification: "supported",
+              sourceSetRevision: 1,
+              sourceManifest,
+              sourceCoverage: {
+                totalVideos: 1,
+                readyVideos: 1,
+                evidenceVideos: 1,
+                unavailableVideos: [],
+                passagesExamined: 1,
+                evidencePassages: 1,
+              },
+              citationDiagnostics: [],
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText("Project Assessment").length).toBeGreaterThan(0);
+    expect(screen.getByRole("note").textContent).toContain(
+      "not externally verified truth",
+    );
     expect(await axe(container)).toHaveNoViolations();
   });
 

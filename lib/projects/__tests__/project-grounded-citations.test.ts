@@ -107,4 +107,24 @@ describe("Project Grounded Answer citation validation", () => {
       ).allClaimsCited,
     ).toBe(false);
   });
+
+  it("allows a labelled synthesis heading before cited assessment prose", () => {
+    expect(
+      inspectProjectCitations(
+        "Project Assessment\nThe launch happened in April [S1 @ 00:42].",
+        manifest(),
+      ).allClaimsCited,
+    ).toBe(true);
+  });
+
+  it("keeps a cited gap proposal valid when punctuation follows the citation", () => {
+    const inspection = inspectProjectCitations(
+      "Source-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?",
+      manifest(),
+    );
+
+    expect(inspection.validCitationCount).toBe(2);
+    expect(inspection.allClaimsCited).toBe(true);
+    expect(inspection.validSourceIds).toEqual(["S1"]);
+  });
 });
