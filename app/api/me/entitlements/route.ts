@@ -54,9 +54,55 @@ function anonymousResponse(summariesUsed: number) {
     caps: {
       summariesUsed,
       summariesLimit: ANON_LIMITS.summariesLifetime,
+      projectsUsed: 0,
+      projectsLimit: ANON_LIMITS.projects,
     },
     subscriptionPresentation: { state: "anonymous" },
   });
+}
+
+async function readProjectUsage(
+  supabase: NonNullable<ReturnType<typeof getServiceRoleClient>>,
+  userId: string,
+): Promise<number> {
+  try {
+    const workspaceResult = await supabase
+      .from("workspaces")
+      .select("id")
+      .eq("owner_id", userId)
+      .maybeSingle();
+    if (workspaceResult.error || !workspaceResult.data?.id) {
+      if (workspaceResult.error) {
+        console.error("[me/entitlements] Project Workspace read failed", {
+          errorId: "ENTITLEMENTS_PROJECT_WORKSPACE_READ_FAILED",
+          userId,
+          code: (workspaceResult.error as { code?: string }).code,
+        });
+      }
+      return 0;
+    }
+
+    const projectResult = await supabase
+      .from("projects")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", workspaceResult.data.id);
+    if (projectResult.error) {
+      console.error("[me/entitlements] Project usage read failed", {
+        errorId: "ENTITLEMENTS_PROJECT_USAGE_READ_FAILED",
+        userId,
+        code: (projectResult.error as { code?: string }).code,
+      });
+      return 0;
+    }
+    return projectResult.count ?? 0;
+  } catch (error) {
+    console.error("[me/entitlements] Project usage read threw", {
+      errorId: "ENTITLEMENTS_PROJECT_USAGE_READ_THREW",
+      userId,
+      error,
+    });
+    return 0;
+  }
 }
 
 export async function GET() {
@@ -92,6 +138,10 @@ export async function GET() {
   }
 
   const { tier, subscription, presentation } = subscriptionResult;
+  const supabase = getServiceRoleClient();
+  const projectsUsed = supabase
+    ? await readProjectUsage(supabase, userId)
+    : 0;
 
   if (tier === "pro") {
     return Response.json({
@@ -103,6 +153,8 @@ export async function GET() {
         summariesLimit: -1,
         historyUsed: 0,
         historyLimit: -1,
+        projectsUsed,
+        projectsLimit: -1,
       },
       subscription,
       subscriptionPresentation: presentation,
@@ -113,7 +165,6 @@ export async function GET() {
   // a recoverable billing issue can coexist with Free caps after grace ends.
   let summariesUsed = 0;
   let historyUsed = 0;
-  const supabase = getServiceRoleClient();
   if (supabase) {
     const yearMonth = getYearMonthUtc();
     const [usageResult, historyResult] = await Promise.all([
@@ -158,6 +209,8 @@ export async function GET() {
       summariesLimit: FREE_LIMITS.summariesPerMonth,
       historyUsed,
       historyLimit: FREE_LIMITS.historyItems,
+      projectsUsed,
+      projectsLimit: FREE_LIMITS.projects,
     },
     subscriptionPresentation: presentation,
   });

@@ -9,10 +9,12 @@ export const FREE_LIMITS = {
   summariesPerMonth: 10,
   chatMessagesPerVideo: 5,
   historyItems: 10,
+  projects: 1,
 } as const;
 
 export const ANON_LIMITS = {
   summariesLifetime: 1,
+  projects: 0,
 } as const;
 
 // SQLSTATEs that mean "code shipped before its migration ran" rather than

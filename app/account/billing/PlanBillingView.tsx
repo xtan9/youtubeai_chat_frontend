@@ -159,6 +159,8 @@ function FreePlan({
     summariesLimit: number;
     historyUsed?: number;
     historyLimit?: number;
+    projectsUsed: number;
+    projectsLimit: number;
   };
   onUpgrade: () => void;
 }) {
@@ -172,6 +174,10 @@ function FreePlan({
     typeof caps.historyLimit === "number" &&
     Number.isFinite(caps.historyLimit) &&
     caps.historyLimit > 0;
+  const projectUsageAvailable =
+    Number.isFinite(caps.projectsUsed) &&
+    Number.isFinite(caps.projectsLimit) &&
+    caps.projectsLimit > 0;
 
   return (
     <PlanCard
@@ -213,6 +219,23 @@ function FreePlan({
           ) : (
             <p className="text-body-sm text-text-secondary">
               History usage is temporarily unavailable.
+            </p>
+          )}
+          {projectUsageAvailable ? (
+            <div className="space-y-2">
+              <UsageMeter
+                label="Projects"
+                used={caps.projectsUsed}
+                limit={caps.projectsLimit}
+              />
+              <p className="text-body-sm text-text-muted">
+                Deleting a Project frees this Project slot. It does not reset
+                Summary or generation usage.
+              </p>
+            </div>
+          ) : (
+            <p className="text-body-sm text-text-secondary">
+              Project usage is temporarily unavailable.
             </p>
           )}
         </section>
@@ -265,6 +288,9 @@ function ProPlan({
       }
     >
       <CardContent className="space-y-6">
+        <p className="text-body-md text-text-secondary">
+          Create unlimited Projects within technical and abuse limits.
+        </p>
         {cadence || relevantDate ? (
           <dl className="grid gap-4 sm:grid-cols-2">
             {cadence ? (

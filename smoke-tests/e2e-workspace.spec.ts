@@ -13,6 +13,39 @@ const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
 const OWNER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000001";
 const OTHER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000002";
+const FIXTURE_SERVICE_ROLE_KEY = "fixture-service-role-key";
+const FIXTURE_AUTH_COOKIE_NAME = "sb-workspace-fixture-auth-token";
+
+type FixtureSubscription = {
+  tier: "free" | "pro";
+  plan: "monthly" | "yearly" | null;
+  status: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+};
+
+const userSubscriptions = new Map<string, FixtureSubscription>([
+  [
+    OWNER_ID,
+    {
+      tier: "pro",
+      plan: "monthly",
+      status: "active",
+      current_period_end: "2026-09-01T00:00:00.000Z",
+      cancel_at_period_end: false,
+    },
+  ],
+  [
+    OTHER_ID,
+    {
+      tier: "free",
+      plan: null,
+      status: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+    },
+  ],
+]);
 
 type FixtureProject = {
   id: string;
@@ -63,7 +96,9 @@ test.beforeAll(async () => {
         ...process.env,
         NEXT_PUBLIC_SITE_URL: appUrl,
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "fixture-anon-key",
+        NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME: FIXTURE_AUTH_COOKIE_NAME,
         NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,
+        SUPABASE_SERVICE_ROLE_KEY: FIXTURE_SERVICE_ROLE_KEY,
         NEXT_TELEMETRY_DISABLED: "1",
         WORKSPACE_E2E_DIST_DIR: ".next-workspace-e2e",
       },
@@ -95,7 +130,7 @@ test.afterAll(async () => {
   }
 });
 
-test("registered Researcher completes a private responsive Project lifecycle", async ({
+test("database-backed Pro Researcher completes a private responsive Project lifecycle", async ({
   browser,
   context,
   page,
@@ -107,7 +142,6 @@ test("registered Researcher completes a private responsive Project lifecycle", a
     page.getByRole("heading", { name: "Your research, ready to resume" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
-
   const emptyCreate = page.getByRole("button", { name: "Create Project" });
   await emptyCreate.focus();
   await page.keyboard.press("Enter");
@@ -120,6 +154,9 @@ test("registered Researcher completes a private responsive Project lifecycle", a
     .locator('[data-slot="card"]')
     .filter({ has: page.getByRole("heading", { name: "Evidence review" }) });
   await expect(firstCard).toContainText("Compare the two explanations.");
+  await expect(
+    page.getByText(/Unlimited Projects within technical and abuse limits/i),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Creator brief");
@@ -192,10 +229,87 @@ test("registered Researcher completes a private responsive Project lifecycle", a
   ).toBeVisible();
 });
 
-test("visitor is sent to sign in before Workspace data is loaded", async ({ page }) => {
+test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OTHER_ID, "other@example.test");
   await page.goto(`${appUrl}/workspace`);
-  await expect(page).toHaveURL(/\/auth\/login$/);
-  await expect(page.getByRole("button", { name: "Login" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Create Project" }).click();
+  await page.getByLabel("Project name").fill("Free research home");
+  await page.getByRole("button", { name: "Create Project" }).last().click();
+  await expect(page.getByRole("heading", { name: "Free research home" })).toBeVisible();
+
+  await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Upgrade to Pro" }),
+  ).toHaveAttribute("href", "/pricing?source_surface=project_limit");
+  const capResponse = await context.request.post(
+    `${appUrl}/api/workspace/projects`,
+    { data: { name: "Blocked second Project" } },
+  );
+  expect(capResponse.status()).toBe(402);
+  expect(await capResponse.json()).toMatchObject({
+    errorCode: "free_project_limit_reached",
+    tier: "free",
+    upgradeUrl: "/pricing",
+    projectsUsed: 1,
+    projectsLimit: 1,
+  });
+
+  await page.getByRole("link", { name: "Open Free research home" }).click();
+  await page.getByRole("button", { name: "Delete Project" }).click();
+  await page
+    .getByRole("alertdialog", { name: "Delete “Free research home”?" })
+    .getByRole("button", { name: "Delete Project" })
+    .click();
+  await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
+
+  const concurrent = await Promise.all([
+    context.request.post(`${appUrl}/api/workspace/projects`, {
+      data: { name: "Concurrent A" },
+    }),
+    context.request.post(`${appUrl}/api/workspace/projects`, {
+      data: { name: "Concurrent B" },
+    }),
+  ]);
+  expect(concurrent.map((response) => response.status()).sort()).toEqual([
+    201,
+    402,
+  ]);
+  const blocked = concurrent.find((response) => response.status() === 402);
+  expect(await blocked?.json()).toMatchObject({
+    errorCode: "free_project_limit_reached",
+    tier: "free",
+    upgradeUrl: "/pricing",
+  });
+
+  await page.reload();
+  await expect(page.locator('[aria-labelledby="recent-projects-heading"] h3')).toHaveCount(1);
+});
+
+test("visitor receives a clear registration action before Workspace data is loaded", async ({
+  page,
+}) => {
+  await page.goto(`${appUrl}/workspace`);
+  await expect(
+    page.getByRole("heading", { name: "Create an account for Projects" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Create free account" })).toHaveAttribute(
+    "href",
+    "/auth/sign-up?redirect_to=%2Fworkspace",
+  );
+
+  const response = await page.request.post(`${appUrl}/api/workspace/projects`, {
+    data: { name: "Anonymous Project" },
+  });
+  expect(response.status()).toBe(402);
+  expect(await response.json()).toMatchObject({
+    errorCode: "anon_project_registration_required",
+    tier: "anon",
+    upgradeUrl: "/auth/sign-up?redirect_to=%2Fworkspace",
+  });
 });
 
 async function handleSupabaseRequest(
@@ -204,6 +318,7 @@ async function handleSupabaseRequest(
 ) {
   const url = new URL(request.url ?? "/", "http://fixture.test");
   const userId = requestUserId(request);
+  const serviceRole = isServiceRoleRequest(request);
 
   if (request.method === "GET" && url.pathname === "/auth/v1/user") {
     if (!userId) {
@@ -221,13 +336,33 @@ async function handleSupabaseRequest(
 
   if (url.pathname === "/rest/v1/workspaces" && request.method === "GET") {
     const requestedOwner = filterValue(url, "owner_id");
-    if (!userId || requestedOwner !== userId) return sendJson(response, 200, []);
-    const id = userId === OWNER_ID ? OWNER_WORKSPACE_ID : OTHER_WORKSPACE_ID;
+    if (!requestedOwner || (!serviceRole && requestedOwner !== userId)) {
+      return sendJson(response, 200, []);
+    }
+    const id =
+      requestedOwner === OWNER_ID
+        ? OWNER_WORKSPACE_ID
+        : requestedOwner === OTHER_ID
+          ? OTHER_WORKSPACE_ID
+          : null;
+    if (!id) return sendJson(response, 200, []);
     return sendJson(response, 200, [{ id }]);
   }
 
+  if (
+    url.pathname === "/rest/v1/user_subscriptions" &&
+    request.method === "GET"
+  ) {
+    const requestedUser = filterValue(url, "user_id");
+    if (!requestedUser || (!serviceRole && requestedUser !== userId)) {
+      return sendJson(response, 200, []);
+    }
+    const subscription = userSubscriptions.get(requestedUser);
+    return sendJson(response, 200, subscription ? [subscription] : []);
+  }
+
   if (url.pathname === "/rest/v1/projects") {
-    return handleProjects(request, response, url, userId);
+    return handleProjects(request, response, url, userId, serviceRole);
   }
 
   return sendJson(response, 404, {
@@ -241,6 +376,7 @@ async function handleProjects(
   response: ServerResponse,
   url: URL,
   userId: string | null,
+  serviceRole: boolean,
 ) {
   const userWorkspace =
     userId === OWNER_ID
@@ -252,10 +388,21 @@ async function handleProjects(
   const idFilter = filterValue(url, "id");
   const visible = projects.filter(
     (project) =>
-      project.workspace_id === userWorkspace &&
+      (serviceRole || project.workspace_id === userWorkspace) &&
       (!workspaceFilter || project.workspace_id === workspaceFilter) &&
       (!idFilter || project.id === idFilter),
   );
+
+  if (request.method === "HEAD") {
+    response.writeHead(200, {
+      "content-range":
+        visible.length === 0
+          ? "*/0"
+          : `0-${visible.length - 1}/${visible.length}`,
+    });
+    response.end();
+    return;
+  }
 
   if (request.method === "GET") {
     const ordered = [...visible].sort(
@@ -269,6 +416,19 @@ async function handleProjects(
     const body = (await readJson(request)) as { workspace_id?: string; name?: string; goal?: string | null };
     if (!userWorkspace || body.workspace_id !== userWorkspace || !body.name) {
       return sendJson(response, 403, postgrestError("42501", "row-level security denied insert"));
+    }
+    const tier = userId
+      ? userSubscriptions.get(userId)?.tier ?? "free"
+      : "free";
+    if (
+      tier !== "pro" &&
+      projects.some((project) => project.workspace_id === userWorkspace)
+    ) {
+      return sendJson(
+        response,
+        400,
+        postgrestError("P0001", "FREE_PROJECT_LIMIT_REACHED"),
+      );
     }
     projectSequence += 1;
     const id = `a0000000-0000-4000-8000-${String(projectSequence).padStart(12, "0")}`;
@@ -340,6 +500,10 @@ function requestUserId(request: IncomingMessage): string | null {
   }
 }
 
+function isServiceRoleRequest(request: IncomingMessage): boolean {
+  return request.headers.authorization === `Bearer ${FIXTURE_SERVICE_ROLE_KEY}`;
+}
+
 function authUser(id: string, email: string) {
   return {
     id,
@@ -363,7 +527,7 @@ async function addSessionCookie(
 ) {
   await context.addCookies([
     {
-      name: "sb-127-auth-token",
+      name: FIXTURE_AUTH_COOKIE_NAME,
       value: sessionCookieValue(userId, email),
       domain: "127.0.0.1",
       path: "/",

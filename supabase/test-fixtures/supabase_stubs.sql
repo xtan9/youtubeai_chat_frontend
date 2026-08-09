@@ -17,6 +17,16 @@ LANGUAGE sql STABLE AS $$
     SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID
 $$;
 
+-- auth.jwt() exposes the claims that PostgREST has already verified. Tests
+-- set request.jwt.claims explicitly when exercising trusted app_metadata.
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS JSONB
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+        NULLIF(current_setting('request.jwt.claims', TRUE), '')::JSONB,
+        '{}'::JSONB
+    )
+$$;
+
 -- Roles that Supabase provisions; policies target them by name.
 DO $$
 BEGIN
@@ -33,3 +43,4 @@ END $$;
 
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.jwt() TO anon, authenticated, service_role;

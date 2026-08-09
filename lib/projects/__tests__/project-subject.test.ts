@@ -113,6 +113,40 @@ describe("ProjectSubject ownership boundary", () => {
     expect(result.kind).toBe("resolved");
   });
 
+  it("classifies only the stable database Project-limit signal as a cap hit", async () => {
+    const capped = builder({
+      data: null,
+      error: { code: "P0001", message: "FREE_PROJECT_LIMIT_REACHED" },
+    });
+    const cappedClient = client(workspaceQuery(), capped);
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      createProject(cappedClient as any, USER_ID, {
+        name: "Second Project",
+        goal: null,
+      }),
+    ).resolves.toEqual({
+      kind: "limit_reached",
+      projectsUsed: 1,
+      projectsLimit: 1,
+    });
+
+    const unrelated = builder({
+      data: null,
+      error: { code: "P0001", message: "SOME_OTHER_TRIGGER_FAILURE" },
+    });
+    const unavailableClient = client(workspaceQuery(), unrelated);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      createProject(unavailableClient as any, USER_ID, {
+        name: "Second Project",
+        goal: null,
+      }),
+    ).resolves.toEqual({ kind: "unavailable" });
+  });
+
   it("models Goal only as guidance on the resolved subject", async () => {
     const project = builder({ data: PROJECT_ROW, error: null });
     const supabase = client(workspaceQuery(), project);

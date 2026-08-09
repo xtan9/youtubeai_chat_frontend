@@ -3,6 +3,7 @@ import type {
   LegacySubscriptionActivatedProperties,
   SubscriptionDiscoveryEventProperties,
 } from "./subscription-discovery";
+import type { ProjectLimitEventProperties } from "./project-limits";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -29,6 +30,8 @@ export const ANALYTICS_EVENT_NAMES = [
   "hero_demo_sample_selected",
   "paywall_cap_hit_viewed",
   "paywall_cap_cta_clicked",
+  "project_limit_reached",
+  "project_limit_cta_clicked",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -102,6 +105,8 @@ export interface AnalyticsEventProperties {
     cta: PaywallCta;
     tier: EntitlementTier | null;
   };
+  project_limit_reached: ProjectLimitEventProperties["project_limit_reached"];
+  project_limit_cta_clicked: ProjectLimitEventProperties["project_limit_cta_clicked"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;

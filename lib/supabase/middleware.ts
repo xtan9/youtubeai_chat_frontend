@@ -23,12 +23,17 @@ function isPublicPath(pathname: string): boolean {
     pathname.startsWith("/faq/") ||
     pathname === "/pricing" ||
     pathname.startsWith("/design-system") ||
+    // The Workspace landing page owns its anonymous registration CTA. Keep
+    // only this exact path public; individual Project pages remain protected.
+    pathname === "/workspace" ||
     // These API routes perform their own health, signature, or tier-aware
     // authorization checks and must not be converted into HTML redirects.
     pathname === "/api/health" ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/billing/") ||
-    pathname === "/api/me/entitlements"
+    pathname === "/api/me/entitlements" ||
+    // Project creation owns its anonymous 402 registration envelope.
+    pathname === "/api/workspace/projects"
   );
 }
 

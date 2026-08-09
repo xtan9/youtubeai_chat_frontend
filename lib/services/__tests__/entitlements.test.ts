@@ -20,8 +20,9 @@ describe("FREE_LIMITS / ANON_LIMITS", () => {
       summariesPerMonth: 10,
       chatMessagesPerVideo: 5,
       historyItems: 10,
+      projects: 1,
     });
-    expect(m.ANON_LIMITS).toEqual({ summariesLifetime: 1 });
+    expect(m.ANON_LIMITS).toEqual({ summariesLifetime: 1, projects: 0 });
   });
 });
 

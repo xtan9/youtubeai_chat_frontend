@@ -6,9 +6,10 @@ const items = [
     a: (
       <>
         The Free Plan includes 10 summaries per month, 5 Video Chat messages
-        per Video, and a 10-item History. The Pro Plan includes unlimited
-        summaries, Video Chat, and History for $6.99 per month, or a $4.99 per
-        month equivalent billed as $59.88 annually.
+        per Video, a 10-item History, and 1 durable Project. The Pro Plan
+        includes unlimited summaries, Video Chat, History, and Projects within
+        technical and abuse limits for $6.99 per month, or a $4.99 per month
+        equivalent billed as $59.88 annually.
       </>
     ),
   },
