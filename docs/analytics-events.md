@@ -63,6 +63,22 @@ only. The shared Google OAuth callback cannot currently distinguish a new
 registration from a returning login without a Supabase auth hook or durable
 signup-intent state. Do not count OAuth initiation as completion.
 
+## Project Search
+
+`project_search_completed` is emitted only after direct Project passage search
+returns a classified `ready`, `no_results`, or `not_ready` outcome. Its strict
+properties are `source_set_revision`, `outcome`, `result_count`,
+`total_videos`, `ready_videos`, `unavailable_videos`, and `passages_examined`.
+The schema rejects extra properties. Never record a Project identifier or name,
+Project Goal, search query, Transcript passage, Video title or URL, channel
+name, or other Project content in this event.
+
+The Search interface is also a PostHog no-capture subtree: autocapture and
+session replay must not record its input, result text, accessible labels, or
+YouTube links. Search uses a POST JSON body so the query is absent from request
+URLs, and the replay network privacy callback drops the entire Search request
+and response rather than masking selected fields.
+
 ## Analysis model
 
 - Acquisition: `$pageview` and PostHog's standard referrer/UTM properties.

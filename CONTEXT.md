@@ -8,6 +8,30 @@ YouTube AI Chat helps high-volume YouTube learners understand individual videos 
 A person who uses YouTube AI Chat to understand many information-rich videos efficiently.
 _Avoid_: Viewer, consumer
 
+**Researcher**:
+A person who uses a Workspace and Projects to investigate several Videos around an ongoing purpose. The same Researcher may be learning in one Project and creating in another.
+_Avoid_: Learner account type, Creator account type
+
+**Workspace**:
+A Researcher's private environment for ongoing Projects.
+_Avoid_: Project, team space
+
+**Project**:
+A named, bounded body of work within a Workspace that organizes Videos around an optional Project Goal.
+_Avoid_: Workspace, playlist
+
+**Project Goal**:
+Optional guidance describing what a Researcher wants to learn, compare, or create in a Project. It is never evidence.
+_Avoid_: Evidence, conclusion
+
+**Source Set**:
+The ordered set of canonical Videos associated with a Project as potential evidence.
+_Avoid_: Transcript copy, playlist
+
+**Source Coverage**:
+An account of which Project Videos were ready and examined and which were unavailable for an evidence-based action.
+_Avoid_: Sources used, completion percentage
+
 **Video**:
 A YouTube video selected by a Learner as the subject of a Transcript, Summary, and Video Chat.
 _Avoid_: Source, document
@@ -15,6 +39,14 @@ _Avoid_: Source, document
 **Transcript**:
 The time-ordered textual record of a Video's spoken content.
 _Avoid_: Captions, script
+
+**Transcript Passage**:
+An exact, timestamped excerpt from one Video's Transcript, identified together with that Video.
+_Avoid_: Summary, paraphrase, quote without Video identity
+
+**Project Search**:
+Direct retrieval of ranked Transcript Passages across a Project's ready Videos without generated interpretation.
+_Avoid_: Project Conversation, AI search
 
 **Summary**:
 A concise, structured account of a Video that remains faithful to its Transcript.

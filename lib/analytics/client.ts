@@ -15,6 +15,10 @@ import {
   isProjectLimitEventName,
   validateProjectLimitEvent,
 } from "./project-limits";
+import {
+  isProjectSearchEventName,
+  validateProjectSearchEvent,
+} from "./project-search";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -59,6 +63,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid Project limit event", {
           errorId: "ANALYTICS_PROJECT_LIMIT_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectSearchEventName(event)) {
+      const validation = validateProjectSearchEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Search event", {
+          errorId: "ANALYTICS_PROJECT_SEARCH_INVALID",
           event,
           issueCount: validation.issueCount,
         });

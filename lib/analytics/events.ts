@@ -4,6 +4,7 @@ import type {
   SubscriptionDiscoveryEventProperties,
 } from "./subscription-discovery";
 import type { ProjectLimitEventProperties } from "./project-limits";
+import type { ProjectSearchEventProperties } from "./project-search";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -32,6 +33,7 @@ export const ANALYTICS_EVENT_NAMES = [
   "paywall_cap_cta_clicked",
   "project_limit_reached",
   "project_limit_cta_clicked",
+  "project_search_completed",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -107,6 +109,7 @@ export interface AnalyticsEventProperties {
   };
   project_limit_reached: ProjectLimitEventProperties["project_limit_reached"];
   project_limit_cta_clicked: ProjectLimitEventProperties["project_limit_cta_clicked"];
+  project_search_completed: ProjectSearchEventProperties["project_search_completed"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;

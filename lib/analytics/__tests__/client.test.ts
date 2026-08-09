@@ -103,6 +103,54 @@ describe("client analytics", () => {
     });
   });
 
+  it("captures only governed Project Search outcome and coverage counts", () => {
+    captureAnalyticsEvent("project_search_completed", {
+      source_set_revision: 3,
+      outcome: "no_results",
+      result_count: 0,
+      total_videos: 2,
+      ready_videos: 1,
+      unavailable_videos: 1,
+      passages_examined: 18,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith("project_search_completed", {
+      analytics_schema_version: 1,
+      source_set_revision: 3,
+      outcome: "no_results",
+      result_count: 0,
+      total_videos: 2,
+      ready_videos: 1,
+      unavailable_videos: 1,
+      passages_examined: 18,
+    });
+  });
+
+  it("rejects Project Search queries and content before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    captureAnalyticsEvent(
+      "project_search_completed",
+      {
+        source_set_revision: 3,
+        outcome: "ready",
+        result_count: 1,
+        total_videos: 1,
+        ready_videos: 1,
+        unavailable_videos: 0,
+        passages_examined: 18,
+        query: "private query",
+        passage: "private Transcript",
+      } as never,
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Search event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_SEARCH_INVALID",
+      }),
+    );
+  });
+
   it("rejects private Project metadata before transport", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

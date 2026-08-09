@@ -293,6 +293,12 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
   });
 
   await page.getByRole("link", { name: "Open Free research home" }).click();
+  await page.getByLabel("Search exact Transcript passages").fill("waiting");
+  await page.getByRole("button", { name: "Search Transcripts" }).click();
+  await expect(
+    page.getByText("No ready Project Transcripts", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/never uses AI generation or a message allowance/i)).toBeVisible();
   await page.getByRole("button", { name: "Delete Project" }).click();
   await page
     .getByRole("alertdialog", { name: "Delete “Free research home”?" })
@@ -410,7 +416,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await expect(page.getByText("Legacy deep evidence")).toHaveCount(0);
 
   await addFromHistory("Alpha evidence");
-  await expect(page.getByText("Ready")).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText("Alpha evidence")).toBeVisible();
 
@@ -458,6 +464,68 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await expect(page.getByRole("button", { name: "Add from History" })).toBeDisabled();
   await expect(page.getByText("Source Set limit reached")).toBeVisible();
   await expect(page.getByText(/upgrading does not increase this grounding limit/i)).toBeVisible();
+
+  const generatedRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/(?:api\/chat|api\/generate|v1\/chat\/completions)(?:[/?]|$)/.test(request.url())) {
+      generatedRequests.push(request.url());
+    }
+  });
+  const searchRegion = page.getByLabel("Project Search");
+  await expect(searchRegion).toHaveClass(/ph-no-capture/);
+  await expect(searchRegion).toHaveAttribute("data-ph-no-autocapture", "true");
+  const searchRequestPromise = page.waitForRequest((request) =>
+    new URL(request.url()).pathname.endsWith(`/api/projects/${projectId}/search`),
+  );
+  await page.getByLabel("Search exact Transcript passages").fill("climate");
+  await page.getByRole("button", { name: "Search Transcripts" }).click();
+  const searchRequest = await searchRequestPromise;
+  expect(searchRequest.method()).toBe("POST");
+  expect(new URL(searchRequest.url()).search).toBe("");
+  expect(searchRequest.postDataJSON()).toEqual({ query: "climate" });
+  await expect(page.getByRole("status").filter({ hasText: "exact Transcript" })).toContainText(
+    "2 exact Transcript passages found across 3 ready Videos",
+  );
+  await expect(page.getByTestId("project-search-passage")).toHaveText([
+    "Climate adaptation depends on exact local evidence.",
+    "气候适应需要准确的本地证据。",
+  ]);
+  const firstTimestamp = page.getByRole("link", {
+    name: "Open Alpha evidence at [0:42]",
+  });
+  const secondTimestamp = page.getByRole("link", {
+    name: "Open Delta context at [0:42]",
+  });
+  await expect(firstTimestamp).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+  );
+  await expect(secondTimestamp).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0004&t=42s",
+  );
+  await context.route("https://www.youtube.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<title>Video fixture</title>" }),
+  );
+  const [selectedVideo] = await Promise.all([
+    page.waitForEvent("popup"),
+    secondTimestamp.click(),
+  ]);
+  await expect(selectedVideo).toHaveURL(
+    "https://www.youtube.com/watch?v=aaaaaaa0004&t=42s",
+  );
+  await selectedVideo.close();
+  expect(generatedRequests).toEqual([]);
+
+  await page.getByLabel("Search exact Transcript passages").fill("absent");
+  await page.getByRole("button", { name: "Search Transcripts" }).click();
+  await expect(searchRegion.getByText("No matching Transcript passages")).toBeVisible();
+  await expect(searchRegion.getByText("3 of 5 Project Videos searched")).toBeVisible();
+  await expect(
+    searchRegion.getByText("Beta processing", { exact: true }),
+  ).toBeVisible();
+  await expect(searchRegion.getByText("Gamma failed", { exact: true })).toBeVisible();
+  expect(generatedRequests).toEqual([]);
 
   await page.getByRole("button", { name: "Move Epsilon counterpoint up" }).click();
   await expect(page.getByText("Source order updated.", { exact: true })).toBeVisible();
@@ -806,6 +874,8 @@ async function handleSourceSetRpc(
 ) {
   const body = (await readJson(request)) as {
     p_project_id?: string;
+    p_query?: string;
+    p_limit?: number;
     p_video_id?: string;
     p_video_ids?: string[];
     p_expected_revision?: number;
@@ -816,6 +886,91 @@ async function handleSourceSetRpc(
   const projectId = body.p_project_id;
   if (!projectId || !userId || projectOwnerId(projectId) !== userId) {
     return sendJson(response, 200, { outcome: "missing" });
+  }
+
+  if (url.pathname.endsWith("/search_project_transcript_passages")) {
+    const memberships = orderedMemberships(projectId);
+    const ready = memberships.filter((membership) => membership.status === "ready");
+    const unavailableVideos = memberships
+      .filter((membership) => membership.status !== "ready")
+      .map((membership) => {
+        const video = canonicalVideos.find(
+          (candidate) => candidate.id === membership.video_id,
+        );
+        return {
+          videoId: membership.video_id,
+          youtubeVideoId: youtubeVideoId(video?.youtube_url),
+          title: video?.title ?? null,
+          channelName: video?.channel_name ?? null,
+          status: membership.status,
+          failureCode: membership.failure_code,
+        };
+      });
+    const coverage = {
+      totalVideos: memberships.length,
+      readyVideos: ready.length,
+      unavailableVideos,
+      passagesExamined: ready.length * 2,
+    };
+    const sourceSetRevision = sourceSetRevisions.get(projectId) ?? 0;
+    if (ready.length === 0) {
+      return sendJson(response, 200, {
+        outcome: "not_ready",
+        sourceSetRevision,
+        coverage,
+        passages: [],
+      });
+    }
+    if (body.p_query?.trim().toLowerCase() === "absent") {
+      return sendJson(response, 200, {
+        outcome: "no_results",
+        sourceSetRevision,
+        coverage,
+        passages: [],
+      });
+    }
+
+    const passageFixtures = [
+      {
+        membership: ready[0],
+        text: "Climate adaptation depends on exact local evidence.",
+        language: "en",
+      },
+      {
+        membership: ready[1] ?? ready[0],
+        text: "气候适应需要准确的本地证据。",
+        language: "zh-Hans",
+      },
+    ];
+    const passages = passageFixtures
+      .slice(0, Math.max(1, Math.min(body.p_limit ?? 8, 10)))
+      .map(({ membership, text, language }, index) => {
+        const video = canonicalVideos.find(
+          (candidate) => candidate.id === membership.video_id,
+        );
+        return {
+          passageId: `${membership.video_id}:${index + 1}:0:${Array.from(text).length}`,
+          videoId: membership.video_id,
+          youtubeVideoId: youtubeVideoId(video?.youtube_url),
+          title: video?.title ?? null,
+          channelName: video?.channel_name ?? null,
+          text,
+          segmentOrdinal: index + 1,
+          excerptStartCharacter: 0,
+          excerptEndCharacter: Array.from(text).length,
+          startSeconds: 42.75,
+          endSeconds: 48.25,
+          language,
+          truncatedStart: false,
+          truncatedEnd: false,
+        };
+      });
+    return sendJson(response, 200, {
+      outcome: "ready",
+      sourceSetRevision,
+      coverage,
+      passages,
+    });
   }
 
   if (url.pathname.endsWith("/list_project_history_candidates")) {
@@ -968,6 +1123,11 @@ async function handleSourceSetRpc(
     404,
     postgrestError("FIXTURE_RPC_NOT_FOUND", `Unsupported RPC ${url.pathname}`),
   );
+}
+
+function youtubeVideoId(youtubeUrl: string | undefined) {
+  if (!youtubeUrl) return null;
+  return new URL(youtubeUrl).searchParams.get("v");
 }
 
 function seedCanonicalHistory() {

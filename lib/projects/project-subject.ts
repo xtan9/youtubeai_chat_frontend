@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { projectIdSchema } from "./project-input";
+import { createProjectPassageSearchCapability } from "./project-passage-search";
+import type { ProjectPassageSearchCapability } from "./project-passage-search-contract";
 
 export type Project = Readonly<{
   id: string;
@@ -30,6 +32,7 @@ export type ProjectSubject = Readonly<{
   name: string;
   guidance: Readonly<{ goal: string | null }>;
   lastActiveAt: string;
+  passageSearch?: ProjectPassageSearchCapability;
 }>;
 
 export type ProjectOutcome<T> =
@@ -238,16 +241,21 @@ export async function resolveProjectSubject(
   }
   if (!result.data) return { kind: "missing" };
 
+  const value: Omit<ProjectSubject, "passageSearch"> = {
+    kind: "project",
+    projectId: result.data.id,
+    workspaceId: workspace.value.id,
+    ownerId: userId,
+    name: result.data.name,
+    guidance: { goal: result.data.goal },
+    lastActiveAt: result.data.last_active_at,
+  };
+
   return {
     kind: "resolved",
     value: {
-      kind: "project",
-      projectId: result.data.id,
-      workspaceId: workspace.value.id,
-      ownerId: userId,
-      name: result.data.name,
-      guidance: { goal: result.data.goal },
-      lastActiveAt: result.data.last_active_at,
+      ...value,
+      passageSearch: createProjectPassageSearchCapability(supabase, value),
     },
   };
 }
