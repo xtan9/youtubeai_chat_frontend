@@ -153,6 +153,51 @@ describe("ProjectConversation", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("renders Source Set boundaries around durable answers", async () => {
+    const { container } = renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          conversationId: "40000000-0000-4000-8000-000000000001",
+          messages: [
+            {
+              id: USER_MESSAGE_ID,
+              inReplyToMessageId: null,
+              role: "user",
+              content: "What changed?",
+              createdAt: "2026-08-09T13:00:00.000Z",
+              answerClassification: null,
+              sourceSetRevision: 2,
+              sourceManifest: null,
+              sourceCoverage: null,
+              evidenceSnapshot: null,
+              citationDiagnostics: null,
+            },
+          ],
+          sourceSetEvents: [
+            {
+              eventId: "70000000-0000-4000-8000-000000000001",
+              projectId: PROJECT_ID,
+              revision: 2,
+              kind: "added",
+              videoId: VIDEO_ID,
+              videoTitle: "New source",
+              fromPosition: null,
+              toPosition: 1,
+              fromStatus: null,
+              toStatus: "ready",
+              createdAt: "2026-08-09T12:59:00.000Z",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Source Set change revision 2" })).toBeTruthy();
+    expect(screen.getByText(/Added New source to the Source Set/)).toBeTruthy();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it("renders keyboard-labelled thread controls without a nested scrolling region", async () => {
     const firstId = "40000000-0000-4000-8000-000000000001";
     const secondId = "40000000-0000-4000-8000-000000000002";

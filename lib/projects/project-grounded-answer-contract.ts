@@ -3,6 +3,10 @@ import {
   ProjectTranscriptPassageSchema,
   ProjectUnavailableVideoSchema,
 } from "./project-passage-search-contract";
+import {
+  ProjectSourceSetEventListSchema,
+  ProjectSourceSetEventSchema,
+} from "./project-source-set-audit";
 
 export const PROJECT_QUESTION_MIN_LENGTH = 2;
 export const PROJECT_QUESTION_MAX_LENGTH = 200;
@@ -177,6 +181,9 @@ export type ProjectEvidenceSnapshot = z.infer<
   typeof ProjectEvidenceSnapshotSchema
 >;
 
+export { ProjectSourceSetEventListSchema, ProjectSourceSetEventSchema };
+export type { ProjectSourceSetEvent } from "./project-source-set-audit";
+
 export const ProjectCitationDiagnosticSchema = z
   .object({
     kind: z.enum([
@@ -274,9 +281,12 @@ export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
     role: z.literal("user"),
     inReplyToMessageId: z.null(),
     answerClassification: z.null(),
-    sourceSetRevision: z.null(),
+    // Legacy reservations may predate revision stamping. New reservations
+    // always carry the exact ready Source Set revision at creation time.
+    sourceSetRevision: z.number().int().nonnegative().nullable(),
     sourceManifest: z.null(),
     sourceCoverage: z.null(),
+    evidenceSnapshot: z.null().optional(),
     citationDiagnostics: z.null(),
   }).strict(),
   ConversationMessageBaseSchema.extend({
@@ -286,6 +296,9 @@ export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
     sourceSetRevision: z.number().int().nonnegative(),
     sourceManifest: ProjectAnswerSourceManifestSchema,
     sourceCoverage: ProjectAnswerCoverageSchema,
+    // Optional keeps old client fixtures and legacy rows readable; every new
+    // completed answer persists this immutable artifact.
+    evidenceSnapshot: ProjectEvidenceSnapshotSchema.optional(),
     citationDiagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
   }).strict(),
 ]);
@@ -390,6 +403,7 @@ export const ProjectConversationSchema = z
   .object({
     conversationId: z.uuid().nullable(),
     messages: z.array(ProjectConversationMessageSchema).max(100),
+    sourceSetEvents: ProjectSourceSetEventListSchema.optional(),
     messagesUsed: z.number().int().nonnegative(),
     messagesLimit: z.literal(5).nullable(),
     tier: z.enum(["free", "pro"]),
