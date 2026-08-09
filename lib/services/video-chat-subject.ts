@@ -1,5 +1,8 @@
 import "server-only";
-import { extractVideoId } from "./youtube-url";
+import {
+  canonicalYouTubeUrl,
+  normalizeYouTubeVideoId,
+} from "./youtube-url";
 import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
 import {
   databaseVideoChatSubjectAdapter,
@@ -168,20 +171,23 @@ export function canonicalizeVideoChatUrl(
   youtubeUrl: string,
 ): CanonicalVideoIdentity | null {
   const value = youtubeUrl.trim();
-  let parsed: URL;
+  const youtubeVideoId = normalizeYouTubeVideoId(value);
+  if (!youtubeVideoId) return null;
+  if (/^[A-Za-z0-9_-]{11}$/.test(value)) {
+    return {
+      youtubeVideoId,
+      canonicalUrl: canonicalYouTubeUrl(youtubeVideoId),
+    };
+  }
   try {
-    parsed = new URL(value);
+    if (new URL(value).protocol !== "https:") return null;
   } catch {
     return null;
   }
-  if (parsed.protocol !== "https:") return null;
-
-  const youtubeVideoId = extractVideoId(value);
-  if (!youtubeVideoId) return null;
 
   return {
     youtubeVideoId,
-    canonicalUrl: `https://www.youtube.com/watch?v=${youtubeVideoId}`,
+    canonicalUrl: canonicalYouTubeUrl(youtubeVideoId),
   };
 }
 

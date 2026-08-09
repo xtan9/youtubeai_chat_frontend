@@ -37,7 +37,7 @@ on conflict (project_id) do update set revision = excluded.revision;
 -- Two ready sources make the balanced assessment RPC observable: the lexical
 -- result can rank one source first, while the wrapper must add a query-relevant
 -- segment from the other source to preserve competing positions in the bounded
--- snapshot. Three additional memberships exercise the base search readiness
+-- snapshot. Two additional memberships exercise the base search readiness
 -- predicates and must never leak into the Evidence Snapshot.
 insert into public.videos (
   id, youtube_url, url_hash, title, channel_name, language
@@ -58,14 +58,6 @@ values
     '五月观点',
     '研究频道',
     'zh'
-  ),
-  (
-    'a3222000-0000-4000-8000-000000000003',
-    'https://example.com/not-a-youtube-video',
-    'identity-invalid-a322',
-    'Identity unavailable',
-    'Assessment Lab',
-    'en'
   ),
   (
     'a3222000-0000-4000-8000-000000000004',
@@ -127,16 +119,6 @@ values
     ))
   ),
   (
-    'a3222000-0000-4000-8000-000000000003',
-    'manual_captions',
-    'en',
-    jsonb_build_array(jsonb_build_object(
-      'text', 'The AI launch has no canonical identity.',
-      'start', 12,
-      'duration', 3
-    ))
-  ),
-  (
     'a3222000-0000-4000-8000-000000000004',
     'manual_captions',
     'en',
@@ -178,12 +160,6 @@ values
     null
   ),
   (
-    'a3222000-0000-4000-8000-000000000003',
-    'Identity-invalid launch summary',
-    'manual_captions',
-    null
-  ),
-  (
     'a3222000-0000-4000-8000-000000000005',
     'Negative timing launch summary',
     'manual_captions',
@@ -206,11 +182,6 @@ values
     'a3220000-0000-4000-8000-000000000001',
     'a3222000-0000-4000-8000-000000000002',
     2, 'ready', null, null
-  ),
-  (
-    'a3220000-0000-4000-8000-000000000001',
-    'a3222000-0000-4000-8000-000000000003',
-    3, 'ready', null, null
   ),
   (
     'a3220000-0000-4000-8000-000000000001',
@@ -425,16 +396,9 @@ begin
       select 1
       from jsonb_array_elements(balanced_result -> 'passages') as item(value)
       where item.value ->> 'videoId' in (
-        'a3222000-0000-4000-8000-000000000003',
         'a3222000-0000-4000-8000-000000000004',
         'a3222000-0000-4000-8000-000000000005'
       )
-    )
-    or not exists (
-      select 1
-      from jsonb_array_elements(balanced_result #> '{coverage,unavailableVideos}') as item(value)
-      where item.value ->> 'videoId' = 'a3222000-0000-4000-8000-000000000003'
-        and item.value ->> 'failureCode' = 'identity_unavailable'
     )
     or not exists (
       select 1

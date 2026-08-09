@@ -7,6 +7,10 @@ const YOUTUBE_HOSTS: ReadonlySet<string> = new Set([
   "youtu.be",
 ]);
 
+export function canonicalYouTubeUrl(videoId: string): string {
+  return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
 export function extractVideoId(url: string): string | null {
   let parsed: URL;
   try {
@@ -40,13 +44,21 @@ export function extractVideoId(url: string): string | null {
 }
 
 /**
+ * Resolve either a raw 11-character YouTube ID or any supported URL shape to
+ * the one external identity used by cache/database callers.
+ */
+export function normalizeYouTubeVideoId(input: string): string | null {
+  const value = input.trim();
+  if (VIDEO_ID_PATTERN.test(value)) return value;
+  return extractVideoId(value);
+}
+
+/**
  * Normalize a raw video ID or a supported YouTube URL to the URL shape
  * required by the authenticated transcription service.
  */
 export function normalizeYouTubeVideoInput(input: string): string | null {
   const value = input.trim();
-  if (VIDEO_ID_PATTERN.test(value)) {
-    return `https://www.youtube.com/watch?v=${value}`;
-  }
+  if (VIDEO_ID_PATTERN.test(value)) return canonicalYouTubeUrl(value);
   return extractVideoId(value) ? value : null;
 }

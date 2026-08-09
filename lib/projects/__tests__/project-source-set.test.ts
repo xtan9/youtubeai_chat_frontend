@@ -32,28 +32,36 @@ const MEMBERSHIP = {
   videos: {
     id: VIDEO_ID,
     youtube_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+    youtube_video_id: "aaaaaaaaaaa",
     title: "Canonical source",
     channel_name: "Evidence Lab",
   },
 };
 
-function queryResult(data: unknown, error: unknown = null) {
-  const terminal = Promise.resolve({ data, error });
-  return {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    maybeSingle: vi.fn().mockReturnValue(terminal),
-  };
-}
-
 function loadClient(
   sourceSetData: unknown = { revision: 2, project_videos: [MEMBERSHIP] },
   sourceSetError: unknown = null,
+  mutationData: unknown = { outcome: "added", revision: 2 },
 ) {
-  const sourceSetQuery = queryResult(sourceSetData, sourceSetError);
+  const sourceSetQuery = {
+    data:
+      sourceSetData === null
+        ? { outcome: "resolved", revision: 0, project_videos: [] }
+        : {
+            outcome: "resolved",
+            ...(sourceSetData as Record<string, unknown>),
+          },
+    error: sourceSetError,
+  };
+  const rpc = vi.fn((functionName: string) =>
+    Promise.resolve(
+      functionName === "load_project_source_set"
+        ? sourceSetQuery
+        : { data: mutationData, error: null },
+    ),
+  );
   return {
-    from: vi.fn(() => sourceSetQuery),
-    sourceSetQuery,
+    rpc,
   };
 }
 
@@ -85,8 +93,9 @@ describe("Project Source Set subject capability", () => {
         ],
       },
     });
-    expect(client.from).toHaveBeenCalledOnce();
-    expect(client.from).toHaveBeenCalledWith("project_source_sets");
+    expect(client.rpc).toHaveBeenCalledWith("load_project_source_set", {
+      p_project_id: PROJECT_ID,
+    });
   });
 
   it("represents a Project with no aggregate row as revision zero", async () => {
@@ -98,7 +107,7 @@ describe("Project Source Set subject capability", () => {
   });
 
   it("classifies an RLS denial without leaking rows", async () => {
-    const client = loadClient(null, { code: "42501", message: "denied" });
+    const client = loadClient(undefined, { code: "42501", message: "denied" });
     vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(loadProjectSourceSet(client as never, SUBJECT)).resolves.toEqual({
       kind: "forbidden",
@@ -106,13 +115,14 @@ describe("Project Source Set subject capability", () => {
   });
 
   it("adds through the atomic RPC and refreshes the canonical view", async () => {
-    const client = loadClient({ revision: 3 });
-    const rpc = vi.fn().mockResolvedValue({
-      data: { outcome: "added", revision: 3 },
-      error: null,
-    });
+    const client = loadClient(
+      { revision: 3, project_videos: [] },
+      null,
+      { outcome: "added", revision: 3 },
+    );
+    const rpc = client.rpc;
     const result = await addHistoryVideoToProject(
-      { ...client, rpc } as never,
+      client as never,
       SUBJECT,
       VIDEO_ID,
       2,
@@ -127,13 +137,13 @@ describe("Project Source Set subject capability", () => {
   });
 
   it("returns the refreshed winning order for a stale concurrent revision", async () => {
-    const client = loadClient({ revision: 8 });
-    const rpc = vi.fn().mockResolvedValue({
-      data: { outcome: "conflict", revision: 8 },
-      error: null,
-    });
+    const client = loadClient(
+      { revision: 8, project_videos: [] },
+      null,
+      { outcome: "conflict", revision: 8 },
+    );
     const result = await reorderProjectVideos(
-      { ...client, rpc } as never,
+      client as never,
       SUBJECT,
       [VIDEO_ID],
       7,
@@ -197,15 +207,15 @@ describe("Project Source Set subject capability", () => {
   });
 
   it("surfaces canonical evidence that is not ready without mutating locally", async () => {
-    const client = loadClient({ revision: 2, project_videos: [MEMBERSHIP] });
-    const rpc = vi.fn().mockResolvedValue({
-      data: { outcome: "not_ready", revision: 2 },
-      error: null,
-    });
+    const client = loadClient(
+      { revision: 2, project_videos: [MEMBERSHIP] },
+      null,
+      { outcome: "not_ready", revision: 2 },
+    );
 
     await expect(
       addHistoryVideoToProject(
-        { ...client, rpc } as never,
+        client as never,
         SUBJECT,
         VIDEO_ID,
         2,

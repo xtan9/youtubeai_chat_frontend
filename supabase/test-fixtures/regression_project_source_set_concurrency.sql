@@ -50,7 +50,7 @@ insert into public.videos (
 )
 select
   format('7%1$s000000-0000-4000-8000-00000000000%1$s', ordinal)::uuid,
-  format('https://www.youtube.com/watch?v=racevideo00%s', ordinal),
+  format('https://www.youtube.com/watch?v=racevideo0%s', ordinal),
   format('source-set-race-%s', ordinal),
   format('Race source %s', ordinal),
   'Concurrency Lab',

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { TranscriptSegmentSchema } from "@/lib/types";
-import { extractVideoId } from "./youtube-url";
+import {
+  canonicalYouTubeUrl,
+  extractVideoId,
+  normalizeYouTubeVideoId,
+} from "./youtube-url";
 
 const LANGUAGE_SENTINELS: ReadonlySet<string> = new Set([
   "und",
@@ -12,15 +16,22 @@ const LANGUAGE_SENTINELS: ReadonlySet<string> = new Set([
 export const YouTubeUrlSchema = z
   .string()
   .trim()
-  .url("youtube_url must be a valid URL")
   .refine((value) => {
     try {
+      const normalizedId = normalizeYouTubeVideoId(value);
+      if (!normalizedId) return false;
+      if (/^[A-Za-z0-9_-]{11}$/.test(value)) return true;
       const parsed = new URL(value);
       return parsed.protocol === "https:" && extractVideoId(value) !== null;
     } catch {
       return false;
     }
-  }, "youtube_url must be an https YouTube video URL");
+  }, "youtube_url must be an https YouTube video URL")
+  .transform((value) =>
+    /^[A-Za-z0-9_-]{11}$/.test(value)
+      ? canonicalYouTubeUrl(value)
+      : value,
+  );
 
 // BCP-47 primary subtag plus optional region/script. The service forwards
 // this value to caption selection and Whisper, so sentinels and CLI-shaped

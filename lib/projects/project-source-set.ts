@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { extractVideoId } from "@/lib/services/youtube-url";
+import { normalizeYouTubeVideoId } from "@/lib/services/youtube-url";
 import {
   PROJECT_HISTORY_CANDIDATE_PAGE_SIZE,
   PROJECT_VIDEO_LIMIT,
@@ -53,6 +53,7 @@ type ProjectVideoRow = {
   videos: {
     id: string;
     youtube_url: string;
+    youtube_video_id: string;
     title: string | null;
     channel_name: string | null;
   } | null;
@@ -79,13 +80,11 @@ type CandidateRpcResult = {
 type CandidateRpcRow = {
   videoId: string;
   youtubeUrl: string;
+  youtubeVideoId?: string;
   title: string | null;
   channelName: string | null;
   viewedAt: string;
 };
-
-const PROJECT_SOURCE_SET_SELECT =
-  "revision,project_videos(video_id,position,status,failure_code,added_at,status_updated_at,videos!inner(id,youtube_url,title,channel_name))";
 
 function logFailure(operation: string, subject: ProjectSubject, error: unknown) {
   const safeError = error as { code?: string; message?: string } | null;
@@ -102,7 +101,7 @@ function mapVideo(row: ProjectVideoRow): ProjectVideo | null {
   return {
     videoId: row.video_id,
     youtubeUrl: row.videos.youtube_url,
-    youtubeVideoId: extractVideoId(row.videos.youtube_url),
+    youtubeVideoId: row.videos.youtube_video_id,
     title: row.videos.title,
     channelName: row.videos.channel_name,
     position: row.position,
@@ -121,11 +120,9 @@ export async function loadProjectSourceSet(
   try {
     // Keep revision and membership in one PostgREST statement so a refresh
     // cannot combine snapshots from opposite sides of a concurrent mutation.
-    const sourceSetResult = await supabase
-      .from("project_source_sets")
-      .select(PROJECT_SOURCE_SET_SELECT)
-      .eq("project_id", subject.projectId)
-      .maybeSingle();
+    const sourceSetResult = await supabase.rpc("load_project_source_set", {
+      p_project_id: subject.projectId,
+    });
 
     if (sourceSetResult.error) {
       logFailure("load", subject, sourceSetResult.error);
@@ -134,7 +131,25 @@ export async function loadProjectSourceSet(
         : { kind: "unavailable" };
     }
 
-    const sourceSet = sourceSetResult.data as unknown as SourceSetRow | null;
+    const rpc = sourceSetResult.data as {
+      outcome?: unknown;
+      revision?: unknown;
+      project_videos?: unknown;
+    } | null;
+    if (rpc?.outcome === "missing") return { kind: "missing" };
+    if (rpc?.outcome === "unauthenticated") return { kind: "forbidden" };
+    if (
+      rpc?.outcome !== "resolved" ||
+      typeof rpc.revision !== "number" ||
+      !Array.isArray(rpc.project_videos)
+    ) {
+      logFailure("load", subject, { message: "Unexpected source set RPC result" });
+      return { kind: "unavailable" };
+    }
+    const sourceSet = {
+      revision: rpc.revision,
+      project_videos: rpc.project_videos as ProjectVideoRow[],
+    } satisfies SourceSetRow;
     const videos = (sourceSet?.project_videos ?? [])
       .map(mapVideo)
       .filter((video): video is ProjectVideo => video !== null)
@@ -244,7 +259,10 @@ export async function loadProjectHistoryCandidates(
         search,
         candidates: rpc.candidates.map((candidate) => ({
           ...candidate,
-          youtubeVideoId: extractVideoId(candidate.youtubeUrl),
+          youtubeVideoId:
+            typeof candidate.youtubeVideoId === "string"
+              ? normalizeYouTubeVideoId(candidate.youtubeVideoId)
+              : normalizeYouTubeVideoId(candidate.youtubeUrl),
         })),
       },
     };

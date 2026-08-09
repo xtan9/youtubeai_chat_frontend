@@ -12,7 +12,7 @@ import {
 import { processProjectVideoSchema } from "@/lib/projects/project-source-set-input";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject, type ProjectSubject } from "@/lib/projects/project-subject";
-import { extractVideoId } from "@/lib/services/youtube-url";
+import { normalizeYouTubeVideoId } from "@/lib/services/youtube-url";
 import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
@@ -96,7 +96,7 @@ export async function POST(request: Request, context: RouteContext) {
       { status: 400 },
     );
   }
-  const youtubeVideoId = extractVideoId(parsed.data.youtubeUrl);
+  const youtubeVideoId = normalizeYouTubeVideoId(parsed.data.youtubeUrl);
   if (!youtubeVideoId) {
     return Response.json(
       { outcome: "invalid", message: MESSAGES.invalid_video },

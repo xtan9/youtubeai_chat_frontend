@@ -54,7 +54,7 @@ async function loadFresh() {
 }
 
 describe("computeVideoKey", () => {
-  it("returns the 11-char video ID for canonical URLs", async () => {
+  it("returns the canonical 11-char video ID for URLs and raw IDs", async () => {
     const { computeVideoKey } = await loadFresh();
     expect(computeVideoKey("https://youtu.be/dQw4w9WgXcQ")).toBe(
       "dQw4w9WgXcQ"
@@ -65,6 +65,7 @@ describe("computeVideoKey", () => {
     expect(
       computeVideoKey("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s")
     ).toBe("dQw4w9WgXcQ");
+    expect(computeVideoKey("dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
   });
 
   it("collapses URL variants to a single cache key", async () => {
@@ -76,10 +77,9 @@ describe("computeVideoKey", () => {
     expect(b).toBe(c);
   });
 
-  it("falls back to md5 when no video ID can be extracted", async () => {
+  it("rejects malformed input instead of creating a legacy hash", async () => {
     const { computeVideoKey } = await loadFresh();
-    const hash = computeVideoKey("not-a-youtube-url");
-    expect(hash).toMatch(/^[a-f0-9]{32}$/);
+    expect(computeVideoKey("not-a-youtube-url")).toBeNull();
   });
 });
 
@@ -374,7 +374,7 @@ describe("writeCachedSummary", () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it("upserts videos with url_hash onConflict", async () => {
+  it("upserts videos with the canonical identity onConflict", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -392,7 +392,11 @@ describe("writeCachedSummary", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    expect(videosCall[1]).toEqual({ onConflict: "url_hash" });
+    expect(videosCall[1]).toEqual({ onConflict: "youtube_video_id" });
+    expect(videosCall[0]).toMatchObject({
+      youtube_video_id: "dQw4w9WgXcQ",
+      youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
   });
 
   it("upserts summaries with composite (video_id,output_language) onConflict and NULL native column", async () => {
@@ -840,7 +844,7 @@ describe("writeCachedTranscript", () => {
     expect(mocks.transcriptsBuilder.upsert).not.toHaveBeenCalled();
   });
 
-  it("upserts videos row first with url_hash onConflict, then transcripts row with video_id onConflict", async () => {
+  it("upserts videos row first with canonical identity onConflict, then transcripts row with video_id onConflict", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://sb");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "sr");
     mocks.videosBuilder.single.mockResolvedValue({
@@ -858,7 +862,7 @@ describe("writeCachedTranscript", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    expect(videosCall[1]).toEqual({ onConflict: "url_hash" });
+    expect(videosCall[1]).toEqual({ onConflict: "youtube_video_id" });
 
     const transcriptCall = mocks.transcriptsBuilder.upsert.mock
       .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
@@ -923,10 +927,12 @@ describe("writeCachedTranscript", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    // url_hash + language always present; title + channel_name absent.
+    // Canonical identity + language always present; title + channel_name
+    // absent. The trigger owns legacy url_hash backfill during rollout.
     expect(videosCall[0]).toEqual(
       expect.objectContaining({
-        youtube_url: baseTranscript.youtubeUrl,
+        youtube_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        youtube_video_id: "dQw4w9WgXcQ",
         language: "en",
       })
     );
