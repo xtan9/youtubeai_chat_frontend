@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, User as UserIcon } from "lucide-react";
+import { FolderKanban, LogOut, User as UserIcon } from "lucide-react";
 import { YtAiMark } from "@/components/brand/yt-ai-mark";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -87,6 +87,14 @@ export function Header() {
               >
                 FAQ
               </Link>
+              {user && !user.is_anonymous ? (
+                <Link
+                  href="/workspace"
+                  className="text-text-muted hover:text-text-primary transition-colors"
+                >
+                  Workspace
+                </Link>
+              ) : null}
             </nav>
           </div>
 
@@ -116,6 +124,15 @@ export function Header() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/workspace"
+                        className="cursor-pointer flex items-center gap-2"
+                      >
+                        <FolderKanban size={16} />
+                        <span>Workspace</span>
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link
                         href="/account"
