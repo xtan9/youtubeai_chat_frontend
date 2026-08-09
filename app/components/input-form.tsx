@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
-import { ArrowRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
@@ -94,21 +94,17 @@ export function InputForm() {
 
                 <Button
                   type="submit"
-                  size="lg"
                   disabled={isLoading}
                   aria-label="Summarize video"
-                  className="h-16 px-8 bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-accent-brand/25 hover:shadow-accent-brand/40 transition-all duration-base cursor-pointer"
+                  className="self-center"
                 >
                   {isLoading ? (
                     <div
-                      className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"
+                      className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent"
                       aria-hidden="true"
                     ></div>
                   ) : (
-                    <>
-                      Summarize
-                      <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
-                    </>
+                    <span>Summarize</span>
                   )}
                 </Button>
               </div>
