@@ -33,8 +33,8 @@ An account of which Project Videos were ready and examined and which were unavai
 _Avoid_: Sources used, completion percentage
 
 **Video**:
-A YouTube video selected by a Learner as the subject of a Transcript, Summary, and Video Chat.
-_Avoid_: Source, document
+A YouTube video known to YouTube AI Chat and identified by its YouTube video ID, whether discovered by the product or selected by a Learner. It may or may not yet have a Transcript, Summary, or Video Chat.
+_Avoid_: Source, document, candidate
 
 **Transcript**:
 The time-ordered textual record of a Video's spoken content.
@@ -67,6 +67,106 @@ _Avoid_: Link, footnote
 **History**:
 A Learner's retained record of previously processed Videos.
 _Avoid_: Library, project
+
+**Video Catalog**:
+The shared collection of public Videos known to YouTube AI Chat and available for discovery and recommendation across Learners.
+_Avoid_: History, search results, inventory
+
+**Recommendation Candidate**:
+A Video admitted as eligible to be considered for a Recommendation, whether or not it already has a Transcript or Summary. It is a role a Video plays, not a separate kind of Video.
+_Avoid_: Candidate record, discovered video
+
+**Recommendation Source**:
+An independently verified public Video for which YouTube AI Chat may prepare a shared Recommendation Set.
+_Avoid_: Any summarized Video, private source
+
+**Recommendation**:
+A versioned suggestion connecting a Recommendation Source to a Recommendation Candidate as a useful continuation.
+_Avoid_: Search result, related video, advertisement
+
+**Catalog Admission**:
+The decision that a known Video may play the Recommendation Candidate role based on its discovery path, current availability, safety, freshness, and evidence.
+_Avoid_: Catalog membership, successful Summary
+
+**Catalog Nomination**:
+A learner-unlinked proposal that a verified public Video undergo independent Catalog Admission after gaining a successful Summary.
+_Avoid_: Automatic admission, promotion request
+
+**Recommendation Set**:
+The prepared collection of global Recommendations for one Recommendation Source before any Learner's private History is considered.
+_Avoid_: Personalized feed, search results
+
+**Recommendation Composition**:
+The learner-private selection and ordering of a Recommendation Set using History and diversity without changing the shared Recommendations.
+_Avoid_: Global ranking, personalization profile
+
+**Continue Learning**:
+The Summary-results surface that presents composed Recommendations after a successful Summary of a Recommendation Source.
+_Avoid_: Feed, related videos, autoplay
+
+**Shadow Recommendation**:
+A fully prepared Recommendation retained for quality evaluation but not presented to Learners.
+_Avoid_: Draft Recommendation, hidden card
+
+**Recommendation Quality Gate**:
+The explicit standard Shadow Recommendations must satisfy before Continue Learning becomes visible to Learners.
+_Avoid_: Feature completeness, launch date
+
+**Recommendation Review**:
+A structured human judgment of a Shadow Recommendation against its admission, relationship, explanation, and usefulness requirements.
+_Avoid_: Product analytics, model score
+
+**Recommendation Rollout**:
+The controlled progression of Continue Learning through off, shadow, pilot, and on states while preserving an immediate kill switch.
+_Avoid_: Deployment, release date
+
+**Continuation Relationship**:
+The learning relationship that explains why a Recommendation follows its source Video: deeper explanation, prerequisite, practical application, or credible alternative.
+_Avoid_: Similarity type, ranking reason
+
+**Recommendation Explanation**:
+A short learner-facing account of the Continuation Relationship between a Recommendation and its source Video.
+_Avoid_: Score, model rationale
+
+**Semantic Profile**:
+A versioned, language-independent representation of a Video's subject and meaning used to compare it with other Videos. A Video has one active profile per semantic model version, which may begin with discovery metadata and become richer when the Video gains a Summary.
+_Avoid_: Embedding, search document
+
+**Recommendation Evidence**:
+The Semantic Profile and evidence level that meet the relationship-specific threshold for a Recommendation and its Explanation.
+_Avoid_: Model rationale, hidden score
+
+**Recommendation Assessment**:
+A versioned judgment that a candidate Video has a supported Continuation Relationship to a source Video, together with the Explanation and Recommendation Evidence for that judgment.
+_Avoid_: Live model response, ranking score
+
+**Recommendation Feedback**:
+A Learner's explicit judgment that a Recommendation was useful or not useful, optionally accompanied by a reason.
+_Avoid_: Click, engagement signal
+
+**Summarize Next**:
+The Learner's deliberate selection of a Recommendation as the subject of a new Summary.
+_Avoid_: Autoplay, open recommendation
+
+**Discovery Demand**:
+An aggregated, learner-unlinked need for more Videos in a topic and language where the Video Catalog cannot provide adequate Recommendations.
+_Avoid_: Live search, recommendation request
+
+**Discovery Observation**:
+A learner-unlinked, dated record that an external discovery provider returned a Video for a topic and language at a particular position.
+_Avoid_: Raw response, search result
+
+**Discovery Budget**:
+The configured allowance that limits external acquisition and is allocated among aggregated Discovery Demands.
+_Avoid_: User quota, request limit
+
+**Processing Budget**:
+A configured allowance that independently limits external semantic profiling or Recommendation Assessment work.
+_Avoid_: Discovery Budget, Learner entitlement
+
+**Inactive Video**:
+A known Video that cannot currently be a Recommendation Candidate because it is unavailable, private, non-embeddable, or backed only by expired provider metadata.
+_Avoid_: Deleted Video, stale row
 
 **Remembered Session**:
 An authenticated Learner's continuing access in one browser profile, independent of Remembered Sessions on other devices or profiles. It survives browser restarts and ends only through Sign Out, Sign Out Everywhere, Account Recovery, or administrative revocation.

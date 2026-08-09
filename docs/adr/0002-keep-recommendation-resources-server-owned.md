@@ -1,0 +1,3 @@
+# Keep recommendation resources server-owned
+
+The Video Catalog, Discovery resources, and prepared Recommendations are server-owned and are not directly readable through browser database access. Broad public reads on the existing Video and Summary cache are removed in a prerequisite change, owner-scoped History access remains, and a validated server interface exposes only the display data needed for Recommendation Composition. Learner-linked History and Feedback are deleted with the account while independently admitted, learner-unlinked catalog resources survive; this gives up direct-client simplicity to prevent catalog scraping, hide internal ranking evidence, and keep private activity out of shared resources.
