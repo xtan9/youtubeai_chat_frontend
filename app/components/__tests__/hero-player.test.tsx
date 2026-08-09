@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup } from "@testing-library/react";
+import { act, render, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { useEffect, useRef } from "react";
 import type { YouTubePlayer } from "react-youtube";
@@ -9,30 +9,49 @@ import HeroPlayer from "../hero-player";
 // Module-scoped seekTo spy so the unmount-cleanup test can assert
 // behaviour. Each test resets it via beforeEach.
 const SHARED_SEEK_TO = vi.fn();
+const SHARED_PAUSE_VIDEO = vi.fn();
+const SHARED_GET_CURRENT_TIME = vi.fn();
+const SHARED_GET_PLAYER_STATE = vi.fn();
 
 vi.mock("react-youtube", () => ({
-  default: ({
+  default: function MockYouTube({
     onReady,
   }: {
     onReady?: (e: { target: YouTubePlayer }) => void;
-  }) => {
-    const fakePlayer = {
-      seekTo: SHARED_SEEK_TO,
-      playVideo: vi.fn(),
-      pauseVideo: vi.fn(),
-      getCurrentTime: vi.fn().mockReturnValue(0),
-      getPlayerState: vi.fn().mockReturnValue(-1),
-    } as unknown as YouTubePlayer;
-    setTimeout(() => onReady?.({ target: fakePlayer }), 0);
+  }) {
+    const playerRef = useRef<YouTubePlayer | null>(null);
+    if (!playerRef.current) {
+      playerRef.current = {
+        seekTo: SHARED_SEEK_TO,
+        playVideo: vi.fn(),
+        pauseVideo: SHARED_PAUSE_VIDEO,
+        getCurrentTime: SHARED_GET_CURRENT_TIME,
+        getPlayerState: SHARED_GET_PLAYER_STATE,
+      } as unknown as YouTubePlayer;
+    }
+    const onReadyRef = useRef(onReady);
+    useEffect(() => {
+      const timer = setTimeout(
+        () => onReadyRef.current?.({ target: playerRef.current! }),
+        0,
+      );
+      return () => clearTimeout(timer);
+    }, []);
     return <div data-testid="yt-iframe-stub" />;
   },
 }));
 
 beforeEach(() => {
   SHARED_SEEK_TO.mockClear();
+  SHARED_PAUSE_VIDEO.mockClear();
+  SHARED_GET_CURRENT_TIME.mockReset().mockReturnValue(0);
+  SHARED_GET_PLAYER_STATE.mockReset().mockReturnValue(1);
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function Harness({
   videoId,
@@ -107,5 +126,83 @@ describe("HeroPlayer", () => {
     // is a no-op and the fake player MUST stay untouched.
     seekRef.current?.(99);
     expect(SHARED_SEEK_TO).not.toHaveBeenCalled();
+  });
+
+  it("registers the timing controls needed for range playback", async () => {
+    const playRangeRef: {
+      current: ((startSeconds: number, endSeconds: number) => void) | null;
+    } = { current: null };
+    function Consumer() {
+      const ctx = usePlayerRef();
+      useEffect(() => {
+        playRangeRef.current = ctx.playRange;
+      }, [ctx.playRange]);
+      return null;
+    }
+
+    const { findByTestId } = render(
+      <PlayerRefProvider>
+        <Consumer />
+        <HeroPlayer
+          videoId="range123456"
+          playerRef={{ current: null }}
+        />
+      </PlayerRefProvider>,
+    );
+    await findByTestId("yt-iframe-stub");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    vi.useFakeTimers();
+    SHARED_GET_CURRENT_TIME
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(12)
+      .mockReturnValueOnce(14)
+      .mockReturnValueOnce(16)
+      .mockReturnValueOnce(18)
+      .mockReturnValueOnce(20)
+      .mockReturnValue(21);
+    act(() => playRangeRef.current?.(10, 20));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_750);
+    });
+
+    expect(SHARED_PAUSE_VIDEO).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears range monitoring when videoId changes", async () => {
+    const playRangeRef: {
+      current: ((startSeconds: number, endSeconds: number) => void) | null;
+    } = { current: null };
+    function Consumer() {
+      const { playRange } = usePlayerRef();
+      useEffect(() => {
+        playRangeRef.current = playRange;
+      }, [playRange]);
+      return null;
+    }
+
+    function HarnessWithConsumer({ videoId }: { videoId: string }) {
+      const localRef = useRef<YouTubePlayer | null>(null);
+      return (
+        <PlayerRefProvider>
+          <Consumer />
+          <HeroPlayer videoId={videoId} playerRef={localRef} />
+        </PlayerRefProvider>
+      );
+    }
+
+    const { findByTestId, rerender } = render(
+      <HarnessWithConsumer videoId="first123456" />,
+    );
+    await findByTestId("yt-iframe-stub");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    vi.useFakeTimers();
+    act(() => playRangeRef.current?.(10, 20));
+    expect(vi.getTimerCount()).toBe(1);
+
+    rerender(<HarnessWithConsumer videoId="second12345" />);
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -27,17 +27,20 @@ describe("parseCitations", () => {
   });
 
   it.each([
-    ["[4:32-5:10]", 4 * 60 + 32],
-    ["[4:32 - 5:10]", 4 * 60 + 32],
-    ["[1:24:05–1:25:00]", 1 * 3600 + 24 * 60 + 5],
-    ["[1:24:05 — 1:25:00]", 1 * 3600 + 24 * 60 + 5],
-  ])("parses timestamp range %s using its start time", (raw, seconds) => {
+    ["[4:32-5:10]", 4 * 60 + 32, 5 * 60 + 10],
+    ["[4:32 - 5:10]", 4 * 60 + 32, 5 * 60 + 10],
+    ["[1:24:05–1:25:00]", 1 * 3600 + 24 * 60 + 5, 1 * 3600 + 25 * 60],
+    ["[1:24:05 — 1:25:00]", 1 * 3600 + 24 * 60 + 5, 1 * 3600 + 25 * 60],
+  ])(
+    "parses timestamp range %s using its start and end times",
+    (raw, seconds, endSeconds) => {
     expect(parseCitations(`See ${raw} for the explanation.`)).toEqual([
       { type: "text", value: "See " },
-      { type: "timestamp", raw, seconds },
+      { type: "timestamp", raw, seconds, endSeconds },
       { type: "text", value: " for the explanation." },
     ]);
-  });
+    },
+  );
 
   it("parses multiple timestamps in one string", () => {
     const parts = parseCitations("[0:30] then [12:08] then [1:00:00].");

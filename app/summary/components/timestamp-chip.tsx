@@ -5,6 +5,7 @@ import type { TranscriptTimingStatus } from "./transcript-timing-notice";
 
 interface TimestampChipProps {
   readonly seconds: number;
+  readonly endSeconds?: number;
   readonly raw: string;
   readonly transcriptTimingStatus?: TranscriptTimingStatus;
   readonly onActivated?: () => void;
@@ -17,11 +18,12 @@ interface TimestampChipProps {
  */
 export function TimestampChip({
   seconds,
+  endSeconds,
   raw,
   transcriptTimingStatus = "available",
   onActivated,
 }: TimestampChipProps) {
-  const { seekTo } = usePlayerRef();
+  const { playRange, seekTo } = usePlayerRef();
   const timingAvailable = transcriptTimingStatus === "available";
   const ariaLabel = timingAvailable
     ? `Seek video to ${raw}`
@@ -35,7 +37,11 @@ export function TimestampChip({
       type="button"
       onClick={() => {
         if (!timingAvailable) return;
-        seekTo(seconds);
+        if (endSeconds === undefined) {
+          seekTo(seconds);
+        } else {
+          playRange(seconds, endSeconds);
+        }
         onActivated?.();
       }}
       disabled={!timingAvailable}

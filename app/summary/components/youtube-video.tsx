@@ -9,7 +9,10 @@ import {
 import dynamic from "next/dynamic";
 import type { YouTubePlayer } from "react-youtube";
 import { getYoutubeVideoId } from "../utils";
-import { usePlayerRef } from "@/lib/contexts/player-ref";
+import {
+  createYouTubePlayerHandle,
+  usePlayerRef,
+} from "@/lib/contexts/player-ref";
 
 // next/dynamic with ssr:false because react-youtube touches `window` and
 // PropTypes during render; importing it server-side trips the Next.js
@@ -39,7 +42,7 @@ const YoutubeVideo = ({
   // tab's timestamp chips can seek it (no prop-drilling from this leaf).
   // Falls back to a no-op when the page isn't wrapped in PlayerRefProvider
   // — keeps test renderers that mount this component standalone working.
-  const { registerPlayer } = usePlayerRef();
+  const { clearPlaybackBoundary, registerPlayer } = usePlayerRef();
 
   // Match the iframe to the container width up to a max. 16:9 aspect ratio
   // for the height — that's the default YouTube embed contract.
@@ -65,6 +68,10 @@ const YoutubeVideo = ({
     return () => registerPlayer(null);
   }, [registerPlayer]);
 
+  useEffect(() => {
+    clearPlaybackBoundary();
+  }, [clearPlaybackBoundary, videoId]);
+
   if (!url || !videoId) {
     return null;
   }
@@ -85,11 +92,7 @@ const YoutubeVideo = ({
         }}
         onReady={(event) => {
           playerRef.current = event.target;
-          registerPlayer({
-            seekTo: (seconds, allowSeekAhead) =>
-              event.target.seekTo(seconds, allowSeekAhead ?? true),
-            playVideo: () => event.target.playVideo(),
-          });
+          registerPlayer(createYouTubePlayerHandle(event.target));
         }}
       />
     </div>

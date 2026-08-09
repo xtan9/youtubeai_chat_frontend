@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import dynamic from "next/dynamic";
 import type { YouTubePlayer } from "react-youtube";
-import { usePlayerRef } from "@/lib/contexts/player-ref";
+import {
+  createYouTubePlayerHandle,
+  usePlayerRef,
+} from "@/lib/contexts/player-ref";
 
 const YouTubeNoSSR = dynamic(() => import("react-youtube"), { ssr: false });
 
@@ -25,7 +28,7 @@ interface HeroPlayerProps {
 export default function HeroPlayer({ videoId, playerRef }: HeroPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(320);
-  const { registerPlayer } = usePlayerRef();
+  const { clearPlaybackBoundary, registerPlayer } = usePlayerRef();
 
   useEffect(() => {
     const update = () => {
@@ -45,6 +48,10 @@ export default function HeroPlayer({ videoId, playerRef }: HeroPlayerProps) {
     return () => registerPlayer(null);
   }, [registerPlayer]);
 
+  useEffect(() => {
+    clearPlaybackBoundary();
+  }, [clearPlaybackBoundary, videoId]);
+
   const height = Math.floor((width / 16) * 9);
 
   return (
@@ -59,11 +66,7 @@ export default function HeroPlayer({ videoId, playerRef }: HeroPlayerProps) {
         }}
         onReady={(event) => {
           playerRef.current = event.target;
-          registerPlayer({
-            seekTo: (seconds, allowSeekAhead) =>
-              event.target.seekTo(seconds, allowSeekAhead ?? true),
-            playVideo: () => event.target.playVideo(),
-          });
+          registerPlayer(createYouTubePlayerHandle(event.target));
         }}
         onError={(event) => {
           // YouTube fires this for unembeddable / removed / region-blocked
