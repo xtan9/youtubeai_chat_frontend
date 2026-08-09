@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // The Workspace Playwright fixture starts a second local Next server with
+  // its own Supabase boundary. Keep only that child server's dev lock and
+  // artifacts isolated; normal development and production builds stay on
+  // Next's default `.next` directory.
+  distDir: process.env.WORKSPACE_E2E_DIST_DIR ?? ".next",
   // Pin Turbopack's root to this package so it doesn't traverse up and
   // pick up the parent worktree's lockfile (Next 16 surfaces this as a
   // build warning). The directory of this config file IS the package

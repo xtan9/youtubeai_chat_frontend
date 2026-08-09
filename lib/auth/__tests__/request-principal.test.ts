@@ -362,7 +362,7 @@ describe("resolveRequestPrincipal", () => {
     expect(mockGetUser).toHaveBeenCalledTimes(2);
   });
 
-  it("accepts only the nine approved source identifiers at the public seam", async () => {
+  it("accepts only the approved source identifiers at the public seam", async () => {
     const sources: RequestPrincipalSource[] = [
       "summary_stream",
       "chat_stream",
@@ -373,6 +373,8 @@ describe("resolveRequestPrincipal", () => {
       "billing_portal",
       "admin_gate",
       "account",
+      "workspace_projects",
+      "project",
     ];
 
     for (const source of sources) {

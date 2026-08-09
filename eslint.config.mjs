@@ -82,6 +82,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Workspace E2E runs a second Next dev server in this isolated distDir.
+    ".next-workspace-e2e/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

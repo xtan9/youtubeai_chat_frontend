@@ -40,8 +40,9 @@ exists.
 ## Before opening a PR that adds a migration
 
 1. Run locally against a fresh DB: `supabase db reset` (or equivalent).
-2. Let the `migration-upgrade-test` CI job run. It replays the legacy
-   fixture (`supabase/test-fixtures/legacy_schema.sql`) + every
-   migration in order, then re-applies them to prove idempotency.
+2. Let the `migration-upgrade-test` CI job run. It applies every migration
+   once to both the representative legacy fixture and an independent fresh
+   database, then runs contract assertions against both paths. Supabase's
+   migration tracker, rather than raw SQL replay, prevents re-application.
 3. If the test fails, fix the migration — do NOT edit the fixture to
    match.
