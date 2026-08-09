@@ -102,6 +102,12 @@ export function ChatTab({
     stream.upgradeError?.errorCode === "anon_chat_blocked"
       ? "anon-blocked"
       : "free-cap";
+  const chatReturnTo =
+    analyticsSurface === "hero_demo"
+      ? "/"
+      : youtubeUrl
+        ? `/summary?url=${encodeURIComponent(youtubeUrl)}`
+        : "/summary";
 
   // Count user-sent messages to drive the soft counter.
   const userMessageCount = persistedMessages.filter(
@@ -173,7 +179,10 @@ export function ChatTab({
 
       <div className="border-t border-border-subtle p-3">
         {stream.upgradeError ? (
-          <ChatCapBanner variant={chatCapBannerVariant} />
+          <ChatCapBanner
+            variant={chatCapBannerVariant}
+            returnTo={chatReturnTo}
+          />
         ) : (
           <>
             <ChatInput
