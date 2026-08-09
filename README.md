@@ -24,6 +24,7 @@ Copy `.env.example` to `.env.local` and fill in:
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | browser + server | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | browser + server | Supabase publishable key (`sb_publishable_...`; variable name retained for compatibility) |
+| `NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME` | browser + server | Stable Auth cookie/storage key; keep it unchanged across Supabase hostname changes |
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Supabase secret key (`sb_secret_...`; variable name retained for compatibility) for cache writes and rate limiting |
 | `VPS_API_URL` | server only | Whisper microservice base URL |
 | `VPS_API_KEY` | server only | Bearer token for the VPS service |
