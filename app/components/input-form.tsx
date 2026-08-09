@@ -97,27 +97,17 @@ export function InputForm() {
                   size="lg"
                   disabled={isLoading}
                   aria-label="Summarize video"
-                  className="group/submit h-16 min-w-44 gap-3 rounded-xl border border-text-primary bg-text-primary py-1 pr-1 pl-6 text-base font-semibold tracking-[-0.01em] text-surface-base shadow-sm transition-[transform,box-shadow,background-color] duration-fast ease-out-soft hover:bg-text-primary/90 hover:shadow-md active:translate-y-px motion-reduce:transform-none motion-reduce:transition-none"
+                  className="h-16 px-8 bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white font-semibold text-lg rounded-xl border-0 shadow-lg shadow-accent-brand/25 hover:shadow-accent-brand/40 transition-all duration-base cursor-pointer"
                 >
                   {isLoading ? (
-                    <>
-                      <span>Starting</span>
-                      <span className="flex size-12 items-center justify-center rounded-lg bg-accent-video text-white">
-                        <span
-                          className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-                          aria-hidden="true"
-                        />
-                      </span>
-                    </>
+                    <div
+                      className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"
+                      aria-hidden="true"
+                    ></div>
                   ) : (
                     <>
-                      <span>Summarize</span>
-                      <span className="flex size-12 items-center justify-center rounded-lg bg-accent-video text-white">
-                        <ArrowRight
-                          className="size-5 transition-transform duration-fast ease-out-soft group-hover/submit:translate-x-0.5 motion-reduce:transform-none motion-reduce:transition-none"
-                          aria-hidden="true"
-                        />
-                      </span>
+                      Summarize
+                      <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
                     </>
                   )}
                 </Button>
