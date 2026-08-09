@@ -43,6 +43,7 @@ unswept code working; PR 4 deletes them.
 |-------|---------|-------------|------------|-------------------|
 | `--color-accent-brand` | `bg-accent-brand` | `var(--color-purple-500)` | `var(--color-purple-400)` | Primary CTAs, brand emphasis |
 | `--color-accent-brand-secondary` | `bg-accent-brand-secondary` | `var(--color-cyan-500)` | `var(--color-cyan-400)` | Brand pair (gradient endpoints, secondary brand surfaces) |
+| `--color-accent-video` | `bg-accent-video` | `var(--color-red-500)` | `var(--color-red-500)` | Video-native actions and affordances |
 | `--color-accent-success` | `bg-accent-success` | `var(--color-emerald-500)` | `var(--color-emerald-400)` | Success toasts, completion checks |
 | `--color-accent-warning` | `bg-accent-warning` | `var(--color-amber-500)` | `var(--color-amber-400)` | Warning banners, caution flags |
 | `--color-accent-danger` | `bg-accent-danger` | `hsl(0 84.2% 60.2%)` | `hsl(0 62.8% 30.6%)` | Destructive CTAs, error states (matches legacy `--destructive` byte-exactly) |
@@ -77,7 +78,7 @@ unswept code working; PR 4 deletes them.
 
 ## Why doubled `text-text-*` prefix
 
-Tailwind 4 derives utility names from `--color-*` token names. `--color-text-primary` becomes `text-text-primary` (text color of "text-primary" token). Reads awkwardly but is unambiguous and grep-friendly. The category-prefix-on-token-name pattern (`text-*`, `surface-*`, `border-*`, `accent-*`, `state-*`) is consistent across all 22 tokens — predictable from the category alone.
+Tailwind 4 derives utility names from `--color-*` token names. `--color-text-primary` becomes `text-text-primary` (text color of "text-primary" token). Reads awkwardly but is unambiguous and grep-friendly. The category-prefix-on-token-name pattern (`text-*`, `surface-*`, `border-*`, `accent-*`, `state-*`) is consistent across all 23 tokens — predictable from the category alone.
 
 ## Compatibility shim status
 
