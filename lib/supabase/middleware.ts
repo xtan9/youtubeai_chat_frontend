@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
+import { getSupabaseAuthCookieOptions } from "./auth-cookie";
 
 function isAuthPath(pathname: string): boolean {
   return pathname === "/auth" || pathname.startsWith("/auth/");
@@ -108,6 +109,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!.trim(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!.trim(),
     {
+      cookieOptions: getSupabaseAuthCookieOptions(),
       cookies: {
         getAll() {
           return request.cookies.getAll();
