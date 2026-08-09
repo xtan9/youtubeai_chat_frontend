@@ -134,9 +134,14 @@ describe("buildSubscriptionFunnelQuery", () => {
       now: new Date("2026-08-17T12:00:00.000Z"),
     });
 
-    expect(progressionHogql).toContain("windowFunnel(604800)(");
-    expect(progressionHogql).toContain("toDateTime(timestamp)");
-    expect(progressionHogql.match(/windowFunnel\(604800\)/g)).toHaveLength(
+    expect(progressionHogql).toContain("windowFunnel(604800000000)(");
+    expect(progressionHogql).toContain(
+      "toUInt64(toUnixTimestamp64Micro(timestamp))",
+    );
+    expect(progressionHogql).not.toContain("toDateTime(timestamp)");
+    expect(
+      progressionHogql.match(/windowFunnel\(604800000000\)/g),
+    ).toHaveLength(
       SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.length - 1,
     );
     for (
@@ -156,6 +161,25 @@ describe("buildSubscriptionFunnelQuery", () => {
     }
     expect(progressionHogql).toContain(
       "GROUP BY period, segment_dimension, segment_value, person_id",
+    );
+  });
+
+  it("preserves sub-second order for adjacent events in one second", () => {
+    const { progressionHogql } = buildSubscriptionFunnelQuery({
+      windowDays: 7,
+      releaseAt: new Date("2026-08-10T12:00:00.123Z"),
+      now: new Date("2026-08-17T12:00:00.123Z"),
+    });
+
+    // A previous-stage event at .123 and a next-stage event at .999 share
+    // the same wall-clock second; the numeric microsecond timestamp keeps
+    // their ordering observable to windowFunnel.
+    expect(progressionHogql).toContain(
+      "toUInt64(toUnixTimestamp64Micro(timestamp))",
+    );
+    expect(progressionHogql).not.toContain("toDateTime(timestamp)");
+    expect(progressionHogql).toContain(
+      "timestamp >= toDateTime64('2026-08-03T12:00:00.123Z', 3, 'UTC')",
     );
   });
 });

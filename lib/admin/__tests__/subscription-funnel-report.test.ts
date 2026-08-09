@@ -354,7 +354,7 @@ describe("loadSubscriptionFunnelReport", () => {
       name: "subscription_conversion_funnel_stage_counts_7_day",
     });
     expect(executeQuery).toHaveBeenNthCalledWith(2, {
-      hogql: expect.stringContaining("windowFunnel(604800)"),
+      hogql: expect.stringContaining("windowFunnel(604800000000)"),
       name: "subscription_conversion_funnel_ordered_progression_7_day",
     });
     expect(executeQuery).toHaveBeenCalledTimes(2);

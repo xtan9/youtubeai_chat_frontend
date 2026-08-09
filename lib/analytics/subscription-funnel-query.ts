@@ -109,9 +109,12 @@ export function buildSubscriptionFunnelQuery(
     start: input.releaseAt.toISOString(),
     end: currentEnd.toISOString(),
   };
-  const progressionWindowSeconds = Math.max(
+  // windowFunnel uses the unit of its timestamp argument. Keep event
+  // ordering at microsecond precision so adjacent events in one wall-clock
+  // second are not collapsed into an undefined tie.
+  const progressionWindowMicroseconds = Math.max(
     1,
-    Math.ceil(observedDurationMs / 1_000),
+    observedDurationMs * 1_000,
   );
 
   return {
@@ -138,7 +141,7 @@ export function buildSubscriptionFunnelQuery(
     progressionHogql: buildProgressionHogql({
       baseline,
       current,
-      progressionWindowSeconds,
+      progressionWindowMicroseconds,
     }),
   };
 }
@@ -146,7 +149,7 @@ export function buildSubscriptionFunnelQuery(
 function buildProgressionHogql(input: {
   baseline: SerializedWindow;
   current: SerializedWindow;
-  progressionWindowSeconds: number;
+  progressionWindowMicroseconds: number;
 }): string {
   const progressionStages = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.slice(
     1,
@@ -161,8 +164,8 @@ function buildProgressionHogql(input: {
     ...progressionStages.map((event, index) => {
       const previousEvent = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS[index];
       return [
-        `    windowFunnel(${input.progressionWindowSeconds})(`,
-        "      toDateTime(timestamp),",
+        `    windowFunnel(${input.progressionWindowMicroseconds})(`,
+        "      toUInt64(toUnixTimestamp64Micro(timestamp)),",
         `      event = ${quoteHogqlString(previousEvent)},`,
         `      event = ${quoteHogqlString(event)}`,
         `    ) AS progressed_${event}${index === progressionStages.length - 1 ? "" : ","}`,
