@@ -8,10 +8,10 @@ const ProjectGroundedAnswerCompletedPropertiesSchema = z
     source_set_revision: z.number().int().nonnegative(),
     total_videos: z.number().int().min(0).max(5),
     ready_videos: z.number().int().min(0).max(5),
-    evidence_videos: z.number().int().min(0).max(5),
+    used_videos: z.number().int().min(0).max(5),
     unavailable_videos: z.number().int().min(0).max(5),
     passages_examined: z.number().int().min(0).max(1_000_000),
-    evidence_passages: z.number().int().min(0).max(10),
+    passages_used: z.number().int().min(0).max(10),
     citation_diagnostics: z.number().int().min(0).max(20),
   })
   .strict()
@@ -26,8 +26,8 @@ const ProjectGroundedAnswerCompletedPropertiesSchema = z
       });
     }
     if (
-      properties.evidence_videos > properties.ready_videos ||
-      properties.evidence_passages > properties.passages_examined
+      properties.used_videos > properties.ready_videos ||
+      properties.passages_used > properties.passages_examined
     ) {
       context.addIssue({
         code: "custom",

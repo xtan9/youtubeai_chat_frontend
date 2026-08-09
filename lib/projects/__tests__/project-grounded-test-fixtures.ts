@@ -69,15 +69,16 @@ export function priorAssistant(content: string): ProjectConversationMessage {
     content,
     createdAt: "2026-08-09T12:00:00.000Z",
     answerClassification: "supported",
+    completionState: null,
     sourceSetRevision: 3,
     sourceManifest: manifest(),
     sourceCoverage: {
       totalVideos: 1,
       readyVideos: 1,
-      evidenceVideos: 1,
+      usedVideos: 1,
       unavailableVideos: [],
       passagesExamined: 1,
-      evidencePassages: 1,
+      passagesUsed: 1,
     },
     citationDiagnostics: [],
   };

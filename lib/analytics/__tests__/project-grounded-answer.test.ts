@@ -9,10 +9,10 @@ const SAFE_PROPERTIES = {
   source_set_revision: 4,
   total_videos: 4,
   ready_videos: 3,
-  evidence_videos: 2,
+  used_videos: 2,
   unavailable_videos: 1,
   passages_examined: 48,
-  evidence_passages: 8,
+  passages_used: 8,
   citation_diagnostics: 2,
 };
 

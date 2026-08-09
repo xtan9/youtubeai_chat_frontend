@@ -9,17 +9,22 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
+import { buildAttributedPricingHref } from "@/lib/analytics/subscription-discovery-navigation";
 import { useProjectGroundedConversation } from "@/lib/hooks/useProjectGroundedConversation";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
-import type {
-  ProjectAnswerClassification,
-  ProjectAnswerCoverage,
-  ProjectEvidenceSnapshot,
-  ProjectAnswerSourceManifest,
-  ProjectCitationDiagnostic,
-  ProjectConversation,
-  ProjectConversationMessage,
-  ProjectConversationSummary,
+import {
+  PROJECT_QUESTION_MAX_LENGTH,
+  PROJECT_QUESTION_MIN_LENGTH,
+  projectGroundedQuestionCodePointLength,
+  type ProjectAnswerClassification,
+  type ProjectAnswerCoverage,
+  type ProjectEvidenceSnapshot,
+  type ProjectAnswerSourceManifest,
+  type ProjectCitationDiagnostic,
+  type ProjectConversation,
+  type ProjectConversationMessage,
+  type ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
   projectSourceSetEventLabel,
@@ -36,10 +41,10 @@ function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
   const metrics = [
     ["Project Videos", coverage.totalVideos],
     ["Ready Videos", coverage.readyVideos],
-    ["Evidence Snapshot Videos", coverage.evidenceVideos],
+    ["Used", coverage.usedVideos],
     ["Unavailable Videos", coverage.unavailableVideos.length],
     ["Passages examined", coverage.passagesExamined],
-    ["Evidence Snapshot passages", coverage.evidencePassages],
+    ["Passages selected", coverage.passagesUsed],
   ] as const;
   return (
     <div className="flex flex-col gap-3 border-y border-border-subtle py-3">
@@ -333,7 +338,7 @@ export function ProjectConversation({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextQuestion = question.trim();
-    if (nextQuestion.length < 2 || conversation.streaming) return;
+    if (!questionIsValid || conversation.streaming) return;
     setQuestion("");
     void conversation.send(nextQuestion, questionMode);
   }
@@ -342,6 +347,12 @@ export function ProjectConversation({
     conversation.upgradeError !== null ||
     (conversation.conversation.messagesLimit === 5 &&
       conversation.conversation.messagesUsed >= 5);
+  const subscriptionDiscovery = useSubscriptionDiscovery({
+    sourceSurface: "project_chat_limit",
+    presentationState: "upgrade_to_pro",
+    authenticationState: "registered",
+    enabled: atCap,
+  });
   const hasMessages = conversation.conversation.messages.length > 0;
   const timeline = useMemo(
     () =>
@@ -363,6 +374,13 @@ export function ProjectConversation({
       ),
     [conversation.conversation.messages, conversation.conversation.sourceSetEvents],
   );
+  const normalizedQuestion = question.trim();
+  const questionLength = projectGroundedQuestionCodePointLength(
+    normalizedQuestion,
+  );
+  const questionIsValid =
+    questionLength >= PROJECT_QUESTION_MIN_LENGTH &&
+    questionLength <= PROJECT_QUESTION_MAX_LENGTH;
 
   return (
     <section
@@ -524,8 +542,39 @@ export function ProjectConversation({
 
           <div
             className="flex flex-col gap-4"
+            role="log"
+            aria-live="off"
+            aria-relevant="additions"
             aria-label="Project Conversation messages"
           >
+            {conversation.conversation.nextEventCursor ? (
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={conversation.loadingEarlierActivity}
+                  onClick={() => void conversation.loadEarlierActivity()}
+                >
+                  {conversation.loadingEarlierActivity
+                    ? "Loading activity…"
+                    : "Load earlier activity"}
+                </Button>
+              </div>
+            ) : null}
+            {conversation.conversation.nextCursor ? (
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={conversation.loadingEarlier}
+                  onClick={() => void conversation.loadEarlier()}
+                >
+                  {conversation.loadingEarlier ? "Loading…" : "Load earlier"}
+                </Button>
+              </div>
+            ) : null}
             {!hasMessages && !conversation.draft ? (
               <div className="rounded-lg border border-dashed border-border-default bg-surface-sunken p-6 text-center">
                 <p className="text-body-md font-medium text-text-primary">
@@ -604,11 +653,14 @@ export function ProjectConversation({
             ) : null}
           </div>
 
-          {conversation.streaming ? (
-            <p role="status" aria-live="polite" className="text-body-sm text-text-secondary">
-              {conversation.draft?.classification
-                ? "Writing the Grounded Answer…"
-                : "Examining bounded Project passages…"}
+          {conversation.announcement ? (
+            <p
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="text-body-sm text-text-secondary"
+            >
+              {conversation.announcement}
             </p>
           ) : null}
           {conversation.error ? (
@@ -636,7 +688,10 @@ export function ProjectConversation({
                 limits.
               </p>
               <Button asChild size="sm" className="mt-3">
-                <Link href="/pricing?source_surface=project_chat_limit">
+                <Link
+                  href={buildAttributedPricingHref("project_chat_limit")}
+                  onClick={subscriptionDiscovery.captureClick}
+                >
                   View Pro plans
                 </Link>
               </Button>
@@ -657,24 +712,38 @@ export function ProjectConversation({
                   id="project-question"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  maxLength={200}
                   rows={3}
                   disabled={conversation.streaming}
                   aria-describedby="project-question-help"
+                  aria-invalid={question.length > 0 && !questionIsValid}
                   placeholder="What do these Project Videos say about…"
                 />
                 <p id="project-question-help" className="text-caption text-text-muted">
-                  2–200 characters. Free includes five user messages per Project.
+                  {questionLength}/200 characters. Free includes five user
+                  messages per Project.
                 </p>
               </div>
               <div className="flex justify-end">
                 {conversation.streaming ? (
-                  <Button type="button" variant="outline" onClick={conversation.abort}>
-                    <Square aria-hidden="true" />
-                    Stop
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={conversation.abort}
+                    disabled={
+                      conversation.persistenceStarted || conversation.reconciling
+                    }
+                  >
+                    {conversation.persistenceStarted || conversation.reconciling ? null : (
+                      <Square aria-hidden="true" />
+                    )}
+                    {conversation.reconciling
+                      ? "Reconciling..."
+                      : conversation.persistenceStarted
+                        ? "Saving..."
+                        : "Stop"}
                   </Button>
                 ) : (
-                  <Button type="submit" disabled={question.trim().length < 2}>
+                  <Button type="submit" disabled={!questionIsValid}>
                     <Send aria-hidden="true" />
                     Ask Project
                   </Button>

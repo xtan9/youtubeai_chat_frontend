@@ -32,5 +32,26 @@ begin
         'REGRESSION: intermediate migration grants service membership DML';
     end if;
   end if;
+
+  -- The four-argument loader marks the forward #318 security boundary. From
+  -- that migration onward, neither application role may bypass the owned and
+  -- token-fenced RPC seams with direct Conversation DML.
+  if to_regprocedure(
+    'public.load_default_project_conversation(uuid,timestamptz,uuid,integer)'
+  ) is not null then
+    if (
+      has_table_privilege('service_role', 'public.project_conversations', 'INSERT')
+      or has_table_privilege('service_role', 'public.project_conversations', 'UPDATE')
+      or has_table_privilege('service_role', 'public.project_conversations', 'DELETE')
+      or has_table_privilege('service_role', 'public.project_conversation_messages', 'INSERT')
+      or has_table_privilege('service_role', 'public.project_conversation_messages', 'UPDATE')
+      or has_table_privilege('service_role', 'public.project_conversation_messages', 'DELETE')
+      or has_table_privilege('authenticated', 'public.project_conversations', 'INSERT')
+      or has_table_privilege('authenticated', 'public.project_conversation_messages', 'INSERT')
+    ) then
+      raise exception
+        'REGRESSION: intermediate migration grants direct Conversation DML';
+    end if;
+  end if;
 end;
 $$;

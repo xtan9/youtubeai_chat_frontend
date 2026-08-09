@@ -20,6 +20,15 @@ const CONVERSATION_ID = "30000000-0000-4000-8000-000000000001";
 const USER_MESSAGE_ID = "40000000-0000-4000-8000-000000000001";
 const ATTEMPT_TOKEN = "50000000-0000-4000-8000-000000000001";
 const ASSISTANT_ID = "60000000-0000-4000-8000-000000000001";
+const RESERVATION = {
+  conversationId: CONVERSATION_ID,
+  userMessageId: USER_MESSAGE_ID,
+  attemptToken: ATTEMPT_TOKEN,
+  messagesUsed: 1,
+  messagesLimit: 5 as const,
+  tier: "free" as const,
+  history: [],
+};
 
 function artifacts() {
   return buildProjectAnswerArtifacts({
@@ -55,7 +64,7 @@ describe("Project Grounded Answer persistence adapter", () => {
     mocks.serviceRole.mockReturnValue({ rpc: mocks.serviceRpc });
   });
 
-  it("uses the authenticated client for owner-scoped load, start, and cancellation", async () => {
+  it("uses the authenticated client only for owner-scoped load and start", async () => {
     const rpc = vi
       .fn()
       .mockResolvedValueOnce({
@@ -67,7 +76,12 @@ describe("Project Grounded Answer persistence adapter", () => {
           messagesUsed: 0,
           messagesLimit: 5,
           tier: "free",
+          nextCursor: null,
         },
+      })
+      .mockResolvedValueOnce({
+        error: null,
+        data: { outcome: "ready", events: [], nextCursor: null },
       })
       .mockResolvedValueOnce({
         error: null,
@@ -76,93 +90,219 @@ describe("Project Grounded Answer persistence adapter", () => {
           conversationId: CONVERSATION_ID,
           userMessageId: USER_MESSAGE_ID,
           attemptToken: ATTEMPT_TOKEN,
+          completionState: "reserved",
+          created: true,
           messagesUsed: 1,
           messagesLimit: 5,
           tier: "free",
           history: [],
+          goal: null,
         },
-      })
-      .mockResolvedValueOnce({
-        error: null,
-        data: { outcome: "cancelled" },
       });
     const target = capability(rpc).capability;
 
     await expect(target.load()).resolves.toMatchObject({ status: "ready" });
-    await expect(target.start("What is supported?")).resolves.toMatchObject({
+    await expect(
+      target.start(USER_MESSAGE_ID, "What is supported?"),
+    ).resolves.toMatchObject({
       status: "started",
       attemptToken: ATTEMPT_TOKEN,
     });
-    await expect(target.cancel(USER_MESSAGE_ID)).resolves.toEqual({
-      status: "cancelled",
-    });
     expect(rpc.mock.calls.map((call) => call[0])).toEqual([
-      "load_default_project_conversation",
-      "start_project_grounded_question",
-      "cancel_project_grounded_question",
+      "load_project_conversation_page_v2",
+      "load_project_source_set_event_page_v2",
+      "start_project_grounded_question_v2",
     ]);
-    expect(rpc).toHaveBeenLastCalledWith(
-      "cancel_project_grounded_question",
-      { p_project_id: PROJECT_ID, p_user_message_id: USER_MESSAGE_ID },
-    );
     expect(mocks.serviceRole).not.toHaveBeenCalled();
   });
 
-  it("retains Source Set events and immutable assistant evidence on load", async () => {
-    const snapshot = artifacts().evidenceSnapshot;
+  it("uses service role plus the opaque reservation for cancellation", async () => {
+    mocks.serviceRpc.mockResolvedValue({
+      error: null,
+      data: { outcome: "cancelled" },
+    });
+    const target = capability().capability;
+
+    await expect(target.cancel(RESERVATION)).resolves.toEqual({
+      status: "cancelled",
+    });
+    expect(mocks.serviceRpc).toHaveBeenCalledWith(
+      "cancel_project_grounded_question_v2",
+      {
+        p_owner_id: OWNER_ID,
+        p_project_id: PROJECT_ID,
+        p_conversation_id: CONVERSATION_ID,
+        p_user_message_id: USER_MESSAGE_ID,
+        p_attempt_token: ATTEMPT_TOKEN,
+      },
+    );
+  });
+
+  it("atomically begins and completes token-fenced persistence through service role", async () => {
+    mocks.serviceRpc.mockResolvedValue({
+      error: null,
+      data: {
+        outcome: "completed",
+        assistantMessageId: ASSISTANT_ID,
+        answerClassification: "supported",
+        citationDiagnostics: [],
+      },
+    });
+    const target = capability().capability;
+
+    await expect(
+      target.beginPersistence({
+        reservation: RESERVATION,
+        assistantContent: "Supported [S1 @ 00:42].",
+        classification: "supported",
+        artifacts: artifacts(),
+      }),
+    ).resolves.toEqual({
+      outcome: "completed",
+      assistantMessageId: ASSISTANT_ID,
+      answerClassification: "supported",
+      citationDiagnostics: [],
+    });
+    expect(mocks.serviceRpc).toHaveBeenCalledTimes(1);
+    expect(mocks.serviceRpc).toHaveBeenCalledWith(
+      "begin_project_grounded_answer_persistence_v2",
+      expect.objectContaining({
+        p_owner_id: OWNER_ID,
+        p_project_id: PROJECT_ID,
+        p_conversation_id: CONVERSATION_ID,
+        p_user_message_id: USER_MESSAGE_ID,
+        p_attempt_token: ATTEMPT_TOKEN,
+        p_assistant_content: "Supported [S1 @ 00:42].",
+        p_answer_classification: "supported",
+        p_source_coverage: artifacts().sourceCoverage,
+      }),
+    );
+  });
+
+  it("loads an earlier message page without querying discarded Source Set activity", async () => {
     const rpc = vi.fn().mockResolvedValue({
       error: null,
       data: {
         outcome: "ready",
         conversationId: CONVERSATION_ID,
-        messages: [
-          {
-            id: USER_MESSAGE_ID,
-            inReplyToMessageId: null,
-            role: "user",
-            content: "What changed?",
-            answerClassification: null,
-            sourceSetRevision: 2,
-            sourceManifest: null,
-            sourceCoverage: null,
-            evidenceSnapshot: null,
-            citationDiagnostics: null,
-            createdAt: "2026-08-09T13:00:00.000Z",
-          },
-          {
-            id: ASSISTANT_ID,
-            inReplyToMessageId: USER_MESSAGE_ID,
-            role: "assistant",
-            content: "The answer remains verifiable.",
-            answerClassification: "supported",
-            sourceSetRevision: 2,
-            sourceManifest: artifacts().sourceManifest,
-            sourceCoverage: artifacts().sourceCoverage,
-            evidenceSnapshot: snapshot,
-            citationDiagnostics: [],
-            createdAt: "2026-08-09T13:00:01.000Z",
-          },
-        ],
-        sourceSetEvents: [
-          {
-            eventId: "70000000-0000-4000-8000-000000000001",
-            projectId: PROJECT_ID,
-            revision: 2,
-            kind: "added",
-            videoId: "80000000-0000-4000-8000-000000000001",
-            videoTitle: "New source",
-            fromPosition: null,
-            toPosition: 1,
-            fromStatus: null,
-            toStatus: "ready",
-            createdAt: "2026-08-09T12:59:00.000Z",
-          },
-        ],
-        messagesUsed: 1,
+        messages: [],
+        messagesUsed: 4,
         messagesLimit: 5,
         tier: "free",
+        nextCursor: null,
       },
     });
+    const target = capability(rpc).capability;
+
+    await expect(
+      target.load(CONVERSATION_ID, {
+        createdAt: "2026-08-09T12:00:00.000Z",
+        userMessageId: USER_MESSAGE_ID,
+      }),
+    ).resolves.toMatchObject({
+      status: "ready",
+      conversation: { messages: [], nextCursor: null },
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("load_project_conversation_page_v2", {
+      p_project_id: PROJECT_ID,
+      p_conversation_id: CONVERSATION_ID,
+      p_before_created_at: "2026-08-09T12:00:00.000Z",
+      p_before_user_message_id: USER_MESSAGE_ID,
+      p_turn_limit: 25,
+    });
+  });
+
+  it("loads one exact attempt without falling back to the conversation page", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      error: null,
+      data: {
+        outcome: "ready",
+        userMessageId: USER_MESSAGE_ID,
+        state: "cancelled",
+        assistant: null,
+      },
+    });
+    const target = capability(rpc).capability;
+
+    await expect(
+      target.loadAttempt(USER_MESSAGE_ID, CONVERSATION_ID),
+    ).resolves.toEqual({
+      status: "ready",
+      userMessageId: USER_MESSAGE_ID,
+      state: "cancelled",
+      assistant: null,
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("load_project_grounded_attempt_v2", {
+      p_project_id: PROJECT_ID,
+      p_question_id: USER_MESSAGE_ID,
+      p_conversation_id: CONVERSATION_ID,
+    });
+  });
+
+  it("retains Source Set events and immutable assistant evidence on load", async () => {
+    const snapshot = artifacts().evidenceSnapshot;
+    const event = {
+      eventId: "70000000-0000-4000-8000-000000000001",
+      projectId: PROJECT_ID,
+      revision: 2,
+      kind: "added",
+      videoId: "80000000-0000-4000-8000-000000000001",
+      videoTitle: "New source",
+      fromPosition: null,
+      toPosition: 1,
+      fromStatus: null,
+      toStatus: "ready",
+      createdAt: "2026-08-09T12:59:00.000Z",
+    };
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({
+        error: null,
+        data: {
+          outcome: "ready",
+          conversationId: CONVERSATION_ID,
+          messages: [
+            {
+              id: USER_MESSAGE_ID,
+              inReplyToMessageId: null,
+              role: "user",
+              content: "What changed?",
+              answerClassification: null,
+              completionState: "completed",
+              sourceSetRevision: 2,
+              sourceManifest: null,
+              sourceCoverage: null,
+              evidenceSnapshot: null,
+              citationDiagnostics: null,
+              createdAt: "2026-08-09T13:00:00.000Z",
+            },
+            {
+              id: ASSISTANT_ID,
+              inReplyToMessageId: USER_MESSAGE_ID,
+              role: "assistant",
+              content: "The answer remains verifiable.",
+              answerClassification: "supported",
+              completionState: null,
+              sourceSetRevision: 2,
+              sourceManifest: artifacts().sourceManifest,
+              sourceCoverage: artifacts().sourceCoverage,
+              evidenceSnapshot: snapshot,
+              citationDiagnostics: [],
+              createdAt: "2026-08-09T13:00:01.000Z",
+            },
+          ],
+          messagesUsed: 1,
+          messagesLimit: 5,
+          tier: "free",
+          nextCursor: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        error: null,
+        data: { outcome: "ready", events: [event], nextCursor: null },
+      });
 
     const result = await createProjectGroundedAnswerCapability(
       { rpc } as never,
@@ -181,33 +321,31 @@ describe("Project Grounded Answer persistence adapter", () => {
   it("uses only service role plus owner/project/user/attempt coherence for completion", async () => {
     mocks.serviceRpc.mockResolvedValue({
       error: null,
-      data: { outcome: "completed", assistantMessageId: ASSISTANT_ID },
+      data: {
+        outcome: "completed",
+        assistantMessageId: ASSISTANT_ID,
+        answerClassification: "supported",
+        citationDiagnostics: [],
+      },
     });
     const target = capability().capability;
     const answerArtifacts = artifacts();
     await expect(
       target.complete({
-        reservation: {
-          conversationId: CONVERSATION_ID,
-          userMessageId: USER_MESSAGE_ID,
-          attemptToken: ATTEMPT_TOKEN,
-          messagesUsed: 1,
-          messagesLimit: 5,
-          tier: "free",
-          history: [],
-        },
+        reservation: RESERVATION,
         assistantContent: "Supported [S1 @ 00:42].",
         classification: "supported",
         artifacts: answerArtifacts,
-        citationDiagnostics: [],
       }),
     ).resolves.toEqual({
       outcome: "completed",
       assistantMessageId: ASSISTANT_ID,
+      answerClassification: "supported",
+      citationDiagnostics: [],
     });
 
     expect(mocks.serviceRpc).toHaveBeenCalledWith(
-      "complete_project_grounded_answer",
+      "complete_project_grounded_answer_v2",
       expect.objectContaining({
         p_owner_id: OWNER_ID,
         p_project_id: PROJECT_ID,
@@ -228,25 +366,30 @@ describe("Project Grounded Answer persistence adapter", () => {
         conversationId: CONVERSATION_ID,
         userMessageId: USER_MESSAGE_ID,
         attemptToken: ATTEMPT_TOKEN,
+        completionState: "reserved",
+        created: true,
         messagesUsed: 1,
         messagesLimit: 5,
         tier: "free",
         mode: "project_assessment",
         history: [],
+        goal: null,
       },
     });
     const target = capability(authenticatedRpc).capability;
     await expect(
       target.start(
+        USER_MESSAGE_ID,
         "Which position is better supported?",
         undefined,
         "project_assessment",
       ),
     ).resolves.toMatchObject({ status: "started", mode: "project_assessment" });
     expect(authenticatedRpc).toHaveBeenCalledWith(
-      "start_project_grounded_question",
+      "start_project_grounded_question_v2",
       {
         p_project_id: PROJECT_ID,
+        p_question_id: USER_MESSAGE_ID,
         p_question: "Which position is better supported?",
         p_conversation_id: null,
         p_mode: "project_assessment",
@@ -255,7 +398,12 @@ describe("Project Grounded Answer persistence adapter", () => {
 
     mocks.serviceRpc.mockResolvedValue({
       error: null,
-      data: { outcome: "completed", assistantMessageId: ASSISTANT_ID },
+      data: {
+        outcome: "completed",
+        assistantMessageId: ASSISTANT_ID,
+        answerClassification: "supported",
+        citationDiagnostics: [],
+      },
     });
     await expect(
       target.complete({
@@ -269,18 +417,20 @@ describe("Project Grounded Answer persistence adapter", () => {
           mode: "project_assessment",
           history: [],
         },
-        assistantContent: "Project Assessment\nApril is better supported [S1 @ 00:42].",
+        assistantContent:
+          "Project Assessment\nApril is better supported [S1 @ 00:42].",
         classification: "supported",
         mode: "project_assessment",
         artifacts: artifacts(),
-        citationDiagnostics: [],
       }),
     ).resolves.toEqual({
       outcome: "completed",
       assistantMessageId: ASSISTANT_ID,
+      answerClassification: "supported",
+      citationDiagnostics: [],
     });
     expect(mocks.serviceRpc).toHaveBeenCalledWith(
-      "complete_project_grounded_answer",
+      "complete_project_grounded_answer_v2",
       expect.objectContaining({
         p_mode: "project_assessment",
         p_owner_id: OWNER_ID,
@@ -288,21 +438,21 @@ describe("Project Grounded Answer persistence adapter", () => {
     );
   });
 
-  it("fails cancellation closed when the authenticated RPC contract is unavailable", async () => {
-    const databaseFailure = capability(
-      vi.fn().mockResolvedValue({
-        error: { code: "57014" },
-        data: null,
-      }),
-    ).capability;
-    await expect(databaseFailure.cancel(USER_MESSAGE_ID)).resolves.toEqual({
+  it("fails cancellation closed when the service RPC contract is unavailable", async () => {
+    const target = capability().capability;
+    mocks.serviceRpc.mockResolvedValueOnce({
+      error: { code: "57014" },
+      data: null,
+    });
+    await expect(target.cancel(RESERVATION)).resolves.toEqual({
       status: "unavailable",
     });
 
-    const schemaFailure = capability(
-      vi.fn().mockResolvedValue({ error: null, data: { outcome: "completed" } }),
-    ).capability;
-    await expect(schemaFailure.cancel(USER_MESSAGE_ID)).resolves.toEqual({
+    mocks.serviceRpc.mockResolvedValueOnce({
+      error: null,
+      data: { outcome: "completed" },
+    });
+    await expect(target.cancel(RESERVATION)).resolves.toEqual({
       status: "unavailable",
     });
   });
@@ -310,22 +460,13 @@ describe("Project Grounded Answer persistence adapter", () => {
   it("rejects invalid artifacts before acquiring service role and fails closed without service credentials", async () => {
     const target = capability().capability;
     const invalid = artifacts();
-    invalid.sourceCoverage.evidenceVideos = 0;
+    invalid.sourceCoverage.usedVideos = 0;
     await expect(
       target.complete({
-        reservation: {
-          conversationId: CONVERSATION_ID,
-          userMessageId: USER_MESSAGE_ID,
-          attemptToken: ATTEMPT_TOKEN,
-          messagesUsed: 1,
-          messagesLimit: 5,
-          tier: "free",
-          history: [],
-        },
+        reservation: RESERVATION,
         assistantContent: "Answer",
         classification: "supported",
         artifacts: invalid,
-        citationDiagnostics: [],
       }),
     ).resolves.toEqual({ outcome: "invalid" });
     expect(mocks.serviceRole).not.toHaveBeenCalled();
@@ -333,19 +474,10 @@ describe("Project Grounded Answer persistence adapter", () => {
     mocks.serviceRole.mockReturnValue(null);
     await expect(
       target.complete({
-        reservation: {
-          conversationId: CONVERSATION_ID,
-          userMessageId: USER_MESSAGE_ID,
-          attemptToken: ATTEMPT_TOKEN,
-          messagesUsed: 1,
-          messagesLimit: 5,
-          tier: "free",
-          history: [],
-        },
+        reservation: RESERVATION,
         assistantContent: "Answer",
         classification: "supported",
         artifacts: artifacts(),
-        citationDiagnostics: [],
       }),
     ).resolves.toEqual({ outcome: "unavailable" });
     expect(mocks.serviceRpc).not.toHaveBeenCalled();

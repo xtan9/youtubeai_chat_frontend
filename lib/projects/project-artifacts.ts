@@ -2,7 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
-import { ProjectAnswerArtifactsSchema } from "./project-grounded-answer-contract";
+import {
+  ProjectAnswerArtifactsSchema,
+  type ProjectAnswerCoverage,
+} from "./project-grounded-answer-contract";
 import {
   ProjectArtifactDatabaseCompletionResultSchema,
   ProjectArtifactDatabaseFailureResultSchema,
@@ -20,6 +23,71 @@ type ProjectArtifactTarget = Readonly<{
   projectId: string;
   ownerId: string;
 }>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The deployed Artifact table/RPC contract predates Grounded Answer's renamed
+ * coverage fields. Keep that storage boundary explicit while every in-process
+ * consumer uses the current domain vocabulary.
+ */
+function normalizeArtifactCoverage(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const hasCurrent = "usedVideos" in value && "passagesUsed" in value;
+  const hasDeployed = "evidenceVideos" in value && "evidencePassages" in value;
+  if (!hasCurrent && !hasDeployed) {
+    return value;
+  }
+  const {
+    evidenceVideos,
+    evidencePassages,
+    usedVideos,
+    passagesUsed,
+    ...coverage
+  } = value;
+  return {
+    ...coverage,
+    usedVideos: hasCurrent ? usedVideos : evidenceVideos,
+    passagesUsed: hasCurrent ? passagesUsed : evidencePassages,
+  };
+}
+
+function normalizeArtifactRecord(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  return {
+    ...value,
+    sourceCoverage: normalizeArtifactCoverage(value.sourceCoverage),
+  };
+}
+
+function normalizeArtifactDatabaseResult(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  if (value.outcome === "completed") {
+    return { ...value, artifact: normalizeArtifactRecord(value.artifact) };
+  }
+  if (value.outcome !== "ready") return value;
+  return {
+    ...value,
+    current:
+      value.current === null ? null : normalizeArtifactRecord(value.current),
+    history: Array.isArray(value.history)
+      ? value.history.map(normalizeArtifactRecord)
+      : value.history,
+  };
+}
+
+function toDeployedArtifactCoverage(
+  coverage: ProjectAnswerCoverage,
+) {
+  const { usedVideos, passagesUsed, ...deployedCoverage } = coverage;
+  return {
+    ...deployedCoverage,
+    evidenceVideos: usedVideos,
+    evidencePassages: passagesUsed,
+  };
+}
 
 function logFailure(
   target: ProjectArtifactTarget,
@@ -65,7 +133,7 @@ export function createProjectArtifactCapability(
           return { status: "unavailable" };
         }
         const parsed = ProjectArtifactDatabaseLoadResultSchema.safeParse(
-          result.data,
+          normalizeArtifactDatabaseResult(result.data),
         );
         if (!parsed.success) {
           logFailure(target, "load", "SchemaMismatch");
@@ -183,7 +251,9 @@ export function createProjectArtifactCapability(
           p_content: input.content,
           p_source_set_revision: artifacts.data.sourceManifest.sourceSetRevision,
           p_source_manifest: artifacts.data.sourceManifest,
-          p_source_coverage: artifacts.data.sourceCoverage,
+          p_source_coverage: toDeployedArtifactCoverage(
+            artifacts.data.sourceCoverage,
+          ),
           p_evidence_snapshot: artifacts.data.evidenceSnapshot,
           p_citation_diagnostics: input.citationDiagnostics,
           p_generation_metadata: metadata.data,
@@ -193,7 +263,7 @@ export function createProjectArtifactCapability(
           return { status: "unavailable" };
         }
         const parsed = ProjectArtifactDatabaseCompletionResultSchema.safeParse(
-          result.data,
+          normalizeArtifactDatabaseResult(result.data),
         );
         if (!parsed.success) {
           logFailure(target, "complete", "SchemaMismatch");

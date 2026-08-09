@@ -1,5 +1,4 @@
 import { formatSseEvent } from "@/lib/services/llm-client";
-import { streamChatCompletion } from "@/lib/services/llm-chat-client";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { logAppEvent } from "@/lib/observability";
 import {
@@ -11,16 +10,14 @@ import {
   PROJECT_DEFAULT_CONVERSATION_MODE,
   PROJECT_GROUNDED_RETRIEVAL_LIMIT,
   PROJECT_QUESTION_MESSAGE_ID_HEADER,
-  type ProjectAnswerClassification,
   type ProjectGroundedSseEvent,
   type ProjectQuestionReservation,
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
   buildProjectSynthesisAbstention,
-  validateProjectSynthesisResponse,
   type ProjectConversationMode,
 } from "@/lib/projects/project-grounded-synthesis";
-import { inspectProjectCitations } from "@/lib/projects/project-grounded-citations";
+import { executeProjectGroundedAnswerStream } from "@/lib/projects/project-grounded-answer-stream";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
 import { buildProjectGroundedMessages } from "@/lib/projects/project-grounded-prompt";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
@@ -34,8 +31,6 @@ type RouteContext = { params: Promise<{ projectId: string }> };
 
 const GENERIC_ERROR =
   "Something went wrong answering your Project question. Please try again.";
-const SAFE_ABSTENTION =
-  "The Evidence Snapshot does not support a confident answer to this question.";
 
 type GuidedAbstentionReason = Parameters<
   typeof buildProjectSynthesisAbstention
@@ -59,6 +54,14 @@ function guidedAbstentionReason(
     case "project_assessment":
       return "insufficient_assessment";
   }
+}
+
+function requiresMultipleEvidenceVideos(mode: ProjectConversationMode) {
+  return (
+    mode === "compare_viewpoints" ||
+    mode === "common_themes" ||
+    mode === "project_assessment"
+  );
 }
 
 function jsonError(
@@ -96,6 +99,10 @@ function quotaResponse(requestId: string) {
       },
     },
   );
+}
+
+function boundedDelay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -147,6 +154,8 @@ export async function POST(request: Request, context: RouteContext) {
   if (!subject.value.groundedAnswers || !subject.value.passageSearch) {
     return projectUnavailableResponse(requestId);
   }
+  const groundedAnswers = subject.value.groundedAnswers;
+  const passageSearch = subject.value.passageSearch;
 
   // Auth and owner resolution precede the existing global abuse gate. The
   // durable question reservation happens only after every preflight passes.
@@ -162,17 +171,12 @@ export async function POST(request: Request, context: RouteContext) {
 
   const mode: ProjectConversationMode =
     parsed.data.mode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
-  const started =
-    mode === PROJECT_DEFAULT_CONVERSATION_MODE
-      ? await subject.value.groundedAnswers.start(
-          parsed.data.question,
-          parsed.data.conversationId,
-        )
-      : await subject.value.groundedAnswers.start(
-          parsed.data.question,
-          parsed.data.conversationId,
-          mode,
-        );
+  const started = await groundedAnswers.start(
+    parsed.data.questionId,
+    parsed.data.question,
+    parsed.data.conversationId,
+    mode,
+  );
   switch (started.status) {
     case "limit_reached":
       return quotaResponse(requestId);
@@ -191,33 +195,22 @@ export async function POST(request: Request, context: RouteContext) {
       break;
   }
 
-  const search = await subject.value.passageSearch.search({
-    query: parsed.data.question,
-    limit: PROJECT_GROUNDED_RETRIEVAL_LIMIT,
-    balanceSources: mode === "project_assessment",
-  });
-  if (search.status === "missing") {
-    return projectOutcomeResponse({ kind: "missing" });
-  }
-  if (search.status === "invalid" || search.status === "unavailable") {
-    return projectUnavailableResponse(requestId);
-  }
-
-  let artifacts: ReturnType<typeof buildProjectAnswerArtifacts>;
-  try {
-    artifacts = buildProjectAnswerArtifacts({
-      projectId: subject.value.projectId,
-      search,
-      goal: subject.value.guidance.goal,
-    });
-  } catch (error) {
-    logAppEvent("error", "[project-grounded-answer] artifact assembly failed", {
-      errorId: "PROJECT_GROUNDED_ARTIFACT_INVALID",
-      projectId: subject.value.projectId,
-      errorName: error instanceof Error ? error.name : typeof error,
-      requestId,
-    });
-    return projectUnavailableResponse(requestId);
+  if (!started.created) {
+    return Response.json(
+      {
+        message: "This Project question is already reserved.",
+        errorCode: "project_question_exists",
+        completionState: started.completionState,
+        questionId: started.userMessageId,
+      },
+      {
+        status: 409,
+        headers: {
+          [PROJECT_QUESTION_MESSAGE_ID_HEADER]: started.userMessageId,
+          [REQUEST_ID_HEADER]: requestId,
+        },
+      },
+    );
   }
 
   const reservation: ProjectQuestionReservation = {
@@ -231,28 +224,51 @@ export async function POST(request: Request, context: RouteContext) {
     mode: started.mode ?? mode,
   };
 
-  let cancellationPromise: Promise<void> | null = null;
+  let cancellationPromise: ReturnType<typeof cancelWithRetry> | null = null;
+  async function cancelWithRetry() {
+    let result: Awaited<ReturnType<typeof groundedAnswers.cancel>> = {
+      status: "unavailable",
+    };
+    for (const waitMilliseconds of [0, 25, 100] as const) {
+      if (waitMilliseconds > 0) await boundedDelay(waitMilliseconds);
+      try {
+        result = await groundedAnswers.cancel(reservation);
+      } catch {
+        result = { status: "unavailable" };
+      }
+      if (result.status === "cancelled" || result.status === "completed") {
+        return result;
+      }
+    }
+    return result;
+  }
   const cancelReservedQuestion = () => {
-    cancellationPromise ??= subject.value.groundedAnswers!
-      .cancel(reservation.userMessageId)
+    cancellationPromise ??= cancelWithRetry()
       .then((result) => {
-        if (result.status === "unavailable") {
+        if (result.status === "unavailable" || result.status === "stale") {
           logAppEvent("error", "[project-grounded-answer] cancellation failed", {
             errorId: "PROJECT_GROUNDED_CANCELLATION_FAILED",
             projectId: subject.value.projectId,
             requestId,
           });
         }
+        return result;
       });
     return cancellationPromise;
   };
 
   let closed = false;
+  let persistenceStarted = false;
+  const generationController = new AbortController();
+  const abortGeneration = () => generationController.abort();
+  if (request.signal.aborted) abortGeneration();
+  else request.signal.addEventListener("abort", abortGeneration, { once: true });
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: ProjectGroundedSseEvent) => {
-        if (closed || request.signal.aborted) return;
+        if (event.type === "persistence_started") persistenceStarted = true;
+        if (closed || generationController.signal.aborted) return;
         controller.enqueue(encoder.encode(formatSseEvent(event)));
       };
       const finish = () => {
@@ -263,68 +279,35 @@ export async function POST(request: Request, context: RouteContext) {
           if (!(error instanceof TypeError)) throw error;
         }
       };
-      const persist = async (
-        content: string,
-        classification: ProjectAnswerClassification,
-      ) => {
-        if (closed || request.signal.aborted) return false;
-        const citationInspection = inspectProjectCitations(
-          content,
-          artifacts.sourceManifest,
-        );
-        send({
-          type: "citation_diagnostics",
-          diagnostics: citationInspection.diagnostics,
-        });
-        if (
-          classification === "supported" &&
-          (citationInspection.validCitationCount === 0 ||
-            !citationInspection.allClaimsCited)
-        ) {
-          throw new Error(
-            "Every supported Grounded Answer claim needs a valid citation.",
-          );
-        }
-        if (request.signal.aborted) return false;
-        const completion = await subject.value.groundedAnswers!.complete({
-          reservation,
-          assistantContent: content,
-          classification,
-          mode,
-          artifacts,
-          citationDiagnostics: citationInspection.diagnostics,
-        });
-        if (closed || request.signal.aborted) {
-          await cancelReservedQuestion();
-          return false;
-        }
-        if (
-          completion.outcome !== "completed" &&
-          completion.outcome !== "already_completed"
-        ) {
-          logAppEvent("error", "[project-grounded-answer] terminal persist failed", {
-            errorId: "PROJECT_GROUNDED_PERSIST_FAILED",
-            projectId: subject.value.projectId,
-            errorClass: completion.outcome,
-            requestId,
-          });
-          send({
-            type: "error",
-            message:
-              "Your question was saved, but the answer could not be saved. Try again.",
-          });
-          return false;
-        }
-        send({
-          type: "done",
-          assistantMessageId: completion.assistantMessageId,
-        });
-        return true;
-      };
-
       try {
+        // The reservation identity is observable before retrieval or model work
+        // begins, so cancellation and reconciliation always target this turn.
+        send({
+          type: "question_reserved",
+          userMessageId: reservation.userMessageId,
+        });
+
+        const search = await passageSearch.search({
+          query: parsed.data.question,
+          limit: PROJECT_GROUNDED_RETRIEVAL_LIMIT,
+          balanceSources: mode === "project_assessment",
+        });
+        if (
+          search.status === "missing" ||
+          search.status === "invalid" ||
+          search.status === "unavailable"
+        ) {
+          throw new Error("Project passage retrieval was unavailable.");
+        }
+
+        const artifacts = buildProjectAnswerArtifacts({
+          projectId: subject.value.projectId,
+          search,
+          goal: started.goal,
+        });
         // These two events are always first, so coverage is visible and stable
-        // before any generated assistant text can arrive.
+        // before any generated assistant text can arrive. The reservation event
+        // precedes them because it must precede retrieval itself.
         send({
           type: "source_manifest",
           manifest: artifacts.sourceManifest,
@@ -334,144 +317,79 @@ export async function POST(request: Request, context: RouteContext) {
           coverage: artifacts.sourceCoverage,
         });
 
-        if (artifacts.evidenceSnapshot.passages.length === 0) {
-          const content =
-            mode === PROJECT_DEFAULT_CONVERSATION_MODE
-              ? search.status === "not_ready"
-                ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
-                : "The available Project passages do not support an answer to this question."
-              : buildProjectSynthesisAbstention(
-                  mode,
-                  guidedAbstentionReason(mode, search.status === "not_ready"),
-                );
-          send({
-            type: "answer_start",
-            classification: "unsupported",
-            ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
-          });
-          send({ type: "delta", text: content });
-          await persist(content, "unsupported");
-          return;
-        }
-
-        const messages = buildProjectGroundedMessages({
-          projectName: subject.value.name,
-          goal: subject.value.guidance.goal,
-          question: parsed.data.question,
-          history: started.history,
-          sourceManifest: artifacts.sourceManifest,
-          evidenceSnapshot: artifacts.evidenceSnapshot,
-          mode,
+        const evidenceVideoCount = new Set(
+          artifacts.evidenceSnapshot.passages.map((passage) => passage.videoId),
+        ).size;
+        const guidedEvidenceIsInsufficient =
+          requiresMultipleEvidenceVideos(mode) && evidenceVideoCount < 2;
+        const answerMode =
+          artifacts.evidenceSnapshot.passages.length === 0 ||
+          guidedEvidenceIsInsufficient
+          ? {
+              kind: "unsupported" as const,
+              content:
+                mode === PROJECT_DEFAULT_CONVERSATION_MODE
+                  ? search.status === "not_ready"
+                    ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
+                    : "The available Project passages do not support an answer to this question."
+                   : buildProjectSynthesisAbstention(
+                       mode,
+                       guidedAbstentionReason(
+                         mode,
+                         search.status === "not_ready",
+                       ),
+                    ),
+            }
+          : {
+              kind: "provider" as const,
+              messages: buildProjectGroundedMessages({
+                projectName: subject.value.name,
+                goal: started.goal,
+                question: parsed.data.question,
+                history: started.history,
+                 sourceManifest: artifacts.sourceManifest,
+                 evidenceSnapshot: artifacts.evidenceSnapshot,
+                 mode,
+               }),
+               abstentionContent:
+                 mode === PROJECT_DEFAULT_CONVERSATION_MODE
+                   ? undefined
+                    : buildProjectSynthesisAbstention(
+                        mode,
+                        guidedAbstentionReason(mode, false),
+                     ),
+             };
+         const result = await executeProjectGroundedAnswerStream({
+           mode: answerMode,
+           conversationMode: mode,
+          artifacts,
+          reservation,
+          groundedAnswers,
+          signal: generationController.signal,
+          emit: send,
         });
-        let classification: ProjectAnswerClassification | null = null;
-        let protocolBuffer = "";
-        let assistantBuffer = "";
-        const requiresStructuredSynthesis =
-          mode === "find_gaps" || mode === "project_assessment";
-
-        for await (const event of streamChatCompletion({
-          messages,
-          signal: request.signal,
-        })) {
-          if (closed || request.signal.aborted) return;
-          if (event.type !== "delta") continue;
-          if (classification === null) {
-            protocolBuffer += event.text;
-            const newlineIndex = protocolBuffer.indexOf("\n");
-            if (newlineIndex < 0) {
-              if (protocolBuffer.length > 32) {
-                throw new Error("Grounded answer classification line is invalid.");
-              }
-              continue;
-            }
-            const controlLine = protocolBuffer
-              .slice(0, newlineIndex)
-              .replace(/\r$/, "");
-            if (controlLine === "SUPPORTED") classification = "supported";
-            else if (controlLine === "ABSTAINED") classification = "abstained";
-            else throw new Error("Grounded answer classification line is invalid.");
-
-            if (!requiresStructuredSynthesis) {
-              send({
-                type: "answer_start",
-                classification,
-                ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
-              });
-            }
-            const visibleRemainder = protocolBuffer.slice(newlineIndex + 1);
-            protocolBuffer = "";
-            if (visibleRemainder.length > 0) {
-              assistantBuffer += visibleRemainder;
-              if (classification === "supported" && !requiresStructuredSynthesis) {
-                send({ type: "delta", text: visibleRemainder });
-              }
-            }
-            continue;
-          }
-          assistantBuffer += event.text;
-          if (assistantBuffer.length > 20_000) {
-            throw new Error("Grounded answer exceeded its technical limit.");
-          }
-          if (classification === "supported" && !requiresStructuredSynthesis) {
-            send({ type: "delta", text: event.text });
-          }
+        if (result.outcome === "failed") {
+          await cancelReservedQuestion();
+          logAppEvent("error", "[project-grounded-answer] stream transaction failed", {
+            errorId:
+              result.stage === "persistence"
+                ? "PROJECT_GROUNDED_PERSIST_FAILED"
+                : "PROJECT_GROUNDED_GENERATION_FAILED",
+            projectId: subject.value.projectId,
+            errorClass: result.errorClass,
+            requestId,
+          });
+          send({
+            type: "error",
+            message:
+              result.stage === "persistence"
+                ? "Your question was saved, but the answer could not be saved. Try again."
+                : GENERIC_ERROR,
+          });
         }
-
-        if (classification === null) {
-          throw new Error("Grounded answer was empty.");
-        }
-        if (
-          /(?:^|\r?\n)(?:SUPPORTED|ABSTAINED)(?:\r?\n|$)/u.test(
-            assistantBuffer,
-          )
-        ) {
-          throw new Error("Grounded answer contained an extra control line.");
-        }
-        if (classification === "abstained") {
-          assistantBuffer =
-            mode === PROJECT_DEFAULT_CONVERSATION_MODE
-              ? SAFE_ABSTENTION
-              : buildProjectSynthesisAbstention(
-                  mode,
-                  guidedAbstentionReason(mode, false),
-                );
-          if (requiresStructuredSynthesis) {
-            send({
-              type: "answer_start",
-              classification: "abstained",
-              mode,
-            });
-          }
-          send({ type: "delta", text: assistantBuffer });
-        } else if (requiresStructuredSynthesis) {
-          const validation = validateProjectSynthesisResponse(mode, assistantBuffer);
-          const citationInspection = inspectProjectCitations(
-            assistantBuffer,
-            artifacts.sourceManifest,
-          );
-          const allMaterialPositionsCited =
-            mode !== "project_assessment" ||
-            artifacts.sourceManifest.sources.every((source) =>
-              citationInspection.validSourceIds.includes(source.sourceId),
-            );
-          if (!validation.valid || !allMaterialPositionsCited) {
-            classification = "abstained";
-            assistantBuffer = buildProjectSynthesisAbstention(
-              mode,
-              guidedAbstentionReason(mode, false),
-            );
-            send({ type: "answer_start", classification, mode });
-            send({ type: "delta", text: assistantBuffer });
-          } else {
-            send({ type: "answer_start", classification: "supported", mode });
-            send({ type: "delta", text: assistantBuffer });
-          }
-        } else if (assistantBuffer.trim().length === 0) {
-          throw new Error("Grounded answer was empty.");
-        }
-        await persist(assistantBuffer, classification);
       } catch (error) {
-        if (!request.signal.aborted) {
+        if (!generationController.signal.aborted) {
+          await cancelReservedQuestion();
           logAppEvent("error", "[project-grounded-answer] generation failed", {
             errorId: "PROJECT_GROUNDED_GENERATION_FAILED",
             projectId: subject.value.projectId,
@@ -481,15 +399,17 @@ export async function POST(request: Request, context: RouteContext) {
           send({ type: "error", message: GENERIC_ERROR });
         }
       } finally {
-        if (request.signal.aborted) {
+        if (generationController.signal.aborted && !persistenceStarted) {
           await cancelReservedQuestion();
         }
+        request.signal.removeEventListener("abort", abortGeneration);
         finish();
       }
     },
     async cancel() {
       closed = true;
-      await cancelReservedQuestion();
+      abortGeneration();
+      if (!persistenceStarted) await cancelReservedQuestion();
     },
   });
 

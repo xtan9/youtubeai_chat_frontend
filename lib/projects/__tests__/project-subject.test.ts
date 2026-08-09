@@ -168,8 +168,11 @@ describe("ProjectSubject ownership boundary", () => {
         passageSearch: { search: expect.any(Function) },
         groundedAnswers: {
           load: expect.any(Function),
+          loadEvents: expect.any(Function),
+          loadAttempt: expect.any(Function),
           start: expect.any(Function),
           cancel: expect.any(Function),
+          beginPersistence: expect.any(Function),
           complete: expect.any(Function),
         },
         conversations: {

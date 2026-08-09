@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { reconcileStaleProjectVideoProcessing } from "@/lib/projects/project-video-processing";
 import {
@@ -23,8 +24,10 @@ export const metadata: Metadata = {
 
 export default async function ProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ conversationId?: string | string[] }>;
 }) {
   const principalResult = await resolveRequestPrincipal({ source: "project" });
   if (principalResult.kind === "unavailable") {
@@ -35,6 +38,12 @@ export default async function ProjectPage({
   }
 
   const { projectId } = await params;
+  const requestedConversation = (await searchParams).conversationId;
+  const requestedConversationId =
+    typeof requestedConversation === "string" &&
+    z.uuid().safeParse(requestedConversation).success
+      ? requestedConversation
+      : null;
   let subject: Awaited<ReturnType<typeof resolveProjectSubject>>;
   let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
@@ -78,11 +87,17 @@ export default async function ProjectPage({
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),
       loadProjectHistoryCandidates(supabase, subject.value),
-      groundedAnswers.load(),
+      groundedAnswers.load(requestedConversationId ?? undefined),
       conversationManagement?.list() ??
         Promise.resolve({ status: "unavailable" as const }),
       artifacts.load("study_guide"),
     ]);
+
+    // A valid UUID may still name a missing or foreign thread. Fall back
+    // without revealing whether that identifier exists elsewhere.
+    if (requestedConversationId && conversation.status === "missing") {
+      conversation = await groundedAnswers.load();
+    }
 
     // A Project may contain named threads before the legacy default thread has
     // ever been used. In that case the compatibility loader has no history to

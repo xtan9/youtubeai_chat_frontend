@@ -60,6 +60,19 @@ function artifact(revision = 3) {
   };
 }
 
+function deployedArtifact(revision = 3) {
+  const value = artifact(revision);
+  const { usedVideos, passagesUsed, ...coverage } = value.sourceCoverage;
+  return {
+    ...value,
+    sourceCoverage: {
+      ...coverage,
+      evidenceVideos: usedVideos,
+      evidencePassages: passagesUsed,
+    },
+  };
+}
+
 function capability(rpc = vi.fn()) {
   return {
     rpc,
@@ -114,6 +127,31 @@ describe("Project Artifact persistence adapter", () => {
     expect(mocks.serviceRole).not.toHaveBeenCalled();
   });
 
+  it("normalizes deployed Artifact coverage names at the read boundary", async () => {
+    const stored = deployedArtifact();
+    const { target } = capability(
+      vi.fn().mockResolvedValue({
+        error: null,
+        data: {
+          outcome: "ready",
+          currentSourceSetRevision: 3,
+          current: stored,
+          history: [stored],
+          tier: "pro",
+          generationsUsed: 1,
+          generationsLimit: null,
+        },
+      }),
+    );
+
+    const loaded = await target.load("study_guide");
+    expect(loaded).toMatchObject({
+      status: "ready",
+      current: { sourceCoverage: answerArtifacts().sourceCoverage },
+      history: [{ sourceCoverage: answerArtifacts().sourceCoverage }],
+    });
+  });
+
   it("returns the exact Artifact-specific quota shape without leaking database discriminants", async () => {
     const { target } = capability(
       vi.fn().mockResolvedValue({
@@ -154,7 +192,7 @@ describe("Project Artifact persistence adapter", () => {
     mocks.serviceRpc
       .mockResolvedValueOnce({
         error: null,
-        data: { outcome: "completed", artifact: artifact() },
+        data: { outcome: "completed", artifact: deployedArtifact() },
       })
       .mockResolvedValueOnce({ error: null, data: { outcome: "failed" } });
     const { target } = capability();
@@ -186,8 +224,16 @@ describe("Project Artifact persistence adapter", () => {
         p_attempt_id: ATTEMPT_ID,
         p_attempt_token: ATTEMPT_TOKEN,
         p_evidence_snapshot: answerArtifacts().evidenceSnapshot,
+        p_source_coverage: expect.objectContaining({
+          evidenceVideos: 1,
+          evidencePassages: 1,
+        }),
       }),
     );
+    const storedCoverage = mocks.serviceRpc.mock.calls[0]?.[1]
+      ?.p_source_coverage as Record<string, unknown>;
+    expect(storedCoverage).not.toHaveProperty("usedVideos");
+    expect(storedCoverage).not.toHaveProperty("passagesUsed");
 
     await expect(target.fail(reservation)).resolves.toEqual({ status: "failed" });
     expect(mocks.serviceRpc).toHaveBeenNthCalledWith(

@@ -9,6 +9,8 @@ import {
 } from "node:http";
 import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { ProjectAnswerSourceManifestSchema } from "../lib/projects/project-grounded-answer-contract";
+import { inspectProjectCitations } from "../lib/projects/project-grounded-citations";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
@@ -100,7 +102,7 @@ type FixtureConversationMessage = {
     | "find_gaps"
     | "project_assessment";
   attemptToken?: string;
-  completionState?: "reserved" | "completed" | "cancelled";
+  completionState?: "reserved" | "completed" | "cancelled" | null;
 };
 
 type FixtureSourceSetEvent = {
@@ -277,6 +279,7 @@ test.afterAll(async () => {
 async function createGroundedFixtureProject(
   context: BrowserContext,
   name: string,
+  sourceCount = 1,
 ) {
   const created = await context.request.post(`${appUrl}/api/workspace/projects`, {
     data: {
@@ -287,17 +290,18 @@ async function createGroundedFixtureProject(
   expect(created.status()).toBe(201);
   const payload = (await created.json()) as { project: { id: string } };
   const projectId = payload.project.id;
-  const source = canonicalVideos[0];
-  projectVideos.push({
-    project_id: projectId,
-    video_id: source.id,
-    position: 1,
-    status: "ready",
-    failure_code: null,
-    added_at: nextTimestamp(),
-    status_updated_at: nextTimestamp(),
+  canonicalVideos.slice(0, sourceCount).forEach((source, index) => {
+    projectVideos.push({
+      project_id: projectId,
+      video_id: source.id,
+      position: index + 1,
+      status: "ready",
+      failure_code: null,
+      added_at: nextTimestamp(),
+      status_updated_at: nextTimestamp(),
+    });
   });
-  sourceSetRevisions.set(projectId, 1);
+  sourceSetRevisions.set(projectId, sourceCount);
   return projectId;
 }
 
@@ -553,7 +557,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "Passages examined2",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Evidence Snapshot passages2",
+    "Passages selected2",
   );
   await expect(page.getByText("Preparing answer")).toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
@@ -612,6 +616,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   const projectId = await createGroundedFixtureProject(
     context,
     "Guided synthesis lab",
+    2,
   );
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -675,7 +680,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(
-    page.getByText("Project Assessment", { exact: true }),
+    page.getByText("Find gaps and unexplored angles", { exact: true }).first(),
   ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -767,12 +772,14 @@ test("Project Conversation persists a classified fallback without calling the ga
     "Passages examined2",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Evidence Snapshot passages0",
+    "Passages selected0",
   );
   await expect(
     page.getByText(/available Project passages do not support an answer/i),
   ).toBeVisible();
-  await expect(page.getByText("Unsupported by sources")).toBeVisible();
+  await expect(
+    page.getByText("Unsupported by sources", { exact: true }),
+  ).toBeVisible();
   await expectProjectQuestionComposerReady(page);
 
   expect(projectConversations.get(projectId)?.messages).toMatchObject([
@@ -804,7 +811,7 @@ test("Project Conversation preserves only the user message after gateway failure
   await expect(page.getByText("What fails safely?", { exact: true })).toBeVisible();
   await expect(page.getByText("Grounded Answer", { exact: true })).toHaveCount(0);
   expect(projectConversations.get(projectId)?.messages).toMatchObject([
-    { role: "user", content: "What fails safely?", completionState: "reserved" },
+    { role: "user", content: "What fails safely?", completionState: "cancelled" },
   ]);
 });
 
@@ -823,6 +830,7 @@ test("Researcher switches, clears, and retries named Project Conversations on de
   await expect(
     page.getByRole("button", { name: /New conversation \d+ messages/ }),
   ).toBeVisible();
+  await expect(page).toHaveURL(/\?conversationId=[0-9a-f-]{36}$/);
   // Reload before the legacy default has ever received a question. The named
   // thread must be selected with its history rather than leaving a blank
   // compatibility conversation active.
@@ -850,6 +858,11 @@ test("Researcher switches, clears, and retries named Project Conversations on de
   await expect(page.getByRole("button", { name: /Comparison \d+ messages/ })).toBeVisible();
 
   await page.getByRole("button", { name: /Launch questions/ }).first().click();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  const selectedConversationUrl = page.url();
+  expect(selectedConversationUrl).toMatch(/\?conversationId=[0-9a-f-]{36}$/);
+  await page.reload();
+  await expect(page).toHaveURL(selectedConversationUrl);
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
   await page.getByRole("button", { name: "Clear Launch questions" }).click();
   await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
@@ -1060,7 +1073,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
 
   await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Upgrade to Pro" }),
+    page.locator('a[href="/pricing?source_surface=project_limit"]'),
   ).toHaveAttribute("href", "/pricing?source_surface=project_limit");
   const capResponse = await context.request.post(
     `${appUrl}/api/workspace/projects`,
@@ -1766,7 +1779,7 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
 
 1. What does climate adaptation depend on [S1 @ 00:42]?`
       : prompt.includes("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT")
-        ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium"
+        ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported by the first position [S1 @ 00:42]. The second position emphasizes exact local evidence [S2 @ 00:42].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:42].\n\nConfidence: medium"
         : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
           ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
           : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
@@ -2028,7 +2041,11 @@ async function handleSourceSetRpc(
     p_search?: string;
     p_page?: number;
     p_page_size?: number;
+    p_before_created_at?: string | null;
+    p_before_event_id?: string | null;
+    p_event_limit?: number;
     p_question?: string;
+    p_question_id?: string;
     p_owner_id?: string;
     p_conversation_id?: string;
     p_user_message_id?: string;
@@ -2060,6 +2077,36 @@ async function handleSourceSetRpc(
 
   if (url.pathname.endsWith("/increment_rate_limit")) {
     return sendJson(response, 200, 1);
+  }
+
+  if (url.pathname.endsWith("/load_project_source_set")) {
+    if (!userId) {
+      return sendJson(response, 200, { outcome: "unauthenticated" });
+    }
+    if (!projectId || projectOwnerId(projectId) !== userId) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    return sendJson(response, 200, {
+      outcome: "resolved",
+      revision: sourceSetRevisions.get(projectId) ?? 0,
+      project_videos: orderedMemberships(projectId).map((membership) => {
+        const video = canonicalVideos.find(
+          (candidate) => candidate.id === membership.video_id,
+        );
+        return {
+          ...membership,
+          videos: video
+            ? {
+                id: video.id,
+                youtube_url: video.youtube_url,
+                youtube_video_id: youtubeVideoId(video.youtube_url),
+                title: video.title,
+                channel_name: video.channel_name,
+              }
+            : null,
+        };
+      }),
+    });
   }
 
   if (url.pathname.endsWith("/complete_project_artifact_generation")) {
@@ -2161,7 +2208,11 @@ async function handleSourceSetRpc(
     return sendJson(response, 200, { outcome: "failed" });
   }
 
-  if (url.pathname.endsWith("/complete_project_grounded_answer")) {
+  if (
+    url.pathname.endsWith("/begin_project_grounded_answer_persistence_v2") ||
+    url.pathname.endsWith("/complete_project_grounded_answer") ||
+    url.pathname.endsWith("/complete_project_grounded_answer_v2")
+  ) {
     if (!serviceRole || !projectId || body.p_owner_id !== projectOwnerId(projectId)) {
       return sendJson(response, 200, { outcome: "stale" });
     }
@@ -2172,13 +2223,7 @@ async function handleSourceSetRpc(
         message.role === "user" &&
         message.attemptToken === body.p_attempt_token,
     );
-    if (
-      !conversation ||
-      conversation.id !== body.p_conversation_id ||
-      !userMessage ||
-      userMessage.completionState !== "reserved" ||
-      body.p_source_set_revision !== (sourceSetRevisions.get(projectId) ?? 0)
-    ) {
+    if (!conversation || conversation.id !== body.p_conversation_id || !userMessage) {
       return sendJson(response, 200, { outcome: "stale" });
     }
     const existing = conversation.messages.find(
@@ -2190,17 +2235,40 @@ async function handleSourceSetRpc(
       return sendJson(response, 200, {
         outcome: "already_completed",
         assistantMessageId: existing.id,
+        answerClassification: existing.answerClassification,
+        citationDiagnostics: existing.citationDiagnostics,
       });
     }
     if (
+      userMessage.completionState !== "reserved" ||
+      body.p_source_set_revision !== (sourceSetRevisions.get(projectId) ?? 0)
+    ) {
+      return sendJson(response, 200, { outcome: "stale" });
+    }
+    const manifest = ProjectAnswerSourceManifestSchema.safeParse(
+      body.p_source_manifest,
+    );
+    if (
       !body.p_assistant_content ||
       !body.p_answer_classification ||
-      !body.p_source_manifest ||
+      !manifest.success ||
       !body.p_source_coverage ||
-      !body.p_evidence_snapshot ||
-      !Array.isArray(body.p_citation_diagnostics)
+      !body.p_evidence_snapshot
     ) {
       return sendJson(response, 200, { outcome: "invalid" });
+    }
+    const citationAnalysis = inspectProjectCitations(
+      body.p_assistant_content,
+      manifest.data,
+    );
+    if (
+      body.p_answer_classification === "supported" &&
+      (citationAnalysis.validCitationCount === 0 ||
+        !citationAnalysis.allClaimsCited)
+    ) {
+      return sendJson(response, 400, {
+        message: "Supported answers require a valid citation",
+      });
     }
     messageSequence += 1;
     const assistantMessageId = `c2000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
@@ -2212,17 +2280,58 @@ async function handleSourceSetRpc(
       createdAt: nextTimestamp(),
       answerClassification: body.p_answer_classification,
       sourceSetRevision: body.p_source_set_revision,
-      sourceManifest: body.p_source_manifest,
+      sourceManifest: manifest.data,
       sourceCoverage: body.p_source_coverage,
       evidenceSnapshot: body.p_evidence_snapshot,
-      citationDiagnostics: body.p_citation_diagnostics,
+      citationDiagnostics: citationAnalysis.diagnostics,
+      completionState: null,
       mode: body.p_mode ?? userMessage.mode ?? "question",
     });
     userMessage.completionState = "completed";
     return sendJson(response, 200, {
       outcome: "completed",
       assistantMessageId,
+      answerClassification: body.p_answer_classification,
+      citationDiagnostics: citationAnalysis.diagnostics,
     });
+  }
+
+  if (
+    url.pathname.endsWith("/cancel_project_grounded_question") ||
+    url.pathname.endsWith("/cancel_project_grounded_question_v2")
+  ) {
+    if (!serviceRole || !projectId || body.p_owner_id !== projectOwnerId(projectId)) {
+      return sendJson(response, 200, { outcome: "stale" });
+    }
+    const conversation = findConversation(projectId, body.p_conversation_id);
+    const userMessage = conversation?.messages.find(
+      (message) =>
+        message.id === body.p_user_message_id &&
+        message.role === "user" &&
+        message.attemptToken === body.p_attempt_token,
+    );
+    if (!conversation || conversation.id !== body.p_conversation_id || !userMessage) {
+      return sendJson(response, 200, { outcome: "stale" });
+    }
+    const assistant = conversation.messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.inReplyToMessageId === userMessage.id,
+    );
+    if (userMessage.completionState === "completed" && assistant) {
+      return sendJson(response, 200, {
+        outcome: "completed",
+        assistantMessageId: assistant.id,
+      });
+    }
+    if (userMessage.completionState === "cancelled") {
+      return sendJson(response, 200, { outcome: "cancelled" });
+    }
+    if (userMessage.completionState !== "reserved") {
+      return sendJson(response, 200, { outcome: "stale" });
+    }
+    userMessage.completionState = "cancelled";
+    return sendJson(response, 200, { outcome: "cancelled" });
   }
 
   if (!projectId || !userId || projectOwnerId(projectId) !== userId) {
@@ -2409,22 +2518,65 @@ async function handleSourceSetRpc(
     return sendJson(response, 200, { outcome: "cleared" });
   }
 
-  if (url.pathname.endsWith("/cancel_project_grounded_question")) {
-    const conversation = findConversation(projectId, body.p_conversation_id);
+  if (url.pathname.endsWith("/load_project_grounded_attempt_v2")) {
+    const conversation = body.p_conversation_id
+      ? findConversation(projectId, body.p_conversation_id)
+      : conversationThreads(projectId).find((thread) =>
+          thread.messages.some(
+            (message) =>
+              message.id === body.p_question_id && message.role === "user",
+          ),
+        );
     const userMessage = conversation?.messages.find(
       (message) =>
-        message.id === body.p_user_message_id && message.role === "user",
+        message.id === body.p_question_id && message.role === "user",
     );
-    if (!conversation || !userMessage) {
-      return sendJson(response, 200, { outcome: "missing" });
-    }
-    conversation.messages = conversation.messages.filter(
+    if (!userMessage) return sendJson(response, 200, { outcome: "missing" });
+    const assistant = conversation?.messages.find(
       (message) =>
-        message.role !== "assistant" ||
-        message.inReplyToMessageId !== userMessage.id,
+        message.role === "assistant" &&
+        message.inReplyToMessageId === userMessage.id,
     );
-    userMessage.completionState = "cancelled";
-    return sendJson(response, 200, { outcome: "cancelled" });
+    return sendJson(response, 200, {
+      outcome: "ready",
+      userMessageId: userMessage.id,
+      state: userMessage.completionState,
+      assistant: assistant ? visibleConversationMessage(assistant) : null,
+    });
+  }
+
+  if (url.pathname.endsWith("/load_project_source_set_event_page_v2")) {
+    const beforeCreatedAt = body.p_before_created_at as string | null | undefined;
+    const beforeEventId = body.p_before_event_id as string | null | undefined;
+    const eventLimit = Math.min(
+      500,
+      Math.max(1, Number(body.p_event_limit ?? 100)),
+    );
+    const newestFirst = conversationThreads(projectId)
+      .flatMap((conversation) => conversation.sourceSetEvents ?? [])
+      .filter(
+        (event) =>
+          !beforeCreatedAt ||
+          event.createdAt < beforeCreatedAt ||
+          (event.createdAt === beforeCreatedAt &&
+            Boolean(beforeEventId) &&
+            event.eventId < beforeEventId!),
+      )
+      .sort(
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.eventId.localeCompare(left.eventId),
+      );
+    const selected = newestFirst.slice(0, eventLimit);
+    const oldest = selected.at(-1);
+    return sendJson(response, 200, {
+      outcome: "ready",
+      events: selected.slice().reverse(),
+      nextCursor:
+        oldest && newestFirst.length > selected.length
+          ? { createdAt: oldest.createdAt, eventId: oldest.eventId }
+          : null,
+    });
   }
 
   if (url.pathname.endsWith("/load_default_project_conversation")) {
@@ -2445,10 +2597,14 @@ async function handleSourceSetRpc(
       ),
       messagesLimit: tier === "pro" ? null : 5,
       tier,
+      nextCursor: null,
     });
   }
 
-  if (url.pathname.endsWith("/load_project_conversation")) {
+  if (
+    url.pathname.endsWith("/load_project_conversation") ||
+    url.pathname.endsWith("/load_project_conversation_page_v2")
+  ) {
     const conversation = findConversation(projectId, body.p_conversation_id);
     const tier = userSubscriptions.get(userId)?.tier ?? "free";
     return sendJson(response, 200, {
@@ -2465,10 +2621,14 @@ async function handleSourceSetRpc(
       ),
       messagesLimit: tier === "pro" ? null : 5,
       tier,
+      nextCursor: null,
     });
   }
 
-  if (url.pathname.endsWith("/start_project_grounded_question")) {
+  if (
+    url.pathname.endsWith("/start_project_grounded_question") ||
+    url.pathname.endsWith("/start_project_grounded_question_v2")
+  ) {
     const tier = userSubscriptions.get(userId)?.tier ?? "free";
     let conversation = findConversation(projectId, body.p_conversation_id);
     const messagesUsed = conversationThreads(projectId).reduce(
@@ -2504,8 +2664,30 @@ async function handleSourceSetRpc(
     const history = visibleConversationMessagesAfterClear(conversation)
       .slice(-16)
       .map(visibleConversationMessage);
+    const existing = body.p_question_id
+      ? conversation.messages.find(
+          (message) =>
+            message.id === body.p_question_id && message.role === "user",
+        )
+      : undefined;
+    if (existing) {
+      return sendJson(response, 200, {
+        outcome: "started",
+        created: false,
+        conversationId: conversation.id,
+        userMessageId: existing.id,
+        attemptToken: existing.attemptToken,
+        completionState: existing.completionState,
+        messagesUsed,
+        messagesLimit: tier === "pro" ? null : 5,
+        tier,
+        history,
+        goal: projects.find((project) => project.id === projectId)?.goal ?? null,
+      });
+    }
     messageSequence += 1;
-    const userMessageId = `c3000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
+    const userMessageId = body.p_question_id ??
+      `c3000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
     const attemptToken = `c4000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
     conversation.messages.push({
       id: userMessageId,
@@ -2525,13 +2707,16 @@ async function handleSourceSetRpc(
     conversation.updatedAt = nextTimestamp();
     return sendJson(response, 200, {
       outcome: "started",
+      created: true,
       conversationId: conversation.id,
       userMessageId,
       attemptToken,
+      completionState: "reserved",
       messagesUsed: messagesUsed + 1,
       messagesLimit: tier === "pro" ? null : 5,
       tier,
       history,
+      goal: projects.find((project) => project.id === projectId)?.goal ?? null,
     });
   }
 
@@ -2797,12 +2982,35 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     answerClassification: message.answerClassification,
     sourceSetRevision: message.sourceSetRevision,
     sourceManifest: message.sourceManifest,
-    sourceCoverage: message.sourceCoverage,
+    sourceCoverage: normalizedFixtureCoverage(message.sourceCoverage),
     ...(message.evidenceSnapshot
       ? { evidenceSnapshot: message.evidenceSnapshot }
       : {}),
     citationDiagnostics: message.citationDiagnostics,
     ...(message.mode ? { mode: message.mode } : {}),
+    completionState: message.role === "user" ? message.completionState : null,
+  };
+}
+
+function normalizedFixtureCoverage(sourceCoverage: unknown) {
+  if (
+    sourceCoverage === null ||
+    typeof sourceCoverage !== "object" ||
+    Array.isArray(sourceCoverage)
+  ) {
+    return sourceCoverage;
+  }
+  const coverage = sourceCoverage as Record<string, unknown>;
+  if (!("evidenceVideos" in coverage) && !("evidencePassages" in coverage)) {
+    return sourceCoverage;
+  }
+  return {
+    totalVideos: coverage.totalVideos,
+    readyVideos: coverage.readyVideos,
+    usedVideos: coverage.evidenceVideos,
+    unavailableVideos: coverage.unavailableVideos,
+    passagesExamined: coverage.passagesExamined,
+    passagesUsed: coverage.evidencePassages,
   };
 }
 

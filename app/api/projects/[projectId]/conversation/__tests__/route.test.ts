@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
   resolveProjectSubject: vi.fn(),
   load: vi.fn(),
+  loadEvents: vi.fn(),
   create: vi.fn(),
   rename: vi.fn(),
   clear: vi.fn(),
@@ -44,7 +45,10 @@ describe("GET /api/projects/[projectId]/conversation", () => {
     mocks.resolveProjectSubject.mockResolvedValue({
       kind: "resolved",
       value: {
-        groundedAnswers: { load: mocks.load },
+        groundedAnswers: {
+          load: mocks.load,
+          loadEvents: mocks.loadEvents,
+        },
         conversations: {
           create: mocks.create,
           rename: mocks.rename,
@@ -53,6 +57,11 @@ describe("GET /api/projects/[projectId]/conversation", () => {
       },
     });
     mocks.load.mockResolvedValue({ status: "ready", conversation: CONVERSATION });
+    mocks.loadEvents.mockResolvedValue({
+      status: "ready",
+      events: [],
+      nextCursor: null,
+    });
     mocks.create.mockResolvedValue({
       status: "created",
       conversation: {
@@ -76,7 +85,7 @@ describe("GET /api/projects/[projectId]/conversation", () => {
       USER_ID,
       PROJECT_ID,
     );
-    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(mocks.load).toHaveBeenCalledWith(undefined, null);
   });
 
   it("rejects blocked authentication before owner resolution", async () => {
@@ -99,7 +108,66 @@ describe("GET /api/projects/[projectId]/conversation", () => {
     expect(response.status).toBe(200);
     expect(mocks.load).toHaveBeenCalledWith(
       "30000000-0000-4000-8000-000000000001",
+      null,
     );
+  });
+
+  it("passes a strict cursor within the selected conversation", async () => {
+    const cursor = Buffer.from(
+      JSON.stringify({
+        createdAt: "2026-08-09T00:00:00.000Z",
+        userMessageId: "40000000-0000-4000-8000-000000000001",
+      }),
+      "utf8",
+    ).toString("base64url");
+    const response = await GET(
+      new Request(
+        `http://test?conversationId=30000000-0000-4000-8000-000000000001&cursor=${cursor}`,
+      ),
+      CONTEXT,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.load).toHaveBeenCalledWith(
+      "30000000-0000-4000-8000-000000000001",
+      {
+        createdAt: "2026-08-09T00:00:00.000Z",
+        userMessageId: "40000000-0000-4000-8000-000000000001",
+      },
+    );
+  });
+
+  it("loads a strict Source Set activity cursor without scanning messages", async () => {
+    const cursor = Buffer.from(
+      JSON.stringify({
+        createdAt: "2026-08-09T00:00:00.000Z",
+        eventId: "40000000-0000-4000-8000-000000000001",
+      }),
+      "utf8",
+    ).toString("base64url");
+    const response = await GET(
+      new Request(`http://test?eventCursor=${cursor}`),
+      CONTEXT,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.loadEvents).toHaveBeenCalledWith({
+      createdAt: "2026-08-09T00:00:00.000Z",
+      eventId: "40000000-0000-4000-8000-000000000001",
+    });
+    expect(mocks.load).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["conversationId=selected", "Conversation identity is not valid."],
+    ["cursor=", "Conversation cursor is not valid."],
+    ["cursor=eyJjcmVhdGVkQXQiOiJ5ZXN0ZXJkYXkifQ", "Conversation cursor is not valid."],
+    ["eventCursor=", "Source Set activity cursor is not valid."],
+    ["eventCursor=eyJjcmVhdGVkQXQiOiJ5ZXN0ZXJkYXkifQ", "Source Set activity cursor is not valid."],
+  ])("rejects malformed semantic query input: %s", async (query, message) => {
+    const response = await GET(new Request(`http://test?${query}`), CONTEXT);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ message });
+    expect(mocks.load).not.toHaveBeenCalled();
   });
 
   it("keeps compatibility mutations classified and owner-scoped", async () => {

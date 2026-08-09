@@ -23,11 +23,12 @@ export const PROJECT_QUESTION_MIN_LENGTH = 2;
 export const PROJECT_QUESTION_MAX_LENGTH = 200;
 export const PROJECT_GROUNDED_PASSAGE_LIMIT = 8;
 export const PROJECT_GROUNDED_RETRIEVAL_LIMIT = 10;
+export const PROJECT_GROUNDED_ANSWER_MAX_LENGTH = 20_000;
 export const PROJECT_QUESTION_MESSAGE_ID_HEADER =
   "X-Project-Question-Message-ID";
 export const PROJECT_CONVERSATION_NAME_MAX_LENGTH = 120;
 
-function codePointLength(value: string) {
+export function projectGroundedQuestionCodePointLength(value: string) {
   return Array.from(value).length;
 }
 
@@ -35,7 +36,7 @@ const ProjectQuestionSchema = z
   .string()
   .transform((question) => question.trim())
   .superRefine((question, context) => {
-    const length = codePointLength(question);
+    const length = projectGroundedQuestionCodePointLength(question);
     if (length < PROJECT_QUESTION_MIN_LENGTH) {
       context.addIssue({
         code: "custom",
@@ -52,6 +53,7 @@ const ProjectQuestionSchema = z
 
 export const ProjectGroundedQuestionRequestSchema = z
   .object({
+    questionId: z.uuid(),
     question: ProjectQuestionSchema,
     conversationId: z.uuid().optional(),
     mode: ProjectConversationModeSchema
@@ -149,10 +151,10 @@ export const ProjectAnswerCoverageSchema = z
   .object({
     totalVideos: z.number().int().min(0).max(5),
     readyVideos: z.number().int().min(0).max(5),
-    evidenceVideos: z.number().int().min(0).max(5),
+    usedVideos: z.number().int().min(0).max(5),
     unavailableVideos: z.array(ProjectUnavailableVideoSchema).max(5),
     passagesExamined: z.number().int().nonnegative(),
-    evidencePassages: z.number().int().min(0).max(10),
+    passagesUsed: z.number().int().min(0).max(10),
   })
   .strict()
   .superRefine((coverage, context) => {
@@ -165,16 +167,16 @@ export const ProjectAnswerCoverageSchema = z
         message: "Project answer coverage totals are incoherent.",
       });
     }
-    if (coverage.evidenceVideos > coverage.readyVideos) {
+    if (coverage.usedVideos > coverage.readyVideos) {
       context.addIssue({
         code: "custom",
-        message: "Evidence Snapshot Videos cannot exceed ready Project Videos.",
+        message: "Used Videos cannot exceed ready Videos.",
       });
     }
-    if (coverage.evidencePassages > coverage.passagesExamined) {
+    if (coverage.passagesUsed > coverage.passagesExamined) {
       context.addIssue({
         code: "custom",
-        message: "Evidence Snapshot passages cannot exceed examined passages.",
+        message: "Used passages cannot exceed examined passages.",
       });
     }
   });
@@ -198,6 +200,18 @@ export type ProjectEvidenceSnapshot = z.infer<
 export { ProjectSourceSetEventListSchema, ProjectSourceSetEventSchema };
 export type { ProjectSourceSetEvent } from "./project-source-set-audit";
 
+const ProjectCitationDiagnosticRawSchema = z
+  .string()
+  .superRefine((raw, context) => {
+    const length = projectGroundedQuestionCodePointLength(raw);
+    if (length < 1 || length > 80) {
+      context.addIssue({
+        code: "custom",
+        message: "Citation diagnostic text must be 1 to 80 characters.",
+      });
+    }
+  });
+
 export const ProjectCitationDiagnosticSchema = z
   .object({
     kind: z.enum([
@@ -205,7 +219,7 @@ export const ProjectCitationDiagnosticSchema = z
       "unknown_source",
       "timestamp_not_in_evidence",
     ]),
-    raw: z.string().min(1).max(80),
+    raw: ProjectCitationDiagnosticRawSchema,
     sourceId: z.string().max(8).optional(),
   })
   .strict();
@@ -249,8 +263,16 @@ export const ProjectAnswerArtifactsSchema = z
     }
 
     const snapshotVideos = new Set<string>();
+    const snapshotPassageIds = new Set<string>();
     for (const passage of evidenceSnapshot.passages) {
       snapshotVideos.add(passage.videoId);
+      if (snapshotPassageIds.has(passage.passageId)) {
+        context.addIssue({
+          code: "custom",
+          message: "Evidence Snapshot passage identities must be unique.",
+        });
+      }
+      snapshotPassageIds.add(passage.passageId);
       const manifestPassage = manifestPassages.get(passage.passageId);
       if (
         !manifestPassage ||
@@ -272,9 +294,9 @@ export const ProjectAnswerArtifactsSchema = z
       });
     }
     if (
-      sourceCoverage.evidenceVideos !== snapshotVideos.size ||
-      sourceCoverage.evidenceVideos !== sourceManifest.sources.length ||
-      sourceCoverage.evidencePassages !== evidenceSnapshot.passages.length
+      sourceCoverage.usedVideos !== snapshotVideos.size ||
+      sourceCoverage.usedVideos !== sourceManifest.sources.length ||
+      sourceCoverage.passagesUsed !== evidenceSnapshot.passages.length
     ) {
       context.addIssue({
         code: "custom",
@@ -283,14 +305,30 @@ export const ProjectAnswerArtifactsSchema = z
     }
   });
 
+export type ProjectAnswerArtifacts = z.infer<
+  typeof ProjectAnswerArtifactsSchema
+>;
+
+const ProjectConversationContentSchema = z
+  .string()
+  .superRefine((content, context) => {
+    const length = projectGroundedQuestionCodePointLength(content);
+    if (length < 1 || length > PROJECT_GROUNDED_ANSWER_MAX_LENGTH) {
+      context.addIssue({
+        code: "custom",
+        message: "Conversation content must be 1 to 20,000 characters.",
+      });
+    }
+  });
+
 const ConversationMessageBaseSchema = z.object({
   id: z.uuid(),
   inReplyToMessageId: z.uuid().nullable(),
-  content: z.string().min(1).max(20000),
-  createdAt: z.string(),
+  content: ProjectConversationContentSchema,
+  createdAt: z.iso.datetime({ offset: true }),
 });
 
-export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
+const ProjectConversationUserMessageSchema =
   ConversationMessageBaseSchema.extend({
     role: z.literal("user"),
     // Optional keeps legacy rows readable; new reservations always carry the
@@ -301,17 +339,21 @@ export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
     // Legacy reservations may predate revision stamping. New reservations
     // always carry the exact ready Source Set revision at creation time.
     sourceSetRevision: z.number().int().nonnegative().nullable(),
+    completionState: z.enum(["reserved", "completed", "cancelled"]),
     sourceManifest: z.null(),
     sourceCoverage: z.null(),
     evidenceSnapshot: z.null().optional(),
     citationDiagnostics: z.null(),
-  }).strict(),
+  }).strict();
+
+export const ProjectConversationAssistantMessageSchema =
   ConversationMessageBaseSchema.extend({
     role: z.literal("assistant"),
     // Assistant mode is immutable metadata paired with the user turn.
     mode: ProjectConversationModeSchema.optional(),
     inReplyToMessageId: z.uuid(),
     answerClassification: ProjectAnswerClassificationSchema,
+    completionState: z.null(),
     sourceSetRevision: z.number().int().nonnegative(),
     sourceManifest: ProjectAnswerSourceManifestSchema,
     sourceCoverage: ProjectAnswerCoverageSchema,
@@ -319,7 +361,11 @@ export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
     // completed answer persists this immutable artifact.
     evidenceSnapshot: ProjectEvidenceSnapshotSchema.optional(),
     citationDiagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
-  }).strict(),
+  }).strict();
+
+export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [
+  ProjectConversationUserMessageSchema,
+  ProjectConversationAssistantMessageSchema,
 ]);
 
 export type ProjectConversationMessage = z.infer<
@@ -330,7 +376,7 @@ const ProjectConversationNameValueSchema = z
   .string()
   .trim()
   .superRefine((name, context) => {
-    const length = codePointLength(name);
+    const length = projectGroundedQuestionCodePointLength(name);
     if (length < 1 || length > PROJECT_CONVERSATION_NAME_MAX_LENGTH) {
       context.addIssue({
         code: "custom",
@@ -418,6 +464,48 @@ export const ProjectConversationMutationDatabaseResultSchema =
     z.object({ outcome: z.literal("invalid") }).strict(),
   ]);
 
+export const ProjectConversationPageCursorSchema = z
+  .object({
+    createdAt: z.iso.datetime({ offset: true }),
+    userMessageId: z.uuid(),
+  })
+  .strict();
+export type ProjectConversationPageCursor = z.infer<
+  typeof ProjectConversationPageCursorSchema
+>;
+
+export const ProjectSourceSetEventPageCursorSchema = z
+  .object({
+    createdAt: z.iso.datetime({ offset: true }),
+    eventId: z.uuid(),
+  })
+  .strict();
+export type ProjectSourceSetEventPageCursor = z.infer<
+  typeof ProjectSourceSetEventPageCursorSchema
+>;
+
+export const ProjectSourceSetEventPageDatabaseResultSchema =
+  z.discriminatedUnion("outcome", [
+    z
+      .object({
+        outcome: z.literal("ready"),
+        events: ProjectSourceSetEventListSchema,
+        nextCursor: ProjectSourceSetEventPageCursorSchema.nullable(),
+      })
+      .strict(),
+    z.object({ outcome: z.literal("missing") }).strict(),
+  ]);
+
+export const ProjectSourceSetEventPageSchema = z
+  .object({
+    events: ProjectSourceSetEventListSchema,
+    nextCursor: z.string().min(1).max(512).nullable(),
+  })
+  .strict();
+export type ProjectSourceSetEventPage = z.infer<
+  typeof ProjectSourceSetEventPageSchema
+>;
+
 export const ProjectConversationSchema = z
   .object({
     conversationId: z.uuid().nullable(),
@@ -426,6 +514,10 @@ export const ProjectConversationSchema = z
     messagesUsed: z.number().int().nonnegative(),
     messagesLimit: z.literal(5).nullable(),
     tier: z.enum(["free", "pro"]),
+    nextCursor: z.string().min(1).max(512).nullable(),
+    // Optional keeps the DB-first rollout readable while old application
+    // instances still return the pre-pagination conversation envelope.
+    nextEventCursor: z.string().min(1).max(512).nullable().optional(),
   })
   .strict();
 
@@ -434,7 +526,15 @@ export type ProjectConversation = z.infer<typeof ProjectConversationSchema>;
 export const ProjectConversationDatabaseResultSchema = z.discriminatedUnion(
   "outcome",
   [
-    ProjectConversationSchema.extend({ outcome: z.literal("ready") }).strict(),
+    ProjectConversationSchema.omit({
+      nextCursor: true,
+      nextEventCursor: true,
+    })
+      .extend({
+        outcome: z.literal("ready"),
+        nextCursor: ProjectConversationPageCursorSchema.nullable(),
+      })
+      .strict(),
     z.object({ outcome: z.literal("missing") }).strict(),
   ],
 );
@@ -445,14 +545,17 @@ export const ProjectQuestionStartDatabaseResultSchema = z.discriminatedUnion(
     z
       .object({
         outcome: z.literal("started"),
+        created: z.boolean(),
         conversationId: z.uuid(),
         userMessageId: z.uuid(),
         attemptToken: z.uuid(),
+        completionState: z.enum(["reserved", "completed", "cancelled"]),
         messagesUsed: z.number().int().positive(),
         messagesLimit: z.literal(5).nullable(),
         tier: z.enum(["free", "pro"]),
         mode: ProjectConversationModeSchema.optional(),
         history: z.array(ProjectConversationMessageSchema).max(16),
+        goal: z.string().min(1).max(2_000).nullable(),
       })
       .strict(),
     z
@@ -472,20 +575,90 @@ export type ProjectQuestionReservation = Omit<
   Extract<
     z.infer<typeof ProjectQuestionStartDatabaseResultSchema>,
     { outcome: "started" }
->,
-  "outcome" | "mode"
-> & { readonly mode?: ProjectConversationMode };
+  >,
+  "outcome" | "created" | "completionState" | "goal"
+>;
 
 export const ProjectQuestionCancellationDatabaseResultSchema =
   z.discriminatedUnion("outcome", [
     z.object({ outcome: z.literal("cancelled") }).strict(),
-    z.object({ outcome: z.literal("missing") }).strict(),
+    z
+      .object({
+        outcome: z.literal("completed"),
+        assistantMessageId: z.uuid(),
+      })
+      .strict(),
+    z.object({ outcome: z.literal("forbidden") }).strict(),
+    z.object({ outcome: z.literal("stale") }).strict(),
   ]);
 
 export type ProjectQuestionCancellationResolution =
   | { readonly status: "cancelled" }
+  | { readonly status: "completed"; readonly assistantMessageId: string }
+  | { readonly status: "stale" }
+  | { readonly status: "unavailable" };
+
+export const ProjectGroundedAttemptDatabaseResultSchema =
+  z.discriminatedUnion("outcome", [
+    z
+      .object({
+        outcome: z.literal("ready"),
+        userMessageId: z.uuid(),
+        state: z.enum(["reserved", "completed", "cancelled"]),
+        assistant: ProjectConversationAssistantMessageSchema.nullable(),
+      })
+      .strict()
+      .superRefine((attempt, context) => {
+        if (
+          (attempt.state === "completed") !== (attempt.assistant !== null)
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Completed attempts must include their assistant.",
+          });
+        }
+      }),
+    z.object({ outcome: z.literal("missing") }).strict(),
+  ]);
+
+export type ProjectGroundedAttemptResolution =
+  | {
+      readonly status: "ready";
+      readonly userMessageId: string;
+      readonly state: "reserved" | "completed" | "cancelled";
+      readonly assistant: Extract<
+        ProjectConversationMessage,
+        { role: "assistant" }
+      > | null;
+    }
   | { readonly status: "missing" }
   | { readonly status: "unavailable" };
+
+export const ProjectGroundedAttemptResolutionSchema = z.discriminatedUnion(
+  "status",
+  [
+    z
+      .object({
+        status: z.literal("ready"),
+        userMessageId: z.uuid(),
+        state: z.enum(["reserved", "completed", "cancelled"]),
+        assistant: ProjectConversationAssistantMessageSchema.nullable(),
+      })
+      .strict()
+      .superRefine((attempt, context) => {
+        if (
+          (attempt.state === "completed") !== (attempt.assistant !== null)
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Completed attempts must include their assistant.",
+          });
+        }
+      }),
+    z.object({ status: z.literal("missing") }).strict(),
+    z.object({ status: z.literal("unavailable") }).strict(),
+  ],
+);
 
 export const ProjectAnswerCompletionDatabaseResultSchema = z.discriminatedUnion(
   "outcome",
@@ -494,12 +667,16 @@ export const ProjectAnswerCompletionDatabaseResultSchema = z.discriminatedUnion(
       .object({
         outcome: z.literal("completed"),
         assistantMessageId: z.uuid(),
+        answerClassification: ProjectAnswerClassificationSchema,
+        citationDiagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
       })
       .strict(),
     z
       .object({
         outcome: z.literal("already_completed"),
         assistantMessageId: z.uuid(),
+        answerClassification: ProjectAnswerClassificationSchema,
+        citationDiagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
       })
       .strict(),
     z.object({ outcome: z.literal("forbidden") }).strict(),
@@ -517,6 +694,12 @@ export type ProjectAnswerCompletionResolution =
   | { readonly outcome: "unavailable" };
 
 export const ProjectGroundedSseEventSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("question_reserved"),
+      userMessageId: z.uuid(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal("source_manifest"),
@@ -539,6 +722,12 @@ export const ProjectGroundedSseEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("delta"), text: z.string().min(1) }).strict(),
   z
     .object({
+      type: z.literal("persistence_started"),
+      userMessageId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("citation_diagnostics"),
       diagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
     })
@@ -559,7 +748,12 @@ export type ProjectGroundedAnswerResolution =
   | { readonly status: "unavailable" };
 
 export type ProjectQuestionStartResolution =
-  | ({ readonly status: "started" } & Omit<ProjectQuestionReservation, "outcome">)
+  | (ProjectQuestionReservation & {
+      readonly status: "started";
+      readonly created: boolean;
+      readonly completionState: "reserved" | "completed" | "cancelled";
+      readonly goal: string | null;
+    })
   | {
       readonly status: "limit_reached";
       readonly messagesUsed: 5;
@@ -571,20 +765,45 @@ export type ProjectQuestionStartResolution =
   | { readonly status: "unavailable" };
 
 export interface ProjectGroundedAnswerCapability {
-  load(conversationId?: string): Promise<ProjectGroundedAnswerResolution>;
+  load(
+    conversationId?: string,
+    cursor?: ProjectConversationPageCursor | null,
+  ): Promise<ProjectGroundedAnswerResolution>;
+  loadEvents(
+    cursor?: ProjectSourceSetEventPageCursor | null,
+  ): Promise<
+    | ({ readonly status: "ready" } & ProjectSourceSetEventPage)
+    | { readonly status: "missing" }
+    | { readonly status: "unavailable" }
+  >;
+  loadAttempt(
+    questionId: string,
+    conversationId?: string,
+  ): Promise<ProjectGroundedAttemptResolution>;
   start(
+    questionId: string,
     question: string,
     conversationId?: string,
     mode?: ProjectConversationMode,
   ): Promise<ProjectQuestionStartResolution>;
-  cancel(userMessageId: string): Promise<ProjectQuestionCancellationResolution>;
+  cancel(
+    reservation: ProjectQuestionReservation,
+  ): Promise<ProjectQuestionCancellationResolution>;
+  beginPersistence(
+    input: {
+      readonly reservation: ProjectQuestionReservation;
+      readonly assistantContent: string;
+      readonly classification: ProjectAnswerClassification;
+      readonly mode?: ProjectConversationMode;
+      readonly artifacts: z.infer<typeof ProjectAnswerArtifactsSchema>;
+    },
+  ): Promise<ProjectAnswerCompletionResolution>;
   complete(input: {
     readonly reservation: ProjectQuestionReservation;
     readonly assistantContent: string;
     readonly classification: ProjectAnswerClassification;
     readonly mode?: ProjectConversationMode;
     readonly artifacts: z.infer<typeof ProjectAnswerArtifactsSchema>;
-    readonly citationDiagnostics: readonly ProjectCitationDiagnostic[];
   }): Promise<ProjectAnswerCompletionResolution>;
 }
 

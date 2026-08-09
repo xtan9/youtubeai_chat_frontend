@@ -16,7 +16,7 @@ names, and extra fields fail validation before an analytics transport is called.
 
 | Dimension | Governed values | Meaning |
 | --- | --- | --- |
-| `source_surface` | `global_header`, `public_footer`, `plan_and_billing`, `account`, `summary_limit`, `video_chat_limit`, `history_limit`, `project_limit`, `direct_pricing` | The earliest governed Subscription-discovery surface for the interaction. Preserve it through Pricing and checkout; use `project_limit` when a registered Free Researcher sees the Upgrade to Pro action at the Project allowance, and use `direct_pricing` only when Pricing was entered without a governed source. `account` is reserved for retained migration links from the legacy Account billing presentation. |
+| `source_surface` | `global_header`, `public_footer`, `plan_and_billing`, `account`, `summary_limit`, `video_chat_limit`, `history_limit`, `project_limit`, `project_chat_limit`, `direct_pricing` | The earliest governed Subscription-discovery surface for the interaction. Preserve it through Pricing and checkout; use `project_limit` for the Project-count allowance, `project_chat_limit` for the five-message Free Project Conversation allowance, and `direct_pricing` only when Pricing was entered without a governed source. `account` is reserved for retained migration links from the legacy Account billing presentation. |
 | `presentation_state` | `pricing`, `upgrade_to_pro`, `pro_plan`, `billing_issue`, `plans`, `activating_pro` | The truthful label/state presented to the Learner. A loading placeholder is not an impression because it presents no plan action. |
 | `authentication_state` | `logged_out`, `anonymous_session`, `registered` | Privacy-safe identity state. Combine `registered` with `presentation_state` to segment Free Plan, active Pro Plan, and billing-issue journeys. |
 | `device_class` | `mobile`, `desktop` | The responsive presentation at interaction time. Use `SUBSCRIPTION_DISCOVERY_MOBILE_MEDIA_QUERY` (`max-width: 767px`) so this matches the governed `md` breakpoint. |
@@ -58,6 +58,7 @@ configuration.
 | `project_video_processing_started` | An owned Project atomically grants this request the only processing lease for a canonical Video membership. | Governed `status`, 1â€“5 `ordinal`, and `attempt_kind` only. |
 | `project_video_processing_succeeded` | The leased Summary Run completes and durable Transcript + Summary evidence is verified before membership becomes ready. | Governed `status`, `ordinal`, cache/generated origin, and stage timings only. |
 | `project_video_processing_failed` | A leased Summary Run or its durable evidence handoff reaches a classified failure, including an expired interrupted lease. | Governed `status`, `ordinal`, `error_class`, and processing duration only. |
+| `project_grounded_answer_completed` | The Project Conversation stream receives `done` only after the complete answer, authoritative classification, source manifest, coverage, source-set revision, Evidence Snapshot, and citation diagnostics have been durably committed. Aborted, failed, empty, stale, or partially streamed attempts do not emit it. | `classification`, optional governed `mode` (`compare_viewpoints`, `common_themes`, `find_gaps`, or `project_assessment`; ordinary questions omit it), `source_set_revision`, `total_videos`, `ready_videos`, `used_videos`, `unavailable_videos`, `passages_examined`, `passages_used`, `citation_diagnostics` |
 | `checkout_started` | The authenticated billing API returns a Stripe Checkout URL. A plan choice or failed API call is not counted. | See the Subscription-discovery contract above. |
 | `subscription_activated` | A signed Stripe webhook persists an `active` or `trialing` Pro Subscription. Subscription updates emit only on a non-Pro-to-Pro transition. | See the Subscription-discovery contract above. |
 
@@ -65,6 +66,12 @@ configuration.
 only. The shared Google OAuth callback cannot currently distinguish a new
 registration from a returning login without a Supabase auth hook or durable
 signup-intent state. Do not count OAuth initiation as completion.
+
+`project_grounded_answer_completed` is content-free. Its properties contain
+only the governed classification, revision, and aggregate counts. Never add a
+Researcher, Workspace, Project, Conversation, Message, or Video identifier;
+Project or Video names; the question, Goal, prior messages, Transcript passage,
+answer text, citation strings, URLs, or diagnostic raw values.
 
 ## Project Search
 

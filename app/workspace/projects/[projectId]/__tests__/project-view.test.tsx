@@ -63,6 +63,7 @@ describe("ProjectView shared Source Set state", () => {
         initialConversation={{
           conversationId: null,
           messages: [],
+          nextCursor: null,
           messagesUsed: 0,
           messagesLimit: 5,
           tier: "free",
