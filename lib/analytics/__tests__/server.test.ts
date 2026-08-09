@@ -35,12 +35,12 @@ afterEach(() => {
 
 describe("captureSubscriptionActivated", () => {
   it("captures the server-confirmed activation using the shared person ID", async () => {
-    await captureSubscriptionActivated("user-1", {
+    await expect(captureSubscriptionActivated("user-1", {
       source_surface: "stripe_webhook",
       plan: "monthly",
       billing_interval: "monthly",
       subscription_status: "active",
-    });
+    })).resolves.toBe("sent");
 
     expect(mocks.captureImmediate).toHaveBeenCalledWith({
       distinctId: "user-1",
@@ -58,7 +58,7 @@ describe("captureSubscriptionActivated", () => {
   });
 
   it("suppresses a trusted Smoke Account before constructing the PostHog client", async () => {
-    await captureSubscriptionActivated(
+    await expect(captureSubscriptionActivated(
       "smoke-user",
       {
         source_surface: "stripe_webhook",
@@ -67,7 +67,7 @@ describe("captureSubscriptionActivated", () => {
         subscription_status: "active",
       },
       { app_metadata: { is_smoke_account: true } },
-    );
+    )).resolves.toBe("skipped");
 
     expect(mocks.PostHog).not.toHaveBeenCalled();
     expect(mocks.captureImmediate).not.toHaveBeenCalled();
@@ -125,12 +125,12 @@ describe("captureSubscriptionActivated", () => {
   it("does nothing outside production", async () => {
     vi.stubEnv("NODE_ENV", "test");
 
-    await captureSubscriptionActivated("user-1", {
+    await expect(captureSubscriptionActivated("user-1", {
       source_surface: "stripe_webhook",
       plan: "yearly",
       billing_interval: "yearly",
       subscription_status: "trialing",
-    });
+    })).resolves.toBe("skipped");
 
     expect(mocks.PostHog).not.toHaveBeenCalled();
   });
@@ -138,7 +138,7 @@ describe("captureSubscriptionActivated", () => {
   it("rejects invalid activation attribution before constructing PostHog", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await captureSubscriptionActivated(
+    await expect(captureSubscriptionActivated(
       "user-1",
       {
         source_surface: "global_header",
@@ -149,7 +149,7 @@ describe("captureSubscriptionActivated", () => {
         billing_interval: "monthly",
         subscription_status: "active",
       } as never,
-    );
+    )).resolves.toBe("skipped");
 
     expect(mocks.PostHog).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(
@@ -159,6 +159,84 @@ describe("captureSubscriptionActivated", () => {
         event: "subscription_activated",
       }),
     );
+  });
+
+  it("reports a failed status when PostHog capture rejects", async () => {
+    mocks.captureImmediate.mockRejectedValueOnce(new Error("posthog down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      captureSubscriptionActivated("user-1", {
+        source_surface: "stripe_webhook",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      }),
+    ).resolves.toBe("failed");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] server capture failed",
+      expect.objectContaining({ errorId: "ANALYTICS_SERVER_CAPTURE_FAILED" }),
+    );
+  });
+
+  it("uses the same privacy-safe event UUID for activation lease reclaims", async () => {
+    const marker = "subscription_activation:user-1:sub-1";
+    await captureSubscriptionActivated(
+      "user-1",
+      {
+        source_surface: "stripe_webhook",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      },
+      undefined,
+      { activationMarker: marker },
+    );
+    const first = mocks.captureImmediate.mock.calls[0]?.[0] as { uuid?: string };
+
+    await captureSubscriptionActivated(
+      "user-1",
+      {
+        source_surface: "stripe_webhook",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      },
+      undefined,
+      { activationMarker: marker },
+    );
+    const second = mocks.captureImmediate.mock.calls[1]?.[0] as { uuid?: string };
+
+    expect(first.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(second.uuid).toBe(first.uuid);
+    expect(first.uuid).not.toContain("user-1");
+  });
+
+  it("uses a new UUID for a later billing cycle while deduping that cycle", async () => {
+    const firstCycle = "subscription_activation:user-1:sub-1:100-200";
+    const secondCycle = "subscription_activation:user-1:sub-1:300-400";
+    const properties = {
+      source_surface: "stripe_webhook" as const,
+      plan: "monthly" as const,
+      billing_interval: "monthly" as const,
+      subscription_status: "active" as const,
+    };
+
+    await captureSubscriptionActivated("user-1", properties, undefined, {
+      activationMarker: firstCycle,
+    });
+    await captureSubscriptionActivated("user-1", properties, undefined, {
+      activationMarker: firstCycle,
+    });
+    await captureSubscriptionActivated("user-1", properties, undefined, {
+      activationMarker: secondCycle,
+    });
+
+    const uuids = mocks.captureImmediate.mock.calls.map(
+      ([event]) => (event as { uuid?: string }).uuid,
+    );
+    expect(uuids[1]).toBe(uuids[0]);
+    expect(uuids[2]).not.toBe(uuids[0]);
   });
 });
 
