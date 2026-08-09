@@ -3,6 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubscriptionFunnelReport } from "@/lib/admin/subscription-funnel-report";
+import { SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS } from "@/lib/analytics/subscription-funnel-query";
 
 const mocks = vi.hoisted(() => ({
   requireAdminPage: vi.fn(),
@@ -21,16 +22,7 @@ vi.mock("@/lib/admin/subscription-funnel-report", () => ({
 
 import AdminSubscriptionsPage from "../page";
 
-const successEvents = [
-  "subscription_discovery_viewed",
-  "subscription_discovery_clicked",
-  "pricing_viewed",
-  "plan_choice_attempted",
-  "checkout_started",
-  "subscription_activated",
-] as const;
-
-const stages = successEvents.map((event, index) => ({
+const stages = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.map((event, index) => ({
   event,
   current: { events: 100 - index * 10, learners: 80 - index * 8 },
   baseline: { events: 50 - index * 5, learners: 40 - index * 4 },
@@ -115,6 +107,12 @@ describe("AdminSubscriptionsPage", () => {
     expect(screen.getByText("Network error")).toBeTruthy();
     expect(screen.getByText("Global header")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Failed" })).toBeTruthy();
+    expect(
+      screen.getAllByLabelText(
+        "8 learners lost in the current window, 10.0%; 4 learners lost in the baseline window, 10.0%",
+      ),
+    ).toHaveLength(5);
+    expect(screen.getAllByText("−4 base")).toHaveLength(5);
     expect(
       screen.getByText(/Smoke Account activity is excluded/i),
     ).toBeTruthy();

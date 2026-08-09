@@ -3,7 +3,9 @@ import { BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER } from "../queries";
 import { SUBSCRIPTION_DISCOVERY_EVENT_NAMES } from "../subscription-discovery";
 import {
   buildSubscriptionFunnelQuery,
+  parseSubscriptionFunnelProgressionResult,
   parseSubscriptionFunnelQueryResult,
+  SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS,
 } from "../subscription-funnel-query";
 
 describe("buildSubscriptionFunnelQuery", () => {
@@ -32,6 +34,13 @@ describe("buildSubscriptionFunnelQuery", () => {
       "timestamp < toDateTime64('2026-08-17T12:00:00.000Z', 3, 'UTC')",
     );
     expect(result.hogql).not.toContain("timestamp <=");
+    expect(result.progressionHogql).toContain(
+      "timestamp >= toDateTime64('2026-08-03T12:00:00.000Z', 3, 'UTC')",
+    );
+    expect(result.progressionHogql).toContain(
+      "timestamp < toDateTime64('2026-08-17T12:00:00.000Z', 3, 'UTC')",
+    );
+    expect(result.progressionHogql).not.toContain("timestamp <=");
   });
 
   it("compares an in-progress release window with an equal elapsed baseline", () => {
@@ -82,7 +91,7 @@ describe("buildSubscriptionFunnelQuery", () => {
   });
 
   it("selects the complete governed funnel in one Smoke-safe segmented scan", () => {
-    const { hogql } = buildSubscriptionFunnelQuery({
+    const { hogql, progressionHogql } = buildSubscriptionFunnelQuery({
       windowDays: 7,
       releaseAt: new Date("2026-08-10T12:00:00.000Z"),
       now: new Date("2026-08-17T12:00:00.000Z"),
@@ -112,6 +121,42 @@ describe("buildSubscriptionFunnelQuery", () => {
       );
     }
     expect(hogql).not.toMatch(/experiment|feature_flag/i);
+    expect(progressionHogql).toContain(
+      BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER,
+    );
+    expect(progressionHogql).not.toMatch(/experiment|feature_flag/i);
+  });
+
+  it("counts ordered learner progression for every adjacent stage", () => {
+    const { progressionHogql } = buildSubscriptionFunnelQuery({
+      windowDays: 7,
+      releaseAt: new Date("2026-08-10T12:00:00.000Z"),
+      now: new Date("2026-08-17T12:00:00.000Z"),
+    });
+
+    expect(progressionHogql).toContain("windowFunnel(604800)(");
+    expect(progressionHogql).toContain("toDateTime(timestamp)");
+    expect(progressionHogql.match(/windowFunnel\(604800\)/g)).toHaveLength(
+      SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.length - 1,
+    );
+    for (
+      let index = 1;
+      index < SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.length;
+      index += 1
+    ) {
+      const previousEvent =
+        SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS[index - 1];
+      const event = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS[index];
+      expect(progressionHogql).toContain(
+        `event = '${previousEvent}',\n      event = '${event}'`,
+      );
+      expect(progressionHogql).toContain(
+        `countIf(progressed_${event} >= 2) AS progressed_${event}`,
+      );
+    }
+    expect(progressionHogql).toContain(
+      "GROUP BY period, segment_dimension, segment_value, person_id",
+    );
   });
 });
 
@@ -182,5 +227,66 @@ describe("parseSubscriptionFunnelQueryResult", () => {
         ],
       }),
     ).toThrow("Invalid Subscription funnel segment_dimension at row 0");
+  });
+});
+
+describe("parseSubscriptionFunnelProgressionResult", () => {
+  const columns = [
+    "period",
+    "segment_dimension",
+    "segment_value",
+    "progressed_subscription_discovery_clicked",
+    "progressed_pricing_viewed",
+    "progressed_plan_choice_attempted",
+    "progressed_checkout_started",
+    "progressed_subscription_activated",
+  ];
+
+  it("parses ordered adjacent-stage learner intersections", () => {
+    expect(
+      parseSubscriptionFunnelProgressionResult({
+        columns,
+        results: [
+          ["current", "overall", "all", 40, 31, 18, 9, 6],
+          ["baseline", "source_surface", "global_header", 20, 14, 8, 4, 3],
+        ],
+      }),
+    ).toEqual([
+      {
+        period: "current",
+        segmentDimension: "overall",
+        segmentValue: "all",
+        progressedLearners: {
+          subscription_discovery_clicked: 40,
+          pricing_viewed: 31,
+          plan_choice_attempted: 18,
+          checkout_started: 9,
+          subscription_activated: 6,
+        },
+      },
+      {
+        period: "baseline",
+        segmentDimension: "source_surface",
+        segmentValue: "global_header",
+        progressedLearners: {
+          subscription_discovery_clicked: 20,
+          pricing_viewed: 14,
+          plan_choice_attempted: 8,
+          checkout_started: 4,
+          subscription_activated: 3,
+        },
+      },
+    ]);
+  });
+
+  it("rejects malformed progression counts", () => {
+    expect(() =>
+      parseSubscriptionFunnelProgressionResult({
+        columns,
+        results: [["current", "overall", "all", 1.5, 1, 1, 1, 1]],
+      }),
+    ).toThrow(
+      "Invalid Subscription funnel progressed_subscription_discovery_clicked at row 0",
+    );
   });
 });

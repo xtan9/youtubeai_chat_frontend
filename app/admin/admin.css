@@ -440,7 +440,8 @@
   border-radius: var(--radius-md);
   background: var(--primary-soft);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--text-body-xs);
+  line-height: var(--text-body-xs--line-height);
 }
 [data-admin-scope] .subscription-funnel-audience-note svg {
   flex: 0 0 auto;
@@ -456,8 +457,8 @@
 [data-admin-scope] .subscription-funnel-rail {
   display: grid;
   grid-template-columns: repeat(6, minmax(144px, 1fr));
-  gap: 30px;
-  min-width: 1020px;
+  gap: 46px;
+  min-width: 1100px;
   margin: 0;
   padding: 22px 18px 20px;
   list-style: none;
@@ -481,31 +482,34 @@
   margin-bottom: 14px;
   color: var(--text-4);
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 [data-admin-scope] .subscription-funnel-stage h3 {
   min-height: 34px;
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.35;
+  font-size: var(--text-body-xs);
+  font-weight: var(--text-h4--font-weight);
+  line-height: var(--text-body-xs--line-height);
 }
 [data-admin-scope] .subscription-funnel-stage strong {
   margin-top: 8px;
   color: var(--text);
-  font-size: 27px;
+  font-size: var(--text-h3);
+  font-weight: var(--text-h3--font-weight);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-  line-height: 1;
+  letter-spacing: var(--text-h3--letter-spacing);
+  line-height: var(--text-h3--line-height);
 }
 [data-admin-scope] .subscription-funnel-unit {
   margin-top: 3px;
   color: var(--text-3);
-  font-size: 10px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 [data-admin-scope] .subscription-funnel-comparison {
   margin-top: auto;
@@ -515,7 +519,8 @@
   gap: 8px;
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 [data-admin-scope] .subscription-funnel-meter {
   height: 3px;
@@ -535,35 +540,68 @@
 [data-admin-scope] .subscription-funnel-loss {
   position: absolute;
   z-index: 1;
-  top: 70px;
-  left: -29px;
-  width: 28px;
+  top: 48px;
+  left: -45px;
+  width: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
   color: var(--bad);
   font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.1;
+  font-size: var(--text-body-xs);
+  line-height: var(--text-body-xs--line-height);
   text-align: center;
 }
 [data-admin-scope] .subscription-funnel-loss::before,
 [data-admin-scope] .subscription-funnel-loss::after {
   content: "";
   position: absolute;
-  top: 12px;
-  width: 8px;
+  top: 16px;
+  width: 14px;
   height: 1px;
   background: var(--border-strong);
 }
-[data-admin-scope] .subscription-funnel-loss::before { left: -5px; }
-[data-admin-scope] .subscription-funnel-loss::after { right: -5px; }
+[data-admin-scope] .subscription-funnel-loss::before { left: -2px; }
+[data-admin-scope] .subscription-funnel-loss::after { right: -2px; }
 [data-admin-scope] .subscription-funnel-loss small {
-  margin-top: 3px;
+  margin-top: 1px;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 8.5px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   white-space: nowrap;
+}
+[data-admin-scope] .subscription-funnel-loss-baseline {
+  margin-top: 4px;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-strong);
+}
+[data-admin-scope] .subscription-funnel-error {
+  max-width: 640px;
+  padding: 24px;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+[data-admin-scope] .subscription-funnel-error svg {
+  color: var(--bad);
+}
+[data-admin-scope] .subscription-funnel-error h2 {
+  margin: 0;
+  font-size: var(--text-h5);
+  font-weight: var(--text-h5--font-weight);
+  line-height: var(--text-h5--line-height);
+}
+[data-admin-scope] .subscription-funnel-error p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+}
+[data-admin-scope] .subscription-funnel-error .btn {
+  margin-top: 8px;
 }
 [data-admin-scope] .subscription-funnel-failures {
   display: grid;
@@ -591,13 +629,16 @@
 }
 [data-admin-scope] .subscription-funnel-failure-summary strong {
   color: var(--bad);
-  font-size: 24px;
+  font-size: var(--text-h4);
+  font-weight: var(--text-h4--font-weight);
+  line-height: var(--text-h4--line-height);
   font-variant-numeric: tabular-nums;
 }
 [data-admin-scope] .subscription-funnel-failure-summary small {
   grid-column: 1 / -1;
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: var(--text-body-xs);
+  line-height: var(--text-body-xs--line-height);
 }
 [data-admin-scope] .subscription-funnel-table-wrap {
   min-width: 0;
@@ -619,8 +660,9 @@
 [data-admin-scope] .subscription-funnel-table-wrap .tbl tbody th {
   padding: 10px 14px;
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-body-xs);
+  font-weight: var(--text-h4--font-weight);
+  line-height: var(--text-body-xs--line-height);
   text-align: left;
   white-space: nowrap;
 }
@@ -642,13 +684,15 @@
   display: block;
 }
 [data-admin-scope] .subscription-funnel-segment .tbl td strong {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-body-xs);
+  font-weight: var(--text-h4--font-weight);
+  line-height: var(--text-body-xs--line-height);
 }
 [data-admin-scope] .subscription-funnel-segment .tbl td small {
   margin-top: 1px;
   color: var(--text-4);
-  font-size: 9.5px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 
 @media (max-width: 820px) {

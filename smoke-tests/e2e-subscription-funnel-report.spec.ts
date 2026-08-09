@@ -8,25 +8,21 @@ import {
 } from "node:http";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS } from "../lib/analytics/subscription-funnel-query";
 
 const ADMIN_EMAIL = "admin@example.test";
 const ADMIN_USER_ID = "11111111-1111-4111-8111-111111111111";
 const AUTH_COOKIE_NAME = "sb-fixture-auth-token";
 const RELEASE_AT = "2026-07-01T12:00:00.000Z";
 
-const SUCCESS_EVENTS = [
-  "subscription_discovery_viewed",
-  "subscription_discovery_clicked",
-  "pricing_viewed",
-  "plan_choice_attempted",
-  "checkout_started",
-  "subscription_activated",
-] as const;
-
 const CURRENT_EVENTS = [180, 82, 70, 45, 33, 24] as const;
 const CURRENT_LEARNERS = [120, 76, 68, 42, 31, 24] as const;
 const BASELINE_EVENTS = [142, 67, 58, 34, 22, 16] as const;
 const BASELINE_LEARNERS = [100, 60, 52, 31, 20, 15] as const;
+const CURRENT_PROGRESSIONS = [76, 65, 40, 29, 21] as const;
+const BASELINE_PROGRESSIONS = [60, 50, 29, 18, 14] as const;
+
+let postHogMode: "success" | "failure" = "success";
 
 let appProcess: ChildProcess | undefined;
 let appUrl = "";
@@ -99,6 +95,7 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ context }) => {
+  postHogMode = "success";
   await context.route("**/api/me/entitlements", async (route) => {
     await route.fulfill({
       status: 200,
@@ -151,6 +148,17 @@ test("desktop report tells the complete fourteen-day conversion story", async ({
   await expect(page.getByText("Subscription activated")).toBeVisible();
   await expect(page.getByText("Current failures")).toBeVisible();
   await expect(page.getByText("Network error")).toBeVisible();
+  await expect(
+    page.locator(".subscription-funnel-loss").filter({
+      has: page.getByText(/base$/),
+    }),
+  ).toHaveCount(5);
+  await expect(
+    page.getByRole("rowheader", { name: "Stripe webhook", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("rowheader", { name: "Unattributed", exact: true }).first(),
+  ).toBeVisible();
 
   for (const segment of [
     "Source surface",
@@ -176,6 +184,24 @@ test("desktop report tells the complete fourteen-day conversion story", async ({
     path: testInfo.outputPath("subscription-funnel-desktop.png"),
     fullPage: true,
   });
+});
+
+test("provider failure renders a deterministic non-partial report boundary", async ({
+  page,
+}) => {
+  postHogMode = "failure";
+  const response = await page.goto(`${appUrl}/admin/subscriptions?window=7`);
+  expect(response?.status()).toBe(500);
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Subscription report unavailable",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No partial funnel is shown.", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry report" })).toBeVisible();
 });
 
 test("mobile report contains wide data locally and switches comparison window", async ({
@@ -271,6 +297,35 @@ async function handleFixtureRequest(
     ) {
       return sendJson(response, 400, { detail: "invalid fixture query" });
     }
+    if (postHogMode === "failure") {
+      return sendJson(response, 503, {
+        detail: "deterministic analytics outage",
+      });
+    }
+    if (body.name.includes("ordered_progression")) {
+      if (!body.query.query.includes("windowFunnel")) {
+        return sendJson(response, 400, {
+          detail: "progression query is not ordered",
+        });
+      }
+      return sendJson(response, 200, {
+        columns: [
+          "period",
+          "segment_dimension",
+          "segment_value",
+          "progressed_subscription_discovery_clicked",
+          "progressed_pricing_viewed",
+          "progressed_plan_choice_attempted",
+          "progressed_checkout_started",
+          "progressed_subscription_activated",
+        ],
+        results: subscriptionProgressionRows(),
+        is_cached: false,
+      });
+    }
+    if (!body.name.includes("stage_counts")) {
+      return sendJson(response, 400, { detail: "unknown fixture query" });
+    }
     return sendJson(response, 200, {
       columns: [
         "period",
@@ -314,6 +369,34 @@ function subscriptionFunnelRows(): unknown[][] {
   }
 
   rows.push(
+    ["current", "checkout_started", "source_surface", "pricing", 2, 2],
+    [
+      "baseline",
+      "subscription_activated",
+      "source_surface",
+      "stripe_webhook",
+      1,
+      1,
+    ],
+    [
+      "current",
+      "checkout_started",
+      "presentation_state",
+      "unattributed",
+      2,
+      2,
+    ],
+    [
+      "baseline",
+      "subscription_activated",
+      "device_class",
+      "unattributed",
+      1,
+      1,
+    ],
+  );
+
+  rows.push(
     [
       "current",
       "checkout_failed",
@@ -334,13 +417,36 @@ function subscriptionFunnelRows(): unknown[][] {
   return rows;
 }
 
+function subscriptionProgressionRows(): unknown[][] {
+  const rows: unknown[][] = [];
+  appendProgressionRows(rows, "overall", "all");
+
+  for (const [dimension, value] of [
+    ["source_surface", "global_header"],
+    ["presentation_state", "upgrade_to_pro"],
+    ["authentication_state", "registered"],
+    ["device_class", "desktop"],
+  ] as const) {
+    appendProgressionRows(rows, dimension, value);
+  }
+
+  for (const [dimension, value] of [
+    ["plan", "yearly"],
+    ["billing_interval", "yearly"],
+  ] as const) {
+    appendProgressionRows(rows, dimension, value, 3);
+  }
+
+  return rows;
+}
+
 function appendStageRows(
   rows: unknown[][],
   dimension: string,
   value: string,
   firstStageIndex = 0,
 ) {
-  SUCCESS_EVENTS.forEach((event, index) => {
+  SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.forEach((event, index) => {
     if (index < firstStageIndex) return;
     rows.push(
       [
@@ -364,6 +470,32 @@ function appendStageRows(
   rows.push(
     ["current", "checkout_failed", dimension, value, 7, 6],
     ["baseline", "checkout_failed", dimension, value, 4, 3],
+  );
+}
+
+function appendProgressionRows(
+  rows: unknown[][],
+  dimension: string,
+  value: string,
+  firstStageIndex = 0,
+) {
+  rows.push(
+    [
+      "current",
+      dimension,
+      value,
+      ...CURRENT_PROGRESSIONS.map((count, index) =>
+        index + 1 <= firstStageIndex ? 0 : count,
+      ),
+    ],
+    [
+      "baseline",
+      dimension,
+      value,
+      ...BASELINE_PROGRESSIONS.map((count, index) =>
+        index + 1 <= firstStageIndex ? 0 : count,
+      ),
+    ],
   );
 }
 

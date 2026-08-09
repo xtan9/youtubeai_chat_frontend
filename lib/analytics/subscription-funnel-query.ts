@@ -7,6 +7,22 @@ import {
 
 const DAY_MS = 86_400_000;
 
+export const SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS = [
+  "subscription_discovery_viewed",
+  "subscription_discovery_clicked",
+  "pricing_viewed",
+  "plan_choice_attempted",
+  "checkout_started",
+  "subscription_activated",
+] as const satisfies readonly SubscriptionDiscoveryEventName[];
+
+export type SubscriptionFunnelSuccessStageEvent =
+  (typeof SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS)[number];
+export type SubscriptionFunnelProgressionStageEvent = Exclude<
+  SubscriptionFunnelSuccessStageEvent,
+  "subscription_discovery_viewed"
+>;
+
 export const SUBSCRIPTION_FUNNEL_SEGMENT_DIMENSIONS = [
   "source_surface",
   "presentation_state",
@@ -36,6 +52,7 @@ interface SerializedWindow {
 
 export interface SubscriptionFunnelQuery {
   hogql: string;
+  progressionHogql: string;
   windows: {
     baseline: SerializedWindow;
     current: SerializedWindow;
@@ -55,6 +72,13 @@ export interface SubscriptionFunnelQueryRow {
   segmentValue: string;
   eventCount: number;
   learnerCount: number;
+}
+
+export interface SubscriptionFunnelProgressionRow {
+  period: "baseline" | "current";
+  segmentDimension: SubscriptionFunnelQueryDimension;
+  segmentValue: string;
+  progressedLearners: Record<SubscriptionFunnelProgressionStageEvent, number>;
 }
 
 export function buildSubscriptionFunnelQuery(
@@ -85,6 +109,10 @@ export function buildSubscriptionFunnelQuery(
     start: input.releaseAt.toISOString(),
     end: currentEnd.toISOString(),
   };
+  const progressionWindowSeconds = Math.max(
+    1,
+    Math.ceil(observedDurationMs / 1_000),
+  );
 
   return {
     windows: {
@@ -96,11 +124,7 @@ export function buildSubscriptionFunnelQuery(
       "SELECT",
       `  if(timestamp >= ${hogqlDateTime(current.start)}, 'current', 'baseline') AS period,`,
       "  event,",
-      "  (arrayJoin(arrayZip(",
-      `    ['overall', ${SUBSCRIPTION_FUNNEL_SEGMENT_DIMENSIONS.map(quoteHogqlString).join(", ")}],`,
-      `    ['all', ${SUBSCRIPTION_FUNNEL_SEGMENT_DIMENSIONS.map(attributionValue).join(", ")}]`,
-      "  )) AS segment).1 AS segment_dimension,",
-      "  segment.2 AS segment_value,",
+      ...segmentSelection("  "),
       "  count() AS event_count,",
       "  count(DISTINCT person_id) AS learner_count",
       "FROM events",
@@ -111,7 +135,68 @@ export function buildSubscriptionFunnelQuery(
       "GROUP BY period, event, segment_dimension, segment_value",
       "ORDER BY period, event, segment_dimension, segment_value",
     ].join("\n"),
+    progressionHogql: buildProgressionHogql({
+      baseline,
+      current,
+      progressionWindowSeconds,
+    }),
   };
+}
+
+function buildProgressionHogql(input: {
+  baseline: SerializedWindow;
+  current: SerializedWindow;
+  progressionWindowSeconds: number;
+}): string {
+  const progressionStages = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.slice(
+    1,
+  ) as readonly SubscriptionFunnelProgressionStageEvent[];
+
+  return [
+    "WITH per_person AS (",
+    "  SELECT",
+    `    if(timestamp >= ${hogqlDateTime(input.current.start)}, 'current', 'baseline') AS period,`,
+    ...segmentSelection("    "),
+    "    person_id,",
+    ...progressionStages.map((event, index) => {
+      const previousEvent = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS[index];
+      return [
+        `    windowFunnel(${input.progressionWindowSeconds})(`,
+        "      toDateTime(timestamp),",
+        `      event = ${quoteHogqlString(previousEvent)},`,
+        `      event = ${quoteHogqlString(event)}`,
+        `    ) AS progressed_${event}${index === progressionStages.length - 1 ? "" : ","}`,
+      ].join("\n");
+    }),
+    "  FROM events",
+    `  WHERE timestamp >= ${hogqlDateTime(input.baseline.start)}`,
+    `    AND timestamp < ${hogqlDateTime(input.current.end)}`,
+    `    AND event IN (${SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.map(quoteHogqlString).join(", ")})`,
+    `    AND ${BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER}`,
+    "  GROUP BY period, segment_dimension, segment_value, person_id",
+    ")",
+    "SELECT",
+    "  period,",
+    "  segment_dimension,",
+    "  segment_value,",
+    ...progressionStages.map(
+      (event, index) =>
+        `  countIf(progressed_${event} >= 2) AS progressed_${event}${index === progressionStages.length - 1 ? "" : ","}`,
+    ),
+    "FROM per_person",
+    "GROUP BY period, segment_dimension, segment_value",
+    "ORDER BY period, segment_dimension, segment_value",
+  ].join("\n");
+}
+
+function segmentSelection(indent: string): string[] {
+  return [
+    `${indent}(arrayJoin(arrayZip(`,
+    `${indent}  ['overall', ${SUBSCRIPTION_FUNNEL_SEGMENT_DIMENSIONS.map(quoteHogqlString).join(", ")}],`,
+    `${indent}  ['all', ${SUBSCRIPTION_FUNNEL_SEGMENT_DIMENSIONS.map(attributionValue).join(", ")}]`,
+    `${indent})) AS segment).1 AS segment_dimension,`,
+    `${indent}segment.2 AS segment_value,`,
+  ];
 }
 
 function hogqlDateTime(iso: string): string {
@@ -136,11 +221,7 @@ export function parseSubscriptionFunnelQueryResult(
   );
 
   return result.results.map((row, rowIndex) => {
-    const period = readString(row, columnIndex, "period", rowIndex);
-    if (period !== "baseline" && period !== "current") {
-      throw new Error(`Invalid Subscription funnel period at row ${rowIndex}`);
-    }
-
+    const period = readPeriod(row, columnIndex, rowIndex);
     const event = readString(row, columnIndex, "event", rowIndex);
     if (!isSubscriptionDiscoveryEventName(event)) {
       throw new Error(`Invalid Subscription funnel event at row ${rowIndex}`);
@@ -164,6 +245,51 @@ export function parseSubscriptionFunnelQueryResult(
       learnerCount: readCount(row, columnIndex, "learner_count", rowIndex),
     };
   });
+}
+
+export function parseSubscriptionFunnelProgressionResult(
+  result: SubscriptionFunnelQueryResult,
+): SubscriptionFunnelProgressionRow[] {
+  const columnIndex = new Map(
+    result.columns.map((column, index) => [column, index]),
+  );
+  const progressionStages = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.slice(
+    1,
+  ) as readonly SubscriptionFunnelProgressionStageEvent[];
+
+  return result.results.map((row, rowIndex) => ({
+    period: readPeriod(row, columnIndex, rowIndex),
+    segmentDimension: readSegmentDimension(row, columnIndex, rowIndex),
+    segmentValue: readString(
+      row,
+      columnIndex,
+      "segment_value",
+      rowIndex,
+    ),
+    progressedLearners: Object.fromEntries(
+      progressionStages.map((event) => [
+        event,
+        readCount(
+          row,
+          columnIndex,
+          `progressed_${event}`,
+          rowIndex,
+        ),
+      ]),
+    ) as Record<SubscriptionFunnelProgressionStageEvent, number>,
+  }));
+}
+
+function readPeriod(
+  row: unknown[],
+  columnIndex: Map<string, number>,
+  rowIndex: number,
+): SubscriptionFunnelQueryRow["period"] {
+  const period = readString(row, columnIndex, "period", rowIndex);
+  if (period !== "baseline" && period !== "current") {
+    throw new Error(`Invalid Subscription funnel period at row ${rowIndex}`);
+  }
+  return period;
 }
 
 function readSegmentDimension(

@@ -1,13 +1,18 @@
 import "server-only";
 
 import type {
+  SubscriptionFunnelProgressionRow,
+  SubscriptionFunnelProgressionStageEvent,
   SubscriptionFunnelQueryRow,
+  SubscriptionFunnelSuccessStageEvent,
   SubscriptionFunnelWindowDays,
   SubscriptionFunnelQuery,
 } from "@/lib/analytics/subscription-funnel-query";
 import {
   buildSubscriptionFunnelQuery,
+  parseSubscriptionFunnelProgressionResult,
   parseSubscriptionFunnelQueryResult,
+  SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS,
 } from "@/lib/analytics/subscription-funnel-query";
 import {
   executePostHogHogQlQuery,
@@ -15,15 +20,6 @@ import {
   type PostHogHogQlResult,
 } from "@/lib/analytics/posthog-query";
 import type { SubscriptionDiscoveryEventName } from "@/lib/analytics/subscription-discovery";
-
-const SUCCESS_STAGE_EVENTS = [
-  "subscription_discovery_viewed",
-  "subscription_discovery_clicked",
-  "pricing_viewed",
-  "plan_choice_attempted",
-  "checkout_started",
-  "subscription_activated",
-] as const satisfies readonly SubscriptionDiscoveryEventName[];
 
 const SEGMENT_DIMENSIONS = [
   "source_surface",
@@ -35,7 +31,6 @@ const SEGMENT_DIMENSIONS = [
 ] as const satisfies readonly SubscriptionFunnelSegmentDimension[];
 
 type FunnelPeriod = SubscriptionFunnelQueryRow["period"];
-type SuccessStageEvent = (typeof SUCCESS_STAGE_EVENTS)[number];
 export type SubscriptionFunnelSegmentDimension =
   | "source_surface"
   | "presentation_state"
@@ -55,7 +50,7 @@ interface FunnelDropOff {
 }
 
 export interface SubscriptionFunnelStage {
-  event: SuccessStageEvent;
+  event: SubscriptionFunnelSuccessStageEvent;
   current: FunnelCount;
   baseline: FunnelCount;
   currentDropOff: FunnelDropOff | null;
@@ -102,6 +97,7 @@ interface BuildSubscriptionFunnelReportInput {
   windows: SubscriptionFunnelQuery["windows"];
   isCached: boolean;
   rows: SubscriptionFunnelQueryRow[];
+  progressions: SubscriptionFunnelProgressionRow[];
 }
 
 interface LoadSubscriptionFunnelReportInput {
@@ -159,19 +155,25 @@ export async function loadSubscriptionFunnelReport(
   dependencies: SubscriptionFunnelReportDependencies = {},
 ): Promise<SubscriptionFunnelReport> {
   const query = buildSubscriptionFunnelQuery(input);
-  const result = await (
-    dependencies.executeQuery ?? executePostHogHogQlQuery
-  )({
-    hogql: query.hogql,
-    name: `subscription_conversion_funnel_${input.windowDays}_day`,
-  });
+  const executeQuery = dependencies.executeQuery ?? executePostHogHogQlQuery;
+  const [stageResult, progressionResult] = await Promise.all([
+    executeQuery({
+      hogql: query.hogql,
+      name: `subscription_conversion_funnel_stage_counts_${input.windowDays}_day`,
+    }),
+    executeQuery({
+      hogql: query.progressionHogql,
+      name: `subscription_conversion_funnel_ordered_progression_${input.windowDays}_day`,
+    }),
+  ]);
 
   return buildSubscriptionFunnelReport({
     windowDays: input.windowDays,
     releaseAt: input.releaseAt.toISOString(),
     windows: query.windows,
-    isCached: result.isCached,
-    rows: parseSubscriptionFunnelQueryResult(result),
+    isCached: stageResult.isCached && progressionResult.isCached,
+    rows: parseSubscriptionFunnelQueryResult(stageResult),
+    progressions: parseSubscriptionFunnelProgressionResult(progressionResult),
   });
 }
 
@@ -181,24 +183,30 @@ export function buildSubscriptionFunnelReport(
   const totals = aggregateRows(
     input.rows.filter((row) => row.segmentDimension === "overall"),
   );
+  const progressions = aggregateProgressions(
+    input.progressions.filter(
+      (progression) => progression.segmentDimension === "overall",
+    ),
+  );
 
   return {
     windowDays: input.windowDays,
     releaseAt: input.releaseAt,
     windows: input.windows,
     isCached: input.isCached,
-    stages: buildStages(totals),
+    stages: buildStages(totals, progressions),
     checkoutFailures: {
       current: failureCount(totals, "current"),
       baseline: failureCount(totals, "baseline"),
     },
-    segments: buildSegments(input.rows),
+    segments: buildSegments(input.rows, input.progressions),
     failureCategories: buildFailureCategories(input.rows),
   };
 }
 
 function buildSegments(
   rows: SubscriptionFunnelQueryRow[],
+  progressions: SubscriptionFunnelProgressionRow[],
 ): SubscriptionFunnelSegment[] {
   return SEGMENT_DIMENSIONS.flatMap((dimension) => {
     const dimensionRows = rows.filter(
@@ -211,10 +219,17 @@ function buildSegments(
       const totals = aggregateRows(
         dimensionRows.filter((row) => row.segmentValue === value),
       );
+      const progressionTotals = aggregateProgressions(
+        progressions.filter(
+          (progression) =>
+            progression.segmentDimension === dimension &&
+            progression.segmentValue === value,
+        ),
+      );
       return {
         dimension,
         value,
-        stages: buildStages(totals),
+        stages: buildStages(totals, progressionTotals),
         checkoutFailures: {
           current: failureCount(totals, "current"),
           baseline: failureCount(totals, "baseline"),
@@ -261,11 +276,27 @@ function aggregateRows(
   return totals;
 }
 
+function aggregateProgressions(
+  rows: SubscriptionFunnelProgressionRow[],
+): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    for (const [event, learnerCount] of Object.entries(
+      row.progressedLearners,
+    ) as [SubscriptionFunnelProgressionStageEvent, number][]) {
+      const key = countKey(row.period, event);
+      totals.set(key, (totals.get(key) ?? 0) + learnerCount);
+    }
+  }
+  return totals;
+}
+
 function buildStages(
   totals: Map<string, FunnelCount>,
+  progressions: Map<string, number>,
 ): SubscriptionFunnelStage[] {
-  return SUCCESS_STAGE_EVENTS.map((event, index) => {
-    const previousEvent = SUCCESS_STAGE_EVENTS[index - 1];
+  return SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.map((event, index) => {
+    const previousEvent = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS[index - 1];
     const current = getCount(totals, "current", event);
     const baseline = getCount(totals, "baseline", event);
     return {
@@ -273,10 +304,16 @@ function buildStages(
       current,
       baseline,
       currentDropOff: previousEvent
-        ? dropOff(getCount(totals, "current", previousEvent), current)
+        ? dropOff(
+            getCount(totals, "current", previousEvent),
+            getProgressionCount(progressions, "current", event),
+          )
         : null,
       baselineDropOff: previousEvent
-        ? dropOff(getCount(totals, "baseline", previousEvent), baseline)
+        ? dropOff(
+            getCount(totals, "baseline", previousEvent),
+            getProgressionCount(progressions, "baseline", event),
+          )
         : null,
     };
   });
@@ -295,12 +332,28 @@ function failureCount(
   };
 }
 
-function dropOff(previous: FunnelCount, current: FunnelCount): FunnelDropOff {
-  const learners = Math.max(0, previous.learners - current.learners);
+function dropOff(
+  previous: FunnelCount,
+  progressedLearners: number,
+): FunnelDropOff {
+  if (progressedLearners > previous.learners) {
+    throw new Error(
+      "Ordered Subscription funnel progression exceeds its prior-stage audience",
+    );
+  }
+  const learners = previous.learners - progressedLearners;
   return {
     learners,
     ratePct: percentage(learners, previous.learners),
   };
+}
+
+function getProgressionCount(
+  totals: Map<string, number>,
+  period: FunnelPeriod,
+  event: SubscriptionFunnelSuccessStageEvent,
+): number {
+  return totals.get(countKey(period, event)) ?? 0;
 }
 
 function percentage(numerator: number, denominator: number): number {

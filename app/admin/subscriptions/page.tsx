@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { requireAdminPage } from "@/app/admin/_components/admin-gate";
+import { cn } from "@/lib/utils";
 import {
   loadSubscriptionFunnelReport,
   readSubscriptionFunnelReleaseAt,
@@ -72,9 +73,10 @@ function SubscriptionFunnelView({
         </div>
         <div className="row gap-8" style={{ alignItems: "center" }}>
           <span
-            className={`pill ${
-              report.windows.status === "complete" ? "pill-ok" : "pill-warn"
-            }`}
+            className={cn(
+              "pill",
+              report.windows.status === "complete" ? "pill-ok" : "pill-warn",
+            )}
           >
             <span className="dot" />
             {report.windows.status === "complete"
@@ -86,7 +88,10 @@ function SubscriptionFunnelView({
               <a
                 key={days}
                 href={`?window=${days}`}
-                className={`tab ${report.windowDays === days ? "active" : ""}`}
+                className={cn(
+                  "tab",
+                  report.windowDays === days && "active",
+                )}
                 aria-current={report.windowDays === days ? "page" : undefined}
               >
                 {days}d
@@ -113,8 +118,8 @@ function SubscriptionFunnelView({
                 Successful path
               </h2>
               <p className="card-sub">
-                Learners at each stage; loss is measured from the immediately
-                preceding stage.
+                Learners at each stage; ordered loss is measured against the
+                immediately preceding stage for current and baseline windows.
               </p>
             </div>
             <span className="pill pill-mono">
@@ -134,14 +139,33 @@ function SubscriptionFunnelView({
                     );
               return (
                 <li key={stage.event} className="subscription-funnel-stage">
-                  {stage.currentDropOff ? (
-                    <div className="subscription-funnel-loss" aria-label={`${formatCount(
-                      stage.currentDropOff.learners,
-                    )} Learners lost, ${formatPct(
-                      stage.currentDropOff.ratePct,
-                    )}`}>
-                      <span>−{formatCount(stage.currentDropOff.learners)}</span>
-                      <small>{formatPct(stage.currentDropOff.ratePct)} lost</small>
+                  {stage.currentDropOff && stage.baselineDropOff ? (
+                    <div
+                      className="subscription-funnel-loss"
+                      aria-label={`${formatCount(
+                        stage.currentDropOff.learners,
+                      )} learners lost in the current window, ${formatPct(
+                        stage.currentDropOff.ratePct,
+                      )}; ${formatCount(
+                        stage.baselineDropOff.learners,
+                      )} learners lost in the baseline window, ${formatPct(
+                        stage.baselineDropOff.ratePct,
+                      )}`}
+                    >
+                      <span>
+                        {"\u2212"}
+                        {formatCount(stage.currentDropOff.learners)}
+                      </span>
+                      <small>
+                        {formatPct(stage.currentDropOff.ratePct)} now
+                      </small>
+                      <small className="subscription-funnel-loss-baseline">
+                        <span>
+                          {"\u2212"}
+                          {formatCount(stage.baselineDropOff.learners)} base
+                        </span>
+                        <span>{formatPct(stage.baselineDropOff.ratePct)}</span>
+                      </small>
                     </div>
                   ) : null}
                   <article>

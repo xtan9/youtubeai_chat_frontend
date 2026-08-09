@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SubscriptionDiscoveryEventName } from "@/lib/analytics/subscription-discovery";
 import type {
+  SubscriptionFunnelProgressionRow,
+  SubscriptionFunnelProgressionStageEvent,
   SubscriptionFunnelQueryDimension,
   SubscriptionFunnelQueryRow,
 } from "@/lib/analytics/subscription-funnel-query";
+import { SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS } from "@/lib/analytics/subscription-funnel-query";
 
 vi.mock("server-only", () => ({}));
 
@@ -33,6 +36,31 @@ function row(
   };
 }
 
+const PROGRESSION_EVENTS = SUBSCRIPTION_FUNNEL_SUCCESS_STAGE_EVENTS.slice(
+  1,
+) as readonly SubscriptionFunnelProgressionStageEvent[];
+
+function progression(
+  period: "baseline" | "current",
+  learnerCounts: readonly number[],
+  segment: {
+    dimension: SubscriptionFunnelQueryDimension;
+    value: string;
+  } = { dimension: "overall", value: "all" },
+): SubscriptionFunnelProgressionRow {
+  return {
+    period,
+    segmentDimension: segment.dimension,
+    segmentValue: segment.value,
+    progressedLearners: Object.fromEntries(
+      PROGRESSION_EVENTS.map((event, index) => [
+        event,
+        learnerCounts[index] ?? 0,
+      ]),
+    ) as Record<SubscriptionFunnelProgressionStageEvent, number>,
+  };
+}
+
 describe("buildSubscriptionFunnelReport", () => {
   it("reports the successful path drop-offs and checkout failures against baseline", () => {
     const report = buildSubscriptionFunnelReport({
@@ -52,19 +80,25 @@ describe("buildSubscriptionFunnelReport", () => {
       isCached: false,
       rows: [
         row("current", "subscription_discovery_viewed", 120, 80),
-        row("current", "subscription_discovery_clicked", 55, 40),
+        // Seventy learners clicked, but only forty first viewed and then
+        // clicked. Drop-off must use the ordered intersection, not 80 - 70.
+        row("current", "subscription_discovery_clicked", 85, 70),
         row("current", "pricing_viewed", 48, 38),
         row("current", "plan_choice_attempted", 25, 18),
         row("current", "checkout_started", 12, 9),
         row("current", "checkout_failed", 6, 4),
         row("current", "subscription_activated", 7, 6),
         row("baseline", "subscription_discovery_viewed", 70, 50),
-        row("baseline", "subscription_discovery_clicked", 24, 20),
+        row("baseline", "subscription_discovery_clicked", 54, 45),
         row("baseline", "pricing_viewed", 20, 18),
         row("baseline", "plan_choice_attempted", 12, 10),
         row("baseline", "checkout_started", 7, 6),
         row("baseline", "checkout_failed", 3, 2),
         row("baseline", "subscription_activated", 4, 4),
+      ],
+      progressions: [
+        progression("current", [40, 38, 18, 9, 6]),
+        progression("baseline", [20, 18, 10, 6, 4]),
       ],
     });
 
@@ -77,8 +111,8 @@ describe("buildSubscriptionFunnelReport", () => {
       "subscription_activated",
     ]);
     expect(report.stages[1]).toMatchObject({
-      current: { events: 55, learners: 40 },
-      baseline: { events: 24, learners: 20 },
+      current: { events: 85, learners: 70 },
+      baseline: { events: 54, learners: 45 },
       currentDropOff: { learners: 40, ratePct: 50 },
       baselineDropOff: { learners: 30, ratePct: 60 },
     });
@@ -144,6 +178,12 @@ describe("buildSubscriptionFunnelReport", () => {
         row("baseline", "checkout_failed", 1, 1, {
           dimension: "failure_category",
           value: "network_error",
+        }),
+      ],
+      progressions: [
+        progression("current", [3], {
+          dimension: "source_surface",
+          value: "global_header",
         }),
       ],
     });
@@ -218,6 +258,7 @@ describe("buildSubscriptionFunnelReport", () => {
           value: "registered",
         }),
       ],
+      progressions: [],
     });
 
     expect(report.stages[2].current).toEqual({ events: 5, learners: 4 });
@@ -230,31 +271,74 @@ describe("buildSubscriptionFunnelReport", () => {
       ["mobile", { events: 2, learners: 2 }],
     ]);
   });
+
+  it("rejects impossible ordered progression instead of clamping it", () => {
+    expect(() =>
+      buildSubscriptionFunnelReport({
+        windowDays: 7,
+        releaseAt: "2026-08-10T12:00:00.000Z",
+        windows: {
+          baseline: {
+            start: "2026-08-03T12:00:00.000Z",
+            end: "2026-08-10T12:00:00.000Z",
+          },
+          current: {
+            start: "2026-08-10T12:00:00.000Z",
+            end: "2026-08-17T12:00:00.000Z",
+          },
+          status: "complete",
+        },
+        isCached: false,
+        rows: [
+          row("current", "subscription_discovery_viewed", 1, 1),
+        ],
+        progressions: [progression("current", [2])],
+      }),
+    ).toThrow(
+      "Ordered Subscription funnel progression exceeds its prior-stage audience",
+    );
+  });
 });
 
 describe("loadSubscriptionFunnelReport", () => {
   it("loads the named PostHog query through the server report boundary", async () => {
-    const executeQuery = vi.fn().mockResolvedValue({
-      columns: [
-        "period",
-        "event",
-        "segment_dimension",
-        "segment_value",
-        "event_count",
-        "learner_count",
-      ],
-      results: [
-        [
-          "current",
-          "pricing_viewed",
-          "overall",
-          "all",
-          5,
-          4,
+    const executeQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        columns: [
+          "period",
+          "event",
+          "segment_dimension",
+          "segment_value",
+          "event_count",
+          "learner_count",
         ],
-      ],
-      isCached: true,
-    });
+        results: [
+          [
+            "current",
+            "pricing_viewed",
+            "overall",
+            "all",
+            5,
+            4,
+          ],
+        ],
+        isCached: true,
+      })
+      .mockResolvedValueOnce({
+        columns: [
+          "period",
+          "segment_dimension",
+          "segment_value",
+          "progressed_subscription_discovery_clicked",
+          "progressed_pricing_viewed",
+          "progressed_plan_choice_attempted",
+          "progressed_checkout_started",
+          "progressed_subscription_activated",
+        ],
+        results: [["current", "overall", "all", 0, 0, 0, 0, 0]],
+        isCached: true,
+      });
 
     const report = await loadSubscriptionFunnelReport(
       {
@@ -265,10 +349,15 @@ describe("loadSubscriptionFunnelReport", () => {
       { executeQuery },
     );
 
-    expect(executeQuery).toHaveBeenCalledWith({
+    expect(executeQuery).toHaveBeenNthCalledWith(1, {
       hogql: expect.stringContaining("'pricing_viewed'"),
-      name: "subscription_conversion_funnel_7_day",
+      name: "subscription_conversion_funnel_stage_counts_7_day",
     });
+    expect(executeQuery).toHaveBeenNthCalledWith(2, {
+      hogql: expect.stringContaining("windowFunnel(604800)"),
+      name: "subscription_conversion_funnel_ordered_progression_7_day",
+    });
+    expect(executeQuery).toHaveBeenCalledTimes(2);
     expect(report).toMatchObject({
       windowDays: 7,
       releaseAt: "2026-08-10T12:00:00.000Z",
