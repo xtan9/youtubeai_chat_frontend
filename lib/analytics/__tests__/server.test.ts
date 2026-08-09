@@ -11,7 +11,10 @@ vi.mock("posthog-node", () => ({
 }));
 
 import { ANALYTICS_SUBJECT_PROPERTY, ANALYTICS_SYNTHETIC_SUBJECT } from "../identity";
-import { captureSubscriptionActivated } from "../server";
+import {
+  captureProjectVideoProcessingEvent,
+  captureSubscriptionActivated,
+} from "../server";
 
 beforeEach(() => {
   mocks.captureImmediate.mockReset().mockResolvedValue(undefined);
@@ -156,5 +159,72 @@ describe("captureSubscriptionActivated", () => {
         event: "subscription_activated",
       }),
     );
+  });
+});
+
+describe("captureProjectVideoProcessingEvent", () => {
+  it("captures only the validated governed processing payload", async () => {
+    await captureProjectVideoProcessingEvent(
+      "user-1",
+      "project_video_processing_succeeded",
+      {
+        status: "ready",
+        ordinal: 2,
+        result_origin: "generated",
+        transcription_seconds: 3,
+        summary_seconds: 4,
+        total_seconds: 7,
+      },
+    );
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "project_video_processing_succeeded",
+      properties: {
+        analytics_schema_version: 1,
+        analytics_subject: "human",
+        status: "ready",
+        ordinal: 2,
+        result_origin: "generated",
+        transcription_seconds: 3,
+        summary_seconds: 4,
+        total_seconds: 7,
+      },
+    });
+  });
+
+  it("rejects private processing properties before PostHog", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await captureProjectVideoProcessingEvent(
+      "user-1",
+      "project_video_processing_failed",
+      {
+        status: "failed",
+        ordinal: 1,
+        error_class: "processing",
+        processing_seconds: 2,
+        transcript: "private",
+      } as never,
+    );
+
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Video processing event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
+      }),
+    );
+  });
+
+  it("suppresses a trusted synthetic processing event", async () => {
+    await captureProjectVideoProcessingEvent(
+      "smoke-user",
+      "project_video_processing_started",
+      { status: "processing", ordinal: 1, attempt_kind: "new" },
+      true,
+    );
+
+    expect(mocks.PostHog).not.toHaveBeenCalled();
   });
 });

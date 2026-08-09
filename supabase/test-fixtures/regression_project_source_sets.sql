@@ -184,16 +184,6 @@ begin
     )
     or has_function_privilege(
       'authenticated',
-      'public.transition_project_video_status(uuid,uuid,text,text,bigint)',
-      'EXECUTE'
-    )
-    or not has_function_privilege(
-      'service_role',
-      'public.transition_project_video_status(uuid,uuid,text,text,bigint)',
-      'EXECUTE'
-    )
-    or has_function_privilege(
-      'authenticated',
       'project_private.video_has_durable_ready_evidence(uuid)',
       'EXECUTE'
     )
@@ -219,17 +209,11 @@ begin
   if not exists (
     select 1
     from pg_proc
-    where oid = 'public.transition_project_video_status(uuid,uuid,text,text,bigint)'::regprocedure
-      and prosecdef
-      and proconfig @> array['search_path=""']
-  ) or not exists (
-    select 1
-    from pg_proc
     where oid = 'public.list_project_history_candidates(uuid,text,integer,integer)'::regprocedure
       and prosecdef
       and proconfig @> array['search_path=""']
   ) then
-    raise exception 'REGRESSION: Source Set status/candidate RPC is not hardened';
+    raise exception 'REGRESSION: Source Set candidate RPC is not hardened';
   end if;
 
   if not exists (
@@ -248,11 +232,6 @@ begin
     'project_private.video_has_durable_ready_evidence'
     in pg_get_functiondef(
       'public.add_project_history_video(uuid,uuid,bigint)'::regprocedure
-    )
-  ) = 0 or position(
-    'project_private.video_has_durable_ready_evidence'
-    in pg_get_functiondef(
-      'public.transition_project_video_status(uuid,uuid,text,text,bigint)'::regprocedure
     )
   ) = 0 or position(
     'project_private.video_has_durable_ready_evidence'
@@ -423,8 +402,9 @@ $$;
 
 reset role;
 
--- Service-role callers must use the revision-aware status RPC; table DML is
--- deliberately unavailable so no application path can bypass revision.
+-- Service-role callers must use the attempt-aware processing finalizer; table
+-- DML is deliberately unavailable so no application path can bypass revision
+-- or the processing lease.
 set local role service_role;
 do $$
 begin
@@ -470,8 +450,8 @@ end;
 $$;
 reset role;
 
--- Add canonical ready evidence through the owner path, then transition the
--- two memberships through the only production status-writer capability.
+-- Add canonical ready evidence through the owner path. Attempt-aware status
+-- transition behavior is covered by the Project Video processing contract.
 set local role authenticated;
 select set_config(
   'request.jwt.claim.sub',
@@ -490,94 +470,17 @@ select public.add_project_history_video(
 );
 reset role;
 
-set local role service_role;
-do $$
-declare
-  result jsonb;
-begin
-  result := public.transition_project_video_status(
-    'a1000000-0000-4000-8000-000000000003',
-    '62000000-0000-4000-8000-000000000002',
-    'processing',
-    null,
-    2
-  );
-  if result->>'outcome' <> 'transitioned'
-    or (result->>'revision')::bigint <> 3 then
-    raise exception 'REGRESSION: processing transition did not revise Source Set';
-  end if;
-
-  result := public.transition_project_video_status(
-    'a1000000-0000-4000-8000-000000000003',
-    '63000000-0000-4000-8000-000000000003',
-    'failed',
-    'transcript_unavailable',
-    3
-  );
-  if result->>'outcome' <> 'transitioned'
-    or (result->>'revision')::bigint <> 4 then
-    raise exception 'REGRESSION: failed transition did not revise Source Set';
-  end if;
-
-  result := public.transition_project_video_status(
-    'a1000000-0000-4000-8000-000000000003',
-    '63000000-0000-4000-8000-000000000003',
-    'failed',
-    'transcript_unavailable',
-    4
-  );
-  if result->>'outcome' <> 'unchanged'
-    or (result->>'revision')::bigint <> 4 then
-    raise exception 'REGRESSION: no-op status transition advanced revision';
-  end if;
-end;
-$$;
-reset role;
-
-delete from public.summaries
-where video_id = '62000000-0000-4000-8000-000000000002';
-set local role service_role;
-do $$
-declare
-  result jsonb;
-begin
-  result := public.transition_project_video_status(
-    'a1000000-0000-4000-8000-000000000003',
-    '62000000-0000-4000-8000-000000000002',
-    'ready',
-    null,
-    4
-  );
-  if result->>'outcome' <> 'evidence_missing'
-    or (result->>'revision')::bigint <> 4 then
-    raise exception 'REGRESSION: status writer declared missing evidence ready';
-  end if;
-end;
-$$;
-reset role;
-insert into public.summaries (
-  video_id,
-  summary,
-  transcript_source,
-  output_language
-) values (
-  '62000000-0000-4000-8000-000000000002',
-  'Canonical summary 2 restored',
-  'manual_captions',
-  null
-);
-
 do $$
 begin
   if (select revision from public.project_source_sets
-      where project_id = 'a1000000-0000-4000-8000-000000000003') <> 4
-    or (select status from public.project_videos
-        where project_id = 'a1000000-0000-4000-8000-000000000003'
-          and video_id = '62000000-0000-4000-8000-000000000002') <> 'processing'
-    or (select failure_code from public.project_videos
-        where project_id = 'a1000000-0000-4000-8000-000000000003'
-          and video_id = '63000000-0000-4000-8000-000000000003') <> 'transcript_unavailable' then
-    raise exception 'REGRESSION: status and revision are not coherent';
+      where project_id = 'a1000000-0000-4000-8000-000000000003') <> 2
+    or exists (
+      select 1
+      from public.project_videos
+      where project_id = 'a1000000-0000-4000-8000-000000000003'
+        and (status <> 'ready' or processing_attempt_id is not null)
+    ) then
+    raise exception 'REGRESSION: owner-added ready membership or revision is incoherent';
   end if;
 end;
 $$;
@@ -652,19 +555,6 @@ begin
   if result <> jsonb_build_object('outcome', 'missing') then
     raise exception 'REGRESSION: cross-owner candidate list leaked Project or History';
   end if;
-
-  begin
-    perform public.transition_project_video_status(
-      'a1000000-0000-4000-8000-000000000001',
-      '61000000-0000-4000-8000-000000000001',
-      'failed',
-      'attacker_write',
-      7
-    );
-    raise exception 'REGRESSION: authenticated attacker executed status writer';
-  exception
-    when insufficient_privilege then null;
-  end;
 
   begin
     delete from public.project_videos

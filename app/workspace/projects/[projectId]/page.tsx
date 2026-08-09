@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
+import { reconcileStaleProjectVideoProcessing } from "@/lib/projects/project-video-processing";
 import {
   loadProjectHistoryCandidates,
   loadProjectSourceSet,
@@ -58,6 +59,10 @@ export default async function ProjectPage({
   let sourceSet: Awaited<ReturnType<typeof loadProjectSourceSet>>;
   let candidates: Awaited<ReturnType<typeof loadProjectHistoryCandidates>>;
   try {
+    await reconcileStaleProjectVideoProcessing(
+      subject.value,
+      principalResult.principal.smokeProEntitled === true,
+    );
     [project, sourceSet, candidates] = await Promise.all([
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),

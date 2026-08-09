@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addProjectHistoryVideoSchema,
+  processProjectVideoSchema,
   projectHistoryCandidateQuerySchema,
   removeProjectVideoQuerySchema,
   reorderProjectVideosSchema,
@@ -30,6 +31,24 @@ describe("Project Source Set input", () => {
       addProjectHistoryVideoSchema.safeParse({
         videoId: "not-a-video",
         expectedRevision: -1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts one HTTPS YouTube URL and rejects non-YouTube inputs", () => {
+    expect(
+      processProjectVideoSchema.parse({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        expectedRevision: 2,
+      }),
+    ).toEqual({
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      expectedRevision: 2,
+    });
+    expect(
+      processProjectVideoSchema.safeParse({
+        youtubeUrl: "https://example.com/watch?v=dQw4w9WgXcQ",
+        expectedRevision: 2,
       }).success,
     ).toBe(false);
   });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 import { PROJECT_HISTORY_CANDIDATE_PAGE_SIZE } from "./project-source-set-contract";
 
 const videoIdSchema = z.uuid({ error: "Choose a valid History Video." });
@@ -11,6 +12,13 @@ const revisionSchema = z
 export const addProjectHistoryVideoSchema = z
   .object({
     videoId: videoIdSchema,
+    expectedRevision: revisionSchema,
+  })
+  .strict();
+
+export const processProjectVideoSchema = z
+  .object({
+    youtubeUrl: YouTubeUrlSchema,
     expectedRevision: revisionSchema,
   })
   .strict();

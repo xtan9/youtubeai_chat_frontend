@@ -170,6 +170,147 @@ describe("ProjectSourceSet", () => {
     });
   });
 
+  it("accepts one pasted YouTube URL and renders durable processing", async () => {
+    const processing = sourceSet([video(1, "processing")], 2);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ outcome: "started", sourceSet: processing }),
+        { status: 202 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([], 1)}
+        initialCandidatePage={candidatePage([])}
+      />,
+    );
+
+    await user.type(
+      screen.getByLabelText("YouTube Video URL"),
+      "https://www.youtube.com/watch?v=aaaaaaa0001",
+    );
+    await user.click(screen.getByRole("button", { name: "Add Video" }));
+
+    expect(
+      await screen.findByText(/Processing will continue if you leave this page/i),
+    ).toBeTruthy();
+    expect(screen.getByText("Processing")).toBeTruthy();
+    const processRequest = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(processRequest.body))).toEqual({
+      youtubeUrl: "https://www.youtube.com/watch?v=aaaaaaa0001",
+      expectedRevision: 1,
+    });
+  });
+
+  it("preserves the Summary quota journey and refreshes the failed membership", async () => {
+    const failed = sourceSet(
+      [{ ...video(1, "failed"), failureCode: "summary_quota" }],
+      3,
+    );
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          Response.json(
+            {
+              message: "You've used your 10 free summaries this month. Upgrade for unlimited.",
+              errorCode: "free_quota_exceeded",
+              upgradeUrl: "/pricing",
+            },
+            { status: 402 },
+          ),
+        );
+      }
+      return Promise.resolve(Response.json({ sourceSet: failed }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([], 1)}
+        initialCandidatePage={candidatePage([])}
+      />,
+    );
+
+    await user.type(
+      screen.getByLabelText("YouTube Video URL"),
+      "https://www.youtube.com/watch?v=aaaaaaa0001",
+    );
+    await user.click(screen.getByRole("button", { name: "Add Video" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "10 free summaries",
+    );
+    expect(screen.getByRole("link", { name: "View plans" }).getAttribute("href")).toBe(
+      "/pricing",
+    );
+    expect(await screen.findByText(/Summary allowance is exhausted/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry Source 1" })).toBeTruthy();
+  });
+
+  it("retries a failed membership in place without adding a duplicate", async () => {
+    const failedVideo = video(1, "failed");
+    const retrying = sourceSet([{ ...failedVideo, status: "processing", failureCode: null }], 8);
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json(
+        { outcome: "retry_started", sourceSet: retrying },
+        { status: 202 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([failedVideo], 7)}
+        initialCandidatePage={candidatePage([])}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry Source 1" }));
+
+    expect(await screen.findByText("Processing")).toBeTruthy();
+    expect(screen.getAllByTestId("project-source-title")).toHaveLength(1);
+    const processRequest = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(processRequest.body))).toEqual({
+      youtubeUrl: failedVideo.youtubeUrl,
+      expectedRevision: 7,
+    });
+  });
+
+  it("removes a failed pasted source while preserving every other source", async () => {
+    const first = video(1, "ready");
+    const failed = video(2, "failed");
+    const refreshed = sourceSet([first], 5);
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ outcome: "removed", sourceSet: refreshed }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([first, failed], 4)}
+        initialCandidatePage={candidatePage([])}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove Source 2 from Source Set" }),
+    );
+
+    expect(await screen.findByText("Removed Source 2.")).toBeTruthy();
+    expect(screen.getByText("Source 1")).toBeTruthy();
+    expect(screen.queryByText("Source 2")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${PROJECT_ID}/source-set/${failed.videoId}?revision=4`,
+      { method: "DELETE" },
+    );
+  });
+
   it("submits the complete order with a revision precondition", async () => {
     const first = video(1);
     const second = video(2);

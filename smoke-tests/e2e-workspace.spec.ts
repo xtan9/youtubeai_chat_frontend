@@ -643,6 +643,305 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   expect(canonicalVideos).toHaveLength(canonicalCount);
 });
 
+test("Researcher pastes, refreshes, retries, and removes a durable Project URL", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await page.goto(`${appUrl}/workspace`);
+  await page.getByRole("button", { name: "Create Project" }).click();
+  await page.getByLabel("Project name").fill("URL evidence lab");
+  await page.getByRole("button", { name: "Create Project" }).last().click();
+  await page.getByRole("link", { name: "Open URL evidence lab" }).click();
+
+  const projectId = projects.find((project) => project.name === "URL evidence lab")?.id;
+  expect(projectId).toBeTruthy();
+  if (!projectId) return;
+
+  const attempts = new Map<string, number>();
+  let processingOwners = 0;
+  await page.route(
+    `**/api/projects/${projectId}/source-set/process`,
+    async (route) => {
+      const requestBody = route.request().postDataJSON() as {
+        youtubeUrl: string;
+        expectedRevision: number;
+      };
+      const parsedUrl = new URL(requestBody.youtubeUrl);
+      const youtubeVideoId = parsedUrl.searchParams.get("v");
+      if (
+        !youtubeVideoId ||
+        !["youtube.com", "www.youtube.com", "m.youtube.com"].includes(
+          parsedUrl.hostname,
+        )
+      ) {
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            outcome: "invalid",
+            message: "Enter a valid HTTPS YouTube Video URL.",
+          }),
+        });
+        return;
+      }
+
+      const existingVideo = canonicalVideos.find(
+        (video) => video.youtube_url === requestBody.youtubeUrl,
+      );
+      const existingMembership = existingVideo
+        ? projectVideos.find(
+            (membership) =>
+              membership.project_id === projectId &&
+              membership.video_id === existingVideo.id,
+          )
+        : undefined;
+      if (existingMembership?.status === "processing") {
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({
+            outcome: "already_processing",
+            sourceSet: fixtureSourceSet(projectId),
+          }),
+        });
+        return;
+      }
+      if (existingMembership?.status === "ready") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            outcome: "already_ready",
+            sourceSet: fixtureSourceSet(projectId),
+          }),
+        });
+        return;
+      }
+      if (!existingMembership && orderedMemberships(projectId).length >= 5) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            outcome: "limit_reached",
+            message:
+              "This Source Set already has five Videos, the universal grounding limit.",
+            sourceSet: fixtureSourceSet(projectId),
+          }),
+        });
+        return;
+      }
+      if (requestBody.expectedRevision !== (sourceSetRevisions.get(projectId) ?? 0)) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            outcome: "conflict",
+            message: "The Source Set changed in another request.",
+            sourceSet: fixtureSourceSet(projectId),
+          }),
+        });
+        return;
+      }
+
+      const attempt = (attempts.get(youtubeVideoId) ?? 0) + 1;
+      attempts.set(youtubeVideoId, attempt);
+      let video = existingVideo;
+      if (!video) {
+        const ordinal = canonicalVideos.length + 1;
+        video = {
+          id: `7f000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`,
+          youtube_url: requestBody.youtubeUrl,
+          title:
+            youtubeVideoId === "projquota01"
+              ? "Quota source"
+              : youtubeVideoId === "projfail001"
+                ? "Retry source"
+                : youtubeVideoId === "projdupe001"
+                  ? "Duplicate source"
+                  : youtubeVideoId === "projother01"
+                    ? "Other source"
+                    : "Pasted source",
+          channel_name: "URL Fixture Lab",
+        };
+        canonicalVideos.push(video);
+      }
+
+      const timestamp = nextTimestamp();
+      let membership = existingMembership;
+      if (!membership) {
+        membership = {
+          project_id: projectId,
+          video_id: video.id,
+          position: orderedMemberships(projectId).length + 1,
+          status: "processing",
+          failure_code: null,
+          added_at: timestamp,
+          status_updated_at: timestamp,
+        };
+        projectVideos.push(membership);
+      } else {
+        membership.status = "processing";
+        membership.failure_code = null;
+        membership.status_updated_at = timestamp;
+      }
+      processingOwners += 1;
+      sourceSetRevisions.set(
+        projectId,
+        (sourceSetRevisions.get(projectId) ?? 0) + 1,
+      );
+
+      if (youtubeVideoId === "projquota01") {
+        membership.status = "failed";
+        membership.failure_code = "summary_quota";
+        membership.status_updated_at = nextTimestamp();
+        sourceSetRevisions.set(projectId, (sourceSetRevisions.get(projectId) ?? 0) + 1);
+        await route.fulfill({
+          status: 402,
+          contentType: "application/json",
+          headers: { "X-Error-ID": "QUOTA_EXCEEDED" },
+          body: JSON.stringify({
+            message:
+              "You've used your 10 free summaries this month. Upgrade for unlimited.",
+            errorCode: "free_quota_exceeded",
+            tier: "free",
+            upgradeUrl: "/pricing",
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          outcome: attempt === 1 ? "started" : "retry_started",
+          sourceSet: fixtureSourceSet(projectId),
+        }),
+      });
+
+      setTimeout(() => {
+        const current = projectVideos.find(
+          (candidate) =>
+            candidate.project_id === projectId && candidate.video_id === video.id,
+        );
+        if (!current || current.status !== "processing") return;
+        if (youtubeVideoId === "projfail001" && attempt === 1) {
+          current.status = "failed";
+          current.failure_code = "summary_processing";
+        } else {
+          current.status = "ready";
+          current.failure_code = null;
+        }
+        current.status_updated_at = nextTimestamp();
+        sourceSetRevisions.set(projectId, (sourceSetRevisions.get(projectId) ?? 0) + 1);
+      }, youtubeVideoId === "projurl0001" ? 1_200 : 150);
+    },
+  );
+
+  const input = page.getByLabel("YouTube Video URL");
+  const sourceSetRegion = page.getByRole("region", { name: "Source Set" });
+  await input.fill("https://example.com/watch?v=projurl0001");
+  await page.getByRole("button", { name: "Add Video" }).click();
+  await expect(sourceSetRegion.getByRole("alert")).toContainText(
+    "valid HTTPS YouTube Video URL",
+  );
+  expect(projectVideos).toHaveLength(0);
+
+  await input.fill("https://www.youtube.com/watch?v=projurl0001");
+  await page.getByRole("button", { name: "Add Video" }).click();
+  await expect(page.getByText("Pasted source")).toBeVisible();
+  await expect(page.getByText("Processing", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Pasted source")).toBeVisible();
+  await expect(page.getByText("Processing", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+
+  await input.fill("https://www.youtube.com/watch?v=projfail001");
+  await page.getByRole("button", { name: "Add Video" }).click();
+  await expect(page.getByRole("button", { name: "Retry Retry source" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry Retry source" }).click();
+  await expect(page.getByText("Retry source")).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true })).toHaveCount(2);
+  expect(
+    projectVideos.filter(
+      (membership) =>
+        membership.project_id === projectId &&
+        canonicalVideos.find((video) => video.id === membership.video_id)
+          ?.youtube_url.endsWith("projfail001"),
+    ),
+  ).toHaveLength(1);
+
+  await input.fill("https://www.youtube.com/watch?v=projquota01");
+  await page.getByRole("button", { name: "Add Video" }).click();
+  await expect(sourceSetRegion.getByRole("alert")).toContainText(
+    "10 free summaries",
+  );
+  await expect(page.getByRole("link", { name: "View plans" })).toHaveAttribute(
+    "href",
+    "/pricing",
+  );
+  await expect(page.getByRole("button", { name: "Retry Quota source" })).toBeVisible();
+
+  const duplicateRevision = sourceSetRevisions.get(projectId);
+  const duplicateResponses = await page.evaluate(
+    async ({ id, revision }) => {
+      const payload = {
+        youtubeUrl: "https://www.youtube.com/watch?v=projdupe001",
+        expectedRevision: revision,
+      };
+      return Promise.all(
+        [1, 2].map(async () => {
+          const response = await fetch(`/api/projects/${id}/source-set/process`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          return { status: response.status, body: await response.json() };
+        }),
+      );
+    },
+    { id: projectId, revision: duplicateRevision },
+  );
+  expect(duplicateResponses.map((response) => response.status)).toEqual([202, 202]);
+  expect(
+    duplicateResponses.map((response) => response.body.outcome).sort(),
+  ).toEqual(["already_processing", "started"]);
+  expect(
+    projectVideos.filter(
+      (membership) =>
+        membership.project_id === projectId &&
+        canonicalVideos.find((video) => video.id === membership.video_id)
+          ?.youtube_url.endsWith("projdupe001"),
+    ),
+  ).toHaveLength(1);
+  expect(processingOwners).toBe(5);
+
+  await page.reload();
+  await expect(page.getByText("Duplicate source")).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true })).toHaveCount(3);
+  await input.fill("https://www.youtube.com/watch?v=projother01");
+  await page.getByRole("button", { name: "Add Video" }).click();
+  await expect(
+    page.getByRole("status", { name: "5 of 5 Project Videos" }),
+  ).toBeVisible();
+  await expect(input).toBeDisabled();
+  await expect(page.getByText("Source Set limit reached")).toBeVisible();
+  const otherSource = page.getByRole("listitem").filter({ hasText: "Other source" });
+  await expect(otherSource.getByText("Ready", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Remove Quota source from Source Set" }).click();
+  await expect(page.getByText("Removed Quota source.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quota source", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Pasted source")).toBeVisible();
+  await expect(page.getByText("Retry source")).toBeVisible();
+  await expect(page.getByText("Duplicate source")).toBeVisible();
+  await expect(page.getByText("Other source")).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "4 of 5 Project Videos" }),
+  ).toBeVisible();
+});
+
 async function handleSupabaseRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1200,6 +1499,33 @@ function orderedMemberships(projectId: string) {
   return projectVideos
     .filter((membership) => membership.project_id === projectId)
     .sort((a, b) => a.position - b.position);
+}
+
+function fixtureSourceSet(projectId: string) {
+  return {
+    projectId,
+    revision: sourceSetRevisions.get(projectId) ?? 0,
+    videos: orderedMemberships(projectId).map((membership) => {
+      const video = canonicalVideos.find(
+        (candidate) => candidate.id === membership.video_id,
+      );
+      if (!video) {
+        throw new Error("Fixture Source Set membership is missing its canonical Video.");
+      }
+      return {
+        videoId: video.id,
+        youtubeUrl: video.youtube_url,
+        youtubeVideoId: new URL(video.youtube_url).searchParams.get("v"),
+        title: video.title,
+        channelName: video.channel_name,
+        position: membership.position,
+        status: membership.status,
+        failureCode: membership.failure_code,
+        addedAt: membership.added_at,
+        statusUpdatedAt: membership.status_updated_at,
+      };
+    }),
+  };
 }
 
 function transitionFixtureStatus(

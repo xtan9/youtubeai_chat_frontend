@@ -19,6 +19,10 @@ import {
   isProjectSearchEventName,
   validateProjectSearchEvent,
 } from "./project-search";
+import {
+  isProjectVideoProcessingEventName,
+  validateProjectVideoProcessingEvent,
+} from "./project-video-processing";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -75,6 +79,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid Project Search event", {
           errorId: "ANALYTICS_PROJECT_SEARCH_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectVideoProcessingEventName(event)) {
+      const validation = validateProjectVideoProcessingEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Video processing event", {
+          errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
           event,
           issueCount: validation.issueCount,
         });

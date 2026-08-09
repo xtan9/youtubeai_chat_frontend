@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { type FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   ChevronUp,
   Clock3,
   Plus,
+  RotateCcw,
   Search,
   Trash2,
   Video,
@@ -47,6 +49,7 @@ type SourceSetPayload = {
   outcome?: string;
   message?: string;
   sourceSet?: ProjectSourceSetValue;
+  upgradeUrl?: string;
 };
 
 type CandidatePayload = {
@@ -54,11 +57,36 @@ type CandidatePayload = {
   message?: string;
 };
 
+async function readSourceSetPayload(
+  response: Response,
+): Promise<SourceSetPayload> {
+  try {
+    return (await response.json()) as SourceSetPayload;
+  } catch {
+    return {};
+  }
+}
+
 const STATUS_LABELS = {
   processing: "Processing",
   ready: "Ready",
   failed: "Failed",
 } as const;
+
+function failureMessage(failureCode: string | null): string {
+  switch (failureCode) {
+    case "summary_quota":
+      return "Your Summary allowance is exhausted. Upgrade or retry after it resets.";
+    case "summary_rate_limit":
+      return "Too many requests were made. Wait a moment, then retry.";
+    case "processing_interrupted":
+      return "Processing was interrupted before it finished. Retry to continue.";
+    case "summary_persistence":
+      return "The Summary could not be saved durably. Retry to continue.";
+    default:
+      return "This Video could not be processed. Retry or remove it.";
+  }
+}
 
 function SourceStatus({ video }: { video: ProjectVideo }) {
   if (video.status === "ready") {
@@ -120,6 +148,8 @@ export function ProjectSourceSet({
   initialCandidatePage,
 }: ProjectSourceSetProps) {
   const [sourceSet, setSourceSet] = useState(initialSourceSet);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -144,6 +174,9 @@ export function ProjectSourceSet({
     (video) => video.status === "ready",
   ).length;
   const unavailableCount = sourceSet.videos.length - readyCount;
+  const processingCount = sourceSet.videos.filter(
+    (video) => video.status === "processing",
+  ).length;
   const candidateCountLabel =
     candidatePage && candidatePage.total > 0
       ? `History search results: ${candidatePage.total} processed ${candidatePage.total === 1 ? "Video" : "Videos"} available${appliedSearch ? ` for ${appliedSearch}` : ""}`
@@ -154,12 +187,98 @@ export function ProjectSourceSet({
     setSourceSet((current) => (next.revision >= current.revision ? next : current));
   }
 
-  async function readPayload(response: Response): Promise<SourceSetPayload> {
+  useEffect(() => {
+    if (processingCount === 0) return;
+
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/source-set`, {
+          cache: "no-store",
+        });
+        const payload = await readSourceSetPayload(response);
+        if (!disposed && response.ok && payload.sourceSet) {
+          const next = payload.sourceSet;
+          setSourceSet((current) =>
+            next.revision >= current.revision ? next : current,
+          );
+        }
+      } catch {
+        // A later poll or explicit retry remains available. Keep the last
+        // durable snapshot rather than replacing it with a transport error.
+      } finally {
+        if (!disposed) timer = setTimeout(poll, 1_500);
+      }
+    };
+
+    timer = setTimeout(poll, 750);
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [processingCount, projectId]);
+
+  async function refreshSourceSet() {
     try {
-      return (await response.json()) as SourceSetPayload;
+      const response = await fetch(`/api/projects/${projectId}/source-set`, {
+        cache: "no-store",
+      });
+      const payload = await readSourceSetPayload(response);
+      if (response.ok) acceptLatest(payload.sourceSet);
     } catch {
-      return {};
+      // Preserve the current durable snapshot; a later poll or retry can heal.
     }
+  }
+
+  async function processUrl(url: string, actionId = "new") {
+    if (pendingAction) return;
+    setPendingAction(`process:${actionId}`);
+    setError(null);
+    setNotice(null);
+    setUpgradeUrl(null);
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/source-set/process`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl: url,
+            expectedRevision: sourceSet.revision,
+          }),
+        },
+      );
+      const payload = await readSourceSetPayload(response);
+      acceptLatest(payload.sourceSet);
+      if (!response.ok) {
+        setError(payload.message ?? "Couldn’t process that Video. Try again.");
+        setUpgradeUrl(payload.upgradeUrl ?? null);
+        await refreshSourceSet();
+        return;
+      }
+
+      if (payload.outcome === "already_ready") {
+        setNotice("That Video is already ready in this Project.");
+      } else if (payload.outcome === "already_processing") {
+        setNotice("That Video is already processing. Its status will update here.");
+      } else {
+        setNotice("Video accepted. Processing will continue if you leave this page.");
+      }
+      setYoutubeUrl("");
+      if (!payload.sourceSet) await refreshSourceSet();
+    } catch {
+      setError("Couldn’t process that Video. Check your connection and try again.");
+      await refreshSourceSet();
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  function submitUrl(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!youtubeUrl.trim() || atLimit) return;
+    void processUrl(youtubeUrl.trim());
   }
 
   async function loadCandidates(page: number, search: string) {
@@ -224,7 +343,7 @@ export function ProjectSourceSet({
           expectedRevision: sourceSet.revision,
         }),
       });
-      const payload = await readPayload(response);
+      const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
         setError(payload.message ?? "Couldn’t add that History Video. Try again.");
@@ -254,7 +373,7 @@ export function ProjectSourceSet({
         `/api/projects/${projectId}/source-set/${video.videoId}?revision=${sourceSet.revision}`,
         { method: "DELETE" },
       );
-      const payload = await readPayload(response);
+      const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
         setError(payload.message ?? "Couldn’t remove that Video. Try again.");
@@ -295,7 +414,7 @@ export function ProjectSourceSet({
           expectedRevision: sourceSet.revision,
         }),
       });
-      const payload = await readPayload(response);
+      const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
         setError(payload.message ?? "Couldn’t reorder the Source Set. Try again.");
@@ -482,6 +601,44 @@ export function ProjectSourceSet({
             Five Videos is the grounding limit for every plan. A bounded Source Set keeps retrieval and Source Coverage honest.
           </p>
 
+          <form
+            className="rounded-md border border-border-subtle bg-surface-sunken p-4"
+            onSubmit={submitUrl}
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <Label htmlFor="project-youtube-url">YouTube Video URL</Label>
+                <Input
+                  id="project-youtube-url"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="url"
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  value={youtubeUrl}
+                  onChange={(event) => setYoutubeUrl(event.target.value)}
+                  disabled={atLimit || Boolean(pendingAction)}
+                  required
+                  aria-describedby="project-youtube-url-description"
+                />
+                <p
+                  id="project-youtube-url-description"
+                  className="text-caption text-text-muted"
+                >
+                  Paste one Video. Its canonical Transcript and Summary will be reused when available.
+                </p>
+              </div>
+              <Button
+                type="submit"
+                disabled={
+                  atLimit || Boolean(pendingAction) || !youtubeUrl.trim()
+                }
+              >
+                <Plus aria-hidden="true" />
+                {pendingAction === "process:new" ? "Processing…" : "Add Video"}
+              </Button>
+            </div>
+          </form>
+
           {atLimit ? (
             <Alert role="note">
               <AlertTriangle aria-hidden="true" />
@@ -505,13 +662,23 @@ export function ProjectSourceSet({
           ) : null}
 
           {error ? (
-            <p role="alert" className="text-body-sm text-accent-danger">
-              {error}
-            </p>
+            <div className="flex flex-wrap items-center gap-3" role="alert">
+              <p className="text-body-sm text-accent-danger">{error}</p>
+              {upgradeUrl ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={upgradeUrl}>View plans</Link>
+                </Button>
+              ) : null}
+            </div>
           ) : null}
           {notice ? (
             <p role="status" className="text-body-sm text-accent-success">
               {notice}
+            </p>
+          ) : null}
+          {processingCount > 0 ? (
+            <p role="status" className="sr-only">
+              {processingCount} Project {processingCount === 1 ? "Video is" : "Videos are"} processing.
             </p>
           ) : null}
 
@@ -523,7 +690,7 @@ export function ProjectSourceSet({
                   Add your first source
                 </p>
                 <p className="text-body-sm text-text-muted">
-                  Choose a processed Video from History to begin this Project’s evidence set.
+                  Paste a YouTube URL above or choose a processed Video from History.
                 </p>
               </div>
             </div>
@@ -532,6 +699,8 @@ export function ProjectSourceSet({
               {sourceSet.videos.map((video, index) => {
                 const title = video.title ?? "Untitled Video";
                 const removing = pendingAction === `remove:${video.videoId}`;
+                const retrying =
+                  pendingAction === `process:${video.videoId}`;
                 return (
                   <li
                     key={video.videoId}
@@ -559,8 +728,28 @@ export function ProjectSourceSet({
                           {video.channelName}
                         </p>
                       ) : null}
+                      {video.status === "failed" ? (
+                        <p className="mt-1 text-caption text-accent-danger">
+                          {failureMessage(video.failureCode)}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="col-span-2 flex items-center justify-end gap-1 sm:col-span-1">
+                      {video.status === "failed" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void processUrl(video.youtubeUrl, video.videoId)
+                          }
+                          disabled={Boolean(pendingAction)}
+                          aria-label={`Retry ${title}`}
+                        >
+                          <RotateCcw aria-hidden="true" />
+                          {retrying ? "Retrying…" : "Retry"}
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         size="icon"

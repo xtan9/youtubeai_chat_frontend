@@ -11,6 +11,11 @@ import {
   SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
 } from "./identity";
 import { validateCompatibleSubscriptionDiscoveryEvent } from "./subscription-discovery";
+import {
+  validateProjectVideoProcessingEvent,
+  type ProjectVideoProcessingEventName,
+  type ProjectVideoProcessingEventProperties,
+} from "./project-video-processing";
 
 const POSTHOG_HOST = "https://us.i.posthog.com";
 
@@ -75,6 +80,70 @@ export async function captureSubscriptionActivated(
       console.error("[analytics] server shutdown failed", {
         errorId: "ANALYTICS_SERVER_SHUTDOWN_FAILED",
         event: "subscription_activated",
+        err,
+      });
+    }
+  }
+}
+
+export async function captureProjectVideoProcessingEvent<
+  EventName extends ProjectVideoProcessingEventName,
+>(
+  distinctId: string,
+  event: EventName,
+  properties: ProjectVideoProcessingEventProperties[EventName],
+  syntheticSmokeAccount = false,
+): Promise<void> {
+  if (syntheticSmokeAccount) {
+    console.info("[analytics] suppressed synthetic business event", {
+      event,
+      ...SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
+    });
+    return;
+  }
+
+  const validation = validateProjectVideoProcessingEvent(event, properties);
+  if (!validation.success) {
+    console.error("[analytics] invalid Project Video processing event", {
+      errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
+      event,
+      issueCount: validation.issueCount,
+    });
+    return;
+  }
+
+  const projectToken = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
+  if (process.env.NODE_ENV !== "production" || !projectToken) return;
+
+  const client = new PostHog(projectToken, {
+    host: POSTHOG_HOST,
+    flushAt: 1,
+    flushInterval: 0,
+  });
+
+  try {
+    await client.captureImmediate({
+      distinctId,
+      event,
+      properties: {
+        analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
+        [ANALYTICS_SUBJECT_PROPERTY]: ANALYTICS_HUMAN_SUBJECT,
+        ...validation.properties,
+      },
+    });
+  } catch (err) {
+    console.error("[analytics] server capture failed", {
+      errorId: "ANALYTICS_SERVER_CAPTURE_FAILED",
+      event,
+      err,
+    });
+  } finally {
+    try {
+      await client.shutdown();
+    } catch (err) {
+      console.error("[analytics] server shutdown failed", {
+        errorId: "ANALYTICS_SERVER_SHUTDOWN_FAILED",
+        event,
         err,
       });
     }

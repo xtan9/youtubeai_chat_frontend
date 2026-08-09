@@ -55,6 +55,9 @@ configuration.
 | `summary_succeeded` | The summary stream reaches a terminal summary event with non-empty summary output. | `account_type`, `source_surface`, `result_origin`, `output_language`, `transcription_seconds`, `summary_seconds`, `total_seconds` |
 | `summary_failed` | The summary request returns a terminal HTTP/query error or the accepted stream emits a terminal processing error. | `account_type`, `source_surface`, `output_language`, `failure_category`, `error_code`, optional `http_status` |
 | `chat_started` | The first chat stream for a video in the mounted client session completes with assistant output. | `account_type`, `source_surface` |
+| `project_video_processing_started` | An owned Project atomically grants this request the only processing lease for a canonical Video membership. | Governed `status`, 1â€“5 `ordinal`, and `attempt_kind` only. |
+| `project_video_processing_succeeded` | The leased Summary Run completes and durable Transcript + Summary evidence is verified before membership becomes ready. | Governed `status`, `ordinal`, cache/generated origin, and stage timings only. |
+| `project_video_processing_failed` | A leased Summary Run or its durable evidence handoff reaches a classified failure, including an expired interrupted lease. | Governed `status`, `ordinal`, `error_class`, and processing duration only. |
 | `checkout_started` | The authenticated billing API returns a Stripe Checkout URL. A plan choice or failed API call is not counted. | See the Subscription-discovery contract above. |
 | `subscription_activated` | A signed Stripe webhook persists an `active` or `trialing` Pro Subscription. Subscription updates emit only on a non-Pro-to-Pro transition. | See the Subscription-discovery contract above. |
 

@@ -3,7 +3,7 @@ import {
   forwardLlmEvent,
   streamCached,
   validateSummarySseEvent,
-} from "../stream-events";
+} from "@/lib/summary-run/server-stream-events";
 import type { CachedSummary } from "@/lib/services/summarize-cache";
 import { SummarySseEventSchema } from "@/lib/api-contracts/summary";
 

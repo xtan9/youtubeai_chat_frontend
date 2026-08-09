@@ -67,13 +67,15 @@ insert into public.project_videos (
   project_id,
   video_id,
   position,
-  status
+  status,
+  processing_attempt_id
 )
 values (
   'd3000000-0000-4000-8000-000000000003',
   '86000000-0000-4000-8000-000000000006',
   1,
-  'ready'
+  'processing',
+  '92000000-0000-4000-8000-000000000001'
 );
 
 commit;
@@ -98,12 +100,12 @@ begin
   perform extensions.dblink_send_query(
     'project_search_writer',
     $query$
-      select public.transition_project_video_status(
+      select public.finalize_project_video_processing(
         'd3000000-0000-4000-8000-000000000003',
         '86000000-0000-4000-8000-000000000006',
-        'failed',
-        'transcript_failed',
-        1
+        '92000000-0000-4000-8000-000000000001',
+        'ready',
+        null
       )
     $query$
   );
@@ -120,8 +122,8 @@ begin
   end if;
 
   -- The writer holds an uncommitted revision/status update. MVCC Search must
-  -- return the complete old snapshot immediately, never new coverage with an
-  -- old revision or an old passage with new failed coverage.
+  -- return the complete old processing snapshot immediately, never ready
+  -- coverage or passages with the old revision.
   select result into during_result
   from extensions.dblink(
     'project_search_reader',
@@ -134,11 +136,11 @@ begin
     $query$
   ) as searched(result jsonb);
 
-  if during_result ->> 'outcome' <> 'ready'
+  if during_result ->> 'outcome' <> 'not_ready'
     or (during_result ->> 'sourceSetRevision')::integer <> 1
-    or (during_result #>> '{coverage,readyVideos}')::integer <> 1
-    or pg_catalog.jsonb_array_length(during_result -> 'passages') <> 1
-    or during_result #>> '{passages,0,text}' <> 'coherent snapshot evidence'
+    or (during_result #>> '{coverage,readyVideos}')::integer <> 0
+    or during_result #>> '{coverage,unavailableVideos,0,status}' <> 'processing'
+    or pg_catalog.jsonb_array_length(during_result -> 'passages') <> 0
   then
     raise exception 'REGRESSION: concurrent Search returned a torn old snapshot: %', during_result;
   end if;
@@ -157,11 +159,11 @@ begin
     $query$
   ) as searched(result jsonb);
 
-  if after_result ->> 'outcome' <> 'not_ready'
+  if after_result ->> 'outcome' <> 'ready'
     or (after_result ->> 'sourceSetRevision')::integer <> 2
-    or (after_result #>> '{coverage,readyVideos}')::integer <> 0
-    or after_result #>> '{coverage,unavailableVideos,0,status}' <> 'failed'
-    or pg_catalog.jsonb_array_length(after_result -> 'passages') <> 0
+    or (after_result #>> '{coverage,readyVideos}')::integer <> 1
+    or pg_catalog.jsonb_array_length(after_result -> 'passages') <> 1
+    or after_result #>> '{passages,0,text}' <> 'coherent snapshot evidence'
   then
     raise exception 'REGRESSION: concurrent Search returned a torn new snapshot: %', after_result;
   end if;
