@@ -33,9 +33,6 @@ export const metadata: Metadata = {
     "free YouTube summarizer",
   ],
   authors: [{ name: "YouTube AI Chat" }],
-  alternates: {
-    canonical: "/",
-  },
   // `openGraph.images` and `twitter.images` are deliberately NOT set here.
   // Per Next.js, metadata.openGraph.images takes precedence over the
   // `opengraph-image.{ext|tsx}` file convention; setting them at the root

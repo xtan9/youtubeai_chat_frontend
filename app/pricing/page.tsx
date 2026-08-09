@@ -1,5 +1,26 @@
+import type { Metadata } from "next";
 import { PricingFreeCard, PricingProCard } from "./_components/PricingCard";
 import { PricingFAQ } from "./_components/PricingFAQ";
+
+const description =
+  "Compare the Free Plan with the Pro Plan at $6.99 monthly or a $4.99 monthly equivalent billed as $59.88 annually.";
+
+export const metadata: Metadata = {
+  title: "Pricing | YouTube AI Chat",
+  description,
+  alternates: { canonical: "/pricing" },
+  openGraph: {
+    title: "Pricing | YouTube AI Chat",
+    description,
+    url: "/pricing",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pricing | YouTube AI Chat",
+    description,
+  },
+};
 
 export default function PricingPage() {
   return (

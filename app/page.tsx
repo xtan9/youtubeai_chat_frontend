@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { InputForm } from "./components/input-form";
 import { AnonHomepageGate } from "./components/anon-homepage-gate";
@@ -9,6 +10,10 @@ import { HeroSection } from "./components/hero-section";
 import FaqJsonLd from "@/components/seo/faq-jsonld";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 // Heavy widget — pulls react-markdown + the chat hooks/UI. Dynamic-import
 // keeps it on its own JS chunk so the marketing-only sections stay
