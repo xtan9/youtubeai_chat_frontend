@@ -82,18 +82,6 @@ export function Header() {
               aria-label="Primary"
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
-              <Link
-                href="/blog"
-                className="text-text-muted hover:text-text-primary transition-colors"
-              >
-                Blog
-              </Link>
-              <Link
-                href="/faq"
-                className="text-text-muted hover:text-text-primary transition-colors"
-              >
-                FAQ
-              </Link>
               {user && !user.is_anonymous ? (
                 <Link
                   href="/workspace"
