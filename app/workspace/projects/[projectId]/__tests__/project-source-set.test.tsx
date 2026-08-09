@@ -128,6 +128,7 @@ describe("ProjectSourceSet", () => {
 
   it("adds a canonical History candidate and renders the refreshed source", async () => {
     const refreshed = sourceSet([video(1), { ...video(2), title: "History candidate" }], 2);
+    const onSourceSetChange = vi.fn();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         return Promise.resolve(
@@ -145,6 +146,7 @@ describe("ProjectSourceSet", () => {
         projectId={PROJECT_ID}
         initialSourceSet={sourceSet([video(1)])}
         initialCandidatePage={candidatePage()}
+        onSourceSetChange={onSourceSetChange}
       />,
     );
 
@@ -168,10 +170,12 @@ describe("ProjectSourceSet", () => {
       videoId: HISTORY.videoId,
       expectedRevision: 1,
     });
+    expect(onSourceSetChange).toHaveBeenCalledWith(refreshed);
   });
 
   it("accepts one pasted YouTube URL and renders durable processing", async () => {
     const processing = sourceSet([video(1, "processing")], 2);
+    const onSourceSetChange = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({ outcome: "started", sourceSet: processing }),
@@ -185,6 +189,7 @@ describe("ProjectSourceSet", () => {
         projectId={PROJECT_ID}
         initialSourceSet={sourceSet([], 1)}
         initialCandidatePage={candidatePage([])}
+        onSourceSetChange={onSourceSetChange}
       />,
     );
 
@@ -203,6 +208,7 @@ describe("ProjectSourceSet", () => {
       youtubeUrl: "https://www.youtube.com/watch?v=aaaaaaa0001",
       expectedRevision: 1,
     });
+    expect(onSourceSetChange).toHaveBeenCalledWith(processing);
   });
 
   it("preserves the Summary quota journey and refreshes the failed membership", async () => {
@@ -285,6 +291,7 @@ describe("ProjectSourceSet", () => {
     const first = video(1, "ready");
     const failed = video(2, "failed");
     const refreshed = sourceSet([first], 5);
+    const onSourceSetChange = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({ outcome: "removed", sourceSet: refreshed }),
     );
@@ -295,6 +302,7 @@ describe("ProjectSourceSet", () => {
         projectId={PROJECT_ID}
         initialSourceSet={sourceSet([first, failed], 4)}
         initialCandidatePage={candidatePage([])}
+        onSourceSetChange={onSourceSetChange}
       />,
     );
 
@@ -309,6 +317,7 @@ describe("ProjectSourceSet", () => {
       `/api/projects/${PROJECT_ID}/source-set/${failed.videoId}?revision=4`,
       { method: "DELETE" },
     );
+    expect(onSourceSetChange).toHaveBeenCalledWith(refreshed);
   });
 
   it("submits the complete order with a revision precondition", async () => {
@@ -321,6 +330,7 @@ describe("ProjectSourceSet", () => {
       ],
       4,
     );
+    const onSourceSetChange = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ outcome: "reordered", sourceSet: refreshed })),
     );
@@ -331,6 +341,7 @@ describe("ProjectSourceSet", () => {
         projectId={PROJECT_ID}
         initialSourceSet={sourceSet([first, second], 3)}
         initialCandidatePage={candidatePage([])}
+        onSourceSetChange={onSourceSetChange}
       />,
     );
 
@@ -344,6 +355,7 @@ describe("ProjectSourceSet", () => {
     expect(
       screen.getAllByLabelText(/Position/).map((node) => node.parentElement?.textContent),
     ).toEqual(expect.arrayContaining([expect.stringContaining("Source 2")]));
+    expect(onSourceSetChange).toHaveBeenCalledWith(refreshed);
   });
 
   it("searches processed History on the server with honest loading and paging", async () => {

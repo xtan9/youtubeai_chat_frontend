@@ -178,12 +178,19 @@ describe("ProjectSubject ownership boundary", () => {
           rename: expect.any(Function),
           clear: expect.any(Function),
         },
+        artifacts: {
+          load: expect.any(Function),
+          reserve: expect.any(Function),
+          complete: expect.any(Function),
+          fail: expect.any(Function),
+        },
       },
     });
     if (result.kind === "resolved") {
       expect(result.value).not.toHaveProperty("evidence");
       expect(result.value.passageSearch).toBeDefined();
       expect(result.value.groundedAnswers).toBeDefined();
+      expect(result.value.artifacts).toBeDefined();
     }
   });
 

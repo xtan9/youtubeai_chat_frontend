@@ -27,6 +27,10 @@ import {
   isProjectGroundedAnswerEventName,
   validateProjectGroundedAnswerEvent,
 } from "./project-grounded-answer";
+import {
+  isProjectArtifactEventName,
+  validateProjectArtifactEvent,
+} from "./project-artifacts";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -107,6 +111,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid Project Grounded Answer event", {
           errorId: "ANALYTICS_PROJECT_GROUNDED_ANSWER_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectArtifactEventName(event)) {
+      const validation = validateProjectArtifactEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Artifact event", {
+          errorId: "ANALYTICS_PROJECT_ARTIFACT_INVALID",
           event,
           issueCount: validation.issueCount,
         });

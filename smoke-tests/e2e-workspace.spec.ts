@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -127,6 +128,36 @@ type FixtureConversation = {
   sourceSetEvents?: FixtureSourceSetEvent[];
 };
 
+type FixtureArtifactAttempt = {
+  attemptId: string;
+  attemptToken: string;
+  workspaceId: string;
+  projectId: string | null;
+  ownerId: string;
+  kind: "study_guide" | "creator_brief" | "project_brief";
+  state: "reserved" | "completed" | "failed";
+};
+
+type FixtureArtifact = {
+  artifactId: string;
+  projectId: string;
+  kind: FixtureArtifactAttempt["kind"];
+  content: string;
+  sourceSetRevision: number;
+  sourceManifest: unknown;
+  sourceCoverage: unknown;
+  evidenceSnapshot: unknown;
+  citationDiagnostics: unknown[];
+  generationMetadata: {
+    model: string;
+    promptVersion: string;
+    generatedAt: string;
+  };
+  createdAt: string;
+  supersededAt: string | null;
+  generationAttemptId: string;
+};
+
 type FixtureGatewayGate = {
   waitForRelease: Promise<void>;
   release: () => void;
@@ -140,10 +171,14 @@ const processedVideoIds = new Set<string>();
 const sourceSetRevisions = new Map<string, number>();
 const projectConversations = new Map<string, FixtureConversation>();
 const projectConversationThreads = new Map<string, FixtureConversation[]>();
+const artifactAttempts: FixtureArtifactAttempt[] = [];
+const projectArtifacts: FixtureArtifact[] = [];
 let projectSequence = 0;
 let clockSequence = 0;
 let conversationSequence = 0;
 let messageSequence = 0;
+let artifactAttemptSequence = 0;
+let artifactSequence = 0;
 let gatewayOutcome: "success" | "failure" = "success";
 let gatewayGate = createGatewayGate();
 let appProcess: ChildProcess | undefined;
@@ -208,10 +243,14 @@ test.beforeEach(() => {
   sourceSetRevisions.clear();
   projectConversations.clear();
   projectConversationThreads.clear();
+  artifactAttempts.splice(0);
+  projectArtifacts.splice(0);
   projectSequence = 0;
   clockSequence = 0;
   conversationSequence = 0;
   messageSequence = 0;
+  artifactAttemptSequence = 0;
+  artifactSequence = 0;
   gatewayOutcome = "success";
   seedCanonicalHistory();
 });
@@ -836,6 +875,175 @@ test("Researcher switches, clears, and retries named Project Conversations on de
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
   await expect(page.getByRole("button", { name: "New conversation" })).toBeVisible();
+});
+
+test("Study Guide stays evidence-bound across export, Source Set updates, regeneration, and Free quota", async ({
+  browser,
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Durable Study Guide",
+  );
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: appUrl,
+  });
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  const guide = page.getByRole("region", { name: "Study Guide" });
+  await expect(guide.getByRole("button", { name: "Generate Study Guide" })).toBeVisible();
+  await guide.getByRole("button", { name: "Generate Study Guide" }).click();
+
+  await expect(
+    guide.getByText(/Climate adaptation depends on exact local evidence/).first(),
+  ).toBeVisible();
+  await expect(
+    guide.getByRole("link", { name: /S1 @ 00:42.*Alpha evidence/i }).first(),
+  ).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+  );
+  await expect(
+    guide.getByRole("link", {
+      name: /S1 @ 00:42-00:48.*Alpha evidence/i,
+    }),
+  ).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+  );
+  await expect(
+    guide.getByLabel("Study Guide provenance", { exact: true }),
+  ).toContainText(
+    "Source Set revision 1",
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    guide.getByRole("link", { name: /S1 @ 00:42.*Alpha evidence/i }).first(),
+  ).toBeVisible();
+  await expect(guide.getByLabel("Study Guide provenance", { exact: true })).toBeVisible();
+  await expect(guide.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  await expect(guide.getByRole("button", { name: "Download Markdown" })).toBeVisible();
+  await expect(guide.getByRole("button", { name: "Regenerate Study Guide" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  expect(
+    await guide.evaluate((region) =>
+      [...region.querySelectorAll<HTMLElement>("*")].every((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth <= element.clientWidth + 1 && !nestedVerticalScroll;
+      }),
+    ),
+  ).toBe(true);
+
+  await guide.getByRole("button", { name: "Copy Markdown" }).click();
+  await expect(guide.getByText("Markdown copied.")).toBeVisible();
+  const copiedMarkdown = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedMarkdown).toContain("## Review questions");
+  expect(copiedMarkdown).toContain(
+    "[S1 @ 00:42](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await guide.getByRole("button", { name: "Download Markdown" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(
+    "durable-study-guide-study-guide.md",
+  );
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  if (!downloadPath) return;
+  const markdown = await readFile(downloadPath, "utf8");
+  expect(markdown).toContain("# Study Guide");
+  expect(markdown).toContain("## Review questions");
+  expect(markdown).toContain(
+    "[S1 @ 00:42](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+  );
+
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await historyDialog.getByLabel("Search History").fill("Beta processing");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await historyDialog
+    .getByRole("button", { name: "Add Beta processing to Source Set" })
+    .click();
+  await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+  await expect(guide.getByText("Update available.", { exact: true })).toBeVisible();
+  await expect(
+    guide.getByRole("status").filter({
+      hasText: "The Source Set is now revision 2",
+    }),
+  ).toBeVisible();
+  await expect(
+    guide.getByText(/Climate adaptation depends on exact local evidence/).first(),
+  ).toBeVisible();
+  await guide.getByRole("button", { name: "Regenerate Study Guide" }).click();
+  await expect(guide.getByText("Study Guide updated.")).toBeVisible();
+  await expect(guide.getByText("Update available.", { exact: true })).toHaveCount(0);
+  await expect(
+    guide.getByLabel("Study Guide provenance", { exact: true }),
+  ).toContainText(
+    "Source Set revision 2",
+  );
+  await guide.getByText("Earlier provenance (1)").click();
+  await expect(guide.getByLabel("Earlier Study Guide provenance")).toContainText(
+    "Source Set revision 1",
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  expect(
+    await guide.evaluate((region) =>
+      [...region.querySelectorAll<HTMLElement>("*")].every((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth <= element.clientWidth + 1 && !nestedVerticalScroll;
+      }),
+    ),
+  ).toBe(true);
+
+  const otherContext = await browser.newContext();
+  try {
+    await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
+    const freeProjectId = await createGroundedFixtureProject(
+      otherContext,
+      "Free Study Guide",
+    );
+    const otherPage = await otherContext.newPage();
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
+    await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
+    await expect(
+      freeGuide
+        .getByText(/Climate adaptation depends on exact local evidence/)
+        .first(),
+    ).toBeVisible();
+    await freeGuide
+      .getByRole("button", { name: "Regenerate Study Guide" })
+      .click();
+    const quota = freeGuide.getByRole("alert");
+    await expect(quota).toContainText("Free includes 1 Artifact generation total.");
+    await expect(quota.getByRole("link", { name: "View Pro plans" })).toHaveAttribute(
+      "href",
+      "/pricing",
+    );
+
+    const privateGuide = await otherContext.request.get(
+      `${appUrl}/api/projects/${projectId}/artifacts/study-guide`,
+    );
+    expect(privateGuide.status()).toBe(404);
+  } finally {
+    await otherContext.close();
+  }
 });
 
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
@@ -1532,11 +1740,6 @@ async function handleSupabaseRequest(
     const prompt = gatewayBody.messages
       ?.map((message) => (typeof message.content === "string" ? message.content : ""))
       .join("\n") ?? "";
-    const responseContent = prompt.includes("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT")
-      ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium"
-      : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
-        ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
-        : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
     const activeGatewayGate = gatewayGate;
     await activeGatewayGate.waitForRelease;
     if (response.destroyed || response.writableEnded) return;
@@ -1548,6 +1751,25 @@ async function handleSupabaseRequest(
       "cache-control": "no-cache",
     });
     response.flushHeaders();
+    const responseContent = prompt.includes("durable Markdown Study Guide")
+      ? `# Study Guide
+
+## Overview
+
+Climate adaptation depends on exact local evidence [S1 @ 00:42].
+
+## Key ideas
+
+- Climate adaptation depends on exact local evidence [S1 @ 00:42-00:48].
+
+## Review questions
+
+1. What does climate adaptation depend on [S1 @ 00:42]?`
+      : prompt.includes("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT")
+        ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium"
+        : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
+          ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
+          : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
     response.write(
       `data: ${JSON.stringify({
         choices: [
@@ -1774,6 +1996,14 @@ async function handleProjects(
     sourceSetRevisions.delete(deleted.id);
     projectConversations.delete(deleted.id);
     projectConversationThreads.delete(deleted.id);
+    for (let artifactIndex = projectArtifacts.length - 1; artifactIndex >= 0; artifactIndex -= 1) {
+      if (projectArtifacts[artifactIndex].projectId === deleted.id) {
+        projectArtifacts.splice(artifactIndex, 1);
+      }
+    }
+    for (const attempt of artifactAttempts) {
+      if (attempt.projectId === deleted.id) attempt.projectId = null;
+    }
     return sendJson(response, 200, [{ id: deleted.id }]);
   }
 
@@ -1817,11 +2047,118 @@ async function handleSourceSetRpc(
       | "find_gaps"
       | "project_assessment";
     p_user_id?: string;
+    p_attempt_id?: string;
+    p_kind?: "study_guide" | "creator_brief" | "project_brief";
+    p_content?: string;
+    p_generation_metadata?: {
+      model?: string;
+      promptVersion?: string;
+      generatedAt?: string;
+    };
   };
   const projectId = body.p_project_id;
 
   if (url.pathname.endsWith("/increment_rate_limit")) {
     return sendJson(response, 200, 1);
+  }
+
+  if (url.pathname.endsWith("/complete_project_artifact_generation")) {
+    const attempt = artifactAttempts.find(
+      (candidate) =>
+        candidate.attemptId === body.p_attempt_id &&
+        candidate.attemptToken === body.p_attempt_token &&
+        candidate.projectId === projectId &&
+        candidate.kind === body.p_kind,
+    );
+    if (
+      !serviceRole ||
+      !projectId ||
+      !attempt ||
+      attempt.ownerId !== body.p_owner_id
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const existing = projectArtifacts.find(
+      (artifact) => artifact.generationAttemptId === attempt.attemptId,
+    );
+    if (attempt.state === "completed" && existing) {
+      return sendJson(response, 200, {
+        outcome: "completed",
+        artifact: visibleArtifact(existing),
+      });
+    }
+    if (
+      attempt.state !== "reserved" ||
+      body.p_source_set_revision !== (sourceSetRevisions.get(projectId) ?? 0)
+    ) {
+      return sendJson(response, 200, { outcome: "conflict" });
+    }
+    const metadata = body.p_generation_metadata;
+    if (
+      !body.p_content ||
+      !body.p_source_manifest ||
+      !body.p_source_coverage ||
+      !body.p_evidence_snapshot ||
+      !Array.isArray(body.p_citation_diagnostics) ||
+      !metadata?.model ||
+      !metadata.promptVersion ||
+      !metadata.generatedAt ||
+      !body.p_kind
+    ) {
+      return sendJson(response, 200, { outcome: "invalid" });
+    }
+
+    const createdAt = nextTimestamp();
+    for (const artifact of projectArtifacts) {
+      if (
+        artifact.projectId === projectId &&
+        artifact.kind === body.p_kind &&
+        artifact.supersededAt === null
+      ) {
+        artifact.supersededAt = createdAt;
+      }
+    }
+    artifactSequence += 1;
+    const artifact: FixtureArtifact = {
+      artifactId: `d2000000-0000-4000-8000-${String(artifactSequence).padStart(12, "0")}`,
+      projectId,
+      kind: body.p_kind,
+      content: body.p_content,
+      sourceSetRevision: body.p_source_set_revision,
+      sourceManifest: body.p_source_manifest,
+      sourceCoverage: body.p_source_coverage,
+      evidenceSnapshot: body.p_evidence_snapshot,
+      citationDiagnostics: body.p_citation_diagnostics,
+      generationMetadata: {
+        model: metadata.model,
+        promptVersion: metadata.promptVersion,
+        generatedAt: metadata.generatedAt,
+      },
+      createdAt,
+      supersededAt: null,
+      generationAttemptId: attempt.attemptId,
+    };
+    projectArtifacts.push(artifact);
+    attempt.state = "completed";
+    return sendJson(response, 200, {
+      outcome: "completed",
+      artifact: visibleArtifact(artifact),
+    });
+  }
+
+  if (url.pathname.endsWith("/fail_project_artifact_generation")) {
+    const attempt = artifactAttempts.find(
+      (candidate) =>
+        candidate.attemptId === body.p_attempt_id &&
+        candidate.attemptToken === body.p_attempt_token &&
+        candidate.projectId === projectId &&
+        candidate.ownerId === body.p_owner_id,
+    );
+    if (!serviceRole || !attempt) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    if (attempt.state === "reserved") attempt.state = "failed";
+    return sendJson(response, 200, { outcome: "failed" });
   }
 
   if (url.pathname.endsWith("/complete_project_grounded_answer")) {
@@ -1890,6 +2227,114 @@ async function handleSourceSetRpc(
 
   if (!projectId || !userId || projectOwnerId(projectId) !== userId) {
     return sendJson(response, 200, { outcome: "missing" });
+  }
+
+  if (url.pathname.endsWith("/load_project_artifact")) {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project || !body.p_kind) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const tier = userSubscriptions.get(userId)?.tier ?? "free";
+    const completedCount = artifactAttempts.filter(
+      (attempt) =>
+        attempt.workspaceId === project.workspace_id &&
+        attempt.state === "completed",
+    ).length;
+    const matching = projectArtifacts
+      .filter(
+        (artifact) =>
+          artifact.projectId === projectId && artifact.kind === body.p_kind,
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return sendJson(response, 200, {
+      outcome: "ready",
+      currentSourceSetRevision: sourceSetRevisions.get(projectId) ?? 0,
+      current: visibleArtifact(
+        matching.find((artifact) => artifact.supersededAt === null) ?? null,
+      ),
+      history: matching
+        .filter((artifact) => artifact.supersededAt !== null)
+        .map(visibleArtifact),
+      tier,
+      generationsUsed: completedCount,
+      generationsLimit: tier === "pro" ? null : 1,
+    });
+  }
+
+  if (url.pathname.endsWith("/reserve_project_artifact_generation")) {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project || !body.p_kind || !body.p_attempt_token) {
+      return sendJson(response, 200, { outcome: "invalid" });
+    }
+    const tier = userSubscriptions.get(userId)?.tier ?? "free";
+    const completedCount = artifactAttempts.filter(
+      (attempt) =>
+        attempt.workspaceId === project.workspace_id &&
+        attempt.state === "completed",
+    ).length;
+    const reservedCount = artifactAttempts.filter(
+      (attempt) =>
+        attempt.workspaceId === project.workspace_id &&
+        attempt.state === "reserved",
+    ).length;
+    const existing = artifactAttempts.find(
+      (attempt) =>
+        attempt.workspaceId === project.workspace_id &&
+        attempt.attemptToken === body.p_attempt_token,
+    );
+    if (
+      existing &&
+      (existing.projectId !== projectId || existing.kind !== body.p_kind)
+    ) {
+      return sendJson(response, 200, { outcome: "invalid" });
+    }
+    if (existing?.state === "reserved") {
+      return sendJson(response, 200, {
+        outcome: "started",
+        attemptId: existing.attemptId,
+        attemptToken: existing.attemptToken,
+        kind: existing.kind,
+        tier,
+        generationsUsed: completedCount,
+        generationsLimit: tier === "pro" ? null : 1,
+      });
+    }
+    if (tier === "free" && completedCount + reservedCount >= 1) {
+      return sendJson(response, 200, {
+        outcome: "limit_reached",
+        tier: "free",
+        generationsUsed: Math.max(completedCount + reservedCount, 1),
+        generationsLimit: 1,
+      });
+    }
+    if (existing?.state === "completed") {
+      return sendJson(response, 200, { outcome: "invalid" });
+    }
+    const attempt = existing ?? {
+      attemptId: `d1000000-0000-4000-8000-${String(++artifactAttemptSequence).padStart(12, "0")}`,
+      attemptToken: body.p_attempt_token,
+      workspaceId: project.workspace_id,
+      projectId,
+      ownerId: userId,
+      kind: body.p_kind,
+      state: "reserved" as const,
+    };
+    if (existing) {
+      existing.projectId = projectId;
+      existing.kind = body.p_kind;
+      existing.state = "reserved";
+    } else {
+      artifactAttempts.push(attempt);
+    }
+    return sendJson(response, 200, {
+      outcome: "started",
+      attemptId: attempt.attemptId,
+      attemptToken: attempt.attemptToken,
+      kind: attempt.kind,
+      tier,
+      generationsUsed: completedCount,
+      generationsLimit: tier === "pro" ? null : 1,
+    });
   }
 
   if (url.pathname.endsWith("/list_project_conversations")) {
@@ -2333,6 +2778,13 @@ async function handleSourceSetRpc(
 function youtubeVideoId(youtubeUrl: string | undefined) {
   if (!youtubeUrl) return null;
   return new URL(youtubeUrl).searchParams.get("v");
+}
+
+function visibleArtifact(artifact: FixtureArtifact | null) {
+  if (!artifact) return null;
+  return Object.fromEntries(
+    Object.entries(artifact).filter(([key]) => key !== "generationAttemptId"),
+  );
 }
 
 function visibleConversationMessage(message: FixtureConversationMessage) {

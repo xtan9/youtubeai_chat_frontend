@@ -126,6 +126,52 @@ describe("client analytics", () => {
     });
   });
 
+  it("captures only governed Project Artifact provenance aggregates", () => {
+    captureAnalyticsEvent("project_artifact_generation_completed", {
+      kind: "study_guide",
+      tier: "free",
+      source_set_revision: 3,
+      evidence_videos: 2,
+      evidence_passages: 7,
+      generations_used: 1,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "project_artifact_generation_completed",
+      {
+        analytics_schema_version: 1,
+        kind: "study_guide",
+        tier: "free",
+        source_set_revision: 3,
+        evidence_videos: 2,
+        evidence_passages: 7,
+        generations_used: 1,
+      },
+    );
+  });
+
+  it("rejects private Artifact content before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "project_artifact_exported",
+      {
+        kind: "study_guide",
+        format: "markdown",
+        content: "private generated Study Guide",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Artifact event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_ARTIFACT_INVALID",
+        event: "project_artifact_exported",
+      }),
+    );
+  });
+
   it("rejects Project Search queries and content before transport", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     captureAnalyticsEvent(
