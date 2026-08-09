@@ -321,7 +321,7 @@ export async function verifyStripeSubscription(
 ): Promise<void> {
   if (!row.stripe_subscription_id) throw new Error("Subscription row has no Stripe subscription ID");
   const subscription = await stripe.subscriptions.retrieve(row.stripe_subscription_id, {
-    expand: ["discounts"],
+    expand: ["discounts", "latest_invoice.discounts"],
   });
   const customerId =
     typeof subscription.customer === "string"
@@ -337,7 +337,12 @@ export async function verifyStripeSubscription(
   if (actualPriceId !== expectedPriceId) {
     throw new Error("Stripe subscription used the wrong price ID");
   }
-  const hasExpectedPromotion = subscription.discounts.some((discount) => {
+  const latestInvoice =
+    subscription.latest_invoice && typeof subscription.latest_invoice !== "string"
+      ? subscription.latest_invoice
+      : null;
+  const appliedDiscounts = [...subscription.discounts, ...(latestInvoice?.discounts ?? [])];
+  const hasExpectedPromotion = appliedDiscounts.some((discount) => {
     if (typeof discount === "string") return false;
     const promotionCode = discount.promotion_code;
     return (

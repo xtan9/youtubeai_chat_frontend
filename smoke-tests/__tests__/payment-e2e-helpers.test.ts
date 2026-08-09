@@ -369,16 +369,19 @@ describe("payment E2E promotion codes", () => {
     expect(calls).toEqual(["promotion", "coupon"]);
   });
 
-  it("verifies the redeemed promotion on the Stripe subscription", async () => {
+  it("verifies a one-time promotion on the subscription's latest invoice", async () => {
     const retrieveSubscription = vi.fn().mockResolvedValue({
       customer: "cus_test",
-      discounts: [
-        {
-          id: "di_test",
-          promotion_code: "promo_test",
-        },
-      ],
+      discounts: [],
       items: { data: [{ price: { id: "price_monthly" } }] },
+      latest_invoice: {
+        discounts: [
+          {
+            id: "di_test",
+            promotion_code: "promo_test",
+          },
+        ],
+      },
       status: "active",
     });
     const retrievePromotionCode = vi.fn().mockResolvedValue({ times_redeemed: 1 });
@@ -398,7 +401,7 @@ describe("payment E2E promotion codes", () => {
     await verifyStripeSubscription(stripe, row, "price_monthly", "promo_test");
 
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_test", {
-      expand: ["discounts"],
+      expand: ["discounts", "latest_invoice.discounts"],
     });
     expect(retrievePromotionCode).toHaveBeenCalledWith("promo_test");
   });
