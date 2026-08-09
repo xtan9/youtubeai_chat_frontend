@@ -3,6 +3,8 @@
 do $$
 declare
   survivor constant uuid := 'a3472000-0000-4000-8000-000000000001';
+  exposed_role text;
+  table_privilege text;
   start_definition text;
   search_definition text;
   balanced_definition text;
@@ -47,6 +49,154 @@ begin
   then
     raise exception 'REGRESSION: embed/live/shorts legacy hash backfill drifted';
   end if;
+
+  if not exists (
+      select 1
+      from public.videos
+      join public.video_transcripts
+        on video_transcripts.video_id = videos.id
+      where videos.id = '8a37686a-e461-4388-a087-ac030d0bf7f0'
+        and videos.youtube_url = 'https://www.youtube.com/watch?v=_b1b-uMuzKQ'
+        and videos.youtube_video_id = '_b1b-uMuzKQ'
+        and videos.url_hash = '34aef0dd8636c55d3c23a6fa334b2001'
+        and to_jsonb(video_transcripts) = jsonb_build_object(
+          'video_id', '8a37686a-e461-4388-a087-ac030d0bf7f0'::uuid,
+          'transcript_source', 'manual_captions',
+          'language', 'en',
+          'created_at', '2026-08-04T00:01:00Z'::timestamptz,
+          'segments', '[{"text":"Recoverable redirect Transcript","start":13,"duration":4}]'::jsonb
+        )
+    )
+    or exists (
+      select 1
+      from public.videos
+      where id in (
+        'a456bf8d-5413-452c-82d2-6f4d6923101d',
+        'f83123c7-4e6a-4a95-9554-1978dac3e535'
+      )
+    )
+  then
+    raise exception 'REGRESSION: production identity incident repair drifted';
+  end if;
+
+  if (
+      select count(*)
+      from project_private.legacy_video_identity_quarantine
+    ) <> 2
+    or not exists (
+      select 1
+      from project_private.legacy_video_identity_quarantine
+      where video_id = 'a456bf8d-5413-452c-82d2-6f4d6923101d'
+        and reason = 'unsupported_channel_url'
+        and video_snapshot = jsonb_build_object(
+          'id', 'a456bf8d-5413-452c-82d2-6f4d6923101d'::uuid,
+          'youtube_url', 'https://youtube.com/@waseemiq1?si=WGN0uguYUo-ivemT',
+          'url_hash', '9e45ba7aa82c74c496bbd9d412e8fe13',
+          'title', 'Unsupported channel one',
+          'channel_name', 'Incident Fixture',
+          'language', 'en',
+          'created_at', '2026-08-05T00:00:00Z'::timestamptz
+        )
+        and transcript_snapshot = jsonb_build_object(
+          'video_id', 'a456bf8d-5413-452c-82d2-6f4d6923101d'::uuid,
+          'transcript_source', 'auto_captions',
+          'language', 'en',
+          'created_at', '2026-08-05T00:01:00Z'::timestamptz,
+          'segments', '[{"text":"Quarantined channel one Transcript","start":17,"duration":4}]'::jsonb
+        )
+    )
+    or not exists (
+      select 1
+      from project_private.legacy_video_identity_quarantine
+      where video_id = 'f83123c7-4e6a-4a95-9554-1978dac3e535'
+        and reason = 'unsupported_channel_url'
+        and video_snapshot = jsonb_build_object(
+          'id', 'f83123c7-4e6a-4a95-9554-1978dac3e535'::uuid,
+          'youtube_url', 'https://youtube.com/@richmovies-k3q?si=iolcO_gyLvcEMBYq',
+          'url_hash', '1ac8645240c853aba638dfba8364a9cf',
+          'title', 'Unsupported channel two',
+          'channel_name', 'Incident Fixture',
+          'language', 'zh',
+          'created_at', '2026-08-06T00:00:00Z'::timestamptz
+        )
+        and transcript_snapshot = jsonb_build_object(
+          'video_id', 'f83123c7-4e6a-4a95-9554-1978dac3e535'::uuid,
+          'transcript_source', 'whisper',
+          'language', 'zh',
+          'created_at', '2026-08-06T00:01:00Z'::timestamptz,
+          'segments', '[{"text":"Quarantined channel two Transcript","start":19,"duration":4}]'::jsonb
+        )
+    )
+  then
+    raise exception 'REGRESSION: complete private quarantine snapshots drifted';
+  end if;
+
+  if not exists (
+      select 1
+      from pg_class
+      join pg_namespace on pg_namespace.oid = pg_class.relnamespace
+      where pg_namespace.nspname = 'project_private'
+        and pg_class.relname = 'legacy_video_identity_quarantine'
+        and pg_class.relrowsecurity
+    )
+    or exists (
+      select 1
+      from pg_class as quarantine_class
+      cross join lateral aclexplode(coalesce(
+        quarantine_class.relacl,
+        acldefault('r', quarantine_class.relowner)
+      )) as quarantine_acl
+      where quarantine_class.oid =
+        'project_private.legacy_video_identity_quarantine'::regclass
+        and (
+          quarantine_acl.grantee = 0
+          or quarantine_acl.grantee in (
+            select pg_roles.oid
+            from pg_roles
+            where pg_roles.rolname in (
+              'anon',
+              'authenticated',
+              'service_role'
+            )
+          )
+        )
+    )
+  then
+    raise exception 'REGRESSION: private quarantine access boundary drifted';
+  end if;
+
+  -- PostgreSQL 15 does not expose MAINTAIN through has_table_privilege.
+  -- The ACL expansion above rejects every direct privilege bit (including
+  -- MAINTAIN on versions that support it); these explicit checks also catch
+  -- privileges inherited by an exposed role through another role.
+  foreach exposed_role in array array[
+    'anon',
+    'authenticated',
+    'service_role'
+  ]
+  loop
+    foreach table_privilege in array array[
+      'SELECT',
+      'INSERT',
+      'UPDATE',
+      'DELETE',
+      'TRUNCATE',
+      'REFERENCES',
+      'TRIGGER'
+    ]
+    loop
+      if has_table_privilege(
+        exposed_role,
+        'project_private.legacy_video_identity_quarantine',
+        table_privilege
+      ) then
+        raise exception
+          'REGRESSION: % inherited % on the private quarantine table',
+          exposed_role,
+          table_privilege;
+      end if;
+    end loop;
+  end loop;
 
   if (select count(*) from public.summaries where video_id = survivor) <> 3
     or not exists (
@@ -144,7 +294,16 @@ begin
     select 1 from public.videos
     where youtube_video_id is null
       or youtube_video_id !~ '^[A-Za-z0-9_-]{11}$'
-  ) then
+  )
+    or not exists (
+      select 1
+      from pg_attribute
+      where attrelid = 'public.videos'::regclass
+        and attname = 'youtube_video_id'
+        and attnotnull
+        and not attisdropped
+    )
+  then
     raise exception 'REGRESSION: canonical Video identity is nullable or malformed';
   end if;
 

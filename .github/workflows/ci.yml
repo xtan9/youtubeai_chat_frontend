@@ -95,6 +95,10 @@ jobs:
       PGDATABASE: postgres
     steps:
       - uses: actions/checkout@v5
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.72.7
       - name: Load Supabase role + auth stubs
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
       - name: Load legacy-schema fixture (pre-migration state)
@@ -106,10 +110,13 @@ jobs:
           set -eo pipefail
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f"
-            if [[ "$(basename "$f")" == "20260809210000_canonical_video_identity_and_private_cache.sql" ]]; then
+            if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
               psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_video_identity_before_canonical.sql
             fi
             psql -v ON_ERROR_STOP=1 -f "$f"
+            if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
+              psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_precanonical_video_identity_guard.sql
+            fi
             if [[ "$(basename "$f")" == "20260809210000_canonical_video_identity_and_private_cache.sql" ]]; then
               psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_legacy_video_identity_after_canonical.sql
             fi
@@ -122,6 +129,143 @@ jobs:
             fi
             echo "::endgroup::"
           done
+          psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_video_identity_recovery_fixed_point.sql
+      - name: Failed identity repair rolls back every retained row
+        run: |
+          set -eo pipefail
+          createdb identity_repair_rollback
+          PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
+          PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_schema.sql
+          PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/pre_migration_registered_user.sql
+          for f in supabase/migrations/*.sql; do
+            base="$(basename "$f")"
+            if [[ "$base" > "20260809209998_create_legacy_video_identity_quarantine.sql" ]]; then
+              break
+            fi
+            if [[ "$base" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
+              PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_video_identity_before_canonical.sql
+            fi
+            PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+          for dependency in summary history project chat event; do
+            PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -v dependency_kind="$dependency" -f supabase/test-fixtures/seed_legacy_video_identity_unexpected_reference.sql
+            if PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260809209999_repair_legacy_video_identity_incident.sql; then
+              echo "identity repair unexpectedly accepted $dependency dependency drift"
+              exit 1
+            fi
+            PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -v dependency_kind="$dependency" -f supabase/test-fixtures/assert_legacy_video_identity_repair_rolled_back.sql
+            PGDATABASE=identity_repair_rollback psql -v ON_ERROR_STOP=1 -v dependency_kind="$dependency" -f supabase/test-fixtures/clear_legacy_video_identity_unexpected_reference.sql
+          done
+          dropdb identity_repair_rollback
+      - name: Exact identity repair parent-lock race
+        run: |
+          set -eo pipefail
+          createdb identity_repair_lock_race
+          PGDATABASE=identity_repair_lock_race psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
+          PGDATABASE=identity_repair_lock_race psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_schema.sql
+          PGDATABASE=identity_repair_lock_race psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/pre_migration_registered_user.sql
+          for f in supabase/migrations/*.sql; do
+            base="$(basename "$f")"
+            if [[ "$base" > "20260809209998_create_legacy_video_identity_quarantine.sql" ]]; then
+              break
+            fi
+            if [[ "$base" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
+              PGDATABASE=identity_repair_lock_race psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_video_identity_before_canonical.sql
+            fi
+            PGDATABASE=identity_repair_lock_race psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+          PGDATABASE=identity_repair_lock_race \
+            bash supabase/test-fixtures/regression_legacy_video_identity_parent_lock.sh \
+              supabase/migrations/20260809209999_repair_legacy_video_identity_incident.sql
+          dropdb identity_repair_lock_race
+      - name: Backdated identity recovery is a real CLI fixed point
+        env:
+          # Supabase CLI 2.72.7 otherwise attempts TLS against this job's
+          # intentionally local plain-Postgres service.
+          PGSSLMODE: disable
+        run: |
+          set -eo pipefail
+          createdb identity_recovery_normal
+          createdb identity_recovery_late
+          for database in identity_recovery_normal identity_recovery_late; do
+            PGDATABASE="$database" psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
+          done
+
+          normal_url='postgres://postgres:postgres@localhost:5432/identity_recovery_normal'
+          late_url='postgres://postgres:postgres@localhost:5432/identity_recovery_late'
+          supabase db push --include-all --db-url "$normal_url" --yes
+
+          late_workdir="$(mktemp -d)"
+          cp -R supabase "$late_workdir/supabase"
+          for migration in \
+            20260809209997_guard_precanonical_video_identity_writes.sql \
+            20260809209998_create_legacy_video_identity_quarantine.sql \
+            20260809209999_repair_legacy_video_identity_incident.sql \
+            20260809210025_remove_precanonical_video_identity_guard.sql; do
+            rm -f -- "$late_workdir/supabase/migrations/$migration"
+          done
+
+          (
+            cd "$late_workdir"
+            supabase db push --include-all --db-url "$late_url" --yes
+          )
+          PGDATABASE=identity_recovery_late psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            if (
+                select count(*)
+                from supabase_migrations.schema_migrations
+                where version in (
+                  '20260809209997',
+                  '20260809209998',
+                  '20260809209999',
+                  '20260809210025'
+                )
+              ) <> 0
+              or not exists (
+                select 1
+                from supabase_migrations.schema_migrations
+                where version = '20260809210024'
+              )
+            then
+              raise exception
+                'REGRESSION: already-applied CLI ledger boundary drifted';
+            end if;
+          end;
+          $$;
+          SQL
+
+          supabase db push --include-all --db-url "$late_url" --yes
+          PGDATABASE=identity_recovery_late psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            if (
+              select count(*)
+              from supabase_migrations.schema_migrations
+              where version in (
+                '20260809209997',
+                '20260809209998',
+                '20260809209999',
+                '20260809210025'
+              )
+            ) <> 4 then
+              raise exception
+                'REGRESSION: db push --include-all missed a recovery migration';
+            end if;
+          end;
+          $$;
+          SQL
+
+          for database in identity_recovery_normal identity_recovery_late; do
+            PGDATABASE="$database" psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_video_identity_recovery_fixed_point.sql
+          done
+          pg_dump --schema-only identity_recovery_normal \
+            | sed -E '/^\\(un)?restrict /d' > /tmp/identity-recovery-normal.sql
+          pg_dump --schema-only identity_recovery_late \
+            | sed -E '/^\\(un)?restrict /d' > /tmp/identity-recovery-late.sql
+          diff -u /tmp/identity-recovery-normal.sql /tmp/identity-recovery-late.sql
+          dropdb identity_recovery_normal
+          dropdb identity_recovery_late
       - name: Workspace and Project contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
       - name: Project limit concurrency - representative legacy
@@ -166,6 +310,9 @@ jobs:
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f to fresh database"
             PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
+            if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
+              PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_precanonical_video_identity_guard.sql
+            fi
             if [[ "$f" == *"20260809111726_complete_project_grounded_answer.sql" ]]; then
               PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/pre_migration_project_grounded_coverage.sql
             fi
@@ -175,6 +322,7 @@ jobs:
             fi
             echo "::endgroup::"
           done
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_video_identity_recovery_fixed_point.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_limit_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_sets.sql
