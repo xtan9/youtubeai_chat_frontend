@@ -1,6 +1,10 @@
 export type FaqItem = {
   question: string;
   answer: string;
+  link?: {
+    href: string;
+    label: string;
+  };
 };
 
 export const faqItems: FaqItem[] = [
@@ -25,9 +29,13 @@ export const faqItems: FaqItem[] = [
       "Yes. Every summary has a Chat tab where you can ask anything and get an answer pulled straight from the transcript — clarify a concept, find a specific moment, or compare what two speakers said. Suggested follow-up prompts surface as you go so you can dig deeper without having to know what to ask.",
   },
   {
-    question: "What's free, and what's in the Pro tier?",
+    question: "What's included in the Free Plan and Pro Plan?",
     answer:
-      "You can summarize one video with no signup, just to try it. Free signed-in accounts get 10 summaries per month and 5 chat messages per video. Pro is $4.99/month (billed yearly) or $6.99/month and unlocks unlimited summaries and unlimited chat. No credit card required for the free tier.",
+      "Try one Video without signing up. The Free Plan includes 10 summaries per month, 5 Video Chat messages per Video, and a 10-item History. The Pro Plan includes unlimited summaries, Video Chat, and History for $6.99 per month, or a $4.99 per month equivalent billed as $59.88 annually. No credit card is required for the Free Plan.",
+    link: {
+      href: "/pricing",
+      label: "View Pricing",
+    },
   },
   {
     question: "Are my summaries saved?",

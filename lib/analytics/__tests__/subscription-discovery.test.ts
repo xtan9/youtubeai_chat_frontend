@@ -71,6 +71,7 @@ describe("Subscription discovery analytics contract", () => {
       "summary_limit",
       "video_chat_limit",
       "history_limit",
+      "project_limit",
       "direct_pricing",
     ]);
   });

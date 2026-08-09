@@ -2,7 +2,18 @@ import { getStripe, deriveTier, periodEndToIso, readCurrentPeriodEnd } from "@/l
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import type { User } from "@supabase/supabase-js";
 import type Stripe from "stripe";
-import { captureSubscriptionActivated } from "@/lib/analytics/server";
+import { z } from "zod";
+import {
+  captureSubscriptionActivated,
+  type SubscriptionActivationCaptureStatus,
+} from "@/lib/analytics/server";
+import {
+  SubscriptionDiscoveryAuthenticationStateSchema,
+  SubscriptionDiscoveryDeviceClassSchema,
+  SubscriptionDiscoveryPresentationStateSchema,
+  SubscriptionDiscoverySourceSurfaceSchema,
+  type SubscriptionDiscoveryAttribution,
+} from "@/lib/analytics/subscription-discovery";
 
 export const runtime = "nodejs"; // need raw body
 export const dynamic = "force-dynamic";
@@ -11,11 +22,41 @@ type ServiceClient = NonNullable<ReturnType<typeof getServiceRoleClient>>;
 type AnalyticsIdentity = Pick<User, "app_metadata"> &
   Partial<Pick<User, "user_metadata">>;
 
+const STRIPE_EVENT_LEASE_MS = 5 * 60 * 1000;
+const STRIPE_EVENT_PROCESSING_PREFIX = "stripe_event:processing:";
+const STRIPE_EVENT_SENT_PREFIX = "stripe_event:sent:";
+
+type StripeEventClaim =
+  | { status: "claimed"; lease: string }
+  | { status: "processed" }
+  | { status: "busy" };
+
+const CheckoutAttributionSchema = z
+  .object({
+    source_surface: SubscriptionDiscoverySourceSurfaceSchema,
+    presentation_state: SubscriptionDiscoveryPresentationStateSchema,
+    authentication_state: SubscriptionDiscoveryAuthenticationStateSchema,
+    device_class: SubscriptionDiscoveryDeviceClassSchema,
+  })
+  .strict();
+
+function checkoutAttribution(
+  metadata: Stripe.Metadata | null | undefined,
+): SubscriptionDiscoveryAttribution | null {
+  const parsed = CheckoutAttributionSchema.safeParse({
+    source_surface: metadata?.source_surface,
+    presentation_state: metadata?.presentation_state,
+    authentication_state: metadata?.authentication_state,
+    device_class: metadata?.device_class,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 // Architectural canary for the original P2.11 bug: when status is active
 // or trialing, tier MUST be "pro". If we derived "free", something
 // upstream silently dropped period_end (basil schema drift, malformed
 // payload, retire-and-replace). Refuse to write the poisoned row and
-// throw so the outer catch deletes the idempotency row and Stripe
+// throw so the outer catch expires the processing lease and Stripe
 // retries — same pattern as DB errors. Returning 200 with a poisoned
 // write was the exact failure mode we shipped; this guard converts it
 // to an alertable 500 + retry.
@@ -77,50 +118,177 @@ export async function POST(request: Request) {
     return new Response("Bad signature", { status: 400 });
   }
 
-  // Idempotency: insert event_id; on conflict, this is a duplicate.
-  const ins = await sr
-    .from("stripe_webhook_events")
-    .upsert({ event_id: event.id }, { onConflict: "event_id", ignoreDuplicates: true })
-    .select("event_id");
-  if (ins.error) {
-    console.error("[stripe-webhook] idempotency insert failed", {
-      errorId: "WEBHOOK_IDEMPOTENCY_FAIL", id: event.id, code: ins.error.code,
+  // Idempotency uses a leased event state so a crash before dispatch cannot
+  // permanently acknowledge the Stripe delivery.
+  let eventClaim: StripeEventClaim;
+  try {
+    eventClaim = await claimStripeEvent(sr, event.id);
+  } catch (err) {
+    console.error("[stripe-webhook] idempotency claim failed", {
+      errorId: "WEBHOOK_IDEMPOTENCY_FAIL", id: event.id, err,
     });
     return new Response("DB error", { status: 500 });
   }
-  if (!ins.data || ins.data.length === 0) {
-    // Conflict — already processed
-    return new Response("ok", { status: 200 });
+  if (eventClaim.status === "processed") return new Response("ok", { status: 200 });
+  if (eventClaim.status === "busy") {
+    return new Response("retrying", { status: 500 });
   }
-
   try {
     await dispatch(event, sr, stripe);
+    await markStripeEventProcessed(sr, event.id);
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("[stripe-webhook] handler threw", {
       errorId: "WEBHOOK_HANDLER_THREW", id: event.id, type: event.type, err,
     });
-    // Critical: delete the idempotency row so Stripe's retry re-runs dispatch.
-    // Without this, the next delivery sees the row already inserted, returns
-    // 200 immediately, and the event is permanently lost (no tier flip).
-    // Best-effort delete — if this fails, log and 500 anyway. Worst case is
-    // Stripe's redelivery hits the dedupe and we lose one event, but at least
-    // we logged both failures.
-    const del = await sr
-      .from("stripe_webhook_events")
-      .delete()
-      .eq("event_id", event.id);
-    if (del.error) {
-      console.error("[stripe-webhook] failed to delete idempotency row after handler failure", {
+    try {
+      await markStripeEventRetry(sr, event.id, eventClaim.lease);
+    } catch (retryErr) {
+      console.error("[stripe-webhook] failed to release event lease", {
         errorId: "WEBHOOK_IDEMPOTENCY_CLEANUP_FAIL",
         id: event.id,
-        code: (del.error as { code?: string }).code,
+        retryErr,
       });
     }
-    // 5xx → Stripe retries, and the row we just deleted means the retry
-    // will pass the idempotency check and re-run dispatch.
     return new Response("handler error", { status: 500 });
   }
+}
+
+
+async function claimStripeEvent(
+  sr: ServiceClient,
+  eventId: string,
+): Promise<StripeEventClaim> {
+  // The raw event_id was the original idempotency marker. Treat it as a
+  // completed receipt for compatibility with rows written before the leased
+  // processing marker was introduced.
+  if (
+    (await readWebhookMarker(sr, eventId)) ||
+    (await readWebhookMarker(sr, stripeEventSentMarkerId(eventId)))
+  ) {
+    return { status: "processed" };
+  }
+
+  const claim = await claimLeasedWebhookMarker(
+    sr,
+    stripeEventProcessingMarkerId(eventId),
+  );
+  return claim.status === "claimed"
+    ? { status: "claimed", lease: claim.lease }
+    : claim.status === "busy"
+      ? { status: "busy" }
+      : { status: "processed" };
+}
+
+async function markStripeEventProcessed(
+  sr: ServiceClient,
+  eventId: string,
+): Promise<void> {
+  await insertWebhookMarker(sr, stripeEventSentMarkerId(eventId));
+}
+
+async function markStripeEventRetry(
+  sr: ServiceClient,
+  eventId: string,
+  lease: string,
+): Promise<void> {
+  const result = await sr
+    .from("stripe_webhook_events")
+    .update({ received_at: new Date(0).toISOString() })
+    .eq("event_id", stripeEventProcessingMarkerId(eventId))
+    .eq("received_at", lease)
+    .select("event_id");
+  if (result.error) {
+    throw new Error(`stripe event retry transition failed: ${result.error.message}`);
+  }
+}
+
+type LeasedWebhookClaim =
+  | { status: "claimed"; lease: string }
+  | { status: "busy" }
+  | { status: "processed" };
+
+function stripeEventProcessingMarkerId(eventId: string): string {
+  return `${STRIPE_EVENT_PROCESSING_PREFIX}${eventId}`;
+}
+
+function stripeEventSentMarkerId(eventId: string): string {
+  return `${STRIPE_EVENT_SENT_PREFIX}${eventId}`;
+}
+
+function createLeaseTimestamp(): string {
+  return new Date(Date.now() + STRIPE_EVENT_LEASE_MS).toISOString();
+}
+
+async function readWebhookMarker(
+  sr: ServiceClient,
+  markerId: string,
+): Promise<{ receivedAt: string } | null> {
+  const result = await sr
+    .from("stripe_webhook_events")
+    .select("event_id,received_at")
+    .eq("event_id", markerId)
+    .maybeSingle();
+  if (result.error) {
+    throw new Error(`webhook marker lookup failed: ${result.error.message}`);
+  }
+  const receivedAt = result.data?.received_at;
+  return typeof receivedAt === "string" ? { receivedAt } : null;
+}
+
+async function insertWebhookMarker(
+  sr: ServiceClient,
+  markerId: string,
+): Promise<boolean> {
+  const result = await sr
+    .from("stripe_webhook_events")
+    .upsert(
+      { event_id: markerId },
+      { onConflict: "event_id", ignoreDuplicates: true },
+    )
+    .select("event_id");
+  if (result.error) {
+    throw new Error(`webhook marker persist failed: ${result.error.message}`);
+  }
+  return Boolean(result.data && result.data.length > 0);
+}
+
+async function claimLeasedWebhookMarker(
+  sr: ServiceClient,
+  markerId: string,
+): Promise<LeasedWebhookClaim> {
+  const lease = createLeaseTimestamp();
+  const inserted = await sr
+    .from("stripe_webhook_events")
+    .upsert(
+      { event_id: markerId, received_at: lease },
+      { onConflict: "event_id", ignoreDuplicates: true },
+    )
+    .select("event_id");
+  if (inserted.error) {
+    throw new Error(`webhook marker claim failed: ${inserted.error.message}`);
+  }
+  if (inserted.data && inserted.data.length > 0) {
+    return { status: "claimed", lease };
+  }
+
+  const current = await readWebhookMarker(sr, markerId);
+  if (!current) throw new Error("webhook marker disappeared during claim");
+  const now = new Date().toISOString();
+  if (current.receivedAt >= now) return { status: "busy" };
+
+  const reclaimed = await sr
+    .from("stripe_webhook_events")
+    .update({ received_at: lease })
+    .eq("event_id", markerId)
+    .eq("received_at", current.receivedAt)
+    .select("event_id");
+  if (reclaimed.error) {
+    throw new Error(`webhook marker reclaim failed: ${reclaimed.error.message}`);
+  }
+  return reclaimed.data && reclaimed.data.length > 0
+    ? { status: "claimed", lease }
+    : { status: "busy" };
 }
 
 async function dispatch(
@@ -147,12 +315,37 @@ async function dispatch(
       }
       const sub = await stripe.subscriptions.retrieve(subId);
       const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
+      const cycleToken = activationCycleToken(sub);
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
       assertActiveSubscriptionGotProTier(sub.status, tier, {
         eventId: event.id,
         subId: sub.id,
       });
+
+      // checkout.completed can race subscription.updated. Read the prior
+      // entitlement before writing this event so an already-Pro replacement
+      // does not create a second activation.
+      const { data: priorRow, error: priorLookupErr } = await sr
+        .from("user_subscriptions")
+        .select("tier")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (priorLookupErr) {
+        throw new Error(`prior subscription lookup failed: ${priorLookupErr.message}`);
+      }
+      const hasPendingActivationRetry = priorRow?.tier === "pro"
+        ? await hasPendingActivationMarker(sr, userId, sub.id)
+        : false;
+      const shouldCaptureActivation =
+        tier === "pro" &&
+        (sub.status === "active" || sub.status === "trialing") &&
+        (priorRow?.tier !== "pro" || hasPendingActivationRetry);
+      if (shouldCaptureActivation) {
+        // Persist the pending outbox marker before the entitlement write. A
+        // crash between these operations remains recoverable on redelivery.
+        await ensureActivationMarker(sr, userId, sub.id);
+      }
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {
@@ -169,27 +362,61 @@ async function dispatch(
         { onConflict: "user_id" },
       );
       if (error) throw new Error(`upsert failed: ${error.message}`);
-      if (
-        tier === "pro" &&
-        (sub.status === "active" || sub.status === "trialing")
-      ) {
-        await captureSubscriptionActivated(
+      if (shouldCaptureActivation) {
+        const attribution = checkoutAttribution(session.metadata);
+        await captureSubscriptionActivatedOnce(
+          sr,
           userId,
-          {
-            source_surface: "stripe_webhook",
-            plan: plan ?? "unknown",
-            billing_interval: plan ?? "unknown",
-            subscription_status: sub.status,
-          },
+          sub.id,
+          attribution
+            ? {
+                ...attribution,
+                plan: plan ?? "unknown",
+                billing_interval: plan ?? "unknown",
+                subscription_status: sub.status === "trialing" ? "trialing" : "active",
+              }
+            : {
+                source_surface: "stripe_webhook",
+                plan: plan ?? "unknown",
+                billing_interval: plan ?? "unknown",
+                subscription_status: sub.status === "trialing" ? "trialing" : "active",
+              },
           await loadAnalyticsIdentity(sr, userId),
+          {
+            activationMarker: activationAnalyticsMarkerId(
+              userId,
+              sub.id,
+              cycleToken,
+            ),
+          },
         );
       }
       break;
     }
     case "customer.subscription.updated": {
-      const sub = event.data.object as Stripe.Subscription;
+      let sub = event.data.object as Stripe.Subscription;
+      // Stripe may redeliver an older active update after a newer deletion
+      // (or downgrade). Refresh the authoritative object before writing
+      // entitlements so a stale payload cannot resurrect Pro access.
+      try {
+        const refreshed = await stripe.subscriptions.retrieve(sub.id);
+        if (refreshed?.id === sub.id) {
+          // Preserve governed attribution if an older Stripe account omits
+          // metadata from the refreshed representation; fresh fields win.
+          sub = {
+            ...sub,
+            ...refreshed,
+            metadata: { ...(sub.metadata ?? {}), ...(refreshed.metadata ?? {}) },
+          };
+        }
+      } catch (error) {
+        throw new Error(
+          `subscription refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
       const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
+      const cycleToken = activationCycleToken(sub);
       const tier = deriveTier(sub.status, periodEnd);
       const plan = priceIdToPlan(sub);
       assertActiveSubscriptionGotProTier(sub.status, tier, {
@@ -200,12 +427,12 @@ async function dispatch(
       // Find user_id by stripe_customer_id (we own the mapping)
       const { data: row, error: lookupErr } = await sr
         .from("user_subscriptions")
-        .select("user_id,tier,status")
+        .select("user_id,tier,status,stripe_subscription_id")
         .eq("stripe_customer_id", customerId)
         .maybeSingle();
       if (lookupErr) {
-        // DB error — throw so the outer try/catch returns 500 + deletes the
-        // idempotency row, so Stripe's retry can re-run dispatch.
+        // DB error — throw so the outer try/catch returns 500 and expires the
+        // processing lease, so Stripe's retry can re-run dispatch.
         throw new Error(`customer lookup failed: ${lookupErr.message}`);
       }
       if (!row?.user_id) {
@@ -214,6 +441,26 @@ async function dispatch(
           id: event.id, customerId,
         });
         return;
+      }
+
+      // Keep the historical transition guard: an unrelated update for a
+      // subscription that is already Pro must not emit a second activation.
+      // Only a durable pending/processing marker permits a retry for that row.
+      const isProTransition = row.tier !== "pro";
+      const hasPendingActivationRetry = !isProTransition
+        ? await hasPendingActivationMarker(sr, row.user_id, sub.id)
+        : false;
+      const shouldCaptureActivation =
+        tier === "pro" &&
+        (sub.status === "active" || sub.status === "trialing") &&
+        (isProTransition || hasPendingActivationRetry);
+      if (row.tier === "pro" && tier !== "pro") {
+        await clearActivationMarkers(sr, row.user_id, sub.id);
+      }
+      if (shouldCaptureActivation) {
+        // Claim the durable outbox before writing Pro so a crash cannot leave
+        // an unmarked Pro row that suppresses the only activation event.
+        await ensureActivationMarker(sr, row.user_id, sub.id);
       }
 
       const { error } = await sr.from("user_subscriptions").upsert(
@@ -231,20 +478,33 @@ async function dispatch(
         { onConflict: "user_id" },
       );
       if (error) throw new Error(`upsert failed: ${error.message}`);
-      if (
-        tier === "pro" &&
-        row.tier !== "pro" &&
-        (sub.status === "active" || sub.status === "trialing")
-      ) {
-        await captureSubscriptionActivated(
+      if (shouldCaptureActivation) {
+        const attribution = checkoutAttribution(sub.metadata);
+        await captureSubscriptionActivatedOnce(
+          sr,
           row.user_id,
-          {
-            source_surface: "stripe_webhook",
-            plan: plan ?? "unknown",
-            billing_interval: plan ?? "unknown",
-            subscription_status: sub.status,
-          },
+          sub.id,
+          attribution
+            ? {
+                ...attribution,
+                plan: plan ?? "unknown",
+                billing_interval: plan ?? "unknown",
+                subscription_status: sub.status === "trialing" ? "trialing" : "active",
+              }
+            : {
+                source_surface: "stripe_webhook",
+                plan: plan ?? "unknown",
+                billing_interval: plan ?? "unknown",
+                subscription_status: sub.status === "trialing" ? "trialing" : "active",
+              },
           await loadAnalyticsIdentity(sr, row.user_id),
+          {
+            activationMarker: activationAnalyticsMarkerId(
+              row.user_id,
+              sub.id,
+              cycleToken,
+            ),
+          },
         );
       }
       break;
@@ -259,8 +519,8 @@ async function dispatch(
         .eq("stripe_customer_id", customerId)
         .maybeSingle();
       if (lookupErr) {
-        // DB error — throw so the outer try/catch returns 500 + deletes the
-        // idempotency row, so Stripe's retry can re-run dispatch.
+        // DB error — throw so the outer try/catch returns 500 and expires the
+        // processing lease, so Stripe's retry can re-run dispatch.
         throw new Error(`customer lookup failed: ${lookupErr.message}`);
       }
       if (!row?.user_id) {
@@ -272,6 +532,12 @@ async function dispatch(
       }
 
       const periodEnd = periodEndToIso(readCurrentPeriodEnd(sub));
+
+      await clearActivationMarkers(
+        sr,
+        row.user_id,
+        sub.id,
+      );
 
       const { error } = await sr.from("user_subscriptions").upsert(
         {
@@ -298,6 +564,242 @@ async function dispatch(
       // Ignore
       break;
   }
+}
+
+const ACTIVATION_MARKER_PREFIX = "subscription_activation:";
+const ACTIVATION_PENDING_PREFIX = "subscription_activation:pending:";
+const ACTIVATION_PROCESSING_PREFIX = "subscription_activation:processing:";
+const ACTIVATION_SENT_PREFIX = "subscription_activation:sent:";
+
+/**
+ * Stable discriminator for one Stripe subscription billing cycle. The
+ * durable claim marker intentionally remains keyed by user/subscription so
+ * the existing no-migration state machine stays compatible; this token is
+ * only used for the deterministic analytics UUID. A later Pro cycle after a
+ * downgrade therefore gets a new UUID while concurrent deliveries for the
+ * same cycle retain the same UUID.
+ */
+function activationCycleToken(sub: Stripe.Subscription): string | null {
+  const item = sub.items?.data?.[0] as
+    | (Stripe.SubscriptionItem & {
+        current_period_start?: unknown;
+        current_period_end?: unknown;
+      })
+    | undefined;
+  const topStart = (sub as Stripe.Subscription & { current_period_start?: unknown })
+    .current_period_start;
+  // Basil payloads place both period boundaries on the subscription item;
+  // older API shapes expose them at the subscription level.
+  const start = item?.current_period_start ?? topStart;
+  const top = (sub as Stripe.Subscription & { current_period_end?: unknown })
+    .current_period_end;
+  const end = item?.current_period_end ?? top;
+  if (
+    typeof start !== "number" ||
+    !Number.isFinite(start) ||
+    typeof end !== "number" ||
+    !Number.isFinite(end)
+  ) {
+    return null;
+  }
+  return `${Math.trunc(start)}-${Math.trunc(end)}`;
+}
+
+type ActivationMarkerStatus = "pending" | "processing" | "sent";
+type ActivationMarkerClaim =
+  | { status: "claimed"; lease: string }
+  | { status: "sent" }
+  | { status: "busy" };
+
+function activationMarkerId(userId: string, subscriptionId: string): string {
+  return `${ACTIVATION_MARKER_PREFIX}${userId}:${subscriptionId}`;
+}
+
+function activationAnalyticsMarkerId(
+  userId: string,
+  subscriptionId: string,
+  cycleToken: string | null,
+): string {
+  const marker = activationMarkerId(userId, subscriptionId);
+  return cycleToken ? `${marker}:${cycleToken}` : marker;
+}
+
+function activationPendingMarkerId(userId: string, subscriptionId: string): string {
+  return `${ACTIVATION_PENDING_PREFIX}${userId}:${subscriptionId}`;
+}
+
+function activationProcessingMarkerId(userId: string, subscriptionId: string): string {
+  return `${ACTIVATION_PROCESSING_PREFIX}${userId}:${subscriptionId}`;
+}
+
+function activationSentMarkerId(userId: string, subscriptionId: string): string {
+  return `${ACTIVATION_SENT_PREFIX}${userId}:${subscriptionId}`;
+}
+
+async function clearActivationMarkers(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<void> {
+  const markerIds = [
+    activationSentMarkerId(userId, subscriptionId),
+    activationMarkerId(userId, subscriptionId),
+    activationPendingMarkerId(userId, subscriptionId),
+    activationProcessingMarkerId(userId, subscriptionId),
+  ];
+  for (const markerId of markerIds) {
+    const result = await sr
+      .from("stripe_webhook_events")
+      .delete()
+      .eq("event_id", markerId);
+    if (result.error) {
+      throw new Error(`activation marker cleanup failed: ${result.error.message}`);
+    }
+  }
+}
+
+async function readActivationMarker(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<ActivationMarkerStatus | null> {
+  if (
+    (await readWebhookMarker(sr, activationSentMarkerId(userId, subscriptionId))) ||
+    // Preserve the marker id used by the first implementation as a durable
+    // sent receipt when upgrading an existing deployment without a migration.
+    (await readWebhookMarker(sr, activationMarkerId(userId, subscriptionId)))
+  ) {
+    return "sent";
+  }
+  if (await readWebhookMarker(sr, activationProcessingMarkerId(userId, subscriptionId))) {
+    return "processing";
+  }
+  if (await readWebhookMarker(sr, activationPendingMarkerId(userId, subscriptionId))) {
+    return "pending";
+  }
+  return null;
+}
+
+async function hasPendingActivationMarker(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<boolean> {
+  const status = await readActivationMarker(sr, userId, subscriptionId);
+  return status === "pending" || status === "processing";
+}
+
+async function ensureActivationMarker(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<void> {
+  await insertWebhookMarker(
+    sr,
+    activationPendingMarkerId(userId, subscriptionId),
+  );
+}
+
+async function claimActivationMarker(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<ActivationMarkerClaim> {
+  const sent = await readWebhookMarker(sr, activationSentMarkerId(userId, subscriptionId));
+  const legacySent = await readWebhookMarker(sr, activationMarkerId(userId, subscriptionId));
+  if (sent || legacySent) return { status: "sent" };
+  await ensureActivationMarker(sr, userId, subscriptionId);
+  const claim = await claimLeasedWebhookMarker(
+    sr,
+    activationProcessingMarkerId(userId, subscriptionId),
+  );
+  return claim.status === "claimed"
+    ? { status: "claimed", lease: claim.lease }
+    : claim.status === "busy"
+      ? { status: "busy" }
+      : { status: "sent" };
+}
+
+async function markActivationSent(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+): Promise<void> {
+  await insertWebhookMarker(
+    sr,
+    activationSentMarkerId(userId, subscriptionId),
+  );
+}
+
+async function markActivationPending(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+  lease: string,
+): Promise<void> {
+  const result = await sr
+    .from("stripe_webhook_events")
+    .update({ received_at: new Date(0).toISOString() })
+    .eq("event_id", activationProcessingMarkerId(userId, subscriptionId))
+    .eq("received_at", lease)
+    .select("event_id");
+  if (result.error) {
+    throw new Error(`activation marker pending transition failed: ${result.error.message}`);
+  }
+}
+
+
+/**
+ * Claim one durable activation marker before emitting analytics. Stripe can
+ * deliver checkout.completed and subscription.updated concurrently; the
+ * conditional state transition makes one worker the owner. A crash leaves a
+ * processing lease that a later delivery can reclaim, while sink failures
+ * transition the row back to pending for a retry.
+ */
+async function captureSubscriptionActivatedOnce(
+  sr: ServiceClient,
+  userId: string,
+  subscriptionId: string,
+  properties: Parameters<typeof captureSubscriptionActivated>[1],
+  identity: AnalyticsIdentity | undefined,
+  options?: Parameters<typeof captureSubscriptionActivated>[3],
+): Promise<void> {
+  const claim = await claimActivationMarker(sr, userId, subscriptionId);
+  if (claim.status === "sent") return;
+  if (claim.status === "busy") {
+    // A live owner may still be in PostHog. Keep this Stripe delivery
+    // retryable rather than acknowledging an activation that might be lost.
+    throw new Error("subscription activation marker is busy");
+  }
+
+  let status: SubscriptionActivationCaptureStatus;
+  try {
+    status =
+      (await captureSubscriptionActivated(userId, properties, identity, options)) ??
+      "sent";
+  } catch (error) {
+    // Treat an unexpected sink exception like a reported failed status. The
+    // activation remains pending and the webhook can acknowledge safely;
+    // state-transition failures below still surface as 500s.
+    await markActivationPending(sr, userId, subscriptionId, claim.lease);
+    console.error("[stripe-webhook] activation analytics threw", {
+      errorId: "WEBHOOK_ACTIVATION_ANALYTICS_THROW",
+      marker: activationMarkerId(userId, subscriptionId),
+      error,
+    });
+    throw error;
+  }
+
+  if (status === "failed") {
+    // PostHog failures are a durable outbox retry, not a Stripe delivery
+    // success. Return 5xx so Stripe retries the same event and can reclaim it.
+    await markActivationPending(sr, userId, subscriptionId, claim.lease);
+    throw new Error("subscription activation analytics delivery failed");
+  }
+
+  // `skipped` is a deliberate non-retryable result (smoke/non-production or
+  // invalid attribution), so mark the activation delivered just like sent.
+  await markActivationSent(sr, userId, subscriptionId);
 }
 
 /**

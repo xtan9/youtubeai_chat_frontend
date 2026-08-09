@@ -11,6 +11,18 @@ import {
   isSubscriptionDiscoveryEventName,
   validateCompatibleSubscriptionDiscoveryEvent,
 } from "./subscription-discovery";
+import {
+  isProjectLimitEventName,
+  validateProjectLimitEvent,
+} from "./project-limits";
+import {
+  isProjectSearchEventName,
+  validateProjectSearchEvent,
+} from "./project-search";
+import {
+  isProjectVideoProcessingEventName,
+  validateProjectVideoProcessingEvent,
+} from "./project-video-processing";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -43,6 +55,42 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid subscription discovery event", {
           errorId: "ANALYTICS_SUBSCRIPTION_DISCOVERY_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectLimitEventName(event)) {
+      const validation = validateProjectLimitEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project limit event", {
+          errorId: "ANALYTICS_PROJECT_LIMIT_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectSearchEventName(event)) {
+      const validation = validateProjectSearchEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Search event", {
+          errorId: "ANALYTICS_PROJECT_SEARCH_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectVideoProcessingEventName(event)) {
+      const validation = validateProjectVideoProcessingEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Video processing event", {
+          errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
           event,
           issueCount: validation.issueCount,
         });

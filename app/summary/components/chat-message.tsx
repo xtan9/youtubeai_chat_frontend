@@ -23,6 +23,7 @@ function renderContent(
         <TimestampChip
           key={`ts-${idx}`}
           seconds={part.seconds}
+          endSeconds={part.endSeconds}
           raw={part.raw}
           transcriptTimingStatus={transcriptTimingStatus}
           onActivated={onTimestampActivated}

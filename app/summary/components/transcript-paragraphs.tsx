@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import type { YouTubePlayer } from "react-youtube";
 import type { TranscriptSegment, TranscriptSource } from "@/lib/types";
+import { usePlayerRef } from "@/lib/contexts/player-ref";
 import {
   formatTimestamp,
   groupSegments,
@@ -55,6 +56,7 @@ const TranscriptParagraphs = ({
 }: TranscriptParagraphsProps) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const { clearPlaybackBoundary } = usePlayerRef();
 
   const paragraphs = useMemo<TranscriptParagraph[]>(
     () => groupSegments(segments),
@@ -177,6 +179,7 @@ const TranscriptParagraphs = ({
   const hasNoTimingData = paragraphs.every((p) => p.end === p.start);
 
   const handleTimestampClick = async (start: number) => {
+    clearPlaybackBoundary();
     const player = playerRef.current;
     if (!player) return;
     const scrollPosition = window.scrollY;

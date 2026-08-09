@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Account - YouTube AI Chat",
-  description: "Manage your YouTube AI Chat account, plan, and subscription.",
+  description: "Manage your YouTube AI Chat identity and session security.",
   robots: { index: false, follow: false },
 };
 

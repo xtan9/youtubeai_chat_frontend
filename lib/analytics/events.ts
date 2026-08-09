@@ -3,6 +3,9 @@ import type {
   LegacySubscriptionActivatedProperties,
   SubscriptionDiscoveryEventProperties,
 } from "./subscription-discovery";
+import type { ProjectLimitEventProperties } from "./project-limits";
+import type { ProjectSearchEventProperties } from "./project-search";
+import type { ProjectVideoProcessingEventProperties } from "./project-video-processing";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -29,6 +32,12 @@ export const ANALYTICS_EVENT_NAMES = [
   "hero_demo_sample_selected",
   "paywall_cap_hit_viewed",
   "paywall_cap_cta_clicked",
+  "project_limit_reached",
+  "project_limit_cta_clicked",
+  "project_search_completed",
+  "project_video_processing_started",
+  "project_video_processing_succeeded",
+  "project_video_processing_failed",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -102,6 +111,12 @@ export interface AnalyticsEventProperties {
     cta: PaywallCta;
     tier: EntitlementTier | null;
   };
+  project_limit_reached: ProjectLimitEventProperties["project_limit_reached"];
+  project_limit_cta_clicked: ProjectLimitEventProperties["project_limit_cta_clicked"];
+  project_search_completed: ProjectSearchEventProperties["project_search_completed"];
+  project_video_processing_started: ProjectVideoProcessingEventProperties["project_video_processing_started"];
+  project_video_processing_succeeded: ProjectVideoProcessingEventProperties["project_video_processing_succeeded"];
+  project_video_processing_failed: ProjectVideoProcessingEventProperties["project_video_processing_failed"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;

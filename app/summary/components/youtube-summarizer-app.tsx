@@ -104,6 +104,9 @@ export function YouTubeSummarizerApp({
   const failureMessage = failure
     ? getSummaryRunFailureMessage(failure)
     : undefined;
+  const summaryReturnTo = url
+    ? `/summary?url=${encodeURIComponent(url)}`
+    : "/summary";
   const draftText =
     currentSnapshot?.status === "running" ||
     currentSnapshot?.status === "failed" ||
@@ -124,7 +127,11 @@ export function YouTubeSummarizerApp({
   const summaryContent = (
     <>
       {failure?.kind === "quota" ? (
-        <UpgradeCard variant="summary-cap" />
+        <UpgradeCard
+          variant="summary-cap"
+          tier={failure.quota?.tier}
+          returnTo={summaryReturnTo}
+        />
       ) : failure?.kind === "authentication" ? (
         <AuthErrorBanner authError={failureMessage} />
       ) : failure ? (

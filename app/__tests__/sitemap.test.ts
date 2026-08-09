@@ -40,7 +40,7 @@ function fixtureFaq(overrides: Partial<FaqEntry>): FaqEntry {
 }
 
 describe("buildSitemap", () => {
-  it("includes all six static pages plus per-post entries", () => {
+  it("includes all seven static pages plus per-post entries", () => {
     const posts = [fixturePost({ slug: "a" }), fixturePost({ slug: "b" })];
     const result = buildSitemap(posts, []);
     const urls = result.map((e) => e.url);
@@ -48,6 +48,7 @@ describe("buildSitemap", () => {
     expect(urls).toContain("https://www.youtubeai.chat/summary");
     expect(urls).toContain("https://www.youtubeai.chat/blog");
     expect(urls).toContain("https://www.youtubeai.chat/faq");
+    expect(urls).toContain("https://www.youtubeai.chat/pricing");
     expect(urls).toContain("https://www.youtubeai.chat/privacy");
     expect(urls).toContain("https://www.youtubeai.chat/terms");
     expect(urls).toContain("https://www.youtubeai.chat/blog/a");

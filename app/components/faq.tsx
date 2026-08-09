@@ -70,7 +70,20 @@ export function FAQ() {
                   </h3>
                 </AccordionTrigger>
                 <AccordionContent className="px-6 pb-6 pt-2">
-                  <p className={`${answerText} font-medium`}>{item.answer}</p>
+                  <p className={`${answerText} font-medium`}>
+                    {item.answer}
+                    {item.link ? (
+                      <>
+                        {" "}
+                        <Link
+                          href={item.link.href}
+                          className="text-accent-brand underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"
+                        >
+                          {item.link.label}
+                        </Link>
+                      </>
+                    ) : null}
+                  </p>
                 </AccordionContent>
               </AccordionItem>
             );

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   fromAnon: vi.fn(),
   fromUsage: vi.fn(),
   fromHistory: vi.fn(),
+  fromWorkspace: vi.fn(),
+  fromProjects: vi.fn(),
   getServiceRoleClient: vi.fn(),
 }));
 
@@ -26,8 +28,8 @@ vi.mock("@/lib/services/anon-cookie", () => ({
 }));
 
 vi.mock("@/lib/services/entitlements", () => ({
-  ANON_LIMITS: { summariesLifetime: 1 },
-  FREE_LIMITS: { summariesPerMonth: 10, historyItems: 10 },
+  ANON_LIMITS: { summariesLifetime: 1, projects: 0 },
+  FREE_LIMITS: { summariesPerMonth: 10, historyItems: 10, projects: 1 },
   getYearMonthUtc: () => "2026-08",
   resolveRegisteredSubscription: mocks.resolveRegisteredSubscription,
 }));
@@ -37,9 +39,12 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 function resolved(
-  value: Omit<Extract<RegisteredSubscriptionResolution, { kind: "resolved" }>, "kind">,
+  value: Omit<
+    Extract<RegisteredSubscriptionResolution, { kind: "resolved" }>,
+    "kind" | "stripeSubscriptionId"
+  >,
 ): RegisteredSubscriptionResolution {
-  return { kind: "resolved", ...value };
+  return { kind: "resolved", stripeSubscriptionId: null, ...value };
 }
 
 beforeEach(() => {
@@ -63,6 +68,11 @@ beforeEach(() => {
   mocks.fromAnon.mockResolvedValue({ data: null, error: null });
   mocks.fromUsage.mockResolvedValue({ data: null, error: null });
   mocks.fromHistory.mockResolvedValue({ count: 0, error: null });
+  mocks.fromWorkspace.mockResolvedValue({
+    data: { id: "workspace-1" },
+    error: null,
+  });
+  mocks.fromProjects.mockResolvedValue({ count: 0, error: null });
   mocks.getServiceRoleClient.mockReturnValue({
     from: (table: string) => {
       if (table === "anon_summary_quota") {
@@ -82,6 +92,16 @@ beforeEach(() => {
       if (table === "user_video_history") {
         return { select: () => ({ eq: () => mocks.fromHistory() }) };
       }
+      if (table === "workspaces") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: mocks.fromWorkspace }),
+          }),
+        };
+      }
+      if (table === "projects") {
+        return { select: () => ({ eq: () => mocks.fromProjects() }) };
+      }
       throw new Error(`unexpected from(${table})`);
     },
   });
@@ -99,7 +119,12 @@ describe("GET /api/me/entitlements", () => {
 
     expect(body).toEqual({
       tier: "anon",
-      caps: { summariesUsed: 0, summariesLimit: 1 },
+      caps: {
+        summariesUsed: 0,
+        summariesLimit: 1,
+        projectsUsed: 0,
+        projectsLimit: 0,
+      },
       subscriptionPresentation: { state: "anonymous" },
     });
     expect(mocks.resolveRegisteredSubscription).not.toHaveBeenCalled();
@@ -114,7 +139,12 @@ describe("GET /api/me/entitlements", () => {
     const { GET } = await import("../route");
     const body = await (await GET()).json();
 
-    expect(body.caps).toEqual({ summariesUsed: 1, summariesLimit: 1 });
+    expect(body.caps).toEqual({
+      summariesUsed: 1,
+      summariesLimit: 1,
+      projectsUsed: 0,
+      projectsLimit: 0,
+    });
     expect(body.subscriptionPresentation).toEqual({ state: "anonymous" });
   });
 
@@ -145,6 +175,8 @@ describe("GET /api/me/entitlements", () => {
         summariesLimit: -1,
         historyUsed: 0,
         historyLimit: -1,
+        projectsUsed: 0,
+        projectsLimit: -1,
       },
       subscription: {
         plan: "yearly",
@@ -218,6 +250,7 @@ describe("GET /api/me/entitlements", () => {
   it("returns the Free contract with unchanged usage quotas", async () => {
     mocks.fromUsage.mockResolvedValue({ data: { count: 4 }, error: null });
     mocks.fromHistory.mockResolvedValue({ count: 7, error: null });
+    mocks.fromProjects.mockResolvedValue({ count: 1, error: null });
 
     const { GET } = await import("../route");
     const body = await (await GET()).json();
@@ -229,6 +262,8 @@ describe("GET /api/me/entitlements", () => {
         summariesLimit: 10,
         historyUsed: 7,
         historyLimit: 10,
+        projectsUsed: 1,
+        projectsLimit: 1,
       },
       subscriptionPresentation: { state: "free" },
     });
@@ -326,6 +361,24 @@ describe("GET /api/me/entitlements", () => {
     );
   });
 
+  it("fails soft to zero Project usage when Project infrastructure throws", async () => {
+    mocks.fromWorkspace.mockRejectedValue(new Error("network down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { GET } = await import("../route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.caps).toMatchObject({ projectsUsed: 0, projectsLimit: 1 });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[me/entitlements] Project usage read threw",
+      expect.objectContaining({
+        errorId: "ENTITLEMENTS_PROJECT_USAGE_READ_THREW",
+      }),
+    );
+  });
+
   it("returns an anonymous presentation for a Supabase anonymous user", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
@@ -344,7 +397,12 @@ describe("GET /api/me/entitlements", () => {
 
     expect(body).toEqual({
       tier: "anon",
-      caps: { summariesUsed: 1, summariesLimit: 1 },
+      caps: {
+        summariesUsed: 1,
+        summariesLimit: 1,
+        projectsUsed: 0,
+        projectsLimit: 0,
+      },
       subscriptionPresentation: { state: "anonymous" },
     });
     expect(mocks.resolveRegisteredSubscription).not.toHaveBeenCalled();

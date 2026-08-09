@@ -12,17 +12,15 @@ test.describe("/account", () => {
     await page.waitForURL(/\/auth\/login/, { timeout: 10_000 });
   });
 
-  test("avatar dropdown navigates to /account and shows plan info", async ({
+  test("avatar dropdown navigates to Account identity and security controls", async ({
     page,
   }) => {
     const creds = await loadSmokeCreds();
     test.skip(!creds, "TEST_NON_ADMIN_EMAIL/TEST_NON_ADMIN_PASSWORD required");
     if (!creds) return;
 
-    // --- Login ---
-    // Post-login destination is environment-specific (`/` on prod,
-    // `/dashboard` on local dev). Don't pin the URL — wait for the
-    // signed-in user-menu trigger to render instead.
+    // The post-login destination varies by environment. The user-menu trigger
+    // is the stable signal that the registered session is ready.
     await page.goto(`${BASE_URL}/auth/login`);
     await page.fill("#email", creds.email);
     await page.fill("#password", creds.password);
@@ -39,24 +37,19 @@ test.describe("/account", () => {
       accountItem.click(),
     ]);
 
-    // --- Verify the page rendered ---
-    // The "Account" heading is always present; the plan card depends on tier.
     await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
-
-    // The test account is expected to be Free or Pro — assert that one of
-    // the two tier-specific surfaces rendered. Either an Upgrade-to-Pro
-    // link (Free) or a Manage Subscription button (Pro) must be present.
-    const upgradeLink = page.getByRole("link", { name: /upgrade to pro/i });
-    const manageButton = page.getByRole("button", {
-      name: /manage subscription/i,
-    });
-    await expect(upgradeLink.or(manageButton).first()).toBeVisible({
-      timeout: 10_000,
-    });
-
-    // Sign Out button is always present.
+    await expect(page.getByText(creds.email)).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /^sign out$/i })
+      page.getByText(/sign out everywhere revokes refresh access/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /upgrade to pro/i }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /manage subscription/i }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /^sign out$/i }),
     ).toBeVisible();
   });
 });

@@ -9,10 +9,12 @@ export const FREE_LIMITS = {
   summariesPerMonth: 10,
   chatMessagesPerVideo: 5,
   historyItems: 10,
+  projects: 1,
 } as const;
 
 export const ANON_LIMITS = {
   summariesLifetime: 1,
+  projects: 0,
 } as const;
 
 // SQLSTATEs that mean "code shipped before its migration ran" rather than
@@ -31,6 +33,8 @@ export type RegisteredSubscriptionResolution =
   | {
       readonly kind: "resolved";
       readonly tier: "free" | "pro";
+      /** Server-only correlation key for Stripe checkout-return verification. */
+      readonly stripeSubscriptionId: string | null;
       readonly subscription: SubscriptionMetadata | null;
       readonly presentation: Exclude<
         ResolvedSubscriptionPresentation,
@@ -40,6 +44,7 @@ export type RegisteredSubscriptionResolution =
   | { readonly kind: "unavailable" };
 
 type SubscriptionRow = SubscriptionMetadata & {
+  readonly stripe_subscription_id: string | null;
   readonly tier: string | null;
   readonly status: string | null;
 };
@@ -48,6 +53,7 @@ function resolvedSmokePro(): RegisteredSubscriptionResolution {
   return {
     kind: "resolved",
     tier: "pro",
+    stripeSubscriptionId: null,
     subscription: null,
     presentation: {
       state: "active_pro",
@@ -83,7 +89,7 @@ export async function resolveRegisteredSubscription(
     const { data, error } = await supabase
       .from("user_subscriptions")
       .select(
-        "tier, plan, status, current_period_end, cancel_at_period_end",
+        "tier, plan, status, current_period_end, cancel_at_period_end, stripe_subscription_id",
       )
       .eq("user_id", userId)
       .maybeSingle();
@@ -122,6 +128,7 @@ export async function resolveRegisteredSubscription(
     return {
       kind: "resolved",
       tier,
+      stripeSubscriptionId: row?.stripe_subscription_id ?? null,
       subscription,
       presentation,
     };

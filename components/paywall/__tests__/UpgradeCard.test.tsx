@@ -3,8 +3,8 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const captureMock = vi.hoisted(() => vi.fn());
-vi.mock("posthog-js", () => ({
-  default: { capture: captureMock },
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: captureMock,
 }));
 
 const useEntitlementsMock = vi.fn();
@@ -33,11 +33,20 @@ function entitlements(used: number, limit = 10, tier: Tier = "free") {
 beforeEach(() => {
   captureMock.mockClear();
   useEntitlementsMock.mockReset();
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }),
+  );
 });
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("UpgradeCard summary-cap — celebration path", () => {
@@ -120,15 +129,40 @@ describe("UpgradeCard summary-cap — structure", () => {
     expect(screen.getByText(/Permanent history — never auto-replaced/i)).not.toBeNull();
   });
 
-  it("renders both CTAs as anchors pointing to /pricing", () => {
+  it("sends a registered Free learner directly to attributed Pricing with truthful compact copy", () => {
     useEntitlementsMock.mockReturnValue(entitlements(10));
     render(<UpgradeCard variant="summary-cap" />);
     const upgradeLinks = screen
       .getAllByRole("link")
-      .filter((a) => a.getAttribute("href") === "/pricing");
+      .filter(
+        (anchor) =>
+          anchor.getAttribute("href") ===
+          "/pricing?source_surface=summary_limit",
+      );
     expect(upgradeLinks.length).toBe(2);
-    expect(screen.getByRole("link", { name: /unlock pro — \$4\.99/i })).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: /^upgrade to pro$/i }),
+    ).not.toBeNull();
     expect(screen.getByRole("link", { name: /see plans/i })).not.toBeNull();
+    expect(screen.queryByText(/\$4\.99/i)).toBeNull();
+  });
+
+  it("sends an anonymous learner to sign-up with a safe Summary return", () => {
+    useEntitlementsMock.mockReturnValue(entitlements(1, 1, "anon"));
+    render(
+      <UpgradeCard
+        variant="summary-cap"
+        tier="anon"
+        returnTo="/summary?url=https%3A%2F%2Fyoutu.be%2Fabc123"
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /sign up free/i });
+    const href = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(href.pathname).toBe("/auth/sign-up");
+    expect(href.searchParams.get("redirect_to")).toBe(
+      "/summary?url=https%3A%2F%2Fyoutu.be%2Fabc123",
+    );
   });
 });
 
@@ -154,102 +188,80 @@ describe("UpgradeCard summary-cap — reset date footer", () => {
 });
 
 describe("UpgradeCard analytics", () => {
-  it("fires paywall_cap_hit_viewed once on mount with full payload", () => {
-    useEntitlementsMock.mockReturnValue(entitlements(10));
-    render(<UpgradeCard variant="summary-cap" />);
-    expect(captureMock).toHaveBeenCalledTimes(1);
-    expect(captureMock).toHaveBeenCalledWith(
-      "paywall_cap_hit_viewed",
-      {
-        analytics_schema_version: 1,
-        variant: "summary-cap",
-        tier: "free",
-        summaries_used: 10,
-        summaries_limit: 10,
-      },
-    );
-  });
-
-  it("propagates anon tier in payload", () => {
-    useEntitlementsMock.mockReturnValue(entitlements(1, 1, "anon"));
-    render(<UpgradeCard variant="summary-cap" />);
-    expect(captureMock).toHaveBeenCalledWith(
-      "paywall_cap_hit_viewed",
-      expect.objectContaining({ tier: "anon", summaries_used: 1, summaries_limit: 1 }),
-    );
-  });
-
-  it("emits null tier/usage when entitlements data is unavailable but errored", () => {
-    useEntitlementsMock.mockReturnValue({ data: undefined, isPending: false, isError: true, error: new Error("x") });
-    render(<UpgradeCard variant="summary-cap" />);
-    expect(captureMock).toHaveBeenCalledWith(
-      "paywall_cap_hit_viewed",
-      {
-        analytics_schema_version: 1,
-        variant: "summary-cap",
-        tier: null,
-        summaries_used: null,
-        summaries_limit: null,
-      },
-    );
-  });
-
-  it("does NOT fire paywall_cap_hit_viewed before entitlements resolve", () => {
-    useEntitlementsMock.mockReturnValue({ data: undefined, isPending: true, isError: false });
-    render(<UpgradeCard variant="summary-cap" />);
-    expect(captureMock).not.toHaveBeenCalled();
-  });
-
-  it("does NOT re-fire paywall_cap_hit_viewed when entitlements refetch with new values", () => {
+  it("attributes the registered Summary limit view once", () => {
     useEntitlementsMock.mockReturnValue(entitlements(10));
     const { rerender } = render(<UpgradeCard variant="summary-cap" />);
-    expect(
-      captureMock.mock.calls.filter((c) => c[0] === "paywall_cap_hit_viewed").length,
-    ).toBe(1);
+    expect(captureMock).toHaveBeenCalledTimes(1);
+    expect(captureMock).toHaveBeenCalledWith(
+      "subscription_discovery_viewed",
+      {
+        source_surface: "summary_limit",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "desktop",
+      },
+    );
 
-    // Simulate a window-focus refetch that bumps usage by one.
     useEntitlementsMock.mockReturnValue(entitlements(11));
     rerender(<UpgradeCard variant="summary-cap" />);
-
     expect(
-      captureMock.mock.calls.filter((c) => c[0] === "paywall_cap_hit_viewed").length,
-    ).toBe(1);
+      captureMock.mock.calls.filter(
+        ([event]) => event === "subscription_discovery_viewed",
+      ),
+    ).toHaveLength(1);
   });
 
-  it("fires paywall_cap_cta_clicked with cta=primary | secondary on each click", () => {
+  it("attributes the anonymous Summary limit view and activation", () => {
+    useEntitlementsMock.mockReturnValue(entitlements(1, 1, "anon"));
+    render(
+      <UpgradeCard
+        variant="summary-cap"
+        tier="anon"
+        returnTo="/summary?url=video"
+      />,
+    );
+
+    expect(captureMock).toHaveBeenCalledWith(
+      "subscription_discovery_viewed",
+      {
+        source_surface: "summary_limit",
+        presentation_state: "pricing",
+        authentication_state: "anonymous_session",
+        device_class: "desktop",
+      },
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /sign up free/i }));
+    expect(captureMock).toHaveBeenLastCalledWith(
+      "subscription_discovery_clicked",
+      expect.objectContaining({
+        source_surface: "summary_limit",
+        authentication_state: "anonymous_session",
+      }),
+    );
+  });
+
+  it("attributes both registered Summary limit actions", () => {
     useEntitlementsMock.mockReturnValue(entitlements(10));
     render(<UpgradeCard variant="summary-cap" />);
     captureMock.mockClear();
 
-    fireEvent.click(screen.getByRole("link", { name: /unlock pro/i }));
+    fireEvent.click(screen.getByRole("link", { name: /upgrade to pro/i }));
     expect(captureMock).toHaveBeenCalledWith(
-      "paywall_cap_cta_clicked",
-      expect.objectContaining({ variant: "summary-cap", cta: "primary", tier: "free" }),
+      "subscription_discovery_clicked",
+      expect.objectContaining({
+        source_surface: "summary_limit",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+      }),
     );
 
     fireEvent.click(screen.getByRole("link", { name: /see plans/i }));
     expect(captureMock).toHaveBeenCalledWith(
-      "paywall_cap_cta_clicked",
-      expect.objectContaining({ variant: "summary-cap", cta: "secondary", tier: "free" }),
+      "subscription_discovery_clicked",
+      expect.objectContaining({ source_surface: "summary_limit" }),
     );
-  });
-
-  it("swallows PostHog capture throws so they cannot block rendering or CTA clicks", () => {
-    useEntitlementsMock.mockReturnValue(entitlements(10));
-    captureMock.mockImplementationOnce(() => {
-      throw new Error("posthog blew up");
-    });
-
-    // Render should not throw even though capture throws on mount.
-    expect(() => render(<UpgradeCard variant="summary-cap" />)).not.toThrow();
-
-    // Subsequent CTA clicks also stay quiet on throw.
-    captureMock.mockImplementationOnce(() => {
-      throw new Error("posthog blew up");
-    });
-    expect(() =>
-      fireEvent.click(screen.getByRole("link", { name: /unlock pro/i })),
-    ).not.toThrow();
+    expect(captureMock).toHaveBeenCalledTimes(2);
   });
 });
 

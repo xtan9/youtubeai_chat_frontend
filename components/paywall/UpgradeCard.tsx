@@ -1,13 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
-import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import {
+  getContextualLimitAction,
+  type ContextualLimitSourceSurface,
+  type ContextualLimitTier,
+} from "@/lib/analytics/subscription-discovery-navigation";
+import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
 
 type Variant = "summary-cap" | "chat-cap" | "history-cap";
+
+const SOURCE_SURFACE: Record<Variant, ContextualLimitSourceSurface> = {
+  "summary-cap": "summary_limit",
+  "chat-cap": "video_chat_limit",
+  "history-cap": "history_limit",
+};
+
+const DEFAULT_RETURN_DESTINATION: Record<Variant, string> = {
+  "summary-cap": "/summary",
+  "chat-cap": "/summary",
+  "history-cap": "/history",
+};
 
 const PRO_BENEFITS: Record<Variant, string[]> = {
   "summary-cap": [
@@ -30,7 +47,7 @@ const PRO_BENEFITS: Record<Variant, string[]> = {
 const FALLBACK_HEADLINE: Record<Variant, { title: string; sub: string }> = {
   "summary-cap": {
     title: "You've reached your free summary limit this month",
-    sub: "Unlock Pro to keep going.",
+    sub: "Upgrade to Pro to keep going.",
   },
   "chat-cap": {
     title: "You've used your free chats on this video",
@@ -64,8 +81,32 @@ function formatNextResetDate(): string {
   return next.toLocaleDateString("en-US", { month: "long", day: "numeric" });
 }
 
-export function UpgradeCard({ variant }: { variant: Variant }) {
+export function UpgradeCard({
+  variant,
+  tier,
+  returnTo = DEFAULT_RETURN_DESTINATION[variant],
+}: {
+  readonly variant: Variant;
+  readonly tier?: ContextualLimitTier;
+  readonly returnTo?: string;
+}) {
   const { data: ent, isError } = useEntitlements();
+  const resolvedTier: ContextualLimitTier | undefined =
+    tier ?? (ent?.tier === "anon" || ent?.tier === "free" ? ent.tier : undefined);
+  const sourceSurface = SOURCE_SURFACE[variant];
+  const action = resolvedTier
+    ? getContextualLimitAction({
+        tier: resolvedTier,
+        sourceSurface,
+        returnTo,
+      })
+    : null;
+  const { captureClick } = useSubscriptionDiscovery({
+    sourceSurface,
+    presentationState: action?.presentationState ?? "upgrade_to_pro",
+    authenticationState: action?.authenticationState ?? "registered",
+    enabled: action !== null,
+  });
 
   // Cap displayed count at the limit so a transient race that leaves
   // `summariesUsed` above `summariesLimit` doesn't surface as
@@ -95,32 +136,6 @@ export function UpgradeCard({ variant }: { variant: Variant }) {
   }, [variant, showCelebration, summariesUsed]);
 
   const resetDate = variant === "summary-cap" ? formatNextResetDate() : null;
-
-  // Fire the view event exactly once per (variant, mount) — once we have
-  // entitlements data (or a definitive error). React Query refetches on
-  // window focus and on data invalidation, so binding the effect to
-  // `summariesUsed`/`tier` would re-fire on every refocus and pollute
-  // the conversion funnel.
-  const viewedRef = useRef(false);
-  const ready = !!ent || isError;
-  useEffect(() => {
-    if (!ready || viewedRef.current) return;
-    viewedRef.current = true;
-    captureAnalyticsEvent("paywall_cap_hit_viewed", {
-      variant,
-      tier: ent?.tier ?? null,
-      summaries_used: ent?.caps.summariesUsed ?? null,
-      summaries_limit: ent?.caps.summariesLimit ?? null,
-    });
-  }, [ready, variant, ent]);
-
-  const handleCtaClick = (cta: "primary" | "secondary") => {
-    captureAnalyticsEvent("paywall_cap_cta_clicked", {
-      variant,
-      cta,
-      tier: ent?.tier ?? null,
-    });
-  };
 
   return (
     <section
@@ -155,14 +170,18 @@ export function UpgradeCard({ variant }: { variant: Variant }) {
         ))}
       </ul>
 
-      <div className="mt-6 flex flex-wrap justify-center gap-2">
-        <Button asChild onClick={() => handleCtaClick("primary")}>
-          <Link href="/pricing">Unlock Pro — $4.99/mo</Link>
-        </Button>
-        <Button asChild variant="outline" onClick={() => handleCtaClick("secondary")}>
-          <Link href="/pricing">See plans</Link>
-        </Button>
-      </div>
+      {action ? (
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <Button asChild onClick={captureClick}>
+            <Link href={action.href}>{action.label}</Link>
+          </Button>
+          {resolvedTier === "free" ? (
+            <Button asChild variant="outline" onClick={captureClick}>
+              <Link href={action.href}>See plans</Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <p className="mt-4 text-caption text-text-muted">
         {resetDate ? <>Free tier resets {resetDate} · </> : null}

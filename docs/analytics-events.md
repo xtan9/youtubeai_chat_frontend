@@ -16,7 +16,7 @@ names, and extra fields fail validation before an analytics transport is called.
 
 | Dimension | Governed values | Meaning |
 | --- | --- | --- |
-| `source_surface` | `global_header`, `public_footer`, `plan_and_billing`, `account`, `summary_limit`, `video_chat_limit`, `history_limit`, `direct_pricing` | The earliest governed Subscription-discovery surface for the interaction. Preserve it through Pricing and checkout; use `direct_pricing` only when Pricing was entered without a governed source. `account` is reserved for retained migration links from the legacy Account billing presentation. |
+| `source_surface` | `global_header`, `public_footer`, `plan_and_billing`, `account`, `summary_limit`, `video_chat_limit`, `history_limit`, `project_limit`, `direct_pricing` | The earliest governed Subscription-discovery surface for the interaction. Preserve it through Pricing and checkout; use `project_limit` when a registered Free Researcher sees the Upgrade to Pro action at the Project allowance, and use `direct_pricing` only when Pricing was entered without a governed source. `account` is reserved for retained migration links from the legacy Account billing presentation. |
 | `presentation_state` | `pricing`, `upgrade_to_pro`, `pro_plan`, `billing_issue`, `plans`, `activating_pro` | The truthful label/state presented to the Learner. A loading placeholder is not an impression because it presents no plan action. |
 | `authentication_state` | `logged_out`, `anonymous_session`, `registered` | Privacy-safe identity state. Combine `registered` with `presentation_state` to segment Free Plan, active Pro Plan, and billing-issue journeys. |
 | `device_class` | `mobile`, `desktop` | The responsive presentation at interaction time. Use `SUBSCRIPTION_DISCOVERY_MOBILE_MEDIA_QUERY` (`max-width: 767px`) so this matches the governed `md` breakpoint. |
@@ -55,6 +55,9 @@ configuration.
 | `summary_succeeded` | The summary stream reaches a terminal summary event with non-empty summary output. | `account_type`, `source_surface`, `result_origin`, `output_language`, `transcription_seconds`, `summary_seconds`, `total_seconds` |
 | `summary_failed` | The summary request returns a terminal HTTP/query error or the accepted stream emits a terminal processing error. | `account_type`, `source_surface`, `output_language`, `failure_category`, `error_code`, optional `http_status` |
 | `chat_started` | The first chat stream for a video in the mounted client session completes with assistant output. | `account_type`, `source_surface` |
+| `project_video_processing_started` | An owned Project atomically grants this request the only processing lease for a canonical Video membership. | Governed `status`, 1â€“5 `ordinal`, and `attempt_kind` only. |
+| `project_video_processing_succeeded` | The leased Summary Run completes and durable Transcript + Summary evidence is verified before membership becomes ready. | Governed `status`, `ordinal`, cache/generated origin, and stage timings only. |
+| `project_video_processing_failed` | A leased Summary Run or its durable evidence handoff reaches a classified failure, including an expired interrupted lease. | Governed `status`, `ordinal`, `error_class`, and processing duration only. |
 | `checkout_started` | The authenticated billing API returns a Stripe Checkout URL. A plan choice or failed API call is not counted. | See the Subscription-discovery contract above. |
 | `subscription_activated` | A signed Stripe webhook persists an `active` or `trialing` Pro Subscription. Subscription updates emit only on a non-Pro-to-Pro transition. | See the Subscription-discovery contract above. |
 
@@ -62,6 +65,22 @@ configuration.
 only. The shared Google OAuth callback cannot currently distinguish a new
 registration from a returning login without a Supabase auth hook or durable
 signup-intent state. Do not count OAuth initiation as completion.
+
+## Project Search
+
+`project_search_completed` is emitted only after direct Project passage search
+returns a classified `ready`, `no_results`, or `not_ready` outcome. Its strict
+properties are `source_set_revision`, `outcome`, `result_count`,
+`total_videos`, `ready_videos`, `unavailable_videos`, and `passages_examined`.
+The schema rejects extra properties. Never record a Project identifier or name,
+Project Goal, search query, Transcript passage, Video title or URL, channel
+name, or other Project content in this event.
+
+The Search interface is also a PostHog no-capture subtree: autocapture and
+session replay must not record its input, result text, accessible labels, or
+YouTube links. Search uses a POST JSON body so the query is absent from request
+URLs, and the replay network privacy callback drops the entire Search request
+and response rather than masking selected fields.
 
 ## Analysis model
 
@@ -101,7 +120,11 @@ Never add any of the following to general product analytics:
 
 Use enumerated categories, booleans, counts, durations, status codes, and
 billing-plan labels instead. PostHog capture failures must never block signup,
-summarization, chat, logout, checkout, or webhook processing.
+summarization, chat, logout, or checkout. The Stripe activation webhook first
+records a durable `pending` outbox state, then returns 5xx so Stripe retries
+the same delivery; a later `customer.subscription.updated` replay can also
+retry that marker, while the processing lease recovers a worker crash. A
+failure to persist the outbox state likewise returns 5xx.
 
 Smoke Account events are suppressed at the authenticated client identity
 boundary and at the trusted server activation boundary. Canonical business

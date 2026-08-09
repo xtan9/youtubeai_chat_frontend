@@ -318,7 +318,7 @@ test.describe("Stripe subscription checkout", () => {
           },
         );
         await expect(
-          page.getByRole("heading", { name: "Welcome to Pro!" }),
+          page.getByRole("heading", { name: "Pro Plan is active" }),
         ).toBeVisible({
           timeout: 60_000,
         });
@@ -335,11 +335,13 @@ test.describe("Stripe subscription checkout", () => {
           promotion.promotionCodeId,
         );
 
-        await page.goto(`${config.baseUrl}/account`);
+        await page.goto(`${config.baseUrl}/account/billing`);
         await expect(
-          page.getByRole("heading", { name: "Account" }),
+          page.getByRole("heading", { name: "Plan & Billing" }),
         ).toBeVisible();
-        await expect(page.getByText("Pro plan", { exact: true })).toBeVisible();
+        await expect(
+          page.getByRole("heading", { name: "Pro Plan" }),
+        ).toBeVisible();
         await expect(
           page.getByText(
             plan === "monthly" ? "Billed monthly" : "Billed yearly",

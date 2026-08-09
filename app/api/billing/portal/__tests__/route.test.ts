@@ -87,7 +87,7 @@ it("returns portal URL for user with stripe_customer_id", async () => {
   expect(body.url).toBe("https://billing.stripe.com/x");
   expect(mocks.portalCreate).toHaveBeenCalledWith(expect.objectContaining({
     customer: "cus_1",
-    return_url: "https://test.example/",
+    return_url: "https://test.example/account/billing",
   }));
 });
 

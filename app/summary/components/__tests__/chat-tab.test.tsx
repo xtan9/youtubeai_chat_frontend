@@ -29,6 +29,11 @@ import {
 } from "@/tests-utils/chat-test-helpers";
 import { axe } from "@/tests-utils/axe";
 
+const captureAnalyticsEvent = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent,
+}));
+
 vi.mock("@/lib/contexts/user-context", () => ({
   useUser: vi.fn(() => ({
     user: null,
@@ -119,6 +124,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 beforeEach(() => {
+  captureAnalyticsEvent.mockReset();
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({ matches: false }),
+  );
   (useUser as unknown as Mock).mockReturnValue({
     user: null,
     session: fakeSession("live-token"),
@@ -598,6 +608,12 @@ describe("ChatTab", () => {
         screen.getByText(/used 5\/5 free chat messages/i),
       ).toBeTruthy(),
     );
+    const upgradeLink = screen.getByRole("link", {
+      name: /upgrade to pro/i,
+    });
+    expect(upgradeLink.getAttribute("href")).toBe(
+      "/pricing?source_surface=video_chat_limit",
+    );
     // Chat input should be replaced by the banner
     expect(screen.queryByLabelText(/chat message/i)).toBeNull();
   });
@@ -634,9 +650,12 @@ describe("ChatTab", () => {
     await waitFor(() =>
       expect(screen.getByText(/sign up to chat/i)).toBeTruthy(),
     );
-    // Link goes to sign-up for anon-blocked
-    const link = screen.getByRole("link");
-    expect(link.getAttribute("href")).toBe("/auth/sign-up");
+    const link = screen.getByRole("link", { name: /sign up free/i });
+    const href = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(href.pathname).toBe("/auth/sign-up");
+    expect(href.searchParams.get("redirect_to")).toBe(
+      "/summary?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ",
+    );
   });
 
   it("renders ChatCapCounter at 4/5 messages for free tier", async () => {

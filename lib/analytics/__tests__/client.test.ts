@@ -86,6 +86,121 @@ describe("client analytics", () => {
     );
   });
 
+  it("captures only governed Project-limit counts and enums", () => {
+    captureAnalyticsEvent("project_limit_reached", {
+      source_surface: "workspace_header",
+      tier: "free",
+      projects_used: 1,
+      projects_limit: 1,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith("project_limit_reached", {
+      analytics_schema_version: 1,
+      source_surface: "workspace_header",
+      tier: "free",
+      projects_used: 1,
+      projects_limit: 1,
+    });
+  });
+
+  it("captures only governed Project Search outcome and coverage counts", () => {
+    captureAnalyticsEvent("project_search_completed", {
+      source_set_revision: 3,
+      outcome: "no_results",
+      result_count: 0,
+      total_videos: 2,
+      ready_videos: 1,
+      unavailable_videos: 1,
+      passages_examined: 18,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith("project_search_completed", {
+      analytics_schema_version: 1,
+      source_set_revision: 3,
+      outcome: "no_results",
+      result_count: 0,
+      total_videos: 2,
+      ready_videos: 1,
+      unavailable_videos: 1,
+      passages_examined: 18,
+    });
+  });
+
+  it("rejects Project Search queries and content before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    captureAnalyticsEvent(
+      "project_search_completed",
+      {
+        source_set_revision: 3,
+        outcome: "ready",
+        result_count: 1,
+        total_videos: 1,
+        ready_videos: 1,
+        unavailable_videos: 0,
+        passages_examined: 18,
+        query: "private query",
+        passage: "private Transcript",
+      } as never,
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Search event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_SEARCH_INVALID",
+      }),
+    );
+  });
+
+  it("rejects private Project metadata before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "project_limit_reached",
+      {
+        source_surface: "workspace_header",
+        tier: "free",
+        projects_used: 1,
+        projects_limit: 1,
+        project_name: "Sensitive research",
+        project_goal: "Private goal",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project limit event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_LIMIT_INVALID",
+        event: "project_limit_reached",
+      }),
+    );
+  });
+
+  it("rejects private Video processing metadata before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "project_video_processing_failed",
+      {
+        status: "failed",
+        ordinal: 2,
+        error_class: "processing",
+        processing_seconds: 4,
+        youtube_url: "https://www.youtube.com/watch?v=private0001",
+        title: "Private research",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project Video processing event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
+        event: "project_video_processing_failed",
+      }),
+    );
+  });
+
   it("rejects invalid discovery attribution before it reaches transport", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
+import { getSupabaseAuthCookieOptions } from "./auth-cookie";
 
 function isAuthPath(pathname: string): boolean {
   return pathname === "/auth" || pathname.startsWith("/auth/");
@@ -21,13 +22,20 @@ function isPublicPath(pathname: string): boolean {
     pathname === "/faq" ||
     pathname.startsWith("/faq/") ||
     pathname === "/pricing" ||
+    pathname === "/billing/success" ||
+    pathname === "/billing/success/" ||
     pathname.startsWith("/design-system") ||
+    // The Workspace landing page owns its anonymous registration CTA. Keep
+    // only this exact path public; individual Project pages remain protected.
+    pathname === "/workspace" ||
     // These API routes perform their own health, signature, or tier-aware
     // authorization checks and must not be converted into HTML redirects.
     pathname === "/api/health" ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/billing/") ||
-    pathname === "/api/me/entitlements"
+    pathname === "/api/me/entitlements" ||
+    // Project creation owns its anonymous 402 registration envelope.
+    pathname === "/api/workspace/projects"
   );
 }
 
@@ -108,6 +116,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!.trim(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!.trim(),
     {
+      cookieOptions: getSupabaseAuthCookieOptions(),
       cookies: {
         getAll() {
           return request.cookies.getAll();

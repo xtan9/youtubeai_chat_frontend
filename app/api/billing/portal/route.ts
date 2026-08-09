@@ -42,9 +42,10 @@ export async function POST() {
 
   try {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    const returnUrl = new URL("/account/billing", siteUrl).toString();
     const session = await stripe.billingPortal.sessions.create({
       customer: data.stripe_customer_id,
-      return_url: `${siteUrl}/`,
+      return_url: returnUrl,
     });
     return Response.json({ url: session.url });
   } catch (err) {

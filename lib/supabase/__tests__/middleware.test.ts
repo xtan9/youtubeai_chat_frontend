@@ -64,6 +64,8 @@ describe("updateSession", () => {
     ["/blog/some-post", "blog post"],
     ["/faq", "faq"],
     ["/pricing", "pricing page"],
+    ["/workspace", "Workspace registration boundary"],
+    ["/billing/success?session_id=cs_test_return", "checkout return"],
     ["/api/health", "health probe"],
     // Paywall routes — must be reachable unauthenticated for their own
     // auth strategies to run (signature verification, JSON 401, anon-tier
@@ -74,6 +76,7 @@ describe("updateSession", () => {
     ["/api/billing/checkout", "billing checkout"],
     ["/api/billing/portal", "billing portal"],
     ["/api/me/entitlements", "entitlements"],
+    ["/api/workspace/projects", "Project creation registration envelope"],
   ])("allows unauthenticated access to %s (%s)", async (pathname) => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const response = await updateSession(req(pathname));
@@ -117,6 +120,17 @@ describe("updateSession", () => {
       "https://example.com/auth/login"
     );
   });
+
+  it.each(["/workspace/private", "/api/workspace/projects/private"])(
+    "keeps Project child path %s protected",
+    async (pathname) => {
+      const response = await updateSession(req(pathname));
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://example.com/auth/login",
+      );
+    },
+  );
 
   it("redirects unauthenticated request for a protected path to /auth/login (full URL pinned)", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });

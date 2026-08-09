@@ -8,6 +8,7 @@ export const SUBSCRIPTION_DISCOVERY_SOURCE_SURFACES = [
   "summary_limit",
   "video_chat_limit",
   "history_limit",
+  "project_limit",
   "direct_pricing",
 ] as const;
 

@@ -8,6 +8,7 @@ const baseUrl = "https://www.youtubeai.chat";
 // that content changed; `new Date()` per request would tell Google
 // "everything changed every crawl," which trains it to ignore lastmod.
 const LAST_MOD = "2026-04-28";
+const PRICING_LAST_MOD = "2026-08-08";
 
 // Date-string YYYY-MM-DD → Date at UTC midnight. Sitemap consumers
 // expect ISO datetime; bare YYYY-MM-DD is technically valid but Search
@@ -56,6 +57,12 @@ export function buildSitemap(
       lastModified: isoDate(newestFaq),
       changeFrequency: "monthly",
       priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/pricing`,
+      lastModified: isoDate(PRICING_LAST_MOD),
+      changeFrequency: "monthly",
+      priority: 0.9,
     },
     {
       url: `${baseUrl}/privacy`,

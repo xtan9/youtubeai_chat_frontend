@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,14 +8,19 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useEffect } from "react";
 import type { YouTubePlayer } from "react-youtube";
 import { TranscriptPanel } from "../transcript-panel";
+import { PlayerRefProvider, usePlayerRef } from "@/lib/contexts/player-ref";
 
 vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const playerRef = { current: null as YouTubePlayer | null };
 
@@ -123,5 +129,50 @@ describe("TranscriptPanel", () => {
     await waitFor(() => expect(onRevealVideo).toHaveBeenCalledWith(240));
     expect(seekTo).toHaveBeenCalledWith(12, true);
     expect(playVideo).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels range playback when a transcript timestamp is clicked", async () => {
+    vi.useFakeTimers();
+    const pauseVideo = vi.fn().mockResolvedValue(undefined);
+    const player = {
+      seekTo: vi.fn().mockResolvedValue(undefined),
+      playVideo: vi.fn().mockResolvedValue(undefined),
+      pauseVideo,
+      getCurrentTime: vi.fn().mockReturnValue(0),
+      getPlayerState: vi.fn().mockReturnValue(1),
+    } as unknown as YouTubePlayer;
+
+    function RangeStarter() {
+      const { playRange, registerPlayer } = usePlayerRef();
+      useEffect(() => {
+        registerPlayer(player);
+        playRange(10, 20);
+      }, [playRange, registerPlayer]);
+      return null;
+    }
+
+    render(
+      <PlayerRefProvider>
+        <RangeStarter />
+        <TranscriptPanel
+          phase="complete"
+          transcript={{
+            status: "available",
+            source: "manual_captions",
+            segments: [{ start: 12, duration: 8, text: "The key point" }],
+          }}
+          playerRef={{ current: player }}
+          onRetry={vi.fn()}
+          onRevealVideo={vi.fn()}
+        />
+      </PlayerRefProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to 00:12" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(pauseVideo).not.toHaveBeenCalled();
   });
 });

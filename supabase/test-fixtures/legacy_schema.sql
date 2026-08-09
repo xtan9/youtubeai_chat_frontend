@@ -15,16 +15,15 @@
 --
 -- The 20260424000001_align_legacy_columns.sql migration renames both
 -- columns to the canonical names. This fixture pins the regression test:
--- the migration-upgrade-test job in CI loads this fixture, applies every
--- migration in order, and re-applies them for idempotency. If a future
--- migration assumes the canonical column names without going through the
--- rename migration, it will fail loudly here instead of silently in
--- production.
+-- the migration-upgrade-test job in CI loads this fixture and applies every
+-- migration once, in order. If a future migration assumes the canonical
+-- column names without going through the rename migration, it will fail
+-- loudly here instead of silently in production.
 --
 -- DO NOT change the column names in this fixture to match a new
 -- migration. The fixture is a frozen snapshot of production's actual
--- pre-migration state. If you need to add columns the fixture doesn't
--- have, guard with `ADD COLUMN IF NOT EXISTS` in the migration.
+-- pre-migration state. Add data-only upgrade scenarios in a separate fixture,
+-- and express schema changes as small forward-only migrations.
 
 CREATE TABLE IF NOT EXISTS videos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

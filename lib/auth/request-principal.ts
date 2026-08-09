@@ -18,6 +18,8 @@ const REQUEST_PRINCIPAL_SOURCES = [
   "billing_portal",
   "admin_gate",
   "account",
+  "workspace_projects",
+  "project",
 ] as const;
 
 export type RequestPrincipalSource =

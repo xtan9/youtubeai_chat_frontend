@@ -69,8 +69,20 @@ vi.mock("../youtube-video", () => ({
   default: () => <div data-testid="youtube-video" />,
 }));
 vi.mock("@/components/paywall/UpgradeCard", () => ({
-  UpgradeCard: ({ variant }: { variant: string }) => (
-    <div data-paywall-variant={variant} />
+  UpgradeCard: ({
+    variant,
+    tier,
+    returnTo,
+  }: {
+    variant: string;
+    tier?: string;
+    returnTo?: string;
+  }) => (
+    <div
+      data-paywall-variant={variant}
+      data-tier={tier}
+      data-return-to={returnTo}
+    />
   ),
 }));
 vi.mock("@/lib/contexts/user-context", () => ({
@@ -300,7 +312,12 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
     },
   );
 
-  it("renders quota failure without exposing a completed Summary", () => {
+  it.each([
+    { tier: "free" as const, errorCode: "free_quota_exceeded" as const },
+    { tier: "anon" as const, errorCode: "anon_quota_exceeded" as const },
+  ])(
+    "passes the $tier quota journey and current Summary destination to the paywall",
+    ({ tier, errorCode }) => {
     mockUseYouTubeSummarizer.mockReturnValue({
       ...commonCommands(),
       snapshot: {
@@ -324,16 +341,29 @@ describe("YouTubeSummarizerApp Summary Run presentation", () => {
           code: "QUOTA_EXCEEDED",
           message: "Monthly summary limit reached",
           status: 402,
+          quota: {
+            tier,
+            errorCode,
+            upgradeUrl: "/pricing",
+          },
         },
       } satisfies SummaryRunSnapshot,
     });
 
     render(<YouTubeSummarizerApp initialUrl="https://youtu.be/x" />);
 
-    expect(document.querySelector('[data-paywall-variant="summary-cap"]')).not.toBeNull();
+    const paywall = document.querySelector(
+      '[data-paywall-variant="summary-cap"]',
+    );
+    expect(paywall).not.toBeNull();
+    expect(paywall?.getAttribute("data-tier")).toBe(tier);
+    expect(paywall?.getAttribute("data-return-to")).toBe(
+      "/summary?url=https%3A%2F%2Fyoutu.be%2Fx",
+    );
     expect(screen.queryByTestId("summary-results")).toBeNull();
     expect(screen.getByRole("tab", { name: "Chat" }).getAttribute("disabled")).not.toBeNull();
-  });
+    },
+  );
 
   it.each([
     {

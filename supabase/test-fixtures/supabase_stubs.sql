@@ -7,12 +7,25 @@ CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
 -- auth.uid() is referenced by RLS policies.
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID
-LANGUAGE sql STABLE AS $$ SELECT NULL::UUID $$;
+LANGUAGE sql STABLE AS $$
+    SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID
+$$;
+
+-- auth.jwt() exposes the claims that PostgREST has already verified. Tests
+-- set request.jwt.claims explicitly when exercising trusted app_metadata.
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS JSONB
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+        NULLIF(current_setting('request.jwt.claims', TRUE), '')::JSONB,
+        '{}'::JSONB
+    )
+$$;
 
 -- Roles that Supabase provisions; policies target them by name.
 DO $$
@@ -27,3 +40,7 @@ BEGIN
         CREATE ROLE service_role;
     END IF;
 END $$;
+
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.jwt() TO anon, authenticated, service_role;
