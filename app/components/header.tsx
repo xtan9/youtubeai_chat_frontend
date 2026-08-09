@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { FolderKanban, LogOut, User as UserIcon } from "lucide-react";
+import {
+  CreditCard,
+  FolderKanban,
+  LogOut,
+  User as UserIcon,
+} from "lucide-react";
 import { YtAiMark } from "@/components/brand/yt-ai-mark";
 import { Button } from "@/components/ui/button";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { HeaderPlanControl } from "./header-plan-control";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -20,7 +26,7 @@ import { Suspense, useState } from "react";
 import { CheckoutActivationGuard } from "./checkout-activation-guard";
 
 export function Header() {
-  const { user } = useUser();
+  const { error: authError, isLoading: isAuthLoading, user } = useUser();
   const router = useRouter();
   const supabase = createClient();
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -56,18 +62,18 @@ export function Header() {
 
   return (
     <header className="w-full border-b border-border-subtle bg-surface-base/95 backdrop-blur-md dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
-      <div className="mx-auto max-w-page px-4 py-4 sm:px-6">
+      <div className="mx-auto max-w-page px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link
               href="/"
               aria-label="YouTube AI Chat home"
-              className="flex items-center gap-3 group"
+              className="group flex items-center gap-2 sm:gap-3"
             >
-              <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
+              <div className="flex size-9 transform items-center justify-center rounded-xl bg-gradient-brand-primary transition-transform group-hover:scale-110 sm:size-10">
                 <YtAiMark className="w-7 h-7 text-white" />
               </div>
-              <span className="hidden text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent sm:inline">
+              <span className="hidden bg-gradient-brand-primary bg-clip-text text-xl font-bold text-transparent sm:inline">
                 YouTube AI Chat
               </span>
             </Link>
@@ -101,8 +107,22 @@ export function Header() {
 
           <div className="flex items-center gap-2 sm:gap-4">
             <ThemeSwitcher />
-            <Suspense fallback={null}>
-              <CheckoutActivationGuard />
+            <Suspense
+              fallback={
+                <HeaderPlanControl
+                  user={null}
+                  isAuthLoading
+                  authError={false}
+                />
+              }
+            >
+              <CheckoutActivationGuard>
+                <HeaderPlanControl
+                  user={user}
+                  isAuthLoading={isAuthLoading}
+                  authError={authError !== null}
+                />
+              </CheckoutActivationGuard>
             </Suspense>
 
             {/* Authentication Status and Actions */}
@@ -110,7 +130,7 @@ export function Header() {
               <div className="flex items-center">
                 <Button
                   onClick={() => router.push("/auth/login")}
-                  className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white rounded-full px-4 sm:px-6"
+                  className="rounded-full bg-gradient-brand-primary px-4 text-white hover:bg-gradient-brand-primary-hover sm:px-6"
                 >
                   Sign In
                 </Button>
@@ -144,6 +164,15 @@ export function Header() {
                       >
                         <UserIcon size={16} />
                         <span>Account</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/account/billing"
+                        className="cursor-pointer flex items-center gap-2"
+                      >
+                        <CreditCard size={16} />
+                        <span>Plan &amp; Billing</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

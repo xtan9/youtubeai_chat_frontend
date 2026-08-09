@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { axe } from "@/tests-utils/axe";
 import { Header } from "../header";
 import { setBillingActivationOutcome } from "@/lib/billing/activation-pending";
 import { CheckoutActivationGuard } from "../checkout-activation-guard";
@@ -12,15 +13,52 @@ afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
   window.history.replaceState(null, "", "/");
+  vi.unstubAllGlobals();
 });
 
-const signOutSpy = vi.fn();
-const mockPush = vi.fn();
+const {
+  analyticsCapture,
+  mockPush,
+  navigationState,
+  signOutSpy,
+  useEntitlementsMock,
+  userState,
+} = vi.hoisted(() => ({
+  analyticsCapture: vi.fn(),
+  mockPush: vi.fn(),
+  navigationState: {
+    suspendSearchParams: false,
+    pendingSearchParams: new Promise<never>(() => {}),
+  },
+  signOutSpy: vi.fn(),
+  useEntitlementsMock: vi.fn(),
+  userState: {
+    value: {
+      user: {
+        id: "u1",
+        is_anonymous: false,
+        email: "test@example.com",
+      } as {
+        id: string;
+        is_anonymous: boolean;
+        email?: string;
+      } | null,
+      session: { access_token: "tok" } as { access_token: string } | null,
+      isLoading: false,
+      error: null as Error | null,
+    },
+  },
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   usePathname: () => window.location.pathname,
-  useSearchParams: () => new URLSearchParams(window.location.search),
+  useSearchParams: () => {
+    if (navigationState.suspendSearchParams) {
+      throw navigationState.pendingSearchParams;
+    }
+    return new URLSearchParams(window.location.search);
+  },
 }));
 
 vi.mock("next-themes", () => ({
@@ -34,10 +72,15 @@ vi.mock("@/lib/supabase/client", () => ({
 }));
 
 vi.mock("@/lib/contexts/user-context", () => ({
-  useUser: () => ({
-    user: { id: "u1", is_anonymous: false, email: "test@example.com" },
-    session: { access_token: "tok" },
-  }),
+  useUser: () => userState.value,
+}));
+
+vi.mock("@/lib/hooks/useEntitlements", () => ({
+  useEntitlements: useEntitlementsMock,
+}));
+
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analyticsCapture,
 }));
 
 vi.mock("@/components/profile-avatar", () => ({
@@ -64,7 +107,266 @@ function openDropdown(trigger: Element) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  navigationState.suspendSearchParams = false;
   signOutSpy.mockResolvedValue({ error: null });
+  userState.value = {
+    user: {
+      id: "u1",
+      is_anonymous: false,
+      email: "test@example.com",
+    },
+    session: { access_token: "tok" },
+    isLoading: false,
+    error: null,
+  };
+  useEntitlementsMock.mockReturnValue({
+    subscriptionPresentation: { state: "free" },
+  });
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  );
+});
+
+describe("Header plan control", () => {
+  it.each([
+    {
+      name: "logged-out learner",
+      user: null,
+      authenticationState: "logged_out",
+    },
+    {
+      name: "anonymous-session learner",
+      user: {
+        id: "anon-1",
+        is_anonymous: true,
+        email: undefined,
+      },
+      authenticationState: "anonymous_session",
+    },
+  ])("shows attributed Pricing for a $name", async ({ user, authenticationState }) => {
+    userState.value = {
+      user,
+      session: user ? { access_token: "anon-token" } : null,
+      isLoading: false,
+      error: null,
+    };
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    const pricing = screen.getByRole("link", { name: "Pricing" });
+    expect(pricing.getAttribute("href")).toBe(
+      "/pricing?source_surface=global_header",
+    );
+    expect(useEntitlementsMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(analyticsCapture).toHaveBeenCalledWith(
+        "subscription_discovery_viewed",
+        {
+          source_surface: "global_header",
+          presentation_state: "pricing",
+          authentication_state: authenticationState,
+          device_class: "desktop",
+        },
+      ),
+    );
+  });
+
+  it.each([
+    {
+      name: "Free Plan",
+      presentation: { state: "free" } as const,
+      label: "Upgrade to Pro",
+      href: "/pricing?source_surface=global_header",
+      analyticsState: "upgrade_to_pro",
+    },
+    {
+      name: "active Pro Plan",
+      presentation: {
+        state: "active_pro",
+        plan: "monthly",
+        renewsAt: "2026-09-01T00:00:00.000Z",
+      } as const,
+      label: "Pro Plan",
+      href: "/account/billing",
+      analyticsState: "pro_plan",
+    },
+    {
+      name: "pending-cancellation Pro Plan",
+      presentation: {
+        state: "pro_pending_cancellation",
+        plan: "yearly",
+        accessEndsAt: "2027-01-01T00:00:00.000Z",
+      } as const,
+      label: "Pro Plan",
+      href: "/account/billing",
+      analyticsState: "pro_plan",
+    },
+    {
+      name: "recoverable billing issue",
+      presentation: {
+        state: "billing_issue",
+        plan: "monthly",
+      } as const,
+      label: "Billing issue",
+      href: "/account/billing",
+      analyticsState: "billing_issue",
+    },
+    {
+      name: "lookup failure",
+      presentation: { state: "lookup_failure" } as const,
+      label: "Plans",
+      href: "/pricing?source_surface=global_header",
+      analyticsState: "plans",
+    },
+  ])(
+    "shows the truthful registered control for $name",
+    async ({ presentation, label, href, analyticsState }) => {
+      useEntitlementsMock.mockReturnValue({
+        subscriptionPresentation: presentation,
+      });
+      const qc = freshQueryClient();
+      render(<Header />, {
+        wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+      });
+
+      const control = screen.getByRole("link", { name: label });
+      expect(control.getAttribute("href")).toBe(href);
+      await waitFor(() =>
+        expect(analyticsCapture).toHaveBeenCalledWith(
+          "subscription_discovery_viewed",
+          {
+            source_surface: "global_header",
+            presentation_state: analyticsState,
+            authentication_state: "registered",
+            device_class: "desktop",
+          },
+        ),
+      );
+
+      fireEvent.click(control);
+      expect(analyticsCapture).toHaveBeenLastCalledWith(
+        "subscription_discovery_clicked",
+        {
+          source_surface: "global_header",
+          presentation_state: analyticsState,
+          authentication_state: "registered",
+          device_class: "desktop",
+        },
+      );
+    },
+  );
+
+  it("reserves plan-control space while auth resolves", () => {
+    userState.value = {
+      user: null,
+      session: null,
+      isLoading: true,
+      error: null,
+    };
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    const loading = screen.getByRole("status", {
+      name: "Loading plan status",
+    });
+    expect(loading.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("link", { name: "Pricing" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade to Pro" })).toBeNull();
+    expect(analyticsCapture).not.toHaveBeenCalled();
+  });
+
+  it("reserves plan-control space while checkout-return route state resolves", () => {
+    navigationState.suspendSearchParams = true;
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(
+      screen.getByRole("status", { name: "Loading plan status" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Pricing" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade to Pro" })).toBeNull();
+    expect(analyticsCapture).not.toHaveBeenCalled();
+  });
+
+  it("never flashes a Free action while a registered Pro lookup resolves", () => {
+    useEntitlementsMock.mockReturnValue({
+      subscriptionPresentation: { state: "loading" },
+    });
+    const qc = freshQueryClient();
+    const rendered = render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(
+      screen.getByRole("status", { name: "Loading plan status" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade to Pro" })).toBeNull();
+    expect(analyticsCapture).not.toHaveBeenCalled();
+
+    useEntitlementsMock.mockReturnValue({
+      subscriptionPresentation: {
+        state: "active_pro",
+        plan: "yearly",
+        renewsAt: "2027-01-01T00:00:00.000Z",
+      },
+    });
+    rendered.rerender(<Header />);
+
+    expect(screen.getByRole("link", { name: "Pro Plan" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade to Pro" })).toBeNull();
+  });
+
+  it("keeps an auth failure neutral and out of discovery analytics", async () => {
+    userState.value = {
+      user: null,
+      session: null,
+      isLoading: false,
+      error: new Error("auth unavailable"),
+    };
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByRole("link", { name: "Plans" })).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(analyticsCapture).not.toHaveBeenCalled();
+  });
+
+  it("uses native link semantics, visible keyboard focus, and accessible markup", async () => {
+    useEntitlementsMock.mockReturnValue({
+      subscriptionPresentation: {
+        state: "billing_issue",
+        plan: "monthly",
+      },
+    });
+    const qc = freshQueryClient();
+    const { container } = render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    const control = screen.getByRole("link", { name: "Billing issue" });
+    control.focus();
+    expect(document.activeElement).toBe(control);
+    expect(control.className).toContain("focus-visible:ring");
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });
 
 describe("Header checkout activation guard", () => {
@@ -107,18 +409,22 @@ describe("Header checkout activation guard", () => {
 });
 
 describe("Header user menu", () => {
-  // The dropdown is now tier-agnostic — Account + Sign Out, regardless
-  // of Free vs Pro. The Stripe portal redirect lives on /account itself.
-  it("dropdown has 'Account' link to /account and 'Sign Out' for any signed-in user", () => {
+  it("keeps Account and Plan & Billing as separate destinations", () => {
     const qc = freshQueryClient();
     render(<Header />, { wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper> });
 
     openDropdown(screen.getByRole("button", { name: /user menu/i }));
 
-    const account = screen.getByRole("menuitem", { name: /account/i });
+    const account = screen.getByRole("menuitem", { name: "Account" });
     expect(account).not.toBeNull();
     const anchor = account.tagName.toLowerCase() === "a" ? account : account.querySelector("a");
     expect(anchor?.getAttribute("href")).toBe("/account");
+    const billing = screen.getByRole("menuitem", { name: "Plan & Billing" });
+    const billingAnchor =
+      billing.tagName.toLowerCase() === "a"
+        ? billing
+        : billing.querySelector("a");
+    expect(billingAnchor?.getAttribute("href")).toBe("/account/billing");
     expect(screen.queryByText(/manage subscription/i)).toBeNull();
     expect(screen.getByText(/sign out/i)).not.toBeNull();
   });
