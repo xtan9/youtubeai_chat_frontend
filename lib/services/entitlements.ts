@@ -1,4 +1,9 @@
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  normalizeSubscriptionPresentation,
+  type ResolvedSubscriptionPresentation,
+  type SubscriptionPlan,
+} from "@/lib/services/subscription-presentation";
 
 export const FREE_LIMITS = {
   summariesPerMonth: 10,
@@ -15,6 +20,120 @@ export const ANON_LIMITS = {
 // 42501 = insufficient_privilege (GRANT not applied yet). Tagged separately
 // so the on-call dashboard can split deploy ordering bugs from real outages.
 const DEPLOY_DEFECT_CODES = new Set(["42883", "42501"]);
+
+export type SubscriptionMetadata = {
+  readonly plan: SubscriptionPlan | null;
+  readonly current_period_end: string | null;
+  readonly cancel_at_period_end: boolean;
+};
+
+export type RegisteredSubscriptionResolution =
+  | {
+      readonly kind: "resolved";
+      readonly tier: "free" | "pro";
+      readonly subscription: SubscriptionMetadata | null;
+      readonly presentation: Exclude<
+        ResolvedSubscriptionPresentation,
+        { state: "anonymous" }
+      >;
+    }
+  | { readonly kind: "unavailable" };
+
+type SubscriptionRow = SubscriptionMetadata & {
+  readonly tier: string | null;
+  readonly status: string | null;
+};
+
+function resolvedSmokePro(): RegisteredSubscriptionResolution {
+  return {
+    kind: "resolved",
+    tier: "pro",
+    subscription: null,
+    presentation: {
+      state: "active_pro",
+      plan: null,
+      renewsAt: null,
+    },
+  };
+}
+
+/**
+ * Resolves both access and product presentation from one Subscription read.
+ * Unlike quota enforcement's deliberate fail-open behavior, presentation
+ * lookup failures stay explicit so clients never render an Upgrade action for
+ * an account whose billing relationship is temporarily unknown.
+ */
+export async function resolveRegisteredSubscription(
+  userId: string,
+  smokeProEntitled = false,
+): Promise<RegisteredSubscriptionResolution> {
+  const supabase = getServiceRoleClient();
+  if (!supabase) {
+    if (smokeProEntitled) return resolvedSmokePro();
+    if (process.env.NODE_ENV === "production") {
+      console.error("[entitlements] subscription presentation unavailable", {
+        errorId: "SUBSCRIPTION_PRESENTATION_NO_CLIENT",
+        userId,
+      });
+    }
+    return { kind: "unavailable" };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("user_subscriptions")
+      .select(
+        "tier, plan, status, current_period_end, cancel_at_period_end",
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[entitlements] subscription presentation read failed", {
+        errorId: "SUBSCRIPTION_PRESENTATION_READ_FAILED",
+        userId,
+        code: (error as { code?: string }).code,
+      });
+      return smokeProEntitled
+        ? resolvedSmokePro()
+        : { kind: "unavailable" };
+    }
+
+    const row = data as SubscriptionRow | null;
+    const tier = smokeProEntitled || row?.tier === "pro" ? "pro" : "free";
+    const subscription = row
+      ? {
+          plan:
+            row.plan === "monthly" || row.plan === "yearly"
+              ? row.plan
+              : null,
+          current_period_end: row.current_period_end ?? null,
+          cancel_at_period_end: row.cancel_at_period_end === true,
+        }
+      : null;
+    const presentation = normalizeSubscriptionPresentation({
+      tier,
+      plan: subscription?.plan ?? null,
+      status: row?.status ?? null,
+      currentPeriodEnd: subscription?.current_period_end ?? null,
+      cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
+    });
+
+    return {
+      kind: "resolved",
+      tier,
+      subscription,
+      presentation,
+    };
+  } catch (err) {
+    console.error("[entitlements] subscription presentation read threw", {
+      errorId: "SUBSCRIPTION_PRESENTATION_READ_THREW",
+      userId,
+      err,
+    });
+    return smokeProEntitled ? resolvedSmokePro() : { kind: "unavailable" };
+  }
+}
 
 export type EntitlementResult =
   | { readonly tier: "anon" | "free"; readonly allowed: true; readonly remaining: number; readonly reason: "within_limit" | "fail_open" }

@@ -25,6 +25,7 @@ describe("useEntitlements", () => {
         JSON.stringify({
           tier: "free",
           caps: { summariesUsed: 3, summariesLimit: 10, historyUsed: 7, historyLimit: 10 },
+          subscriptionPresentation: { state: "free" },
         }),
         { status: 200 }
       )
@@ -35,6 +36,7 @@ describe("useEntitlements", () => {
     expect(result.current.data?.tier).toBe("free");
     expect(result.current.data?.caps.summariesUsed).toBe(3);
     expect(result.current.data?.caps.summariesLimit).toBe(10);
+    expect(result.current.subscriptionPresentation).toEqual({ state: "free" });
   });
 
   it("returns pro tier with subscription details", async () => {
@@ -44,6 +46,11 @@ describe("useEntitlements", () => {
           tier: "pro",
           caps: { summariesUsed: 0, summariesLimit: -1, historyUsed: 0, historyLimit: -1 },
           subscription: { plan: "yearly", current_period_end: "2027-04-01T00:00:00Z", cancel_at_period_end: false },
+          subscriptionPresentation: {
+            state: "active_pro",
+            plan: "yearly",
+            renewsAt: "2027-04-01T00:00:00Z",
+          },
         }),
         { status: 200 }
       )
@@ -54,6 +61,22 @@ describe("useEntitlements", () => {
     expect(result.current.data?.tier).toBe("pro");
     expect(result.current.data?.caps.summariesLimit).toBe(-1);
     expect(result.current.data?.subscription?.plan).toBe("yearly");
+    expect(result.current.subscriptionPresentation).toEqual({
+      state: "active_pro",
+      plan: "yearly",
+      renewsAt: "2027-04-01T00:00:00Z",
+    });
+  });
+
+  it("exposes loading as a presentation state before the lookup resolves", () => {
+    vi.spyOn(global, "fetch").mockReturnValue(new Promise<Response>(() => {}));
+    const qc = freshQueryClient();
+
+    const { result } = renderHook(() => useEntitlements(), {
+      wrapper: wrapper(qc),
+    });
+
+    expect(result.current.subscriptionPresentation).toEqual({ state: "loading" });
   });
 
   it("returns isError when fetch rejects", async () => {
@@ -61,6 +84,9 @@ describe("useEntitlements", () => {
     const qc = freshQueryClient();
     const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.subscriptionPresentation).toEqual({
+      state: "lookup_failure",
+    });
   });
 
   it("returns isError when response is non-ok", async () => {
@@ -70,6 +96,9 @@ describe("useEntitlements", () => {
     const qc = freshQueryClient();
     const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.subscriptionPresentation).toEqual({
+      state: "lookup_failure",
+    });
   });
 
   it("logs console.error with errorId when fetch rejects", async () => {
@@ -79,7 +108,7 @@ describe("useEntitlements", () => {
     const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(errSpy).toHaveBeenCalledWith(
-      "[useEntitlements] fetch failed (paywall surfaces will silently degrade)",
+      "[useEntitlements] fetch failed",
       expect.objectContaining({ errorId: "USE_ENTITLEMENTS_FETCH_FAIL" })
     );
   });
