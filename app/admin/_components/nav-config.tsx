@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  ChartNoAxesCombined,
   Users,
   Activity,
   Gauge,
@@ -35,6 +36,11 @@ export function buildAdminNav({ usersTotal }: BuildAdminNavOptions): NavSection[
       label: "Overview",
       items: [
         { href: "/admin", label: "Dashboard", icon: <LayoutDashboard className="icon" /> },
+        {
+          href: "/admin/subscriptions",
+          label: "Subscription funnel",
+          icon: <ChartNoAxesCombined className="icon" />,
+        },
       ],
     },
     {

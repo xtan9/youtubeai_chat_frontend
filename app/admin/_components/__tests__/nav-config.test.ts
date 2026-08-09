@@ -25,6 +25,7 @@ describe("findNavLabel", () => {
   it("returns the configured label for known paths", () => {
     expect(findNavLabel("/admin")).toBe("Dashboard");
     expect(findNavLabel("/admin/audit")).toBe("Audit log");
+    expect(findNavLabel("/admin/subscriptions")).toBe("Subscription funnel");
   });
 
   it("falls back to 'Page' for unknown paths", () => {
@@ -53,5 +54,13 @@ describe("buildAdminNav", () => {
     const nav = buildAdminNav({ usersTotal: 0 });
     const sectionLabels = nav.map((s) => s.label);
     expect(sectionLabels).toEqual(["Overview", "People", "Operations", "Content", "System"]);
+  });
+
+  it("exposes the Subscription funnel report from Overview", () => {
+    const nav = buildAdminNav({ usersTotal: 0 });
+    expect(nav[0].items.map((item) => [item.href, item.label])).toContainEqual([
+      "/admin/subscriptions",
+      "Subscription funnel",
+    ]);
   });
 });
