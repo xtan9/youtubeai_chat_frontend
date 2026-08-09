@@ -19,6 +19,29 @@ describe("ManageSubscriptionButton", () => {
     expect(screen.getByRole("button", { name: /manage subscription/i })).not.toBeNull();
   });
 
+  it("supports billing-state copy and reports activation at the click boundary", () => {
+    const onActivate = vi.fn();
+    vi.spyOn(global, "fetch").mockReturnValue(new Promise(() => {}));
+
+    render(
+      <ManageSubscriptionButton
+        label="Resolve billing issue in Stripe"
+        onActivate={onActivate}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Resolve billing issue in Stripe" }),
+    );
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(
+      (screen.getByRole("button", {
+        name: "Opening Stripe…",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
   it("calls /api/billing/portal and navigates to the returned url", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ url: "https://billing.stripe.com/x" }), { status: 200 })

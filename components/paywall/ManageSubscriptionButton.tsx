@@ -3,11 +3,18 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export function ManageSubscriptionButton() {
+export function ManageSubscriptionButton({
+  label = "Manage subscription",
+  onActivate,
+}: {
+  label?: string;
+  onActivate?: () => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
+    onActivate?.();
     setError(null);
     setPending(true);
     try {
@@ -41,7 +48,7 @@ export function ManageSubscriptionButton() {
         disabled={pending}
         data-paywall-action="manage-subscription"
       >
-        {pending ? "Opening…" : "Manage subscription"}
+        {pending ? "Opening Stripe…" : label}
       </Button>
       {error ? (
         <p className="text-caption text-accent-danger mt-2" role="alert">
