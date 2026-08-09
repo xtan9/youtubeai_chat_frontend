@@ -183,6 +183,8 @@ for (const scenario of [
       renewsAt: "2027-01-01T00:00:00.000Z",
     },
     label: "Pro Plan",
+    destination: "/account/billing",
+    destinationHeading: "Plan & Billing",
   },
   {
     name: "mobile billing-issue",
@@ -192,6 +194,30 @@ for (const scenario of [
       plan: "monthly",
     },
     label: "Billing issue",
+    destination: "/account/billing",
+    destinationHeading: "Plan & Billing",
+  },
+  {
+    name: "desktop pending-cancellation Pro",
+    viewport: { width: 1280, height: 900 },
+    presentation: {
+      state: "pro_pending_cancellation",
+      plan: "yearly",
+      accessEndsAt: "2027-01-01T00:00:00.000Z",
+    },
+    label: "Pro Plan",
+    destination: "/account/billing",
+    destinationHeading: "Plan & Billing",
+  },
+  {
+    name: "mobile lookup failure",
+    viewport: { width: 390, height: 844 },
+    presentation: {
+      state: "lookup_failure",
+    },
+    label: "Plans",
+    destination: "/pricing?source_surface=global_header",
+    destinationHeading: "Simple pricing",
   },
 ] as const) {
   test(`${scenario.name} lookup never flashes Upgrade to Pro`, async ({
@@ -209,7 +235,11 @@ for (const scenario of [
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          tier: scenario.presentation.state === "active_pro" ? "pro" : "free",
+          tier:
+            scenario.presentation.state === "active_pro" ||
+            scenario.presentation.state === "pro_pending_cancellation"
+              ? "pro"
+              : "free",
           caps: {
             summariesUsed: 0,
             summariesLimit: -1,
@@ -234,14 +264,17 @@ for (const scenario of [
     releaseLookup();
     const planControl = page.getByRole("link", { name: scenario.label });
     await expect(planControl).toBeVisible();
-    await expect(planControl).toHaveAttribute("href", "/account/billing");
+    await expect(planControl).toHaveAttribute("href", scenario.destination);
     expect(await upgradeFlashWasSeen(page)).toBe(false);
     await expectNoHorizontalOverflow(page);
     await planControl.click();
 
-    await expect(page).toHaveURL(`${appUrl}/account/billing`);
+    await expect(page).toHaveURL(`${appUrl}${scenario.destination}`);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Plan & Billing" }),
+      page.getByRole("heading", {
+        level: 1,
+        name: scenario.destinationHeading,
+      }),
     ).toBeVisible();
     expect(await upgradeFlashWasSeen(page)).toBe(false);
     await page.screenshot({
