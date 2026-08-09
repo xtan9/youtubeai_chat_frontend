@@ -7,7 +7,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
@@ -57,7 +57,35 @@ type FixtureProject = {
   last_active_at: string;
 };
 
+type FixtureVideo = {
+  id: string;
+  youtube_url: string;
+  title: string;
+  channel_name: string;
+};
+
+type FixtureHistory = {
+  user_id: string;
+  video_id: string;
+  accessed_at: string;
+};
+
+type FixtureProjectVideo = {
+  project_id: string;
+  video_id: string;
+  position: number;
+  status: "processing" | "ready" | "failed";
+  failure_code: string | null;
+  added_at: string;
+  status_updated_at: string;
+};
+
 const projects: FixtureProject[] = [];
+const canonicalVideos: FixtureVideo[] = [];
+const historyRows: FixtureHistory[] = [];
+const projectVideos: FixtureProjectVideo[] = [];
+const processedVideoIds = new Set<string>();
+const sourceSetRevisions = new Map<string, number>();
 let projectSequence = 0;
 let clockSequence = 0;
 let appProcess: ChildProcess | undefined;
@@ -111,8 +139,14 @@ test.beforeAll(async () => {
 
 test.beforeEach(() => {
   projects.splice(0);
+  canonicalVideos.splice(0);
+  historyRows.splice(0);
+  projectVideos.splice(0);
+  processedVideoIds.clear();
+  sourceSetRevisions.clear();
   projectSequence = 0;
   clockSequence = 0;
+  seedCanonicalHistory();
 });
 
 test.afterAll(async () => {
@@ -175,7 +209,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await page.getByLabel("Project name").fill("Evidence synthesis");
   await page.getByLabel("Project Goal (optional)").fill("Map agreement and disagreement.");
   await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("status")).toHaveText("Changes saved.");
+  await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Evidence synthesis", level: 1 })).toBeVisible();
 
   const projectId = projects.find((project) => project.name === "Evidence synthesis")?.id;
@@ -312,6 +346,235 @@ test("visitor receives a clear registration action before Workspace data is load
   });
 });
 
+test("Researcher curates a durable, bounded, concurrent-safe Project Source Set", async ({
+  browser,
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await page.goto(`${appUrl}/workspace`);
+  await page.getByRole("button", { name: "Create Project" }).click();
+  await page.getByLabel("Project name").fill("Climate evidence map");
+  await page.getByLabel("Project Goal (optional)").fill("Compare the source claims.");
+  await page.getByRole("button", { name: "Create Project" }).last().click();
+  await page.getByRole("link", { name: "Open Climate evidence map" }).click();
+
+  await expect(page.getByRole("heading", { name: "Source Set" })).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "0 of 5 Project Videos" }),
+  ).toBeVisible();
+  await expect(page.getByText(/grounding limit for every plan/i)).toBeVisible();
+  await expect(page.getByText("Add your first source")).toBeVisible();
+
+  const projectId = projects.find((project) => project.name === "Climate evidence map")?.id;
+  expect(projectId).toBeTruthy();
+  if (!projectId) return;
+
+  async function addFromHistory(title: string) {
+    await page.getByRole("button", { name: "Add from History" }).click();
+    await expect(page.getByRole("dialog", { name: "Add a History Video" })).toBeVisible();
+    await page.getByRole("button", { name: `Add ${title} to Source Set` }).click();
+    await expect(page.getByRole("dialog", { name: "Add a History Video" })).toBeHidden();
+    await expect(page.getByText(`Added ${title}.`, { exact: true })).toBeVisible();
+    await expect(
+      page.getByTestId("project-source-title").filter({ hasText: title }),
+    ).toBeVisible();
+  }
+
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await expect(historyDialog.getByText("36 processed Videos available.")).toBeVisible();
+  await expect(historyDialog.getByText("Legacy deep evidence")).toHaveCount(0);
+  await historyDialog.getByLabel("Search History").fill("Unprocessed draft");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await expect(
+    historyDialog.getByText(/No processed History Videos match “Unprocessed draft”/),
+  ).toBeVisible();
+  await historyDialog.getByLabel("Search History").fill("Legacy deep evidence");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await expect(
+    historyDialog.getByText("Legacy deep evidence", { exact: true }),
+  ).toBeVisible();
+  await historyDialog
+    .getByRole("button", { name: "Add Legacy deep evidence to Source Set" })
+    .click();
+  await expect(historyDialog).toBeHidden();
+  await expect(page.getByText("Added Legacy deep evidence.", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Legacy deep evidence")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Remove Legacy deep evidence from Source Set" })
+    .click();
+  await expect(page.getByText("Removed Legacy deep evidence.", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Legacy deep evidence")).toHaveCount(0);
+
+  await addFromHistory("Alpha evidence");
+  await expect(page.getByText("Ready")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Alpha evidence")).toBeVisible();
+
+  const duplicate = await context.request.post(
+    `${appUrl}/api/projects/${projectId}/source-set`,
+    {
+      data: {
+        videoId: canonicalVideos[0].id,
+        expectedRevision: sourceSetRevisions.get(projectId),
+      },
+    },
+  );
+  expect(duplicate.status()).toBe(409);
+  expect(await duplicate.json()).toMatchObject({ outcome: "duplicate" });
+
+  await addFromHistory("Beta processing");
+  await addFromHistory("Gamma failed");
+  const betaMembership = projectVideos.find(
+    (membership) => membership.project_id === projectId && membership.video_id === canonicalVideos[1].id,
+  );
+  const gammaMembership = projectVideos.find(
+    (membership) => membership.project_id === projectId && membership.video_id === canonicalVideos[2].id,
+  );
+  expect(betaMembership).toBeTruthy();
+  expect(gammaMembership).toBeTruthy();
+  if (!betaMembership || !gammaMembership) return;
+  transitionFixtureStatus(projectId, betaMembership.video_id, "processing", null);
+  transitionFixtureStatus(
+    projectId,
+    gammaMembership.video_id,
+    "failed",
+    "transcript_unavailable",
+  );
+  await page.reload();
+  await expect(page.getByText("Processing", { exact: true })).toBeVisible();
+  await expect(page.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 of 3 Project Videos unavailable")).toBeVisible();
+  await expect(page.getByText(/Grounded actions will use only the 1 ready Video/i)).toBeVisible();
+
+  await addFromHistory("Delta context");
+  await addFromHistory("Epsilon counterpoint");
+  await expect(
+    page.getByRole("status", { name: "5 of 5 Project Videos" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add from History" })).toBeDisabled();
+  await expect(page.getByText("Source Set limit reached")).toBeVisible();
+  await expect(page.getByText(/upgrading does not increase this grounding limit/i)).toBeVisible();
+
+  await page.getByRole("button", { name: "Move Epsilon counterpoint up" }).click();
+  await expect(page.getByText("Source order updated.", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(orderedSourceTitles(page)).toHaveText([
+    "Alpha evidence",
+    "Beta processing",
+    "Gamma failed",
+    "Epsilon counterpoint",
+    "Delta context",
+  ]);
+
+  const revisionBeforeRace = sourceSetRevisions.get(projectId);
+  expect(revisionBeforeRace).toBe(10);
+  const currentIds = orderedMemberships(projectId).map((membership) => membership.video_id);
+  const firstOrder = [...currentIds].reverse();
+  const secondOrder = [
+    currentIds[1],
+    currentIds[0],
+    currentIds[2],
+    currentIds[3],
+    currentIds[4],
+  ];
+  const raceResponses = await Promise.all([
+    context.request.patch(`${appUrl}/api/projects/${projectId}/source-set`, {
+      data: { videoIds: firstOrder, expectedRevision: revisionBeforeRace },
+    }),
+    context.request.patch(`${appUrl}/api/projects/${projectId}/source-set`, {
+      data: { videoIds: secondOrder, expectedRevision: revisionBeforeRace },
+    }),
+  ]);
+  expect(raceResponses.map((response) => response.status()).sort()).toEqual([200, 409]);
+  const winner = raceResponses.find((response) => response.status() === 200);
+  expect(winner).toBeTruthy();
+  if (!winner) return;
+  const winningPayload = (await winner.json()) as {
+    sourceSet: { videos: Array<{ title: string }> };
+  };
+  await page.reload();
+  await expect(orderedSourceTitles(page)).toHaveText(
+    winningPayload.sourceSet.videos.map((video) => video.title),
+  );
+
+  await page.getByRole("button", { name: "Remove Gamma failed from Source Set" }).click();
+  await expect(page.getByText("Removed Gamma failed.", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Gamma failed")).toHaveCount(0);
+  await expect(
+    page.getByRole("status", { name: "4 of 5 Project Videos" }),
+  ).toBeVisible();
+
+  const alphaHistoryIndex = historyRows.findIndex(
+    (history) => history.video_id === canonicalVideos[0].id,
+  );
+  expect(alphaHistoryIndex).toBeGreaterThanOrEqual(0);
+  historyRows.splice(alphaHistoryIndex, 1);
+  await page.reload();
+  await expect(page.getByText("Alpha evidence")).toBeVisible();
+
+  const otherContext = await browser.newContext();
+  try {
+    await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
+    const otherPage = await otherContext.newPage();
+    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}`);
+    await expect(otherPage.getByRole("heading", { name: "Project not found" })).toBeVisible();
+    const privateSourceSet = await otherContext.request.get(
+      `${appUrl}/api/projects/${projectId}/source-set`,
+    );
+    expect(privateSourceSet.status()).toBe(404);
+    const revisionBeforeAttack = sourceSetRevisions.get(projectId);
+    const membershipBeforeAttack = JSON.stringify(orderedMemberships(projectId));
+    const attackerResponses = await Promise.all([
+      otherContext.request.post(`${appUrl}/api/projects/${projectId}/source-set`, {
+        data: {
+          videoId: canonicalVideos[5].id,
+          expectedRevision: revisionBeforeAttack,
+        },
+      }),
+      otherContext.request.patch(`${appUrl}/api/projects/${projectId}/source-set`, {
+        data: {
+          videoIds: orderedMemberships(projectId).map(
+            (membership) => membership.video_id,
+          ),
+          expectedRevision: revisionBeforeAttack,
+        },
+      }),
+      otherContext.request.delete(
+        `${appUrl}/api/projects/${projectId}/source-set/${canonicalVideos[0].id}?revision=${revisionBeforeAttack}`,
+      ),
+    ]);
+    for (const response of attackerResponses) {
+      expect(response.status()).toBe(404);
+      expect(await response.json()).toEqual({
+        outcome: "missing",
+        message: "Project not found.",
+      });
+    }
+    expect(sourceSetRevisions.get(projectId)).toBe(revisionBeforeAttack);
+    expect(JSON.stringify(orderedMemberships(projectId))).toBe(
+      membershipBeforeAttack,
+    );
+  } finally {
+    await otherContext.close();
+  }
+
+  const canonicalCount = canonicalVideos.length;
+  await page.getByRole("button", { name: "Delete Project" }).click();
+  const deleteDialog = page.getByRole("alertdialog", {
+    name: "Delete “Climate evidence map”?",
+  });
+  await deleteDialog.getByRole("button", { name: "Delete Project" }).click();
+  await expect(page).toHaveURL(`${appUrl}/workspace`);
+  expect(projectVideos.some((membership) => membership.project_id === projectId)).toBe(false);
+  expect(sourceSetRevisions.has(projectId)).toBe(false);
+  expect(canonicalVideos).toHaveLength(canonicalCount);
+});
+
 async function handleSupabaseRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -363,6 +626,65 @@ async function handleSupabaseRequest(
 
   if (url.pathname === "/rest/v1/projects") {
     return handleProjects(request, response, url, userId, serviceRole);
+  }
+
+  if (url.pathname === "/rest/v1/user_video_history" && request.method === "GET") {
+    const requestedUser = filterValue(url, "user_id");
+    if (!userId || requestedUser !== userId) return sendJson(response, 200, []);
+    const rows = historyRows
+      .filter((history) => history.user_id === userId)
+      .sort((a, b) => b.accessed_at.localeCompare(a.accessed_at))
+      .map((history) => ({
+        accessed_at: history.accessed_at,
+        videos: canonicalVideos.find((video) => video.id === history.video_id) ?? null,
+      }));
+    return sendJson(response, 200, rows);
+  }
+
+  if (url.pathname === "/rest/v1/project_source_sets" && request.method === "GET") {
+    const projectId = filterValue(url, "project_id");
+    if (!projectId || projectOwnerId(projectId) !== userId) {
+      return sendJson(response, 200, []);
+    }
+    const revision = sourceSetRevisions.get(projectId);
+    return sendJson(
+      response,
+      200,
+      revision === undefined
+        ? []
+        : [
+            {
+              revision,
+              project_videos: orderedMemberships(projectId).map((membership) => ({
+                ...membership,
+                videos:
+                  canonicalVideos.find(
+                    (video) => video.id === membership.video_id,
+                  ) ?? null,
+              })),
+            },
+          ],
+    );
+  }
+
+  if (url.pathname === "/rest/v1/project_videos" && request.method === "GET") {
+    const projectId = filterValue(url, "project_id");
+    if (!projectId || projectOwnerId(projectId) !== userId) {
+      return sendJson(response, 200, []);
+    }
+    return sendJson(
+      response,
+      200,
+      orderedMemberships(projectId).map((membership) => ({
+        ...membership,
+        videos:
+          canonicalVideos.find((video) => video.id === membership.video_id) ?? null,
+      })),
+    );
+  }
+
+  if (url.pathname.startsWith("/rest/v1/rpc/") && request.method === "POST") {
+    return handleSourceSetRpc(request, response, url, userId);
   }
 
   return sendJson(response, 404, {
@@ -464,10 +786,284 @@ async function handleProjects(
     if (visible.length !== 1) return sendJson(response, 200, []);
     const index = projects.findIndex((project) => project.id === visible[0].id);
     const [deleted] = projects.splice(index, 1);
+    for (let membershipIndex = projectVideos.length - 1; membershipIndex >= 0; membershipIndex -= 1) {
+      if (projectVideos[membershipIndex].project_id === deleted.id) {
+        projectVideos.splice(membershipIndex, 1);
+      }
+    }
+    sourceSetRevisions.delete(deleted.id);
     return sendJson(response, 200, [{ id: deleted.id }]);
   }
 
   return sendJson(response, 405, postgrestError("FIXTURE_METHOD", "Unsupported method"));
+}
+
+async function handleSourceSetRpc(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  userId: string | null,
+) {
+  const body = (await readJson(request)) as {
+    p_project_id?: string;
+    p_video_id?: string;
+    p_video_ids?: string[];
+    p_expected_revision?: number;
+    p_search?: string;
+    p_page?: number;
+    p_page_size?: number;
+  };
+  const projectId = body.p_project_id;
+  if (!projectId || !userId || projectOwnerId(projectId) !== userId) {
+    return sendJson(response, 200, { outcome: "missing" });
+  }
+
+  if (url.pathname.endsWith("/list_project_history_candidates")) {
+    const search = body.p_search?.trim().toLowerCase() ?? "";
+    const page = Math.max(1, body.p_page ?? 1);
+    const pageSize = Math.min(25, Math.max(1, body.p_page_size ?? 10));
+    const eligible = historyRows
+      .filter(
+        (history) =>
+          history.user_id === userId &&
+          processedVideoIds.has(history.video_id) &&
+          !projectVideos.some(
+            (membership) =>
+              membership.project_id === projectId &&
+              membership.video_id === history.video_id,
+          ),
+      )
+      .map((history) => ({
+        history,
+        video: canonicalVideos.find((video) => video.id === history.video_id),
+      }))
+      .filter(
+        (candidate): candidate is {
+          history: FixtureHistory;
+          video: FixtureVideo;
+        } => {
+          if (!candidate.video) return false;
+          return (
+            !search ||
+            candidate.video.title.toLowerCase().includes(search) ||
+            candidate.video.channel_name.toLowerCase().includes(search)
+          );
+        },
+      )
+      .sort(
+        (left, right) =>
+          right.history.accessed_at.localeCompare(left.history.accessed_at) ||
+          left.video.id.localeCompare(right.video.id),
+      );
+    const offset = (page - 1) * pageSize;
+    return sendJson(response, 200, {
+      outcome: "resolved",
+      page,
+      pageSize,
+      total: eligible.length,
+      totalPages: eligible.length === 0 ? 0 : Math.ceil(eligible.length / pageSize),
+      candidates: eligible.slice(offset, offset + pageSize).map(({ history, video }) => ({
+        videoId: video.id,
+        youtubeUrl: video.youtube_url,
+        title: video.title,
+        channelName: video.channel_name,
+        viewedAt: history.accessed_at,
+      })),
+    });
+  }
+
+  const revision = sourceSetRevisions.get(projectId) ?? 0;
+  if (body.p_expected_revision !== revision) {
+    return sendJson(response, 200, { outcome: "conflict", revision });
+  }
+
+  if (url.pathname.endsWith("/add_project_history_video")) {
+    const videoId = body.p_video_id;
+    if (!videoId) return sendJson(response, 200, { outcome: "not_in_history", revision });
+    if (
+      projectVideos.some(
+        (membership) =>
+          membership.project_id === projectId && membership.video_id === videoId,
+      )
+    ) {
+      return sendJson(response, 200, { outcome: "duplicate", revision });
+    }
+    if (
+      !historyRows.some(
+        (history) => history.user_id === userId && history.video_id === videoId,
+      )
+    ) {
+      return sendJson(response, 200, { outcome: "not_in_history", revision });
+    }
+    if (!processedVideoIds.has(videoId)) {
+      return sendJson(response, 200, { outcome: "not_ready", revision });
+    }
+    const memberships = orderedMemberships(projectId);
+    if (memberships.length >= 5) {
+      return sendJson(response, 200, { outcome: "limit_reached", revision });
+    }
+    const timestamp = nextTimestamp();
+    projectVideos.push({
+      project_id: projectId,
+      video_id: videoId,
+      position: memberships.length + 1,
+      status: "ready",
+      failure_code: null,
+      added_at: timestamp,
+      status_updated_at: timestamp,
+    });
+    sourceSetRevisions.set(projectId, revision + 1);
+    return sendJson(response, 200, { outcome: "added", revision: revision + 1 });
+  }
+
+  if (url.pathname.endsWith("/remove_project_video")) {
+    const membership = projectVideos.find(
+      (candidate) =>
+        candidate.project_id === projectId && candidate.video_id === body.p_video_id,
+    );
+    if (!membership) {
+      return sendJson(response, 200, { outcome: "membership_missing", revision });
+    }
+    const membershipIndex = projectVideos.indexOf(membership);
+    projectVideos.splice(membershipIndex, 1);
+    for (const candidate of projectVideos) {
+      if (
+        candidate.project_id === projectId &&
+        candidate.position > membership.position
+      ) {
+        candidate.position -= 1;
+      }
+    }
+    sourceSetRevisions.set(projectId, revision + 1);
+    return sendJson(response, 200, { outcome: "removed", revision: revision + 1 });
+  }
+
+  if (url.pathname.endsWith("/reorder_project_videos")) {
+    const requested = body.p_video_ids;
+    const memberships = orderedMemberships(projectId);
+    if (
+      !requested ||
+      requested.length !== memberships.length ||
+      new Set(requested).size !== requested.length ||
+      requested.some(
+        (videoId) => !memberships.some((membership) => membership.video_id === videoId),
+      )
+    ) {
+      return sendJson(response, 200, { outcome: "invalid_order", revision });
+    }
+    const current = memberships.map((membership) => membership.video_id);
+    if (current.every((videoId, index) => videoId === requested[index])) {
+      return sendJson(response, 200, { outcome: "unchanged", revision });
+    }
+    requested.forEach((videoId, index) => {
+      const membership = memberships.find((candidate) => candidate.video_id === videoId);
+      if (membership) membership.position = index + 1;
+    });
+    sourceSetRevisions.set(projectId, revision + 1);
+    return sendJson(response, 200, { outcome: "reordered", revision: revision + 1 });
+  }
+
+  return sendJson(
+    response,
+    404,
+    postgrestError("FIXTURE_RPC_NOT_FOUND", `Unsupported RPC ${url.pathname}`),
+  );
+}
+
+function seedCanonicalHistory() {
+  const titles = [
+    "Alpha evidence",
+    "Beta processing",
+    "Gamma failed",
+    "Delta context",
+    "Epsilon counterpoint",
+    "Zeta overflow",
+  ];
+  titles.forEach((title, index) => {
+    const ordinal = index + 1;
+    const suffix = String(ordinal).padStart(12, "0");
+    const videoId = `71000000-0000-4000-8000-${suffix}`;
+    canonicalVideos.push({
+      id: videoId,
+      youtube_url: `https://www.youtube.com/watch?v=aaaaaaa000${ordinal}`,
+      title,
+      channel_name: "Fixture Evidence Lab",
+    });
+    historyRows.push({
+      user_id: OWNER_ID,
+      video_id: videoId,
+      accessed_at: new Date(Date.UTC(2026, 7, 8, 12, 0, 10 - ordinal)).toISOString(),
+    });
+    processedVideoIds.add(videoId);
+  });
+
+  for (let index = 1; index <= 30; index += 1) {
+    const suffix = String(index).padStart(12, "0");
+    const videoId = `72000000-0000-4000-8000-${suffix}`;
+    canonicalVideos.push({
+      id: videoId,
+      youtube_url: `https://www.youtube.com/watch?v=archive${String(index).padStart(4, "0")}`,
+      title: index === 30 ? "Legacy deep evidence" : `Archive source ${index}`,
+      channel_name: "Long History Archive",
+    });
+    historyRows.push({
+      user_id: OWNER_ID,
+      video_id: videoId,
+      accessed_at: new Date(Date.UTC(2026, 0, 31 - index, 12)).toISOString(),
+    });
+    processedVideoIds.add(videoId);
+  }
+
+  const unprocessedId = "73000000-0000-4000-8000-000000000001";
+  canonicalVideos.push({
+    id: unprocessedId,
+    youtube_url: "https://www.youtube.com/watch?v=unprocessed",
+    title: "Unprocessed draft",
+    channel_name: "Fixture Evidence Lab",
+  });
+  historyRows.push({
+    user_id: OWNER_ID,
+    video_id: unprocessedId,
+    accessed_at: new Date(Date.UTC(2026, 7, 9, 12)).toISOString(),
+  });
+}
+
+function projectOwnerId(projectId: string): string | null {
+  const project = projects.find((candidate) => candidate.id === projectId);
+  if (!project) return null;
+  if (project.workspace_id === OWNER_WORKSPACE_ID) return OWNER_ID;
+  if (project.workspace_id === OTHER_WORKSPACE_ID) return OTHER_ID;
+  return null;
+}
+
+function orderedMemberships(projectId: string) {
+  return projectVideos
+    .filter((membership) => membership.project_id === projectId)
+    .sort((a, b) => a.position - b.position);
+}
+
+function transitionFixtureStatus(
+  projectId: string,
+  videoId: string,
+  status: FixtureProjectVideo["status"],
+  failureCode: string | null,
+) {
+  const membership = projectVideos.find(
+    (candidate) =>
+      candidate.project_id === projectId && candidate.video_id === videoId,
+  );
+  const revision = sourceSetRevisions.get(projectId);
+  if (!membership || revision === undefined) {
+    throw new Error("Fixture status transition requires an existing Source Set member.");
+  }
+  membership.status = status;
+  membership.failure_code = failureCode;
+  membership.status_updated_at = nextTimestamp();
+  sourceSetRevisions.set(projectId, revision + 1);
+}
+
+function orderedSourceTitles(page: Page) {
+  return page.getByTestId("project-source-title");
 }
 
 function filterValue(url: URL, field: string) {

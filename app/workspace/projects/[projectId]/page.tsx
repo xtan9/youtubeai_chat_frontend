@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
-import { openProject } from "@/lib/projects/project-subject";
+import {
+  loadProjectHistoryCandidates,
+  loadProjectSourceSet,
+} from "@/lib/projects/project-source-set";
+import {
+  openResolvedProject,
+  resolveProjectSubject,
+} from "@/lib/projects/project-subject";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectOutcomeState } from "../../_components/project-outcome-state";
 import { ProjectView } from "./project-view";
@@ -27,19 +34,52 @@ export default async function ProjectPage({
   }
 
   const { projectId } = await params;
-  let result: Awaited<ReturnType<typeof openProject>>;
+  let subject: Awaited<ReturnType<typeof resolveProjectSubject>>;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
-    const supabase = await createClient();
-    result = await openProject(supabase, principalResult.principal.userId, projectId);
+    supabase = await createClient();
+    subject = await resolveProjectSubject(
+      supabase,
+      principalResult.principal.userId,
+      projectId,
+    );
   } catch {
     return <ProjectOutcomeState kind="unavailable" />;
   }
 
-  if (result.kind === "invalid" || result.kind === "missing") {
-    return <ProjectOutcomeState kind={result.kind} />;
-  }
-  if (result.kind !== "resolved") {
+  if (subject.kind !== "resolved") {
+    if (subject.kind === "invalid" || subject.kind === "missing") {
+      return <ProjectOutcomeState kind={subject.kind} />;
+    }
     return <ProjectOutcomeState kind="unavailable" />;
   }
-  return <ProjectView initialProject={result.value} />;
+
+  let project: Awaited<ReturnType<typeof openResolvedProject>>;
+  let sourceSet: Awaited<ReturnType<typeof loadProjectSourceSet>>;
+  let candidates: Awaited<ReturnType<typeof loadProjectHistoryCandidates>>;
+  try {
+    [project, sourceSet, candidates] = await Promise.all([
+      openResolvedProject(supabase, subject.value),
+      loadProjectSourceSet(supabase, subject.value),
+      loadProjectHistoryCandidates(supabase, subject.value),
+    ]);
+  } catch {
+    return <ProjectOutcomeState kind="unavailable" />;
+  }
+
+  if (project.kind === "invalid" || project.kind === "missing") {
+    return <ProjectOutcomeState kind={project.kind} />;
+  }
+  if (project.kind !== "resolved" || sourceSet.kind !== "resolved") {
+    return <ProjectOutcomeState kind="unavailable" />;
+  }
+  return (
+    <ProjectView
+      initialProject={project.value}
+      initialSourceSet={sourceSet.value}
+      initialCandidatePage={
+        candidates.kind === "resolved" ? candidates.value : null
+      }
+    />
+  );
 }
