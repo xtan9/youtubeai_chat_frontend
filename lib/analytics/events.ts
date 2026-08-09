@@ -6,6 +6,7 @@ import type {
 import type { ProjectLimitEventProperties } from "./project-limits";
 import type { ProjectSearchEventProperties } from "./project-search";
 import type { ProjectVideoProcessingEventProperties } from "./project-video-processing";
+import type { ProjectGroundedAnswerEventProperties } from "./project-grounded-answer";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -35,6 +36,7 @@ export const ANALYTICS_EVENT_NAMES = [
   "project_limit_reached",
   "project_limit_cta_clicked",
   "project_search_completed",
+  "project_grounded_answer_completed",
   "project_video_processing_started",
   "project_video_processing_succeeded",
   "project_video_processing_failed",
@@ -114,6 +116,7 @@ export interface AnalyticsEventProperties {
   project_limit_reached: ProjectLimitEventProperties["project_limit_reached"];
   project_limit_cta_clicked: ProjectLimitEventProperties["project_limit_cta_clicked"];
   project_search_completed: ProjectSearchEventProperties["project_search_completed"];
+  project_grounded_answer_completed: ProjectGroundedAnswerEventProperties["project_grounded_answer_completed"];
   project_video_processing_started: ProjectVideoProcessingEventProperties["project_video_processing_started"];
   project_video_processing_succeeded: ProjectVideoProcessingEventProperties["project_video_processing_succeeded"];
   project_video_processing_failed: ProjectVideoProcessingEventProperties["project_video_processing_failed"];

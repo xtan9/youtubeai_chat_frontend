@@ -23,6 +23,10 @@ import {
   isProjectVideoProcessingEventName,
   validateProjectVideoProcessingEvent,
 } from "./project-video-processing";
+import {
+  isProjectGroundedAnswerEventName,
+  validateProjectGroundedAnswerEvent,
+} from "./project-grounded-answer";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -91,6 +95,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid Project Video processing event", {
           errorId: "ANALYTICS_PROJECT_VIDEO_PROCESSING_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectGroundedAnswerEventName(event)) {
+      const validation = validateProjectGroundedAnswerEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project Grounded Answer event", {
+          errorId: "ANALYTICS_PROJECT_GROUNDED_ANSWER_INVALID",
           event,
           issueCount: validation.issueCount,
         });

@@ -54,19 +54,27 @@ export default async function ProjectPage({
     }
     return <ProjectOutcomeState kind="unavailable" />;
   }
+  if (!subject.value.groundedAnswers) {
+    return <ProjectOutcomeState kind="unavailable" />;
+  }
+  const groundedAnswers = subject.value.groundedAnswers;
 
   let project: Awaited<ReturnType<typeof openResolvedProject>>;
   let sourceSet: Awaited<ReturnType<typeof loadProjectSourceSet>>;
   let candidates: Awaited<ReturnType<typeof loadProjectHistoryCandidates>>;
+  let conversation: Awaited<
+    ReturnType<typeof groundedAnswers.load>
+  >;
   try {
     await reconcileStaleProjectVideoProcessing(
       subject.value,
       principalResult.principal.smokeProEntitled === true,
     );
-    [project, sourceSet, candidates] = await Promise.all([
+    [project, sourceSet, candidates, conversation] = await Promise.all([
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),
       loadProjectHistoryCandidates(supabase, subject.value),
+      groundedAnswers.load(),
     ]);
   } catch {
     return <ProjectOutcomeState kind="unavailable" />;
@@ -75,13 +83,18 @@ export default async function ProjectPage({
   if (project.kind === "invalid" || project.kind === "missing") {
     return <ProjectOutcomeState kind={project.kind} />;
   }
-  if (project.kind !== "resolved" || sourceSet.kind !== "resolved") {
+  if (
+    project.kind !== "resolved" ||
+    sourceSet.kind !== "resolved" ||
+    conversation.status !== "ready"
+  ) {
     return <ProjectOutcomeState kind="unavailable" />;
   }
   return (
     <ProjectView
       initialProject={project.value}
       initialSourceSet={sourceSet.value}
+      initialConversation={conversation.conversation}
       initialCandidatePage={
         candidates.kind === "resolved" ? candidates.value : null
       }
