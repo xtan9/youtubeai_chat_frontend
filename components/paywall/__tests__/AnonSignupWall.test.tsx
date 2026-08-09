@@ -1,9 +1,23 @@
 // @vitest-environment happy-dom
-import { render, screen, cleanup } from "@testing-library/react";
-import { afterEach, describe, it, expect } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const captureAnalyticsEvent = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent,
+}));
+
 import { AnonSignupWall } from "../AnonSignupWall";
 
-afterEach(cleanup);
+beforeEach(() => {
+  captureAnalyticsEvent.mockReset();
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("AnonSignupWall", () => {
   it("renders hit-cap copy by default", () => {
@@ -22,6 +36,33 @@ describe("AnonSignupWall", () => {
     const hrefs = links.map((a) => a.getAttribute("href"));
     expect(hrefs.some((h) => h?.startsWith("/auth/sign-up"))).toBe(true);
     expect(hrefs.some((h) => h?.startsWith("/auth/login"))).toBe(true);
+  });
+
+  it("preserves a safe homepage return and attributes the Summary limit action", () => {
+    render(<AnonSignupWall />);
+
+    expect(captureAnalyticsEvent).toHaveBeenCalledWith(
+      "subscription_discovery_viewed",
+      {
+        source_surface: "summary_limit",
+        presentation_state: "pricing",
+        authentication_state: "anonymous_session",
+        device_class: "desktop",
+      },
+    );
+
+    const signupLink = screen.getByRole("link", { name: /sign up free/i });
+    const href = new URL(
+      signupLink.getAttribute("href")!,
+      "https://example.test",
+    );
+    expect(href.searchParams.get("redirect_to")).toBe("/");
+
+    fireEvent.click(signupLink);
+    expect(captureAnalyticsEvent).toHaveBeenLastCalledWith(
+      "subscription_discovery_clicked",
+      expect.objectContaining({ source_surface: "summary_limit" }),
+    );
   });
 
   it("exposes the reason via data attribute", () => {
