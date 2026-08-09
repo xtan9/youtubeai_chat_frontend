@@ -10,6 +10,7 @@ import {
   ANALYTICS_SUBJECT_PROPERTY,
   SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
 } from "./identity";
+import { validateCompatibleSubscriptionDiscoveryEvent } from "./subscription-discovery";
 
 const POSTHOG_HOST = "https://us.i.posthog.com";
 
@@ -23,6 +24,19 @@ export async function captureSubscriptionActivated(
     console.info("[analytics] suppressed synthetic business event", {
       event: "subscription_activated",
       ...SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
+    });
+    return;
+  }
+
+  const validation = validateCompatibleSubscriptionDiscoveryEvent(
+    "subscription_activated",
+    properties,
+  );
+  if (!validation.success) {
+    console.error("[analytics] invalid subscription discovery event", {
+      errorId: "ANALYTICS_SUBSCRIPTION_DISCOVERY_INVALID",
+      event: "subscription_activated",
+      issueCount: validation.issueCount,
     });
     return;
   }
@@ -45,7 +59,7 @@ export async function captureSubscriptionActivated(
       properties: {
         analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
         [ANALYTICS_SUBJECT_PROPERTY]: ANALYTICS_HUMAN_SUBJECT,
-        ...properties,
+        ...validation.properties,
       },
     });
   } catch (err) {

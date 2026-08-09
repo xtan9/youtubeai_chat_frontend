@@ -65,4 +65,75 @@ describe("client analytics", () => {
 
     expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
+
+  it("captures a schema-validated discovery event with governed attribution", () => {
+    captureAnalyticsEvent("subscription_discovery_clicked", {
+      source_surface: "global_header",
+      presentation_state: "upgrade_to_pro",
+      authentication_state: "registered",
+      device_class: "mobile",
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "subscription_discovery_clicked",
+      {
+        analytics_schema_version: 1,
+        source_surface: "global_header",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "mobile",
+      },
+    );
+  });
+
+  it("rejects invalid discovery attribution before it reaches transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "subscription_discovery_clicked",
+      {
+        source_surface: "sidebar",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "desktop",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid subscription discovery event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_SUBSCRIPTION_DISCOVERY_INVALID",
+        event: "subscription_discovery_clicked",
+      }),
+    );
+  });
+
+  it("rejects an invalid event name before it reaches transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent("upgrade_clicked" as never, {} as never);
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid event name",
+      expect.objectContaining({
+        errorId: "ANALYTICS_EVENT_NAME_INVALID",
+        event: "upgrade_clicked",
+      }),
+    );
+  });
+
+  it("suppresses governed discovery events for a synthetic identity", () => {
+    setBusinessAnalyticsCaptureSuppressed(true);
+
+    captureAnalyticsEvent("subscription_discovery_viewed", {
+      source_surface: "direct_pricing",
+      presentation_state: "pricing",
+      authentication_state: "anonymous_session",
+      device_class: "desktop",
+    });
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
 });

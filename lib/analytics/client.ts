@@ -3,9 +3,14 @@
 import posthog from "posthog-js";
 import {
   ANALYTICS_SCHEMA_VERSION,
+  isAnalyticsEventName,
   type AnalyticsEventName,
   type AnalyticsEventProperties,
 } from "./events";
+import {
+  isSubscriptionDiscoveryEventName,
+  validateCompatibleSubscriptionDiscoveryEvent,
+} from "./subscription-discovery";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -21,9 +26,34 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
   if (businessAnalyticsCaptureSuppressed) return;
 
   try {
+    if (!isAnalyticsEventName(event)) {
+      console.error("[analytics] invalid event name", {
+        errorId: "ANALYTICS_EVENT_NAME_INVALID",
+        event,
+      });
+      return;
+    }
+
+    let validatedProperties = properties;
+    if (isSubscriptionDiscoveryEventName(event)) {
+      const validation = validateCompatibleSubscriptionDiscoveryEvent(
+        event,
+        properties,
+      );
+      if (!validation.success) {
+        console.error("[analytics] invalid subscription discovery event", {
+          errorId: "ANALYTICS_SUBSCRIPTION_DISCOVERY_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+
     posthog.capture(event, {
       analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
-      ...properties,
+      ...validatedProperties,
     });
   } catch (err) {
     console.error("[analytics] client capture failed", {
