@@ -75,6 +75,7 @@ describe("resolveRegisteredSubscription", () => {
       status: "trialing",
       current_period_end: "2027-04-01T00:00:00Z",
       cancel_at_period_end: false,
+      stripe_subscription_id: "sub_trialing",
     });
 
     const { resolveRegisteredSubscription } = await loadFreshModule();
@@ -82,6 +83,7 @@ describe("resolveRegisteredSubscription", () => {
     expect(await resolveRegisteredSubscription("u1")).toEqual({
       kind: "resolved",
       tier: "pro",
+      stripeSubscriptionId: "sub_trialing",
       subscription: {
         plan: "yearly",
         current_period_end: "2027-04-01T00:00:00Z",
@@ -103,6 +105,7 @@ describe("resolveRegisteredSubscription", () => {
       status: "past_due",
       current_period_end: "2026-08-01T00:00:00Z",
       cancel_at_period_end: false,
+      stripe_subscription_id: "sub_past_due",
     });
 
     const { resolveRegisteredSubscription } = await loadFreshModule();
@@ -110,6 +113,7 @@ describe("resolveRegisteredSubscription", () => {
     expect(await resolveRegisteredSubscription("u1")).toEqual({
       kind: "resolved",
       tier: "free",
+      stripeSubscriptionId: "sub_past_due",
       subscription: {
         plan: "monthly",
         current_period_end: "2026-08-01T00:00:00Z",
@@ -126,6 +130,7 @@ describe("resolveRegisteredSubscription", () => {
       status: null,
       current_period_end: null,
       cancel_at_period_end: null,
+      stripe_subscription_id: null,
     });
 
     const { resolveRegisteredSubscription } = await loadFreshModule();
@@ -133,6 +138,7 @@ describe("resolveRegisteredSubscription", () => {
     expect(await resolveRegisteredSubscription("u1")).toEqual({
       kind: "resolved",
       tier: "pro",
+      stripeSubscriptionId: null,
       subscription: {
         plan: null,
         current_period_end: null,
@@ -150,6 +156,7 @@ describe("resolveRegisteredSubscription", () => {
     expect(await resolveRegisteredSubscription("u1")).toEqual({
       kind: "resolved",
       tier: "free",
+      stripeSubscriptionId: null,
       subscription: null,
       presentation: { state: "free" },
     });
@@ -203,6 +210,7 @@ describe("resolveRegisteredSubscription", () => {
     expect(await resolveRegisteredSubscription("smoke-u1", true)).toEqual({
       kind: "resolved",
       tier: "pro",
+      stripeSubscriptionId: null,
       subscription: null,
       presentation: { state: "active_pro", plan: null, renewsAt: null },
     });

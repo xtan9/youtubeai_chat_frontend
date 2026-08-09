@@ -22,6 +22,8 @@ function isPublicPath(pathname: string): boolean {
     pathname === "/faq" ||
     pathname.startsWith("/faq/") ||
     pathname === "/pricing" ||
+    pathname === "/billing/success" ||
+    pathname === "/billing/success/" ||
     pathname.startsWith("/design-system") ||
     // The Workspace landing page owns its anonymous registration CTA. Keep
     // only this exact path public; individual Project pages remain protected.

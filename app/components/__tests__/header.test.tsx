@@ -1,17 +1,26 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Header } from "../header";
+import { setBillingActivationOutcome } from "@/lib/billing/activation-pending";
+import { CheckoutActivationGuard } from "../checkout-activation-guard";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
+});
 
 const signOutSpy = vi.fn();
 const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("next-themes", () => ({
@@ -56,6 +65,45 @@ function openDropdown(trigger: Element) {
 beforeEach(() => {
   vi.clearAllMocks();
   signOutSpy.mockResolvedValue({ error: null });
+});
+
+describe("Header checkout activation guard", () => {
+  it("suppresses purchase children in checkout-return server HTML", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/billing/success?session_id=cs_test_return",
+    );
+
+    const html = renderToString(
+      <CheckoutActivationGuard>
+        <a href="/pricing">Upgrade to Pro</a>
+      </CheckoutActivationGuard>,
+    );
+
+    expect(html).toContain("Activating Pro");
+    expect(html).not.toContain("Upgrade to Pro");
+  });
+
+  it("renders an actionless return status only until activation is terminal", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/billing/success?session_id=cs_test_return",
+    );
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("Activating Pro");
+    expect(
+      screen.queryByRole("link", { name: /pricing|upgrade|checkout|choose/i }),
+    ).toBeNull();
+
+    act(() => setBillingActivationOutcome("cs_test_return", "active"));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });
 
 describe("Header user menu", () => {

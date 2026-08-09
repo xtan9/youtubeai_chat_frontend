@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { FooterPricingLink } from "@/components/footer-pricing-link";
 
@@ -18,7 +19,9 @@ export function Footer() {
           >
             FAQ
           </Link>
-          <FooterPricingLink />
+          <Suspense fallback={null}>
+            <FooterPricingLink />
+          </Suspense>
           <Link
             href="/privacy"
             className="text-sm text-text-muted hover:text-text-primary"

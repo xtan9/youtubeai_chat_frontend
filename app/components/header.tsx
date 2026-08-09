@@ -16,7 +16,8 @@ import {
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { CheckoutActivationGuard } from "./checkout-activation-guard";
 
 export function Header() {
   const { user } = useUser();
@@ -55,7 +56,7 @@ export function Header() {
 
   return (
     <header className="w-full border-b border-border-subtle bg-surface-base/95 backdrop-blur-md dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
-      <div className="mx-auto max-w-page px-6 py-4">
+      <div className="mx-auto max-w-page px-4 py-4 sm:px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link
@@ -66,7 +67,7 @@ export function Header() {
               <div className="w-10 h-10 bg-gradient-brand-primary rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform">
                 <YtAiMark className="w-7 h-7 text-white" />
               </div>
-              <span className="text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent">
+              <span className="hidden text-xl font-bold bg-gradient-brand-primary bg-clip-text text-transparent sm:inline">
                 YouTube AI Chat
               </span>
             </Link>
@@ -98,15 +99,18 @@ export function Header() {
             </nav>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <ThemeSwitcher />
+            <Suspense fallback={null}>
+              <CheckoutActivationGuard />
+            </Suspense>
 
             {/* Authentication Status and Actions */}
             {!user || user.is_anonymous ? (
               <div className="flex items-center">
                 <Button
                   onClick={() => router.push("/auth/login")}
-                  className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white rounded-full px-6"
+                  className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover text-white rounded-full px-4 sm:px-6"
                 >
                   Sign In
                 </Button>

@@ -1,88 +1,48 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React from "react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mockReplace = vi.fn();
-const mockInvalidateQueries = vi.fn().mockResolvedValue(undefined);
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace }),
+vi.mock("../BillingSuccessView", () => ({
+  BillingSuccessView: ({ sessionId }: { sessionId: string | null }) => (
+    <div data-testid="billing-success-view">{sessionId ?? "no-session"}</div>
+  ),
 }));
 
-vi.mock("@tanstack/react-query", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
-  return {
-    ...actual,
-    useQueryClient: () => ({
-      invalidateQueries: mockInvalidateQueries,
-    }),
-  };
-});
+import BillingSuccessPage, { metadata } from "../page";
 
-import BillingSuccessPage from "../page";
-
-function makeWrapper() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  function Wrapper({ children }: { children: React.ReactNode }) {
-    return React.createElement(QueryClientProvider, { client: qc }, children);
-  }
-  return Wrapper;
-}
+afterEach(cleanup);
 
 describe("BillingSuccessPage", () => {
-  beforeEach(() => {
-    mockReplace.mockReset();
-    mockInvalidateQueries.mockReset();
-    mockInvalidateQueries.mockResolvedValue(undefined);
+  it("keeps the public return shell out of search results", () => {
+    expect(metadata.robots).toEqual({ index: false, follow: false });
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("shows polling state initially when fetch never resolves", () => {
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
-
-    render(<BillingSuccessPage />, { wrapper: makeWrapper() });
-    // getByText throws if not found — no jest-dom needed
-    screen.getByText(/Confirming your subscription/i);
-  });
-
-  it("invalidates entitlements query and shows ok state when tier=pro", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ tier: "pro" }), { status: 200 })
-      )
+  it("passes Stripe's checkout-session return token to the activation view", async () => {
+    render(
+      await BillingSuccessPage({
+        searchParams: Promise.resolve({ session_id: "cs_test_return" }),
+      }),
     );
 
-    render(<BillingSuccessPage />, { wrapper: makeWrapper() });
-
-    await waitFor(() => {
-      screen.getByText(/Welcome to Pro/i);
-    });
-
-    expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["entitlements"],
-    });
+    expect(screen.getByTestId("billing-success-view").textContent).toBe(
+      "cs_test_return",
+    );
   });
 
-  it("does not invalidate entitlements when tier is not pro", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ tier: "free" }), { status: 200 })
-      )
+  it.each([
+    ["missing", {}],
+    ["blank", { session_id: "   " }],
+    ["malformed", { session_id: "not-a-stripe-session" }],
+    ["ambiguous", { session_id: ["cs_test_one", "cs_test_two"] }],
+  ])("does not activate for a %s checkout-return token", async (_label, params) => {
+    render(
+      await BillingSuccessPage({
+        searchParams: Promise.resolve(params),
+      }),
     );
 
-    render(<BillingSuccessPage />, { wrapper: makeWrapper() });
-
-    // Give a couple of real ticks — if it were going to invalidate it would
-    // do so synchronously after the resolved fetch.
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(mockInvalidateQueries).not.toHaveBeenCalled();
+    expect(screen.getByTestId("billing-success-view").textContent).toBe(
+      "no-session",
+    );
   });
 });
