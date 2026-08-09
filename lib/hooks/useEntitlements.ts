@@ -17,6 +17,8 @@ export type EntitlementsData = {
     summariesLimit: number; // -1 = unlimited
     historyUsed?: number;
     historyLimit?: number; // -1 = unlimited
+    projectsUsed: number;
+    projectsLimit: number; // 0 = registration required, -1 = unlimited
   };
   subscription?: {
     plan?: "monthly" | "yearly" | null;

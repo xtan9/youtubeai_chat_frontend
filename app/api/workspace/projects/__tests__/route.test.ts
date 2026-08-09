@@ -110,6 +110,56 @@ describe("/api/workspace/projects", () => {
     expect(mocks.createProject).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ kind: "missing" }],
+    [
+      {
+        kind: "resolved",
+        principal: { userId: "anon-1", isAnonymous: true, email: null },
+      },
+    ],
+  ])("returns a registration 402 before anonymous creation", async (principal) => {
+    mocks.resolveRequestPrincipal.mockResolvedValue(principal);
+    const response = await POST(
+      new Request("http://test/api/workspace/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: "Private research" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      errorCode: "anon_project_registration_required",
+      tier: "anon",
+      upgradeUrl: "/auth/sign-up?redirect_to=%2Fworkspace",
+    });
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("returns the stable Free Project cap envelope", async () => {
+    mocks.createProject.mockResolvedValue({
+      kind: "limit_reached",
+      projectsUsed: 1,
+      projectsLimit: 1,
+    });
+    const response = await POST(
+      new Request("http://test/api/workspace/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: "Second Project" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      errorCode: "free_project_limit_reached",
+      tier: "free",
+      upgradeUrl: "/pricing",
+      projectsUsed: 1,
+      projectsLimit: 1,
+    });
+  });
+
   it("maps repository availability failures", async () => {
     mocks.listWorkspaceProjects.mockResolvedValue({ kind: "unavailable" });
     const response = await GET();

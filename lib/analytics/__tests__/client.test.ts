@@ -86,6 +86,48 @@ describe("client analytics", () => {
     );
   });
 
+  it("captures only governed Project-limit counts and enums", () => {
+    captureAnalyticsEvent("project_limit_reached", {
+      source_surface: "workspace_header",
+      tier: "free",
+      projects_used: 1,
+      projects_limit: 1,
+    });
+
+    expect(mocks.capture).toHaveBeenCalledWith("project_limit_reached", {
+      analytics_schema_version: 1,
+      source_surface: "workspace_header",
+      tier: "free",
+      projects_used: 1,
+      projects_limit: 1,
+    });
+  });
+
+  it("rejects private Project metadata before transport", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    captureAnalyticsEvent(
+      "project_limit_reached",
+      {
+        source_surface: "workspace_header",
+        tier: "free",
+        projects_used: 1,
+        projects_limit: 1,
+        project_name: "Sensitive research",
+        project_goal: "Private goal",
+      } as never,
+    );
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid Project limit event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_PROJECT_LIMIT_INVALID",
+        event: "project_limit_reached",
+      }),
+    );
+  });
+
   it("rejects invalid discovery attribution before it reaches transport", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

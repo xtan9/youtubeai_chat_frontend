@@ -35,6 +35,11 @@ export type ProjectSubject = Readonly<{
 export type ProjectOutcome<T> =
   | { readonly kind: "resolved"; readonly value: T }
   | { readonly kind: "invalid"; readonly message: string }
+  | {
+      readonly kind: "limit_reached";
+      readonly projectsUsed: 1;
+      readonly projectsLimit: 1;
+    }
   | { readonly kind: "missing" }
   | { readonly kind: "forbidden" }
   | { readonly kind: "unavailable" };
@@ -63,7 +68,11 @@ function mapProject(row: ProjectRow): Project {
   };
 }
 
-function databaseFailureKind(error: { code?: string } | null) {
+type DatabaseError = { code?: string; message?: string } | null;
+
+const FREE_PROJECT_LIMIT_DATABASE_MESSAGE = "FREE_PROJECT_LIMIT_REACHED";
+
+function databaseFailureKind(error: DatabaseError) {
   if (error?.code === "42501") return "forbidden" as const;
   if (error?.code === "23514" || error?.code === "23502") {
     return "invalid" as const;
@@ -72,7 +81,7 @@ function databaseFailureKind(error: { code?: string } | null) {
 }
 
 function databaseFailure<T>(
-  error: { code?: string } | null,
+  error: DatabaseError,
 ): ProjectOutcome<T> {
   const kind = databaseFailureKind(error);
   return kind === "invalid"
@@ -94,7 +103,7 @@ async function resolveWorkspace(
   supabase: SupabaseClient<any, any, any>,
   userId: string,
 ): Promise<ProjectOutcome<WorkspaceRow>> {
-  let result: { data: WorkspaceRow | null; error: { code?: string } | null };
+  let result: { data: WorkspaceRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("workspaces")
@@ -128,7 +137,7 @@ export async function listWorkspaceProjects(
   const workspace = await resolveWorkspace(supabase, userId);
   if (workspace.kind !== "resolved") return workspace;
 
-  let result: { data: ProjectRow[] | null; error: { code?: string } | null };
+  let result: { data: ProjectRow[] | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
@@ -163,7 +172,7 @@ export async function createProject(
   const workspace = await resolveWorkspace(supabase, userId);
   if (workspace.kind !== "resolved") return workspace;
 
-  let result: { data: ProjectRow | null; error: { code?: string } | null };
+  let result: { data: ProjectRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
@@ -179,6 +188,16 @@ export async function createProject(
     return { kind: "unavailable" };
   }
 
+  if (
+    result.error?.code === "P0001" &&
+    result.error.message === FREE_PROJECT_LIMIT_DATABASE_MESSAGE
+  ) {
+    return {
+      kind: "limit_reached",
+      projectsUsed: 1,
+      projectsLimit: 1,
+    };
+  }
   if (result.error || !result.data) {
     logFailure("create", userId, result.error);
     return databaseFailure<Project>(result.error);
@@ -200,7 +219,7 @@ export async function resolveProjectSubject(
   const workspace = await resolveWorkspace(supabase, userId);
   if (workspace.kind !== "resolved") return workspace;
 
-  let result: { data: ProjectRow | null; error: { code?: string } | null };
+  let result: { data: ProjectRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
@@ -242,7 +261,7 @@ export async function openProject(
   const subject = await resolveProjectSubject(supabase, userId, rawProjectId);
   if (subject.kind !== "resolved") return subject;
 
-  let result: { data: ProjectRow | null; error: { code?: string } | null };
+  let result: { data: ProjectRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
@@ -274,7 +293,7 @@ export async function updateProject(
   const subject = await resolveProjectSubject(supabase, userId, rawProjectId);
   if (subject.kind !== "resolved") return subject;
 
-  let result: { data: ProjectRow | null; error: { code?: string } | null };
+  let result: { data: ProjectRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
@@ -305,7 +324,7 @@ export async function deleteProject(
   const subject = await resolveProjectSubject(supabase, userId, rawProjectId);
   if (subject.kind !== "resolved") return subject;
 
-  let result: { data: { id: string } | null; error: { code?: string } | null };
+  let result: { data: { id: string } | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")

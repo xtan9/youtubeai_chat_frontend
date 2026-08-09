@@ -33,6 +33,8 @@ function setEntitlements({
     summariesLimit: 10,
     historyUsed: 2,
     historyLimit: 10,
+    projectsUsed: 1,
+    projectsLimit: 1,
   },
   isError = false,
   isPending = false,
@@ -43,6 +45,8 @@ function setEntitlements({
     summariesLimit: number;
     historyUsed?: number;
     historyLimit?: number;
+    projectsUsed: number;
+    projectsLimit: number;
   };
   isError?: boolean;
   isPending?: boolean;
@@ -118,6 +122,7 @@ describe("PlanBillingView page boundary", () => {
     ).not.toBeNull();
     expect(screen.getByText("3 of 10 used")).not.toBeNull();
     expect(screen.getByText("2 of 10 used")).not.toBeNull();
+    expect(screen.getByText("1 of 1 used")).not.toBeNull();
     expect(
       screen.getByRole("progressbar", {
         name: "Monthly summaries: 3 of 10 used",
@@ -127,6 +132,14 @@ describe("PlanBillingView page boundary", () => {
       screen.getByRole("progressbar", {
         name: "Saved Videos in History: 2 of 10 used",
       }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Projects: 1 of 1 used",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByText(/deleting a Project frees this Project slot/i),
     ).not.toBeNull();
 
     const upgrade = screen.getByRole("link", { name: "Upgrade to Pro" });
@@ -184,6 +197,9 @@ describe("PlanBillingView page boundary", () => {
       ),
     ).not.toBeNull();
     expect(screen.queryByRole("link", { name: "Upgrade to Pro" })).toBeNull();
+    expect(
+      screen.getByText(/unlimited Projects within technical and abuse limits/i),
+    ).not.toBeNull();
   });
 
   it("does not render malformed non-finite limits as usage meters", () => {
@@ -193,6 +209,8 @@ describe("PlanBillingView page boundary", () => {
         summariesLimit: Number.POSITIVE_INFINITY,
         historyUsed: 2,
         historyLimit: Number.NaN,
+        projectsUsed: Number.NaN,
+        projectsLimit: 1,
       },
       presentation: { state: "free" },
     });
@@ -205,6 +223,9 @@ describe("PlanBillingView page boundary", () => {
     ).not.toBeNull();
     expect(
       screen.getByText(/history usage is temporarily unavailable/i),
+    ).not.toBeNull();
+    expect(
+      screen.getByText(/Project usage is temporarily unavailable/i),
     ).not.toBeNull();
   });
 

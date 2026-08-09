@@ -1,4 +1,8 @@
 import type { ProjectOutcome } from "./project-subject";
+import {
+  createFreeProjectLimitResponse,
+  createProjectRegistrationRequiredResponse,
+} from "./project-limit-response";
 
 export function projectOutcomeResponse<T>(outcome: ProjectOutcome<T>): Response {
   switch (outcome.kind) {
@@ -6,6 +10,11 @@ export function projectOutcomeResponse<T>(outcome: ProjectOutcome<T>): Response 
       return Response.json(
         { outcome: "invalid", message: outcome.message },
         { status: 400 },
+      );
+    case "limit_reached":
+      return Response.json(
+        createFreeProjectLimitResponse(outcome.projectsUsed),
+        { status: 402 },
       );
     case "missing":
       return Response.json(
@@ -28,6 +37,13 @@ export function projectOutcomeResponse<T>(outcome: ProjectOutcome<T>): Response 
     case "resolved":
       throw new TypeError("Resolved Project outcomes need a success response.");
   }
+}
+
+export function projectRegistrationRequiredResponse(): Response {
+  return Response.json(
+    createProjectRegistrationRequiredResponse(),
+    { status: 402 },
+  );
 }
 export function authOutcomeResponse(
   outcome: "missing" | "anonymous" | "unavailable",

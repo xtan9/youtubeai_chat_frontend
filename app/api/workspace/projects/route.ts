@@ -24,7 +24,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const researcher = await requireRegisteredResearcher("workspace_projects");
+  const researcher = await requireRegisteredResearcher("workspace_projects", {
+    projectCreation: true,
+  });
   if (researcher.kind === "error") return researcher.response;
 
   let body: unknown;

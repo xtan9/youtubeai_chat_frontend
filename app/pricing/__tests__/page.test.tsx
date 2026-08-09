@@ -88,6 +88,10 @@ describe("PricingPage", () => {
       screen.queryByRole("radiogroup", { name: /billing period/i }),
     ).toBeNull();
     expect(document.querySelectorAll("[data-pricing-card]")).toHaveLength(3);
+    expect(screen.getByText("1 durable Project")).not.toBeNull();
+    expect(
+      screen.getAllByText(/unlimited Projects within technical and abuse limits/i),
+    ).toHaveLength(2);
   });
 
   it.each([

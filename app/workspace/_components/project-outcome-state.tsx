@@ -5,9 +5,14 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 export function ProjectOutcomeState({
   kind,
 }: {
-  kind: "invalid" | "missing" | "unavailable";
+  kind: "anonymous" | "invalid" | "missing" | "unavailable";
 }) {
   const content = {
+    anonymous: {
+      title: "Create an account for Projects",
+      message:
+        "Register free to create one private, durable Project and keep your research ready to resume.",
+    },
     invalid: {
       title: "That Project link isn’t valid",
       message: "Open a Project from your Workspace instead.",
@@ -35,7 +40,15 @@ export function ProjectOutcomeState({
             {content.message}
           </p>
           <Button asChild>
-            <Link href="/workspace">Back to Workspace</Link>
+            <Link
+              href={
+                kind === "anonymous"
+                  ? "/auth/sign-up?redirect_to=%2Fworkspace"
+                  : "/workspace"
+              }
+            >
+              {kind === "anonymous" ? "Create free account" : "Back to Workspace"}
+            </Link>
           </Button>
         </CardContent>
       </Card>

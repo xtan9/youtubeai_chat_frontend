@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { listWorkspaceProjects } from "@/lib/projects/project-subject";
 import { createClient } from "@/lib/supabase/server";
@@ -20,7 +19,7 @@ export default async function WorkspacePage() {
     return <ProjectOutcomeState kind="unavailable" />;
   }
   if (principalResult.kind === "missing" || principalResult.principal.isAnonymous) {
-    redirect("/auth/login?next=/workspace");
+    return <ProjectOutcomeState kind="anonymous" />;
   }
 
   let result: Awaited<ReturnType<typeof listWorkspaceProjects>>;

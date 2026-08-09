@@ -116,6 +116,7 @@ export function PricingProCard({ plan }: { plan: Plan }) {
         <li>Unlimited summaries</li>
         <li>Unlimited chat per video</li>
         <li>Unlimited history</li>
+        <li>Unlimited Projects within technical and abuse limits</li>
         <li>Cancel anytime</li>
       </ul>
       <Button
@@ -152,6 +153,7 @@ export function PricingFreeCard() {
         <li>10 summaries per month</li>
         <li>5 Video Chat messages per Video</li>
         <li>10-item History</li>
+        <li>1 durable Project</li>
       </ul>
     </section>
   );
