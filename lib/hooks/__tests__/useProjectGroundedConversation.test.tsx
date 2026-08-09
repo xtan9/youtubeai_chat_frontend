@@ -322,6 +322,21 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     const firstId = "40000000-0000-4000-8000-000000000001";
     const secondId = "40000000-0000-4000-8000-000000000002";
     const createdId = "40000000-0000-4000-8000-000000000003";
+    const sourceSetEvents = [
+      {
+        eventId: "70000000-0000-4000-8000-000000000001",
+        projectId: PROJECT_ID,
+        revision: 2,
+        kind: "added" as const,
+        videoId: "50000000-0000-4000-8000-000000000001",
+        videoTitle: "Launch notes",
+        fromPosition: null,
+        toPosition: 1,
+        fromStatus: null,
+        toStatus: "ready" as const,
+        createdAt: "2026-08-09T11:59:00.000Z",
+      },
+    ];
     const summary = (conversationId: string, name: string, messageCount = 0) => ({
       conversationId,
       name,
@@ -331,7 +346,15 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     });
     const fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.includes(`conversation?conversationId=${secondId}`)) {
-        return Promise.resolve(json({ conversation: { ...INITIAL, conversationId: secondId } }));
+        return Promise.resolve(
+          json({
+            conversation: {
+              ...INITIAL,
+              conversationId: secondId,
+              sourceSetEvents,
+            },
+          }),
+        );
       }
       if (url === `/api/projects/${PROJECT_ID}/conversations` && init?.method === "POST") {
         return Promise.resolve(json({ conversation: summary(createdId, "New conversation") }, 201));
@@ -343,7 +366,9 @@ describe("useProjectGroundedConversation canonical persistence", () => {
         return Promise.resolve(json({ outcome: "cleared" }));
       }
       if (url.includes(`conversation?conversationId=${createdId}`)) {
-        return Promise.resolve(json({ conversation: { ...INITIAL, conversationId: createdId } }));
+        return Promise.resolve(
+          json({ conversation: { ...INITIAL, conversationId: createdId } }),
+        );
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -351,7 +376,11 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     const { result } = renderHook(() =>
       useProjectGroundedConversation({
         projectId: PROJECT_ID,
-        initialConversation: { ...INITIAL, conversationId: firstId },
+        initialConversation: {
+          ...INITIAL,
+          conversationId: firstId,
+          sourceSetEvents,
+        },
         initialConversations: [summary(firstId, "Launch questions", 1), summary(secondId, "Comparison")],
       }),
     );
@@ -360,6 +389,7 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     expect(result.current.activeConversationId).toBe(secondId);
     await act(() => result.current.createConversation());
     expect(result.current.activeConversationId).toBe(createdId);
+    expect(result.current.conversation.sourceSetEvents).toEqual(sourceSetEvents);
     await act(() => result.current.renameConversation(createdId, "Launch questions"));
     expect(result.current.conversations[0]?.name).toBe("Launch questions");
     await act(() => result.current.clearConversation(createdId));

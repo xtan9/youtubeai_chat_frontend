@@ -175,6 +175,9 @@ export function useProjectGroundedConversation(args: {
         setConversation({
           conversationId: parsed.data.conversationId,
           messages: [],
+          // Source Set events belong to the Project, not to one thread. Keep
+          // the already-loaded timeline visible while the new thread is empty.
+          sourceSetEvents: conversation.sourceSetEvents,
           messagesUsed: conversation.messagesUsed,
           messagesLimit: conversation.messagesLimit,
           tier: conversation.tier,
@@ -191,7 +194,14 @@ export function useProjectGroundedConversation(args: {
         setConversationLoading(false);
       }
     },
-    [abortRef, args.projectId, conversation.messagesLimit, conversation.messagesUsed, conversation.tier],
+    [
+      abortRef,
+      args.projectId,
+      conversation.messagesLimit,
+      conversation.messagesUsed,
+      conversation.sourceSetEvents,
+      conversation.tier,
+    ],
   );
 
   const renameConversation = useCallback(
