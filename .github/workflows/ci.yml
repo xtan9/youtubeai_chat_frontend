@@ -107,12 +107,17 @@ jobs:
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f"
             psql -v ON_ERROR_STOP=1 -f "$f"
+            psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_source_set_service_dml_denied.sql
             echo "::endgroup::"
           done
       - name: Workspace and Project contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
       - name: Project limit concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_limit_concurrency.sql
+      - name: Project Source Set contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_sets.sql
+      - name: Project Source Set concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_set_concurrency.sql
       - name: Workspace and Project contract - fresh migration replay
         run: |
           set -eo pipefail
@@ -121,10 +126,13 @@ jobs:
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f to fresh database"
             PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
+            PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_source_set_service_dml_denied.sql
             echo "::endgroup::"
           done
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_limit_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_sets.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_set_concurrency.sql
       # Reproduces the cache-write upsert that broke translation caching
       # in prod (verified 2026-04-25). Specifically guards against a
       # UNIQUE that conflicts when two summaries differ only by

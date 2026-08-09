@@ -261,22 +261,35 @@ export async function openProject(
   const subject = await resolveProjectSubject(supabase, userId, rawProjectId);
   if (subject.kind !== "resolved") return subject;
 
+  return openResolvedProject(supabase, subject.value);
+}
+
+/**
+ * Open an already-authorized Project without repeating Workspace ownership
+ * resolution. Project pages use this after resolving one coherent
+ * ProjectSubject for metadata, Source Set, and History capabilities.
+ */
+export async function openResolvedProject(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  subject: ProjectSubject,
+): Promise<ProjectOutcome<Project>> {
   let result: { data: ProjectRow | null; error: DatabaseError };
   try {
     result = await supabase
       .from("projects")
       .update({ last_active_at: new Date().toISOString() })
-      .eq("id", subject.value.projectId)
-      .eq("workspace_id", subject.value.workspaceId)
+      .eq("id", subject.projectId)
+      .eq("workspace_id", subject.workspaceId)
       .select(PROJECT_SELECT)
       .maybeSingle();
   } catch (error) {
-    logFailure("open", userId, error);
+    logFailure("open", subject.ownerId, error);
     return { kind: "unavailable" };
   }
 
   if (result.error) {
-    logFailure("open", userId, result.error);
+    logFailure("open", subject.ownerId, result.error);
     return databaseFailure<Project>(result.error);
   }
   if (!result.data) return { kind: "missing" };

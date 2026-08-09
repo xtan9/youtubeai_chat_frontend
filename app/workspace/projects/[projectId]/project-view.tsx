@@ -20,14 +20,29 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type {
+  ProjectHistoryCandidatePage,
+  ProjectSourceSet as ProjectSourceSetValue,
+} from "@/lib/projects/project-source-set";
 import type { Project } from "@/lib/projects/project-subject";
+import { ProjectSourceSet } from "./project-source-set";
 
 type ApiError = {
   message?: string;
   fieldErrors?: { name?: string[]; goal?: string[] };
 };
 
-export function ProjectView({ initialProject }: { initialProject: Project }) {
+type ProjectViewProps = {
+  initialProject: Project;
+  initialSourceSet: ProjectSourceSetValue;
+  initialCandidatePage: ProjectHistoryCandidatePage | null;
+};
+
+export function ProjectView({
+  initialProject,
+  initialSourceSet,
+  initialCandidatePage,
+}: ProjectViewProps) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
   const [name, setName] = useState(initialProject.name);
@@ -102,9 +117,15 @@ export function ProjectView({ initialProject }: { initialProject: Project }) {
         <p className="text-body-sm font-medium text-text-muted">Project</p>
         <h1 className="break-words text-h2 text-text-primary">{project.name}</h1>
         <p className="max-w-prose text-body-md text-text-secondary">
-          Shape the Goal now; sources and grounded research tools will build on this private Project.
+          Curate a bounded Source Set, then use it as the evidence for grounded research.
         </p>
       </header>
+
+      <ProjectSourceSet
+        projectId={project.id}
+        initialSourceSet={initialSourceSet}
+        initialCandidatePage={initialCandidatePage}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
         <Card>
