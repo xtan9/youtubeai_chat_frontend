@@ -9,13 +9,27 @@ type Plan = "monthly" | "yearly";
 
 export function PricingProCard({ plan }: { plan: Plan }) {
   const router = useRouter();
-  const { data: ent } = useEntitlements();
+  const {
+    data: ent,
+    isError: hasEntitlementsError,
+    isFetching: isFetchingEntitlements,
+    isPending: isPendingEntitlements,
+    refetch: refetchEntitlements,
+  } = useEntitlements();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
-    if (!ent || ent.tier === "anon") {
-      router.push("/auth/sign-up?redirect_to=" + encodeURIComponent("/pricing?intent=upgrade"));
+    if (hasEntitlementsError) {
+      await refetchEntitlements();
+      return;
+    }
+    if (!ent) return;
+    if (ent.tier === "anon") {
+      router.push(
+        "/auth/sign-up?redirect_to=" +
+          encodeURIComponent("/pricing?intent=upgrade"),
+      );
       return;
     }
     if (ent.tier === "pro") {
@@ -60,14 +74,22 @@ export function PricingProCard({ plan }: { plan: Plan }) {
   const price = plan === "yearly" ? "$4.99/mo" : "$6.99/mo";
   const billed = plan === "yearly" ? "billed $59.88 yearly" : "billed monthly";
   const isPro = ent?.tier === "pro";
+  const isRetryingEntitlements = hasEntitlementsError && isFetchingEntitlements;
+  const isResolvingEntitlements = isPendingEntitlements || isRetryingEntitlements;
   const isCurrentPlan = isPro && ent.subscription?.plan === plan;
-  const cta = isCurrentPlan
-    ? "Current plan"
-    : isPro
-      ? "Manage subscription"
-      : pending
-        ? "Redirecting…"
-        : `Choose ${plan}`;
+  const cta = hasEntitlementsError
+    ? isRetryingEntitlements
+      ? `Retrying ${plan} pricing`
+      : `Retry ${plan} pricing`
+    : isPendingEntitlements
+    ? `Loading ${plan} pricing`
+    : isCurrentPlan
+      ? "Current plan"
+      : isPro
+        ? "Manage subscription"
+        : pending
+          ? "Redirecting…"
+          : `Choose ${plan}`;
   const isYearly = plan === "yearly";
 
   return (
@@ -98,13 +120,18 @@ export function PricingProCard({ plan }: { plan: Plan }) {
       <Button
         className="mt-6 w-full"
         onClick={onClick}
-        disabled={pending || isCurrentPlan}
+        disabled={isResolvingEntitlements || pending || isCurrentPlan}
       >
         {cta}
       </Button>
       {error ? (
         <p className="text-caption text-accent-danger mt-2" role="alert">
           {error}
+        </p>
+      ) : null}
+      {hasEntitlementsError ? (
+        <p className="text-caption text-accent-danger mt-2" role="alert">
+          Couldn&apos;t load your account status. Retry before choosing a plan.
         </p>
       ) : null}
     </section>

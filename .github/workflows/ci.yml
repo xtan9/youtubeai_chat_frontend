@@ -17,6 +17,7 @@ jobs:
           scripts/vercel-deployment-policy.policy.mjs
           scripts/vercel-deploy-workflow.policy.mjs
           scripts/production-smoke-workflow.policy.mjs
+          scripts/payment-e2e-workflow.policy.mjs
 
   lint:
     runs-on: ubuntu-latest
@@ -134,3 +135,5 @@ jobs:
             echo "::error::Regression fixture detected a failure — see output above" >&2
             exit 1
           fi
+      - name: Regression - local payment schema is API-accessible
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_payment_e2e_local_schema.sql
