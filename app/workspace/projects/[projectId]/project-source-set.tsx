@@ -656,7 +656,7 @@ export function ProjectSourceSet({
                 {unavailableCount} of {sourceSet.videos.length} Project Videos unavailable
               </AlertTitle>
               <AlertDescription>
-                Grounded actions will use only the {readyCount} ready {readyCount === 1 ? "Video" : "Videos"}; processing and failed sources are never silently included.
+                Grounded actions will use only the {readyCount} ready {readyCount === 1 ? "Video" : "Videos"}; processing and failed Project Videos are never silently included.
               </AlertDescription>
             </Alert>
           ) : null}

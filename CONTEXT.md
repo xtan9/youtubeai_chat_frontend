@@ -48,6 +48,14 @@ _Avoid_: Summary, paraphrase, quote without Video identity
 Direct retrieval of ranked Transcript Passages across a Project's ready Videos without generated interpretation.
 _Avoid_: Project Conversation, AI search
 
+**Project Conversation**:
+A Researcher's durable thread of questions and Grounded Answers within one Project.
+_Avoid_: Project Search, Video Chat
+
+**Evidence Snapshot**:
+The exact bounded Transcript Passages and Source Set revision used for one Grounded Answer.
+_Avoid_: Full Transcript, Summary, Project Goal
+
 **Summary**:
 A concise, structured account of a Video that remains faithful to its Transcript.
 _Avoid_: Abstract, recap
@@ -57,11 +65,11 @@ A conversation about one Video whose answers use that Video's Transcript and Sum
 _Avoid_: General chat, assistant
 
 **Grounded Answer**:
-An answer whose factual claims are supported by the Video. When the Video does not support an answer, the product says so rather than filling the gap with outside knowledge.
+An answer whose factual claims are supported by its Evidence Snapshot. When the available evidence does not support an answer, the product says so rather than filling the gap with outside knowledge.
 _Avoid_: AI answer, generated answer
 
 **Timestamp Citation**:
-A reference from a Grounded Answer or Transcript to a specific moment in the Video.
+A reference from a Grounded Answer or Transcript to a specific source Video and moment in that Video.
 _Avoid_: Link, footnote
 
 **History**:

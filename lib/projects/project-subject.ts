@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { projectIdSchema } from "./project-input";
+import { createProjectGroundedAnswerCapability } from "./project-grounded-answer";
+import type { ProjectGroundedAnswerCapability } from "./project-grounded-answer-contract";
 import { createProjectPassageSearchCapability } from "./project-passage-search";
 import type { ProjectPassageSearchCapability } from "./project-passage-search-contract";
 
@@ -33,6 +35,7 @@ export type ProjectSubject = Readonly<{
   guidance: Readonly<{ goal: string | null }>;
   lastActiveAt: string;
   passageSearch?: ProjectPassageSearchCapability;
+  groundedAnswers?: ProjectGroundedAnswerCapability;
 }>;
 
 export type ProjectOutcome<T> =
@@ -241,7 +244,7 @@ export async function resolveProjectSubject(
   }
   if (!result.data) return { kind: "missing" };
 
-  const value: Omit<ProjectSubject, "passageSearch"> = {
+  const value: Omit<ProjectSubject, "passageSearch" | "groundedAnswers"> = {
     kind: "project",
     projectId: result.data.id,
     workspaceId: workspace.value.id,
@@ -256,6 +259,7 @@ export async function resolveProjectSubject(
     value: {
       ...value,
       passageSearch: createProjectPassageSearchCapability(supabase, value),
+      groundedAnswers: createProjectGroundedAnswerCapability(supabase, value),
     },
   };
 }

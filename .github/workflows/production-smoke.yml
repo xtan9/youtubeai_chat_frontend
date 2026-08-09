@@ -44,6 +44,7 @@ jobs:
       TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
       TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
       TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
+      TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
     steps:
@@ -76,6 +77,14 @@ jobs:
         run: >-
           pnpm exec playwright test
           --grep "@live-summary"
+          --workers=1
+          --retries=0
+      - name: Run Project Conversation production smoke
+        if: ${{ !cancelled() }}
+        run: >-
+          pnpm exec playwright test
+          smoke-tests/e2e-project-conversation-production.spec.ts
+          --grep "@project-grounded"
           --workers=1
           --retries=0
       - uses: actions/upload-artifact@v6
