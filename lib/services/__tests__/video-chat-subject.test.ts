@@ -164,6 +164,17 @@ describe("Video Chat Subject resolver", () => {
     }
   });
 
+  it("accepts a raw valid ID through the same identity boundary", async () => {
+    const adapters = makeAdapters();
+    const resolve = createVideoChatSubjectResolver(adapters);
+
+    await expect(resolve(VIDEO_ID)).resolves.toMatchObject({
+      status: "resolved",
+      subject: { identity: identity() },
+    });
+    expect(adapters.database.resolve).toHaveBeenCalledWith(identity());
+  });
+
   it("rejects an unresolvable URL without invoking either adapter", async () => {
     const adapters = makeAdapters();
     const resolve = createVideoChatSubjectResolver(adapters);
@@ -641,7 +652,7 @@ describe("Video Chat Subject resolver", () => {
     expect(lookup.select).toHaveBeenCalledWith(
       "id, title, channel_name, language",
     );
-    expect(lookup.eq).toHaveBeenCalledWith("url_hash", VIDEO_ID);
+    expect(lookup.eq).toHaveBeenCalledWith("youtube_video_id", VIDEO_ID);
   });
 
   it("loads one coherent database Grounding lazily from the shared Video UUID", async () => {

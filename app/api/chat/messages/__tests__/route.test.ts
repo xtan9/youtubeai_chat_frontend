@@ -129,7 +129,7 @@ describe("/api/chat/messages", () => {
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(
-          "/api/chat/messages?youtube_url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dtoo-short",
+          `/api/chat/messages?youtube_url=${encodeURIComponent(VALID_URL)}`,
         ),
       );
 

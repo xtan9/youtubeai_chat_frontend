@@ -1,7 +1,6 @@
-import { createHash } from "crypto";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { extractVideoId } from "./youtube-url";
+import { canonicalYouTubeUrl, normalizeYouTubeVideoId } from "./youtube-url";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { getUserTier, FREE_LIMITS } from "./entitlements";
 import {
@@ -93,13 +92,12 @@ export type TranscriptWriteParams = {
 };
 
 /**
- * Normalized cache key. Prefer the 11-char YouTube video ID so different URL
- * shapes (`youtu.be/X`, `youtube.com/watch?v=X`, `&t=10`, `music.*`) collapse
- * to one cache row. Falls back to MD5 of the raw URL when the ID can't be
- * extracted.
+ * Normalized cache key. Every supported URL shape and raw ID resolves to the
+ * same canonical YouTube identity. Invalid input is rejected rather than
+ * creating an unreachable legacy hash row.
  */
-export function computeVideoKey(url: string): string {
-  return extractVideoId(url) ?? createHash("md5").update(url).digest("hex");
+export function computeVideoKey(url: string): string | null {
+  return normalizeYouTubeVideoId(url);
 }
 
 // Parse Supabase responses through these so a stale enum value or dropped
@@ -190,10 +188,11 @@ export async function getCachedSummary(
 
   try {
     const videoKey = computeVideoKey(youtubeUrl);
+    if (!videoKey) return null;
     const { data: videoRaw, error: videoError } = await supabase
       .from("videos")
       .select("id, title, channel_name, language")
-      .eq("url_hash", videoKey)
+      .eq("youtube_video_id", videoKey)
       .maybeSingle();
 
     if (videoError) {
@@ -330,18 +329,22 @@ export async function writeCachedSummary(
   }
 
   const videoKey = computeVideoKey(params.youtubeUrl);
+  if (!videoKey) {
+    throw new Error("video upsert failed: invalid YouTube video identity");
+  }
+  const canonicalUrl = canonicalYouTubeUrl(videoKey);
 
   const { data: video, error: videoError } = await supabase
     .from("videos")
     .upsert(
       {
-        youtube_url: params.youtubeUrl,
-        url_hash: videoKey,
+        youtube_url: canonicalUrl,
+        youtube_video_id: videoKey,
         title: params.title || null,
         channel_name: params.channelName || null,
         language: params.language,
       },
-      { onConflict: "url_hash" }
+      { onConflict: "youtube_video_id" }
     )
     .select("id")
     .single();
@@ -485,10 +488,11 @@ export async function getCachedTranscript(
 
   try {
     const videoKey = computeVideoKey(youtubeUrl);
+    if (!videoKey) return null;
     const { data: videoRaw, error: videoError } = await supabase
       .from("videos")
       .select("id, title, channel_name, language")
-      .eq("url_hash", videoKey)
+      .eq("youtube_video_id", videoKey)
       .maybeSingle();
 
     if (videoError) {
@@ -643,6 +647,10 @@ export async function writeCachedTranscript(
   }
 
   const videoKey = computeVideoKey(params.youtubeUrl);
+  if (!videoKey) {
+    throw new Error("video upsert failed: invalid YouTube video identity");
+  }
+  const canonicalUrl = canonicalYouTubeUrl(videoKey);
 
   // Companion to the read-side eviction: refuse to persist the no-timing
   // shape so a regressed VPS that returns only `transcript` (rollout-
@@ -671,8 +679,8 @@ export async function writeCachedTranscript(
   // late-resolving transcript write must not overwrite metadata that
   // writeCachedSummary already persisted.
   const videoRow: Record<string, string | null> = {
-    youtube_url: params.youtubeUrl,
-    url_hash: videoKey,
+    youtube_url: canonicalUrl,
+    youtube_video_id: videoKey,
     language: params.language,
   };
   if (params.title) videoRow.title = params.title;
@@ -680,7 +688,7 @@ export async function writeCachedTranscript(
 
   const { data: video, error: videoError } = await supabase
     .from("videos")
-    .upsert(videoRow, { onConflict: "url_hash" })
+    .upsert(videoRow, { onConflict: "youtube_video_id" })
     .select("id")
     .single();
 

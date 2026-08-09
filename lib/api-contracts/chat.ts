@@ -3,24 +3,18 @@
 // build on both sides instead of silently misrendering.
 
 import { z } from "zod";
-
-const YOUTUBE_URL_RE =
-  /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\//i;
+import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 
 // ---------------- Request bodies ----------------
 
 export const ChatStreamRequestSchema = z.object({
-  youtube_url: z
-    .url()
-    .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
+  youtube_url: YouTubeUrlSchema,
   message: z.string().min(1).max(4000),
 });
 export type ChatStreamRequest = z.infer<typeof ChatStreamRequestSchema>;
 
 export const ChatMessagesQuerySchema = z.object({
-  youtube_url: z
-    .url()
-    .regex(YOUTUBE_URL_RE, "must be an https YouTube URL"),
+  youtube_url: YouTubeUrlSchema,
 });
 export type ChatMessagesQuery = z.infer<typeof ChatMessagesQuerySchema>;
 

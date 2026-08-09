@@ -262,7 +262,7 @@ describe("POST /api/chat/stream", () => {
     const { POST } = await import("../route");
     const res = await POST(
       makeRequest({
-        youtube_url: "https://www.youtube.com/watch?v=too-short",
+        youtube_url: VALID_URL,
         message: "hi",
       }),
     );
@@ -542,7 +542,8 @@ describe("POST /api/chat/stream", () => {
         message: "hi",
       }),
     );
-    expect(res.status).toBe(402);
+    expect(res.status).toBe(400);
+    expect(res.headers.get("X-Error-ID")).toBe("INVALID_REQUEST");
   });
 
   it("returns 429 when rate-limited", async () => {

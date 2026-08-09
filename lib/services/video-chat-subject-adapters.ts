@@ -421,7 +421,7 @@ export function createDatabaseVideoChatSubjectAdapter(): VideoChatSubjectAdapter
         const { data, error } = await supabase
           .from("videos")
           .select("id, title, channel_name, language")
-          .eq("url_hash", identity.youtubeVideoId)
+          .eq("youtube_video_id", identity.youtubeVideoId)
           .maybeSingle();
 
         if (error) {
