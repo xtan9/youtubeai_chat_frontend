@@ -118,10 +118,12 @@ describe("HeroPlayer", () => {
     await findByTestId("yt-iframe-stub");
     await new Promise((r) => setTimeout(r, 10));
     // While mounted, a consumer seek reaches the fake player.
+    expect(ref.current).not.toBeNull();
     seekRef.current?.(42);
     expect(SHARED_SEEK_TO).toHaveBeenCalledWith(42, true);
     SHARED_SEEK_TO.mockClear();
     unmount();
+    expect(ref.current).toBeNull();
     // After unmount, registerPlayer(null) was called → context seekTo
     // is a no-op and the fake player MUST stay untouched.
     seekRef.current?.(99);
@@ -182,20 +184,22 @@ describe("HeroPlayer", () => {
     }
 
     function HarnessWithConsumer({ videoId }: { videoId: string }) {
-      const localRef = useRef<YouTubePlayer | null>(null);
       return (
         <PlayerRefProvider>
           <Consumer />
-          <HeroPlayer videoId={videoId} playerRef={localRef} />
+          <HeroPlayer videoId={videoId} playerRef={playerRef} />
         </PlayerRefProvider>
       );
     }
+
+    const playerRef: { current: YouTubePlayer | null } = { current: null };
 
     const { findByTestId, rerender } = render(
       <HarnessWithConsumer videoId="first123456" />,
     );
     await findByTestId("yt-iframe-stub");
     await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(playerRef.current).not.toBeNull();
 
     vi.useFakeTimers();
     act(() => playRangeRef.current?.(10, 20));
@@ -204,5 +208,6 @@ describe("HeroPlayer", () => {
     rerender(<HarnessWithConsumer videoId="second12345" />);
 
     expect(vi.getTimerCount()).toBe(0);
+    expect(playerRef.current).toBeNull();
   });
 });

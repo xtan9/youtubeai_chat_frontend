@@ -41,16 +41,15 @@ export default function HeroPlayer({ videoId, playerRef }: HeroPlayerProps) {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // Drop the registered handle on unmount so a chat tab still mounted
-  // on the page doesn't seek a dead player after a sample change tears
-  // the iframe down.
-  useEffect(() => {
-    return () => registerPlayer(null);
-  }, [registerPlayer]);
-
   useEffect(() => {
     clearPlaybackBoundary();
-  }, [clearPlaybackBoundary, videoId]);
+    return () => {
+      // Clear the caller-owned ref before unregistering the provider handle;
+      // transcript consumers can remain mounted during the iframe gap.
+      playerRef.current = null;
+      registerPlayer(null);
+    };
+  }, [clearPlaybackBoundary, playerRef, registerPlayer, videoId]);
 
   const height = Math.floor((width / 16) * 9);
 

@@ -61,16 +61,15 @@ const YoutubeVideo = ({
     return () => window.removeEventListener("resize", updateWidth);
   }, [width]);
 
-  // Drop the registered player handle on unmount so a chat tab still
-  // mounted on the same page doesn't seek a dead player after the video
-  // tears down (e.g. on URL change).
-  useEffect(() => {
-    return () => registerPlayer(null);
-  }, [registerPlayer]);
-
   useEffect(() => {
     clearPlaybackBoundary();
-  }, [clearPlaybackBoundary, videoId]);
+    return () => {
+      // Clear the caller-owned ref before unregistering the provider handle;
+      // transcript consumers can remain mounted during the iframe gap.
+      playerRef.current = null;
+      registerPlayer(null);
+    };
+  }, [clearPlaybackBoundary, playerRef, registerPlayer, videoId]);
 
   if (!url || !videoId) {
     return null;

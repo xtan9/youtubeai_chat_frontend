@@ -45,11 +45,12 @@ describe("YoutubeVideo", () => {
       }, [playRange]);
       return null;
     }
+    const playerRef: { current: YouTubePlayer | null } = { current: null };
     function Harness({ url }: { url: string }) {
       return (
         <PlayerRefProvider>
           <Consumer />
-          <YoutubeVideo url={url} width={600} />
+          <YoutubeVideo url={url} width={600} playerRef={playerRef} />
         </PlayerRefProvider>
       );
     }
@@ -58,6 +59,7 @@ describe("YoutubeVideo", () => {
       <Harness url="https://www.youtube.com/watch?v=abcdefghijk" />,
     );
     await findByTestId("youtube-player");
+    expect(playerRef.current).toBe(PLAYER);
 
     vi.useFakeTimers();
     act(() => playRangeRef.current?.(10, 20));
@@ -68,5 +70,6 @@ describe("YoutubeVideo", () => {
     );
 
     expect(vi.getTimerCount()).toBe(0);
+    expect(playerRef.current).toBeNull();
   });
 });
