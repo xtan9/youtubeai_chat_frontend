@@ -26,6 +26,7 @@ import type {
 } from "@/lib/projects/project-source-set";
 import type { Project } from "@/lib/projects/project-subject";
 import { ProjectSourceSet } from "./project-source-set";
+import { ProjectSearch } from "./project-search";
 
 type ApiError = {
   message?: string;
@@ -126,6 +127,8 @@ export function ProjectView({
         initialSourceSet={initialSourceSet}
         initialCandidatePage={initialCandidatePage}
       />
+
+      <ProjectSearch projectId={project.id} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
         <Card>

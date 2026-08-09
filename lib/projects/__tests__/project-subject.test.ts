@@ -165,10 +165,12 @@ describe("ProjectSubject ownership boundary", () => {
         name: "Evidence review",
         guidance: { goal: "Compare explanations" },
         lastActiveAt: "2026-08-02T00:00:00.000Z",
+        passageSearch: { search: expect.any(Function) },
       },
     });
     if (result.kind === "resolved") {
       expect(result.value).not.toHaveProperty("evidence");
+      expect(result.value.passageSearch).toBeDefined();
     }
   });
 
