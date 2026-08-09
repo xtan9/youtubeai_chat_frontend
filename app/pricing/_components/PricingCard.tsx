@@ -71,8 +71,9 @@ export function PricingProCard({ plan }: { plan: Plan }) {
     }
   };
 
-  const price = plan === "yearly" ? "$4.99/mo" : "$6.99/mo";
-  const billed = plan === "yearly" ? "billed $59.88 yearly" : "billed monthly";
+  const price = plan === "yearly" ? "$4.99/mo equivalent" : "$6.99/mo";
+  const billed =
+    plan === "yearly" ? "Billed annually at $59.88" : "Billed monthly";
   const isPro = ent?.tier === "pro";
   const isRetryingEntitlements = hasEntitlementsError && isFetchingEntitlements;
   const isResolvingEntitlements = isPendingEntitlements || isRetryingEntitlements;
@@ -149,8 +150,8 @@ export function PricingFreeCard() {
       <p className="text-caption text-text-muted">forever</p>
       <ul className="mt-4 space-y-2 text-body-md text-text-secondary">
         <li>10 summaries per month</li>
-        <li>5 chat messages per video</li>
-        <li>10-item history</li>
+        <li>5 Video Chat messages per Video</li>
+        <li>10-item History</li>
       </ul>
     </section>
   );

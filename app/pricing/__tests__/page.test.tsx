@@ -81,7 +81,8 @@ describe("PricingPage", () => {
     expect(screen.getByRole("heading", { name: "Pro Monthly" })).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Pro Yearly" })).not.toBeNull();
     expect(screen.getByText("$6.99/mo")).not.toBeNull();
-    expect(screen.getByText("$4.99/mo")).not.toBeNull();
+    expect(screen.getByText("$4.99/mo equivalent")).not.toBeNull();
+    expect(screen.getByText("Billed annually at $59.88")).not.toBeNull();
     expect(screen.getByText("Save 28%")).not.toBeNull();
     expect(
       screen.queryByRole("radiogroup", { name: /billing period/i }),
@@ -240,9 +241,12 @@ describe("PricingPage", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/checkout/i);
   });
 
-  it("renders all four FAQ items", () => {
+  it("renders all five FAQ items", () => {
     renderPage();
 
+    expect(
+      screen.getAllByText(/What is included in each plan\?/i).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(/Can I cancel anytime\?/i).length,
     ).toBeGreaterThan(0);
@@ -253,5 +257,14 @@ describe("PricingPage", () => {
       screen.getAllByText(/Do you offer refunds\?/i).length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText(/payment methods/i).length).toBeGreaterThan(0);
+  });
+
+  it("links Pro management guidance to Plan & Billing and the Stripe portal flow", () => {
+    renderPage();
+    fireEvent.click(screen.getByText("Can I cancel anytime?"));
+
+    const billingLink = screen.getByRole("link", { name: "Plan & Billing" });
+    expect(billingLink.getAttribute("href")).toBe("/account/billing");
+    expect(screen.getByText(/stripe customer portal/i)).not.toBeNull();
   });
 });
