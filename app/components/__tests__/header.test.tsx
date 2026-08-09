@@ -137,6 +137,18 @@ beforeEach(() => {
   );
 });
 
+describe("Header navigation", () => {
+  it("keeps Blog and FAQ out of the header", () => {
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.queryByRole("link", { name: "Blog" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "FAQ" })).toBeNull();
+  });
+});
+
 describe("Header plan control", () => {
   it.each([
     {
