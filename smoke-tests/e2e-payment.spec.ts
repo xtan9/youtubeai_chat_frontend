@@ -318,7 +318,7 @@ test.describe("Stripe subscription checkout", () => {
           },
         );
         await expect(
-          page.getByRole("heading", { name: "Welcome to Pro!" }),
+          page.getByRole("heading", { name: "Pro Plan is active" }),
         ).toBeVisible({
           timeout: 60_000,
         });

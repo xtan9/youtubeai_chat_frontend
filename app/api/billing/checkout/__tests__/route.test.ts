@@ -120,6 +120,8 @@ it("creates customer + session for new user, returns url", async () => {
       client_reference_id: "u1",
       line_items: [{ price: "price_M", quantity: 1 }],
       allow_promotion_codes: true,
+      success_url:
+        "https://test.example/billing/success?session_id={CHECKOUT_SESSION_ID}",
     })
   );
 });

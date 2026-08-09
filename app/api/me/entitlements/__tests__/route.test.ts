@@ -39,9 +39,12 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 function resolved(
-  value: Omit<Extract<RegisteredSubscriptionResolution, { kind: "resolved" }>, "kind">,
+  value: Omit<
+    Extract<RegisteredSubscriptionResolution, { kind: "resolved" }>,
+    "kind" | "stripeSubscriptionId"
+  >,
 ): RegisteredSubscriptionResolution {
-  return { kind: "resolved", ...value };
+  return { kind: "resolved", stripeSubscriptionId: null, ...value };
 }
 
 beforeEach(() => {

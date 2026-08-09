@@ -95,7 +95,7 @@ export async function POST(request: Request) {
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: principal.userId,
       metadata: { user_id: principal.userId },
-      success_url: `${siteUrl}/billing/success`,
+      success_url: `${siteUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/pricing?canceled=1`,
       allow_promotion_codes: true,
     });

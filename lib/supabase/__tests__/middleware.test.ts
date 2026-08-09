@@ -65,6 +65,7 @@ describe("updateSession", () => {
     ["/faq", "faq"],
     ["/pricing", "pricing page"],
     ["/workspace", "Workspace registration boundary"],
+    ["/billing/success?session_id=cs_test_return", "checkout return"],
     ["/api/health", "health probe"],
     // Paywall routes — must be reachable unauthenticated for their own
     // auth strategies to run (signature verification, JSON 401, anon-tier

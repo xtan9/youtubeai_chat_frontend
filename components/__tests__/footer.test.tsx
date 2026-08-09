@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { Footer } from "../footer";
+import { setBillingActivationOutcome } from "@/lib/billing/activation-pending";
 
 const { analyticsMocks, userState } = vi.hoisted(() => ({
   analyticsMocks: { capture: vi.fn() },
@@ -20,6 +21,11 @@ vi.mock("@/lib/analytics/client", () => ({
 
 vi.mock("@/lib/contexts/user-context", () => ({
   useUser: () => userState.value,
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 beforeEach(() => {
@@ -44,6 +50,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("Footer", () => {
@@ -90,6 +98,22 @@ describe("Footer", () => {
         device_class: "desktop",
       },
     );
+  });
+
+  it("suppresses Pricing throughout a checkout-return journey", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/billing/success?session_id=cs_test_return",
+    );
+    render(<Footer />);
+
+    expect(screen.queryByRole("link", { name: "Pricing" })).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(analyticsMocks.capture).not.toHaveBeenCalled();
+
+    act(() => setBillingActivationOutcome("cs_test_return", "active"));
+    expect(screen.getByRole("link", { name: "Pricing" })).not.toBeNull();
   });
 
   it("does not count the CSS-hidden mobile footer as a discovery view", async () => {

@@ -96,7 +96,8 @@ Then disable or delete the promo code so it can't be reused.
   charges full price. Use Forever, or cancel before the year is up.
 - **Webhook lag.** After Subscribe, the friend may briefly land on
   `/billing/success` while the webhook still flips `tier`. The page
-  polls `/api/me/entitlements` until `tier='pro'`.
+  polls the session-scoped `/api/billing/checkout/status` endpoint until the
+  webhook-backed Subscription presentation confirms the Pro Plan.
 - **Real card required.** Stripe Checkout will not accept the test card
   `4242 4242 4242 4242` in production mode. The friend must use a real
   card; nothing is charged.
