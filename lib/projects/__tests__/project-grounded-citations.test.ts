@@ -73,4 +73,38 @@ describe("Project Grounded Answer citation validation", () => {
     expect(inspection.diagnostics.some((item) => item.kind === "malformed"))
       .toBe(true);
   });
+
+  it("never salvages nested or overlong malformed bracket candidates", () => {
+    const overlong = `[S1 @ 00:42 ${"x".repeat(90)}]`;
+    const content = `Nested [[S1 @ 00:42]] and long ${overlong}.`;
+    const inspection = inspectProjectCitations(content, manifest());
+    const parts = parseProjectCitations(content, manifest());
+
+    expect(inspection.validCitationCount).toBe(0);
+    expect(inspection.diagnostics).toEqual([
+      { kind: "malformed", raw: "[[S1 @ 00:42]]" },
+      { kind: "malformed", raw: overlong.slice(0, 80) },
+    ]);
+    expect(parts.some((part) => part.type === "citation")).toBe(false);
+    expect(
+      parts
+        .map((part) => (part.type === "text" ? part.value : part.raw))
+        .join(""),
+    ).toBe(content);
+  });
+
+  it("requires a validated citation in every supported factual sentence", () => {
+    expect(
+      inspectProjectCitations(
+        "The launch happened in April [S1 @ 00:42].",
+        manifest(),
+      ).allClaimsCited,
+    ).toBe(true);
+    expect(
+      inspectProjectCitations(
+        "The launch happened in April [S1 @ 00:42]. It also happened in May.",
+        manifest(),
+      ).allClaimsCited,
+    ).toBe(false);
+  });
 });

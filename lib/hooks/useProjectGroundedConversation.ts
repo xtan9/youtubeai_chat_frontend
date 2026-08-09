@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   ProjectConversationSchema,
   ProjectGroundedSseEventSchema,
+  PROJECT_QUESTION_MESSAGE_ID_HEADER,
   type ProjectAnswerClassification,
   type ProjectAnswerCoverage,
   type ProjectAnswerSourceManifest,
@@ -90,6 +91,8 @@ export function useProjectGroundedConversation(args: {
       };
       setDraft(currentDraft);
       let completed = false;
+      let aborted = false;
+      let reservedUserMessageId: string | null = null;
 
       try {
         const response = await fetch(
@@ -100,6 +103,9 @@ export function useProjectGroundedConversation(args: {
             body: JSON.stringify({ question }),
             signal: controller.signal,
           },
+        );
+        reservedUserMessageId = response.headers.get(
+          PROJECT_QUESTION_MESSAGE_ID_HEADER,
         );
         if (!response.ok) {
           let payload: {
@@ -175,12 +181,13 @@ export function useProjectGroundedConversation(args: {
                       currentDraft.manifest.sourceSetRevision,
                     total_videos: currentDraft.coverage.totalVideos,
                     ready_videos: currentDraft.coverage.readyVideos,
-                    used_videos: currentDraft.coverage.usedVideos,
+                    evidence_videos: currentDraft.coverage.evidenceVideos,
                     unavailable_videos:
                       currentDraft.coverage.unavailableVideos.length,
                     passages_examined:
                       currentDraft.coverage.passagesExamined,
-                    passages_used: currentDraft.coverage.passagesUsed,
+                    evidence_passages:
+                      currentDraft.coverage.evidencePassages,
                     citation_diagnostics: currentDraft.diagnostics.length,
                   });
                 }
@@ -193,7 +200,7 @@ export function useProjectGroundedConversation(args: {
         }
         if (!completed) throw new Error("The answer stream ended early.");
       } catch (caught) {
-        const aborted =
+        aborted =
           controller.signal.aborted ||
           (caught instanceof DOMException && caught.name === "AbortError");
         // Partial assistant output is never retained after abort/failure. The
@@ -212,8 +219,32 @@ export function useProjectGroundedConversation(args: {
           }
         }
       } finally {
-        setStreaming(false);
-        abortRef.current = null;
+        if (aborted && reservedUserMessageId) {
+          try {
+            const cancellation = await fetch(
+              `/api/projects/${args.projectId}/conversation/cancel`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userMessageId: reservedUserMessageId,
+                }),
+              },
+            );
+            if (!cancellation.ok) {
+              throw new Error("Project question cancellation was not confirmed.");
+            }
+          } catch (cancellationError) {
+            logAppEvent("error", "[project-conversation] cancellation failed", {
+              errorId: "PROJECT_CONVERSATION_CANCELLATION_FAILED",
+              errorName:
+                cancellationError instanceof Error
+                  ? cancellationError.name
+                  : typeof cancellationError,
+            });
+            setError("Could not confirm that the answer was stopped. Reload the Project.");
+          }
+        }
         try {
           await reload();
         } catch (reloadError) {
@@ -231,6 +262,8 @@ export function useProjectGroundedConversation(args: {
           }
         }
         setDraft(null);
+        setStreaming(false);
+        abortRef.current = null;
       }
     },
     [args.projectId, reload],

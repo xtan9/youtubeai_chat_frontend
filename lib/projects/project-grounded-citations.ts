@@ -16,10 +16,57 @@ export type ProjectCitationPart =
 
 const TIMESTAMP_VALUE = String.raw`(?:\d{2}:)?\d{2}:\d{2}`;
 const CANONICAL_CITATION = new RegExp(
-  String.raw`\[(S\d{1,2}) @ (${TIMESTAMP_VALUE})(?:[-\u2013](${TIMESTAMP_VALUE}))?\]`,
-  "g",
+  String.raw`^\[(S\d{1,2}) @ (${TIMESTAMP_VALUE})(?:[-\u2013](${TIMESTAMP_VALUE}))?\]$`,
 );
-const BRACKET_CANDIDATE = /\[[^\]\n]{1,80}\]/g;
+
+type BracketCandidate = {
+  readonly raw: string;
+  readonly start: number;
+  readonly end: number;
+  readonly closed: boolean;
+};
+
+function bracketCandidates(content: string): readonly BracketCandidate[] {
+  const candidates: BracketCandidate[] = [];
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] !== "[") continue;
+    const start = index;
+    let depth = 0;
+    let closed = false;
+    let end = content.length;
+    for (let cursor = index; cursor < content.length; cursor += 1) {
+      const character = content[cursor];
+      if (character === "\n") {
+        end = cursor;
+        break;
+      }
+      if (character === "[") depth += 1;
+      if (character !== "]") continue;
+      depth -= 1;
+      if (depth === 0) {
+        end = cursor + 1;
+        closed = true;
+        break;
+      }
+    }
+    candidates.push({
+      raw: content.slice(start, end),
+      start,
+      end,
+      closed,
+    });
+    index = Math.max(index, end - 1);
+  }
+  return candidates;
+}
+
+function looksLikeCitation(raw: string) {
+  return /\bS\d+/i.test(raw) || /@\s*\d/.test(raw);
+}
+
+function diagnosticRaw(raw: string) {
+  return raw.slice(0, 80);
+}
 
 function parseTimestamp(value: string): number | null {
   const components = value.split(":").map(Number);
@@ -98,38 +145,71 @@ export function inspectProjectCitations(
   manifest: ProjectAnswerSourceManifest,
 ) {
   const diagnostics: ProjectCitationDiagnostic[] = [];
-  let validCitationCount = 0;
-  const canonicalRaw = new Set<string>();
-  for (const match of content.matchAll(CANONICAL_CITATION)) {
-    canonicalRaw.add(`${match.index}:${match[0]}`);
+  const validCitations: Array<BracketCandidate> = [];
+  for (const candidate of bracketCandidates(content)) {
+    const match = candidate.closed
+      ? CANONICAL_CITATION.exec(candidate.raw)
+      : null;
+    if (!match) {
+      if (
+        diagnostics.length < 20 &&
+        looksLikeCitation(candidate.raw)
+      ) {
+        diagnostics.push({
+          kind: "malformed",
+          raw: diagnosticRaw(candidate.raw),
+        });
+      }
+      continue;
+    }
     const validation = validationFor(
-      match[0],
+      candidate.raw,
       match[1],
       match[2],
       manifest,
       match[3],
     );
-    if (validation.citation) validCitationCount += 1;
+    if (validation.citation) validCitations.push(candidate);
     if (validation.diagnostic && diagnostics.length < 20) {
       diagnostics.push(validation.diagnostic);
     }
   }
-  for (const match of content.matchAll(BRACKET_CANDIDATE)) {
-    const raw = match[0];
-    if (
-      diagnostics.length >= 20 ||
-      canonicalRaw.has(`${match.index}:${raw}`) ||
-      (!/\bS\d+/i.test(raw) && !/@\s*\d/.test(raw))
-    ) {
-      continue;
+
+  let allClaimsCited = true;
+  let hasClaim = false;
+  const claimBoundary = /[.!?\u3002\uff01\uff1f]+(?=\s|$)|\n+/gu;
+  let claimStart = 0;
+  const inspectClaim = (claimEnd: number) => {
+    const claim = content.slice(claimStart, claimEnd);
+    const candidates = bracketCandidates(claim);
+    let prose = claim;
+    for (const candidate of [...candidates].reverse()) {
+      prose =
+        prose.slice(0, candidate.start) + prose.slice(candidate.end);
     }
-    diagnostics.push({ kind: "malformed", raw });
+    if (/[\p{L}\p{N}]/u.test(prose)) {
+      hasClaim = true;
+      if (
+        !validCitations.some(
+          (citation) =>
+            citation.start >= claimStart && citation.end <= claimEnd,
+        )
+      ) {
+        allClaimsCited = false;
+      }
+    }
+    claimStart = claimEnd;
+  };
+  for (const boundary of content.matchAll(claimBoundary)) {
+    inspectClaim((boundary.index ?? 0) + boundary[0].length);
   }
-  const unclosed = content.match(/\[S\d{1,2}\s*@\s*[^\]\n]{0,60}$/i)?.[0];
-  if (unclosed && diagnostics.length < 20) {
-    diagnostics.push({ kind: "malformed", raw: unclosed.slice(0, 80) });
-  }
-  return { diagnostics, validCitationCount } as const;
+  if (claimStart < content.length) inspectClaim(content.length);
+
+  return {
+    diagnostics,
+    validCitationCount: validCitations.length,
+    allClaimsCited: hasClaim && allClaimsCited,
+  } as const;
 }
 
 export function parseProjectCitations(
@@ -138,22 +218,25 @@ export function parseProjectCitations(
 ): ProjectCitationPart[] {
   const parts: ProjectCitationPart[] = [];
   let lastIndex = 0;
-  for (const match of content.matchAll(CANONICAL_CITATION)) {
-    const index = match.index ?? 0;
+  for (const candidate of bracketCandidates(content)) {
+    if (!candidate.closed) continue;
+    const match = CANONICAL_CITATION.exec(candidate.raw);
+    if (!match) continue;
+    const index = candidate.start;
     if (index > lastIndex) {
       parts.push({ type: "text", value: content.slice(lastIndex, index) });
     }
     const validation = validationFor(
-      match[0],
+      candidate.raw,
       match[1],
       match[2],
       manifest,
       match[3],
     );
     parts.push(
-      validation.citation ?? { type: "text", value: match[0] },
+      validation.citation ?? { type: "text", value: candidate.raw },
     );
-    lastIndex = index + match[0].length;
+    lastIndex = candidate.end;
   }
   if (lastIndex < content.length) {
     parts.push({ type: "text", value: content.slice(lastIndex) });

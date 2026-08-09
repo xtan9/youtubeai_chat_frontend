@@ -61,9 +61,9 @@ describe("Project Grounded Answer evidence selection", () => {
     expect(artifacts.sourceCoverage).toMatchObject({
       totalVideos: 1,
       readyVideos: 1,
-      usedVideos: 1,
+      evidenceVideos: 1,
       passagesExamined: 25,
-      passagesUsed: 8,
+      evidencePassages: 8,
     });
   });
 
@@ -106,9 +106,9 @@ describe("Project Grounded Answer evidence selection", () => {
     expect(artifacts.sourceCoverage).toMatchObject({
       totalVideos: 2,
       readyVideos: 0,
-      usedVideos: 0,
+      evidenceVideos: 0,
       passagesExamined: 0,
-      passagesUsed: 0,
+      evidencePassages: 0,
     });
   });
 });

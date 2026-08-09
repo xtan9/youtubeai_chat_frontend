@@ -108,8 +108,8 @@ export function buildProjectAnswerArtifacts(args: {
     },
     sourceCoverage: {
       ...args.search.coverage,
-      usedVideos: sourcesByVideo.size,
-      passagesUsed: selected.length,
+      evidenceVideos: sourcesByVideo.size,
+      evidencePassages: selected.length,
     },
     evidenceSnapshot: {
       projectId: args.projectId,

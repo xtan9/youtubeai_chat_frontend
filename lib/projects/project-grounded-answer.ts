@@ -7,10 +7,12 @@ import {
   ProjectAnswerCompletionDatabaseResultSchema,
   ProjectCitationDiagnosticSchema,
   ProjectConversationDatabaseResultSchema,
+  ProjectQuestionCancellationDatabaseResultSchema,
   ProjectQuestionStartDatabaseResultSchema,
   type ProjectAnswerCompletionResolution,
   type ProjectGroundedAnswerCapability,
   type ProjectGroundedAnswerResolution,
+  type ProjectQuestionCancellationResolution,
   type ProjectQuestionStartResolution,
 } from "./project-grounded-answer-contract";
 
@@ -21,7 +23,7 @@ type ProjectGroundedAnswerTarget = Readonly<{
 
 function logGroundedAnswerFailure(
   target: ProjectGroundedAnswerTarget,
-  operation: "load" | "start" | "complete",
+  operation: "load" | "start" | "cancel" | "complete",
   errorClass: "DatabaseError" | "SchemaMismatch" | "AdapterError" | "NoServiceRole",
   code?: string,
 ) {
@@ -42,6 +44,10 @@ function unavailableLoad(): ProjectGroundedAnswerResolution {
 }
 
 function unavailableStart(): ProjectQuestionStartResolution {
+  return { status: "unavailable" };
+}
+
+function unavailableCancellation(): ProjectQuestionCancellationResolution {
   return { status: "unavailable" };
 }
 
@@ -148,6 +154,40 @@ export function createProjectGroundedAnswerCapability(
           error instanceof Error ? error.name : typeof error,
         );
         return unavailableStart();
+      }
+    },
+
+    async cancel(userMessageId) {
+      try {
+        const result = await supabase.rpc("cancel_project_grounded_question", {
+          p_project_id: target.projectId,
+          p_user_message_id: userMessageId,
+        });
+        if (result.error) {
+          logGroundedAnswerFailure(
+            target,
+            "cancel",
+            "DatabaseError",
+            result.error.code,
+          );
+          return unavailableCancellation();
+        }
+        const parsed = ProjectQuestionCancellationDatabaseResultSchema.safeParse(
+          result.data,
+        );
+        if (!parsed.success) {
+          logGroundedAnswerFailure(target, "cancel", "SchemaMismatch");
+          return unavailableCancellation();
+        }
+        return { status: parsed.data.outcome };
+      } catch (error) {
+        logGroundedAnswerFailure(
+          target,
+          "cancel",
+          "AdapterError",
+          error instanceof Error ? error.name : typeof error,
+        );
+        return unavailableCancellation();
       }
     },
 

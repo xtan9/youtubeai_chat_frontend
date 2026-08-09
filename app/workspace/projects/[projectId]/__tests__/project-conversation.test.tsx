@@ -74,7 +74,7 @@ describe("ProjectConversation", () => {
     const sourceCoverage = {
       totalVideos: 2,
       readyVideos: 1,
-      usedVideos: 1,
+      evidenceVideos: 1,
       unavailableVideos: [
         {
           videoId: UNAVAILABLE_VIDEO_ID,
@@ -86,7 +86,7 @@ describe("ProjectConversation", () => {
         },
       ],
       passagesExamined: 9,
-      passagesUsed: 1,
+      evidencePassages: 1,
     };
     const { container } = renderWithProviders(
       <ProjectConversation
@@ -136,7 +136,7 @@ describe("ProjectConversation", () => {
     });
     expect(region.classList.contains("ph-no-capture")).toBe(true);
     expect(region.hasAttribute("data-ph-no-autocapture")).toBe(true);
-    expect(screen.getByText("Passages selected")).toBeTruthy();
+    expect(screen.getByText("Evidence Snapshot passages")).toBeTruthy();
     expect(screen.getByText("Pending source")).toBeTruthy();
     expect(screen.getByText("Processing")).toBeTruthy();
     expect(

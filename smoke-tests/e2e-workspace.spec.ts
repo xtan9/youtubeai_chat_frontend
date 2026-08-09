@@ -7,7 +7,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
@@ -92,13 +92,18 @@ type FixtureConversationMessage = {
   sourceCoverage: unknown | null;
   citationDiagnostics: unknown[] | null;
   attemptToken?: string;
-  completionState?: "reserved" | "completed";
+  completionState?: "reserved" | "completed" | "cancelled";
 };
 
 type FixtureConversation = {
   id: string;
   projectId: string;
   messages: FixtureConversationMessage[];
+};
+
+type FixtureGatewayGate = {
+  waitForRelease: Promise<void>;
+  release: () => void;
 };
 
 const projects: FixtureProject[] = [];
@@ -112,6 +117,8 @@ let projectSequence = 0;
 let clockSequence = 0;
 let conversationSequence = 0;
 let messageSequence = 0;
+let gatewayOutcome: "success" | "failure" = "success";
+let gatewayGate = createGatewayGate();
 let appProcess: ChildProcess | undefined;
 let appUrl = "";
 let supabaseFixture: Server | undefined;
@@ -164,6 +171,8 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(() => {
+  gatewayGate.release();
+  gatewayGate = createGatewayGate();
   projects.splice(0);
   canonicalVideos.splice(0);
   historyRows.splice(0);
@@ -175,7 +184,12 @@ test.beforeEach(() => {
   clockSequence = 0;
   conversationSequence = 0;
   messageSequence = 0;
+  gatewayOutcome = "success";
   seedCanonicalHistory();
+});
+
+test.afterEach(() => {
+  gatewayGate.release();
 });
 
 test.afterAll(async () => {
@@ -192,6 +206,41 @@ test.afterAll(async () => {
     });
   }
 });
+
+async function createGroundedFixtureProject(
+  context: BrowserContext,
+  name: string,
+) {
+  const created = await context.request.post(`${appUrl}/api/workspace/projects`, {
+    data: {
+      name,
+      goal: "A false Goal claim may guide relevance but is not evidence.",
+    },
+  });
+  expect(created.status()).toBe(201);
+  const payload = (await created.json()) as { project: { id: string } };
+  const projectId = payload.project.id;
+  const source = canonicalVideos[0];
+  projectVideos.push({
+    project_id: projectId,
+    video_id: source.id,
+    position: 1,
+    status: "ready",
+    failure_code: null,
+    added_at: nextTimestamp(),
+    status_updated_at: nextTimestamp(),
+  });
+  sourceSetRevisions.set(projectId, 1);
+  return projectId;
+}
+
+async function expectProjectQuestionComposerReady(page: Page) {
+  const question = page.getByLabel("Ask the Project");
+  await expect(question).toBeEnabled();
+  await question.fill("Can I ask another grounded question?");
+  await expect(page.getByRole("button", { name: "Ask Project" })).toBeEnabled();
+  await question.clear();
+}
 
 test("database-backed Pro Researcher completes a private responsive Project lifecycle", async ({
   browser,
@@ -233,7 +282,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001$/);
   await expect(page.getByRole("heading", { name: "Evidence review", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Guidance, not evidence" })).toBeVisible();
-  await expect(page.getByText("Only Project sources can support grounded claims.")).toBeVisible();
+  await expect(page.getByText("Only Project Videos can support grounded claims.")).toBeVisible();
 
   await page.getByLabel("Project name").fill("Evidence synthesis");
   await page.getByLabel("Project Goal (optional)").fill("Map agreement and disagreement.");
@@ -297,26 +346,10 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   page,
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
-  const created = await context.request.post(`${appUrl}/api/workspace/projects`, {
-    data: {
-      name: "Grounded conversation lab",
-      goal: "A false Goal claim may guide relevance but is not evidence.",
-    },
-  });
-  expect(created.status()).toBe(201);
-  const payload = (await created.json()) as { project: { id: string } };
-  const projectId = payload.project.id;
-  const source = canonicalVideos[0];
-  projectVideos.push({
-    project_id: projectId,
-    video_id: source.id,
-    position: 1,
-    status: "ready",
-    failure_code: null,
-    added_at: nextTimestamp(),
-    status_updated_at: nextTimestamp(),
-  });
-  sourceSetRevisions.set(projectId, 1);
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Grounded conversation lab",
+  );
 
   await page.goto(`${appUrl}/workspace/projects/${projectId}`);
   await expect(page.getByRole("heading", { name: "Project Conversation" }))
@@ -324,8 +357,8 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await page.getByLabel("Ask the Project").fill("What does the evidence support?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
-  // The fixture gateway deliberately waits before its first token. These
-  // artifacts are emitted synchronously and must become visible first.
+  // The fixture gateway holds its first token until these synchronous
+  // artifacts are visible. This proves ordering without a timing assumption.
   await expect(page.getByLabel("Answer source manifest")).toContainText(
     "Alpha evidence",
   );
@@ -333,11 +366,12 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "Passages examined2",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Passages selected2",
+    "Evidence Snapshot passages2",
   );
   await expect(page.getByText("Preparing answer")).toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
 
+  gatewayGate.release();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
   const exactCitation = page.getByRole("link", { name: /S1 @ 00:42/i });
   await expect(exactCitation).toHaveAttribute(
@@ -348,6 +382,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByRole("link", { name: /S1 @ 00:43/i })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /S1 at 00:42/i })).toHaveCount(0);
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
+  await expectProjectQuestionComposerReady(page);
 
   const persisted = projectConversations.get(projectId);
   expect(persisted?.messages.map((message) => message.role)).toEqual([
@@ -364,13 +399,81 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     ],
   });
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  await expect(page.getByRole("heading", { name: "Project Conversation" }))
+    .toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  await expect(page.getByLabel("Source Coverage")).toContainText(
+    "Passages examined2",
+  );
   await expect(page.getByRole("link", { name: /S1 @ 00:42/i })).toHaveAttribute(
     "href",
     "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
   );
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+});
+
+test("Project Conversation persists a classified fallback without calling the gateway", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Grounded fallback lab",
+  );
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByLabel("Ask the Project").fill("absent");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+
+  await expect(page.getByLabel("Source Coverage")).toContainText(
+    "Passages examined2",
+  );
+  await expect(page.getByLabel("Source Coverage")).toContainText(
+    "Evidence Snapshot passages0",
+  );
+  await expect(
+    page.getByText(/available Project passages do not support an answer/i),
+  ).toBeVisible();
+  await expect(page.getByText("Unsupported by sources")).toBeVisible();
+  await expectProjectQuestionComposerReady(page);
+
+  expect(projectConversations.get(projectId)?.messages).toMatchObject([
+    { role: "user", content: "absent", completionState: "completed" },
+    { role: "assistant", answerClassification: "unsupported" },
+  ]);
+});
+
+test("Project Conversation preserves only the user message after gateway failure", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Grounded failure lab",
+  );
+  gatewayOutcome = "failure";
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByLabel("Ask the Project").fill("What fails safely?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+
+  await expect(
+    page.getByText(/Something went wrong answering your Project question/),
+  ).toBeVisible();
+  await expectProjectQuestionComposerReady(page);
+  await expect(page.getByText("What fails safely?", { exact: true })).toBeVisible();
+  await expect(page.getByText("Grounded Answer", { exact: true })).toHaveCount(0);
+  expect(projectConversations.get(projectId)?.messages).toMatchObject([
+    { role: "user", content: "What fails safely?", completionState: "reserved" },
+  ]);
 });
 
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
@@ -1061,25 +1164,30 @@ async function handleSupabaseRequest(
   const serviceRole = isServiceRoleRequest(request);
 
   if (url.pathname === "/chat/completions" && request.method === "POST") {
+    const activeGatewayGate = gatewayGate;
+    await activeGatewayGate.waitForRelease;
+    if (response.destroyed || response.writableEnded) return;
+    if (gatewayOutcome === "failure") {
+      return sendJson(response, 502, { message: "Fixture gateway failure" });
+    }
     response.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
     });
-    setTimeout(() => {
-      response.write(
-        `data: ${JSON.stringify({
-          choices: [
-            {
-              delta: {
-                content:
-                  "SUPPORTED\nClimate adaptation is supported [S1 @ 00:42]. Unknown [S9 @ 00:10]. Wrong [S1 @ 00:43]. Malformed [S1 at 00:42].",
-              },
+    response.flushHeaders();
+    response.write(
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              content:
+                "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].",
             },
-          ],
-        })}\n\n`,
-      );
-      response.end("data: [DONE]\n\n");
-    }, 500);
+          },
+        ],
+      })}\n\n`,
+    );
+    response.end("data: [DONE]\n\n");
     return;
   }
 
@@ -1351,6 +1459,7 @@ async function handleSourceSetRpc(
       !conversation ||
       conversation.id !== body.p_conversation_id ||
       !userMessage ||
+      userMessage.completionState !== "reserved" ||
       body.p_source_set_revision !== (sourceSetRevisions.get(projectId) ?? 0)
     ) {
       return sendJson(response, 200, { outcome: "stale" });
@@ -1399,6 +1508,24 @@ async function handleSourceSetRpc(
 
   if (!projectId || !userId || projectOwnerId(projectId) !== userId) {
     return sendJson(response, 200, { outcome: "missing" });
+  }
+
+  if (url.pathname.endsWith("/cancel_project_grounded_question")) {
+    const conversation = projectConversations.get(projectId);
+    const userMessage = conversation?.messages.find(
+      (message) =>
+        message.id === body.p_user_message_id && message.role === "user",
+    );
+    if (!conversation || !userMessage) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    conversation.messages = conversation.messages.filter(
+      (message) =>
+        message.role !== "assistant" ||
+        message.inReplyToMessageId !== userMessage.id,
+    );
+    userMessage.completionState = "cancelled";
+    return sendJson(response, 200, { outcome: "cancelled" });
   }
 
   if (url.pathname.endsWith("/load_default_project_conversation")) {
@@ -1959,6 +2086,17 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
     "content-range": Array.isArray(body) ? `0-${Math.max(body.length - 1, 0)}/${body.length}` : "0-0/1",
   });
   response.end(JSON.stringify(body));
+}
+
+function createGatewayGate(): FixtureGatewayGate {
+  let resolveRelease!: () => void;
+  const waitForRelease = new Promise<void>((resolve) => {
+    resolveRelease = resolve;
+  });
+  return {
+    waitForRelease,
+    release: resolveRelease,
+  };
 }
 
 async function listenOnAvailablePort(server: Server): Promise<number> {

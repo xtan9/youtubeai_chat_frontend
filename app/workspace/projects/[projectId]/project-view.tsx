@@ -260,7 +260,7 @@ export function ProjectView({
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-body-sm text-text-secondary">
               <p>Your Goal helps future conversations and outputs focus on what matters to you.</p>
-              <p>It is never cited, searched, or treated as proof. Only Project sources can support grounded claims.</p>
+              <p>It is never cited, searched, or treated as proof. Only Project Videos can support grounded claims.</p>
             </CardContent>
           </Card>
         </aside>

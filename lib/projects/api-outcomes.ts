@@ -1,4 +1,5 @@
 import type { ProjectOutcome } from "./project-subject";
+import { REQUEST_ID_HEADER } from "../request-id";
 import {
   createFreeProjectLimitResponse,
   createProjectRegistrationRequiredResponse,
@@ -45,6 +46,23 @@ export function projectRegistrationRequiredResponse(): Response {
     { status: 402 },
   );
 }
+
+export function projectUnavailableResponse(requestId: string): Response {
+  return Response.json(
+    {
+      outcome: "unavailable",
+      message: "Projects are temporarily unavailable.",
+    },
+    {
+      status: 503,
+      headers: {
+        [REQUEST_ID_HEADER]: requestId,
+        "X-Error-ID": "PROJECTS_UNAVAILABLE",
+      },
+    },
+  );
+}
+
 export function authOutcomeResponse(
   outcome: "missing" | "anonymous" | "unavailable",
 ): Response {

@@ -22,9 +22,9 @@ declare
   unavailable jsonb;
   total_videos integer;
   ready_videos integer;
-  used_videos integer;
+  evidence_videos integer;
   passages_examined integer;
-  passages_used integer;
+  evidence_passages integer;
   manifest_passages integer;
   snapshot_videos integer;
 begin
@@ -55,9 +55,9 @@ begin
     or jsonb_typeof(unavailable) <> 'array'
     or jsonb_typeof(p_source_coverage -> 'totalVideos') <> 'number'
     or jsonb_typeof(p_source_coverage -> 'readyVideos') <> 'number'
-    or jsonb_typeof(p_source_coverage -> 'usedVideos') <> 'number'
+    or jsonb_typeof(p_source_coverage -> 'evidenceVideos') <> 'number'
     or jsonb_typeof(p_source_coverage -> 'passagesExamined') <> 'number'
-    or jsonb_typeof(p_source_coverage -> 'passagesUsed') <> 'number'
+    or jsonb_typeof(p_source_coverage -> 'evidencePassages') <> 'number'
     or jsonb_array_length(sources) > 5
     or jsonb_array_length(passages) > 10
     or jsonb_array_length(unavailable) > 5
@@ -71,9 +71,9 @@ begin
       or (p_evidence_snapshot ->> 'sourceSetRevision') !~ '^(0|[1-9][0-9]*)$'
       or (p_source_coverage ->> 'totalVideos') !~ '^(0|[1-9][0-9]*)$'
       or (p_source_coverage ->> 'readyVideos') !~ '^(0|[1-9][0-9]*)$'
-      or (p_source_coverage ->> 'usedVideos') !~ '^(0|[1-9][0-9]*)$'
+      or (p_source_coverage ->> 'evidenceVideos') !~ '^(0|[1-9][0-9]*)$'
       or (p_source_coverage ->> 'passagesExamined') !~ '^(0|[1-9][0-9]*)$'
-      or (p_source_coverage ->> 'passagesUsed') !~ '^(0|[1-9][0-9]*)$'
+      or (p_source_coverage ->> 'evidencePassages') !~ '^(0|[1-9][0-9]*)$'
       or (p_source_manifest ->> 'sourceSetRevision')::bigint
         <> p_source_set_revision
       or (p_evidence_snapshot ->> 'sourceSetRevision')::bigint
@@ -84,9 +84,9 @@ begin
 
     total_videos := (p_source_coverage ->> 'totalVideos')::integer;
     ready_videos := (p_source_coverage ->> 'readyVideos')::integer;
-    used_videos := (p_source_coverage ->> 'usedVideos')::integer;
+    evidence_videos := (p_source_coverage ->> 'evidenceVideos')::integer;
     passages_examined := (p_source_coverage ->> 'passagesExamined')::integer;
-    passages_used := (p_source_coverage ->> 'passagesUsed')::integer;
+    evidence_passages := (p_source_coverage ->> 'evidencePassages')::integer;
   exception
     when invalid_text_representation or numeric_value_out_of_range then
       return false;
@@ -94,14 +94,14 @@ begin
 
   if total_videos not between 0 and 5
     or ready_videos not between 0 and 5
-    or used_videos not between 0 and 5
+    or evidence_videos not between 0 and 5
     or passages_examined < 0
-    or passages_used not between 0 and 10
+    or evidence_passages not between 0 and 10
     or ready_videos + jsonb_array_length(unavailable) <> total_videos
-    or used_videos > ready_videos
-    or passages_used > passages_examined
-    or passages_used <> jsonb_array_length(passages)
-    or used_videos <> jsonb_array_length(sources)
+    or evidence_videos > ready_videos
+    or evidence_passages > passages_examined
+    or evidence_passages <> jsonb_array_length(passages)
+    or evidence_videos <> jsonb_array_length(sources)
   then
     return false;
   end if;
@@ -127,7 +127,7 @@ begin
   into snapshot_videos
   from jsonb_array_elements(passages) as passage_row(passage);
 
-  if snapshot_videos <> used_videos then
+  if snapshot_videos <> evidence_videos then
     return false;
   end if;
 
@@ -248,24 +248,33 @@ begin
     return jsonb_build_object('outcome', 'forbidden');
   end if;
 
-  select messages.completion_state, coalesce(source_sets.revision, 0)
-  into attempt_state, current_source_set_revision
+  -- Every Source Set mutation locks its Project before creating or updating
+  -- the aggregate row. Take that same lock first so the revision cannot move
+  -- between validation and the terminal assistant insert (including revision
+  -- zero, where no aggregate row exists yet).
+  perform 1
+  from public.projects
+  join public.workspaces
+    on workspaces.id = projects.workspace_id
+  where projects.id = p_project_id
+    and workspaces.owner_id = p_owner_id
+  for update of projects;
+
+  if not found then
+    return jsonb_build_object('outcome', 'stale');
+  end if;
+
+  select messages.completion_state
+  into attempt_state
   from public.project_conversation_messages as messages
   join public.project_conversations as conversations
     on conversations.id = messages.conversation_id
-  join public.projects
-    on projects.id = conversations.project_id
-  join public.workspaces
-    on workspaces.id = projects.workspace_id
-  left join public.project_source_sets as source_sets
-    on source_sets.project_id = projects.id
   where messages.id = p_user_message_id
     and messages.conversation_id = p_conversation_id
     and messages.role = 'user'
     and messages.completion_attempt_token = p_attempt_token
     and conversations.kind = 'default'
     and conversations.project_id = p_project_id
-    and workspaces.owner_id = p_owner_id
   for update of messages;
 
   if attempt_state is null then
@@ -283,6 +292,20 @@ begin
       'outcome', 'already_completed',
       'assistantMessageId', assistant_message_id
     );
+  end if;
+
+  if attempt_state = 'cancelled' then
+    return jsonb_build_object('outcome', 'stale');
+  end if;
+
+  select revision
+  into current_source_set_revision
+  from public.project_source_sets
+  where project_id = p_project_id
+  for share;
+
+  if not found then
+    current_source_set_revision := 0;
   end if;
 
   if current_source_set_revision <> p_source_set_revision then

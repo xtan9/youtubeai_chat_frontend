@@ -13,7 +13,7 @@ create table public.project_conversation_messages (
   ),
   completion_attempt_token uuid,
   completion_state text check (
-    completion_state in ('reserved', 'completed')
+    completion_state in ('reserved', 'completed', 'cancelled')
   ),
   answer_classification text check (
     answer_classification in ('supported', 'abstained', 'unsupported')

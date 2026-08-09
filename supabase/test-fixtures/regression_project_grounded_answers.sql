@@ -73,6 +73,18 @@ begin
     'service_role',
     'public.start_project_grounded_question(uuid,text)',
     'EXECUTE'
+  ) or not has_function_privilege(
+    'authenticated',
+    'public.cancel_project_grounded_question(uuid,uuid)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'anon',
+    'public.cancel_project_grounded_question(uuid,uuid)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'service_role',
+    'public.cancel_project_grounded_question(uuid,uuid)',
+    'EXECUTE'
   ) or has_function_privilege(
     'authenticated',
     'public.complete_project_grounded_answer(uuid,uuid,uuid,uuid,uuid,text,text,bigint,jsonb,jsonb,jsonb,jsonb)',
@@ -118,6 +130,16 @@ begin
   ) then
     raise exception 'REGRESSION: completion RPC is not hardened';
   end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_proc
+    where oid = 'public.cancel_project_grounded_question(uuid,uuid)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'REGRESSION: cancellation RPC is not hardened';
+  end if;
 end;
 $$;
 
@@ -137,6 +159,7 @@ do $$
 declare
   result jsonb;
   first_result jsonb;
+  second_result jsonb;
   missing_foreign jsonb;
   missing_unknown jsonb;
   index integer;
@@ -158,8 +181,23 @@ begin
     end if;
     if index = 1 then
       first_result := result;
+    elsif index = 2 then
+      second_result := result;
     end if;
   end loop;
+
+  result := public.cancel_project_grounded_question(
+    'a1000000-0000-4000-8000-000000000001',
+    (second_result ->> 'userMessageId')::uuid
+  );
+  if result <> '{"outcome":"cancelled"}'::jsonb
+    or public.cancel_project_grounded_question(
+      'a1000000-0000-4000-8000-000000000001',
+      (second_result ->> 'userMessageId')::uuid
+    ) is distinct from result
+  then
+    raise exception 'REGRESSION: reserved cancellation is not idempotent: %', result;
+  end if;
 
   result := public.start_project_grounded_question(
     'a1000000-0000-4000-8000-000000000001',
@@ -248,6 +286,16 @@ begin
   perform pg_catalog.set_config(
     'issue318.attempt_token', first_result ->> 'attemptToken', false
   );
+  perform pg_catalog.set_config(
+    'issue318.cancelled_user_message_id',
+    second_result ->> 'userMessageId',
+    false
+  );
+  perform pg_catalog.set_config(
+    'issue318.cancelled_attempt_token',
+    second_result ->> 'attemptToken',
+    false
+  );
 end;
 $$;
 
@@ -292,6 +340,10 @@ declare
   v_conversation_id uuid := current_setting('issue318.conversation_id')::uuid;
   v_user_message_id uuid := current_setting('issue318.user_message_id')::uuid;
   attempt_token uuid := current_setting('issue318.attempt_token')::uuid;
+  cancelled_user_message_id uuid :=
+    current_setting('issue318.cancelled_user_message_id')::uuid;
+  cancelled_attempt_token uuid :=
+    current_setting('issue318.cancelled_attempt_token')::uuid;
   project_id uuid := 'a1000000-0000-4000-8000-000000000001';
   owner_id uuid := '91000000-0000-4000-8000-000000000001';
   video_id uuid := '71000000-0000-4000-8000-000000000001';
@@ -326,10 +378,10 @@ begin
   coverage := '{
     "totalVideos":1,
     "readyVideos":1,
-    "usedVideos":1,
+    "evidenceVideos":1,
     "unavailableVideos":[],
     "passagesExamined":9,
-    "passagesUsed":1
+    "evidencePassages":1
   }'::jsonb;
   snapshot := pg_catalog.jsonb_build_object(
     'projectId', project_id,
@@ -351,6 +403,16 @@ begin
       'truncatedEnd', false
     ))
   );
+
+  result := public.complete_project_grounded_answer(
+    owner_id, project_id, v_conversation_id, cancelled_user_message_id,
+    cancelled_attempt_token,
+    'Answer committed after cancellation', 'supported', 3,
+    manifest, coverage, snapshot, diagnostics
+  );
+  if result <> '{"outcome":"stale"}'::jsonb then
+    raise exception 'REGRESSION: cancelled attempt accepted completion: %', result;
+  end if;
 
   result := public.complete_project_grounded_answer(
     '93000000-0000-4000-8000-000000000003', project_id,
@@ -394,7 +456,7 @@ begin
   result := public.complete_project_grounded_answer(
     owner_id, project_id, v_conversation_id, v_user_message_id, attempt_token,
     'Incoherent artifact', 'supported', 3, manifest,
-    pg_catalog.jsonb_set(coverage, '{usedVideos}', '0'::jsonb),
+    pg_catalog.jsonb_set(coverage, '{evidenceVideos}', '0'::jsonb),
     snapshot, diagnostics
   );
   if result <> '{"outcome":"invalid"}'::jsonb then
@@ -445,6 +507,8 @@ do $$
 declare
   v_conversation_id uuid := current_setting('issue318.conversation_id')::uuid;
   v_user_message_id uuid := current_setting('issue318.user_message_id')::uuid;
+  cancelled_user_message_id uuid :=
+    current_setting('issue318.cancelled_user_message_id')::uuid;
   assistant_row public.project_conversation_messages%rowtype;
 begin
   select * into assistant_row
@@ -474,8 +538,76 @@ begin
         and in_reply_to_message_id = v_user_message_id
         and role = 'assistant'
     ) <> 1
+    or (
+      select completion_state
+      from public.project_conversation_messages
+      where id = cancelled_user_message_id
+    ) <> 'cancelled'
+    or exists (
+      select 1
+      from public.project_conversation_messages
+      where project_conversation_messages.conversation_id = v_conversation_id
+        and in_reply_to_message_id = cancelled_user_message_id
+        and role = 'assistant'
+    )
   then
     raise exception 'REGRESSION: terminal answer/artifacts were not atomically durable';
+  end if;
+end;
+$$;
+
+set local role authenticated;
+select pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '91000000-0000-4000-8000-000000000001',
+  true
+);
+select pg_catalog.set_config(
+  'request.jwt.claims',
+  '{"sub":"91000000-0000-4000-8000-000000000001","app_metadata":{}}',
+  true
+);
+
+do $$
+declare
+  result jsonb;
+  loaded jsonb;
+begin
+  result := public.cancel_project_grounded_question(
+    'a1000000-0000-4000-8000-000000000001',
+    current_setting('issue318.user_message_id')::uuid
+  );
+  loaded := public.load_default_project_conversation(
+    'a1000000-0000-4000-8000-000000000001'
+  );
+  if result <> '{"outcome":"cancelled"}'::jsonb
+    or pg_catalog.jsonb_array_length(loaded -> 'messages') <> 5
+  then
+    raise exception 'REGRESSION: cancellation did not win after completion: %, %',
+      result, loaded;
+  end if;
+end;
+$$;
+
+reset role;
+
+do $$
+declare
+  user_message_id uuid := current_setting('issue318.user_message_id')::uuid;
+begin
+  if (
+      select completion_state
+      from public.project_conversation_messages
+      where id = user_message_id
+    ) <> 'cancelled'
+    or exists (
+      select 1
+      from public.project_conversation_messages
+      where in_reply_to_message_id = user_message_id
+        and role = 'assistant'
+    )
+  then
+    raise exception 'REGRESSION: completed assistant survived cancellation fence';
   end if;
 end;
 $$;

@@ -21,12 +21,12 @@ import type {
 
 function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
   const metrics = [
-    ["Total", coverage.totalVideos],
-    ["Ready", coverage.readyVideos],
-    ["Used", coverage.usedVideos],
-    ["Unavailable", coverage.unavailableVideos.length],
+    ["Project Videos", coverage.totalVideos],
+    ["Ready Videos", coverage.readyVideos],
+    ["Evidence Snapshot Videos", coverage.evidenceVideos],
+    ["Unavailable Videos", coverage.unavailableVideos.length],
     ["Passages examined", coverage.passagesExamined],
-    ["Passages selected", coverage.passagesUsed],
+    ["Evidence Snapshot passages", coverage.evidencePassages],
   ] as const;
   return (
     <div className="flex flex-col gap-3 border-y border-border-subtle py-3">
@@ -343,7 +343,7 @@ export function ProjectConversation({
                   rows={3}
                   disabled={conversation.streaming}
                   aria-describedby="project-question-help"
-                  placeholder="What do these sources say about…"
+                  placeholder="What do these Project Videos say about…"
                 />
                 <p id="project-question-help" className="text-caption text-text-muted">
                   2–200 characters. Free includes five user messages per Project.

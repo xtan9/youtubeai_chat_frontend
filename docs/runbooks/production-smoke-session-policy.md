@@ -16,8 +16,10 @@ Maintain exactly three dedicated accounts for this workflow:
   coverage.
 - `TEST_LIVE_SUMMARY_EMAIL` / `TEST_LIVE_SUMMARY_PASSWORD`: a separate
   non-administrator Smoke Account with the trusted smoke-only entitlement
-  `app_metadata.smoke_entitlement = 'pro'`, used only for live Summary
-  journeys. Do not create or modify a Stripe subscription row for it.
+  `app_metadata.smoke_entitlement = 'pro'`, used for live Summary and Project
+  Conversation journeys. Do not create or modify a Stripe subscription row for
+  it. `TEST_PROJECT_ID` must identify a dedicated Project owned by this same
+  Smoke Account with a ready Source Set; it is an identifier, not a credential.
 
 All three accounts must have the trusted service-managed Auth application
 metadata marker `app_metadata.is_smoke_account = true`. Only the live-summary
@@ -39,12 +41,14 @@ When provisioning or rotating an account:
    displaying their values. Keep the secret descriptions explicit: dedicated
    synthetic Smoke Account only; personal, employee, customer, or other human
    accounts are forbidden. The live-summary account must have both trusted
-   application-metadata markers before the workflow is enabled.
+   application-metadata markers before the workflow is enabled, and its
+   dedicated Project ID must remain owned by that account.
 4. Run the production smoke workflow manually once. Confirm the redacted
    session-policy evidence artifact reports all cases passed and password
    restoration completed.
 5. Do not delete or rotate another account in the same maintenance window; the
-   next hourly run needs all three identities available.
+   next hourly run needs all three identities and the live-summary Project
+   available.
 
 If either marker check fails, stop the workflow and repair the account before
 retrying. Never weaken the marker guard to make a run pass.
@@ -64,17 +68,21 @@ order:
    state, including an unexpected quota response for the smoke-Pro account,
    ends the wait immediately. Quota/paywall behavior remains covered by the
    Free account in the non-live browser smoke cases.
-4. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
+4. The Project Conversation production journey in a separate no-retry phase,
+   using the same marked smoke-Pro account and its dedicated `TEST_PROJECT_ID`.
+   It exercises Project authorization, Source Coverage, and a durable Grounded
+   Answer without introducing a fourth Smoke Account.
+5. One serial `e2e-auth-session-policy.spec.ts` journey against the deployed
    app and real Supabase Auth. It proves browser restart, repeated refresh,
    concurrent contexts, local Sign Out, Account Recovery, and Sign Out
    Everywhere in that order.
 
 The session-policy journey runs in a downstream job with its own ten-minute
 budget. It starts only after the browser-smoke job has stopped and the API job
-has succeeded, including when a live Summary journey reports a real production
-failure. This keeps account mutations from racing authenticated browser checks
-without allowing a slow Summary provider or terminal Summary failure to starve
-the session-policy evidence.
+has succeeded, including when a live Summary or Project Conversation journey
+reports a real production failure. This keeps account mutations from racing
+authenticated browser checks without allowing a slow provider or terminal
+failure to starve the session-policy evidence.
 
 The journey verifies the trusted Smoke Account marker immediately before each
 Auth password or logout mutation. Recovery uses the administrator account,
@@ -126,15 +134,15 @@ event payloads.
 
 ## Failure handling
 
-A live Summary quota, authentication, rate-limit, request, network, processing,
-or protocol state is a real production-smoke failure for the separate
-successful-summary account. The live Summary phase must report it promptly,
+A live Summary or Project Conversation quota, authentication, rate-limit,
+request, network, processing, or protocol state is a real production-smoke
+failure for the marked smoke-Pro account. Each phase must report it promptly,
 without retrying the full journey. The Free account's quota/paywall result is
-expected only in quota-specific coverage; do not reuse it for live Summary
-success checks. Do not reset usage, modify Stripe subscription data, or grant
-the smoke-only entitlement to a human account merely to make the smoke run
-green. Any change to the trusted entitlement marker requires an explicit
-production-operations decision.
+expected only in quota-specific coverage; do not reuse it for successful
+Summary or Project Conversation checks. Do not reset usage, modify Stripe
+subscription data, or grant the smoke-only entitlement to a human account
+merely to make the smoke run green. Any change to the trusted entitlement
+marker requires an explicit production-operations decision.
 
 If a password restore, marker verification, or cleanup step fails, treat the
 Smoke Account as not ready. Do not start the next hourly run until a maintainer

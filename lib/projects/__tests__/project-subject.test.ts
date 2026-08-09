@@ -169,6 +169,7 @@ describe("ProjectSubject ownership boundary", () => {
         groundedAnswers: {
           load: expect.any(Function),
           start: expect.any(Function),
+          cancel: expect.any(Function),
           complete: expect.any(Function),
         },
       },

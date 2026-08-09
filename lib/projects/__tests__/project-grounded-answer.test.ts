@@ -55,7 +55,7 @@ describe("Project Grounded Answer persistence adapter", () => {
     mocks.serviceRole.mockReturnValue({ rpc: mocks.serviceRpc });
   });
 
-  it("uses the authenticated client for owner-scoped load and start only", async () => {
+  it("uses the authenticated client for owner-scoped load, start, and cancellation", async () => {
     const rpc = vi
       .fn()
       .mockResolvedValueOnce({
@@ -81,6 +81,10 @@ describe("Project Grounded Answer persistence adapter", () => {
           tier: "free",
           history: [],
         },
+      })
+      .mockResolvedValueOnce({
+        error: null,
+        data: { outcome: "cancelled" },
       });
     const target = capability(rpc).capability;
 
@@ -89,10 +93,18 @@ describe("Project Grounded Answer persistence adapter", () => {
       status: "started",
       attemptToken: ATTEMPT_TOKEN,
     });
+    await expect(target.cancel(USER_MESSAGE_ID)).resolves.toEqual({
+      status: "cancelled",
+    });
     expect(rpc.mock.calls.map((call) => call[0])).toEqual([
       "load_default_project_conversation",
       "start_project_grounded_question",
+      "cancel_project_grounded_question",
     ]);
+    expect(rpc).toHaveBeenLastCalledWith(
+      "cancel_project_grounded_question",
+      { p_project_id: PROJECT_ID, p_user_message_id: USER_MESSAGE_ID },
+    );
     expect(mocks.serviceRole).not.toHaveBeenCalled();
   });
 
@@ -138,10 +150,29 @@ describe("Project Grounded Answer persistence adapter", () => {
     );
   });
 
+  it("fails cancellation closed when the authenticated RPC contract is unavailable", async () => {
+    const databaseFailure = capability(
+      vi.fn().mockResolvedValue({
+        error: { code: "57014" },
+        data: null,
+      }),
+    ).capability;
+    await expect(databaseFailure.cancel(USER_MESSAGE_ID)).resolves.toEqual({
+      status: "unavailable",
+    });
+
+    const schemaFailure = capability(
+      vi.fn().mockResolvedValue({ error: null, data: { outcome: "completed" } }),
+    ).capability;
+    await expect(schemaFailure.cancel(USER_MESSAGE_ID)).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
   it("rejects invalid artifacts before acquiring service role and fails closed without service credentials", async () => {
     const target = capability().capability;
     const invalid = artifacts();
-    invalid.sourceCoverage.usedVideos = 0;
+    invalid.sourceCoverage.evidenceVideos = 0;
     await expect(
       target.complete({
         reservation: {

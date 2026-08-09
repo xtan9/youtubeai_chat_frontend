@@ -2,10 +2,14 @@ import { formatSseEvent } from "@/lib/services/llm-client";
 import { streamChatCompletion } from "@/lib/services/llm-chat-client";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { logAppEvent } from "@/lib/observability";
-import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
+import {
+  projectOutcomeResponse,
+  projectUnavailableResponse,
+} from "@/lib/projects/api-outcomes";
 import {
   ProjectGroundedQuestionRequestSchema,
   PROJECT_GROUNDED_RETRIEVAL_LIMIT,
+  PROJECT_QUESTION_MESSAGE_ID_HEADER,
   type ProjectAnswerClassification,
   type ProjectGroundedSseEvent,
   type ProjectQuestionReservation,
@@ -24,6 +28,8 @@ type RouteContext = { params: Promise<{ projectId: string }> };
 
 const GENERIC_ERROR =
   "Something went wrong answering your Project question. Please try again.";
+const SAFE_ABSTENTION =
+  "The Evidence Snapshot does not support a confident answer to this question.";
 
 function jsonError(
   status: number,
@@ -87,7 +93,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     supabase = await createClient();
   } catch {
-    return projectOutcomeResponse({ kind: "unavailable" });
+    return projectUnavailableResponse(requestId);
   }
 
   const { projectId } = await context.params;
@@ -96,9 +102,20 @@ export async function POST(request: Request, context: RouteContext) {
     researcher.principal.userId,
     projectId,
   );
+  if (subject.kind === "invalid") {
+    return jsonError(
+      400,
+      subject.message,
+      requestId,
+      "PROJECT_ID_INVALID",
+    );
+  }
+  if (subject.kind === "unavailable") {
+    return projectUnavailableResponse(requestId);
+  }
   if (subject.kind !== "resolved") return projectOutcomeResponse(subject);
   if (!subject.value.groundedAnswers || !subject.value.passageSearch) {
-    return projectOutcomeResponse({ kind: "unavailable" });
+    return projectUnavailableResponse(requestId);
   }
 
   // Auth and owner resolution precede the existing global abuse gate. The
@@ -129,7 +146,7 @@ export async function POST(request: Request, context: RouteContext) {
     case "missing":
       return projectOutcomeResponse({ kind: "missing" });
     case "unavailable":
-      return projectOutcomeResponse({ kind: "unavailable" });
+      return projectUnavailableResponse(requestId);
     case "started":
       break;
   }
@@ -142,7 +159,7 @@ export async function POST(request: Request, context: RouteContext) {
     return projectOutcomeResponse({ kind: "missing" });
   }
   if (search.status === "invalid" || search.status === "unavailable") {
-    return projectOutcomeResponse({ kind: "unavailable" });
+    return projectUnavailableResponse(requestId);
   }
 
   let artifacts: ReturnType<typeof buildProjectAnswerArtifacts>;
@@ -159,7 +176,7 @@ export async function POST(request: Request, context: RouteContext) {
       errorName: error instanceof Error ? error.name : typeof error,
       requestId,
     });
-    return projectOutcomeResponse({ kind: "unavailable" });
+    return projectUnavailableResponse(requestId);
   }
 
   const reservation: ProjectQuestionReservation = {
@@ -170,6 +187,22 @@ export async function POST(request: Request, context: RouteContext) {
     messagesLimit: started.messagesLimit,
     tier: started.tier,
     history: started.history,
+  };
+
+  let cancellationPromise: Promise<void> | null = null;
+  const cancelReservedQuestion = () => {
+    cancellationPromise ??= subject.value.groundedAnswers!
+      .cancel(reservation.userMessageId)
+      .then((result) => {
+        if (result.status === "unavailable") {
+          logAppEvent("error", "[project-grounded-answer] cancellation failed", {
+            errorId: "PROJECT_GROUNDED_CANCELLATION_FAILED",
+            projectId: subject.value.projectId,
+            requestId,
+          });
+        }
+      });
+    return cancellationPromise;
   };
 
   let closed = false;
@@ -203,9 +236,12 @@ export async function POST(request: Request, context: RouteContext) {
         });
         if (
           classification === "supported" &&
-          citationInspection.validCitationCount === 0
+          (citationInspection.validCitationCount === 0 ||
+            !citationInspection.allClaimsCited)
         ) {
-          throw new Error("Supported Grounded Answer has no valid citation.");
+          throw new Error(
+            "Every supported Grounded Answer claim needs a valid citation.",
+          );
         }
         if (request.signal.aborted) return false;
         const completion = await subject.value.groundedAnswers!.complete({
@@ -215,6 +251,10 @@ export async function POST(request: Request, context: RouteContext) {
           artifacts,
           citationDiagnostics: citationInspection.diagnostics,
         });
+        if (closed || request.signal.aborted) {
+          await cancelReservedQuestion();
+          return false;
+        }
         if (
           completion.outcome !== "completed" &&
           completion.outcome !== "already_completed"
@@ -254,7 +294,7 @@ export async function POST(request: Request, context: RouteContext) {
         if (artifacts.evidenceSnapshot.passages.length === 0) {
           const content =
             search.status === "not_ready"
-              ? "This Project has no ready Transcript evidence yet, so I can't answer from its sources."
+              ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
               : "The available Project passages do not support an answer to this question.";
           send({ type: "answer_start", classification: "unsupported" });
           send({ type: "delta", text: content });
@@ -301,7 +341,9 @@ export async function POST(request: Request, context: RouteContext) {
             protocolBuffer = "";
             if (visibleRemainder.length > 0) {
               assistantBuffer += visibleRemainder;
-              send({ type: "delta", text: visibleRemainder });
+              if (classification === "supported") {
+                send({ type: "delta", text: visibleRemainder });
+              }
             }
             continue;
           }
@@ -309,10 +351,25 @@ export async function POST(request: Request, context: RouteContext) {
           if (assistantBuffer.length > 20_000) {
             throw new Error("Grounded answer exceeded its technical limit.");
           }
-          send({ type: "delta", text: event.text });
+          if (classification === "supported") {
+            send({ type: "delta", text: event.text });
+          }
         }
 
-        if (classification === null || assistantBuffer.trim().length === 0) {
+        if (classification === null) {
+          throw new Error("Grounded answer was empty.");
+        }
+        if (
+          /(?:^|\r?\n)(?:SUPPORTED|ABSTAINED)(?:\r?\n|$)/u.test(
+            assistantBuffer,
+          )
+        ) {
+          throw new Error("Grounded answer contained an extra control line.");
+        }
+        if (classification === "abstained") {
+          assistantBuffer = SAFE_ABSTENTION;
+          send({ type: "delta", text: assistantBuffer });
+        } else if (assistantBuffer.trim().length === 0) {
           throw new Error("Grounded answer was empty.");
         }
         await persist(assistantBuffer, classification);
@@ -327,13 +384,15 @@ export async function POST(request: Request, context: RouteContext) {
           send({ type: "error", message: GENERIC_ERROR });
         }
       } finally {
+        if (request.signal.aborted) {
+          await cancelReservedQuestion();
+        }
         finish();
       }
     },
-    cancel() {
-      // The user row was already committed by start(). There is deliberately
-      // no assistant row to clean up and no background completion to schedule.
+    async cancel() {
       closed = true;
+      await cancelReservedQuestion();
     },
   });
 
@@ -342,6 +401,7 @@ export async function POST(request: Request, context: RouteContext) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      [PROJECT_QUESTION_MESSAGE_ID_HEADER]: reservation.userMessageId,
       [REQUEST_ID_HEADER]: requestId,
     },
   });

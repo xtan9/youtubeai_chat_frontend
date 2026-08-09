@@ -73,10 +73,10 @@ export function priorAssistant(content: string): ProjectConversationMessage {
     sourceCoverage: {
       totalVideos: 1,
       readyVideos: 1,
-      usedVideos: 1,
+      evidenceVideos: 1,
       unavailableVideos: [],
       passagesExamined: 1,
-      passagesUsed: 1,
+      evidencePassages: 1,
     },
     citationDiagnostics: [],
   };

@@ -8,6 +8,8 @@ export const PROJECT_QUESTION_MIN_LENGTH = 2;
 export const PROJECT_QUESTION_MAX_LENGTH = 200;
 export const PROJECT_GROUNDED_PASSAGE_LIMIT = 8;
 export const PROJECT_GROUNDED_RETRIEVAL_LIMIT = 10;
+export const PROJECT_QUESTION_MESSAGE_ID_HEADER =
+  "X-Project-Question-Message-ID";
 
 function codePointLength(value: string) {
   return Array.from(value).length;
@@ -34,6 +36,10 @@ const ProjectQuestionSchema = z
 
 export const ProjectGroundedQuestionRequestSchema = z
   .object({ question: ProjectQuestionSchema })
+  .strict();
+
+export const ProjectGroundedCancellationRequestSchema = z
+  .object({ userMessageId: z.uuid() })
   .strict();
 
 export type ProjectGroundedQuestionRequest = z.infer<
@@ -121,10 +127,10 @@ export const ProjectAnswerCoverageSchema = z
   .object({
     totalVideos: z.number().int().min(0).max(5),
     readyVideos: z.number().int().min(0).max(5),
-    usedVideos: z.number().int().min(0).max(5),
+    evidenceVideos: z.number().int().min(0).max(5),
     unavailableVideos: z.array(ProjectUnavailableVideoSchema).max(5),
     passagesExamined: z.number().int().nonnegative(),
-    passagesUsed: z.number().int().min(0).max(10),
+    evidencePassages: z.number().int().min(0).max(10),
   })
   .strict()
   .superRefine((coverage, context) => {
@@ -137,16 +143,16 @@ export const ProjectAnswerCoverageSchema = z
         message: "Project answer coverage totals are incoherent.",
       });
     }
-    if (coverage.usedVideos > coverage.readyVideos) {
+    if (coverage.evidenceVideos > coverage.readyVideos) {
       context.addIssue({
         code: "custom",
-        message: "Used Videos cannot exceed ready Videos.",
+        message: "Evidence Snapshot Videos cannot exceed ready Project Videos.",
       });
     }
-    if (coverage.passagesUsed > coverage.passagesExamined) {
+    if (coverage.evidencePassages > coverage.passagesExamined) {
       context.addIssue({
         code: "custom",
-        message: "Used passages cannot exceed examined passages.",
+        message: "Evidence Snapshot passages cannot exceed examined passages.",
       });
     }
   });
@@ -241,9 +247,9 @@ export const ProjectAnswerArtifactsSchema = z
       });
     }
     if (
-      sourceCoverage.usedVideos !== snapshotVideos.size ||
-      sourceCoverage.usedVideos !== sourceManifest.sources.length ||
-      sourceCoverage.passagesUsed !== evidenceSnapshot.passages.length
+      sourceCoverage.evidenceVideos !== snapshotVideos.size ||
+      sourceCoverage.evidenceVideos !== sourceManifest.sources.length ||
+      sourceCoverage.evidencePassages !== evidenceSnapshot.passages.length
     ) {
       context.addIssue({
         code: "custom",
@@ -340,6 +346,17 @@ export type ProjectQuestionReservation = Omit<
   "outcome"
 >;
 
+export const ProjectQuestionCancellationDatabaseResultSchema =
+  z.discriminatedUnion("outcome", [
+    z.object({ outcome: z.literal("cancelled") }).strict(),
+    z.object({ outcome: z.literal("missing") }).strict(),
+  ]);
+
+export type ProjectQuestionCancellationResolution =
+  | { readonly status: "cancelled" }
+  | { readonly status: "missing" }
+  | { readonly status: "unavailable" };
+
 export const ProjectAnswerCompletionDatabaseResultSchema = z.discriminatedUnion(
   "outcome",
   [
@@ -425,6 +442,7 @@ export type ProjectQuestionStartResolution =
 export interface ProjectGroundedAnswerCapability {
   load(): Promise<ProjectGroundedAnswerResolution>;
   start(question: string): Promise<ProjectQuestionStartResolution>;
+  cancel(userMessageId: string): Promise<ProjectQuestionCancellationResolution>;
   complete(input: {
     readonly reservation: ProjectQuestionReservation;
     readonly assistantContent: string;
