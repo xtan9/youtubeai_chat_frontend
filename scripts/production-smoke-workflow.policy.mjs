@@ -45,7 +45,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
   const liveSummaryStep = sectionBetween(
     browserJob,
     "      - name: Run live Summary browser smoke",
-    "\n      - uses: actions/upload-artifact@v6",
+    "\n      - name: Run Project Conversation production smoke",
   );
 
   assert.match(
@@ -64,6 +64,20 @@ test("isolates live Summary checks with a bounded retry budget", () => {
     liveSummaryStep,
     /smoke-tests\//,
     "the @live-summary tag must be the single source of live-suite membership",
+  );
+
+  const projectConversationStep = sectionBetween(
+    browserJob,
+    "      - name: Run Project Conversation production smoke",
+    "\n      - uses: actions/upload-artifact@v6",
+  );
+  assert.match(
+    projectConversationStep,
+    /smoke-tests\/e2e-project-conversation-production\.spec\.ts/,
+  );
+  assert.match(
+    projectConversationStep,
+    /--grep "@project-grounded"/,
   );
 });
 
