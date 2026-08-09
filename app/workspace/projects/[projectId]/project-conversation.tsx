@@ -14,12 +14,17 @@ import { parseProjectCitations } from "@/lib/projects/project-grounded-citations
 import type {
   ProjectAnswerClassification,
   ProjectAnswerCoverage,
+  ProjectEvidenceSnapshot,
   ProjectAnswerSourceManifest,
   ProjectCitationDiagnostic,
   ProjectConversation,
   ProjectConversationMessage,
   ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
+import {
+  projectSourceSetEventLabel,
+  type ProjectSourceSetEvent,
+} from "@/lib/projects/project-source-set-audit";
 
 function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
   const metrics = [
@@ -134,6 +139,43 @@ function DiagnosticNote({
   );
 }
 
+function EvidenceSnapshotLedger({
+  snapshot,
+}: {
+  snapshot?: ProjectEvidenceSnapshot;
+}) {
+  if (!snapshot) return null;
+  return (
+    <p
+      className="text-caption text-text-muted"
+      aria-label="Immutable Evidence Snapshot"
+    >
+      Evidence Snapshot · Source Set revision {snapshot.sourceSetRevision} ·{" "}
+      {snapshot.passages.length} {snapshot.passages.length === 1 ? "passage" : "passages"}
+    </p>
+  );
+}
+
+function SourceSetChangeEvent({ event }: { event: ProjectSourceSetEvent }) {
+  return (
+    <div
+      role="status"
+      aria-label={`Source Set change revision ${event.revision}`}
+      className="flex min-w-0 flex-col gap-1 rounded-lg border border-dashed border-border-default bg-surface-sunken px-3 py-2 text-body-sm text-text-secondary"
+    >
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <span className="font-medium text-text-primary">
+          Source Set change · {projectSourceSetEventLabel(event)}
+        </span>
+        <Badge variant="outline">Revision {event.revision}</Badge>
+      </div>
+      <span className="text-caption text-text-muted">
+        This boundary keeps answers grounded in the Source Set that existed when they were created.
+      </span>
+    </div>
+  );
+}
+
 function ClassificationBadge({
   classification,
 }: {
@@ -157,12 +199,14 @@ function AssistantAnswer({
   coverage,
   classification,
   diagnostics,
+  evidenceSnapshot,
 }: {
   content: string;
   manifest: ProjectAnswerSourceManifest;
   coverage: ProjectAnswerCoverage;
   classification: ProjectAnswerClassification | null;
   diagnostics: readonly ProjectCitationDiagnostic[];
+  evidenceSnapshot?: ProjectEvidenceSnapshot;
 }) {
   return (
     <article className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-raised p-4">
@@ -174,6 +218,7 @@ function AssistantAnswer({
       </div>
       <SourceManifest manifest={manifest} />
       <CoverageLedger coverage={coverage} />
+      <EvidenceSnapshotLedger snapshot={evidenceSnapshot} />
       <p className="whitespace-pre-wrap text-body-md text-text-primary">
         {renderAnswer(content, manifest)}
       </p>
@@ -199,6 +244,7 @@ function ConversationMessage({ message }: { message: ProjectConversationMessage 
       coverage={message.sourceCoverage}
       classification={message.answerClassification}
       diagnostics={message.citationDiagnostics}
+      evidenceSnapshot={message.evidenceSnapshot}
     />
   );
 }
@@ -255,6 +301,26 @@ export function ProjectConversation({
     (conversation.conversation.messagesLimit === 5 &&
       conversation.conversation.messagesUsed >= 5);
   const hasMessages = conversation.conversation.messages.length > 0;
+  const timeline = useMemo(
+    () =>
+      [
+        ...conversation.conversation.messages.map((message) => ({
+          kind: "message" as const,
+          createdAt: message.createdAt,
+          message,
+        })),
+        ...(conversation.conversation.sourceSetEvents ?? []).map((event) => ({
+          kind: "source_set_event" as const,
+          createdAt: event.createdAt,
+          event,
+        })),
+      ].sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) ||
+          (left.kind === right.kind ? 0 : left.kind === "source_set_event" ? -1 : 1),
+      ),
+    [conversation.conversation.messages, conversation.conversation.sourceSetEvents],
+  );
 
   return (
     <section
@@ -430,9 +496,19 @@ export function ProjectConversation({
               </div>
             ) : null}
 
-            {conversation.conversation.messages.map((message) => (
-              <ConversationMessage key={message.id} message={message} />
-            ))}
+            {timeline.map((entry) =>
+              entry.kind === "source_set_event" ? (
+                <SourceSetChangeEvent
+                  key={`source-set-event-${entry.event.eventId}`}
+                  event={entry.event}
+                />
+              ) : (
+                <ConversationMessage
+                  key={entry.message.id}
+                  message={entry.message}
+                />
+              ),
+            )}
 
             {conversation.draft ? (
               <>

@@ -90,9 +90,24 @@ type FixtureConversationMessage = {
   sourceSetRevision: number | null;
   sourceManifest: unknown | null;
   sourceCoverage: unknown | null;
+  evidenceSnapshot?: unknown;
   citationDiagnostics: unknown[] | null;
   attemptToken?: string;
   completionState?: "reserved" | "completed" | "cancelled";
+};
+
+type FixtureSourceSetEvent = {
+  eventId: string;
+  projectId: string;
+  revision: number;
+  kind: "added" | "removed" | "reordered" | "status_changed";
+  videoId: string;
+  videoTitle: string | null;
+  fromPosition: number | null;
+  toPosition: number | null;
+  fromStatus: "processing" | "ready" | "failed" | null;
+  toStatus: "processing" | "ready" | "failed" | null;
+  createdAt: string;
 };
 
 type FixtureConversation = {
@@ -103,6 +118,7 @@ type FixtureConversation = {
   createdAt?: string;
   updatedAt?: string;
   clearedAt?: string;
+  sourceSetEvents?: FixtureSourceSetEvent[];
 };
 
 type FixtureGatewayGate = {
@@ -238,6 +254,126 @@ async function createGroundedFixtureProject(
   });
   sourceSetRevisions.set(projectId, 1);
   return projectId;
+}
+
+function seedSourceSetAuditConversation(projectId: string) {
+  const source = canonicalVideos[0];
+  const added = canonicalVideos[1];
+  if (!source || !added) throw new Error("Audit fixture requires canonical sources.");
+
+  const oldPassageText = "Climate adaptation depends on exact local evidence.";
+  const oldPassage = {
+    passageId: `${source.id}:1:0:${Array.from(oldPassageText).length}`,
+    videoId: source.id,
+    youtubeVideoId: "aaaaaaa0001",
+    title: source.title,
+    channelName: source.channel_name,
+    text: oldPassageText,
+    segmentOrdinal: 1,
+    excerptStartCharacter: 0,
+    excerptEndCharacter: Array.from(oldPassageText).length,
+    startSeconds: 42.75,
+    endSeconds: 48.25,
+    language: "en",
+    truncatedStart: false,
+    truncatedEnd: false,
+  };
+  const oldManifest = {
+    projectId,
+    sourceSetRevision: 1,
+    sources: [
+      {
+        sourceId: "S1",
+        videoId: source.id,
+        youtubeVideoId: "aaaaaaa0001",
+        title: source.title,
+        channelName: source.channel_name,
+        passages: [
+          {
+            passageId: oldPassage.passageId,
+            startSeconds: oldPassage.startSeconds,
+            endSeconds: oldPassage.endSeconds,
+          },
+        ],
+      },
+    ],
+  };
+  const oldCoverage = {
+    totalVideos: 1,
+    readyVideos: 1,
+    evidenceVideos: 1,
+    unavailableVideos: [],
+    passagesExamined: 2,
+    evidencePassages: 1,
+  };
+  const conversation: FixtureConversation = {
+    id: "c1000000-0000-4000-8000-000000000001",
+    projectId,
+    name: "Project Conversation",
+    createdAt: nextTimestamp(),
+    updatedAt: nextTimestamp(),
+    messages: [
+      {
+        id: "c3000000-0000-4000-8000-000000000001",
+        inReplyToMessageId: null,
+        role: "user",
+        content: "What did revision one support?",
+        createdAt: nextTimestamp(),
+        answerClassification: null,
+        sourceSetRevision: 1,
+        sourceManifest: null,
+        sourceCoverage: null,
+        citationDiagnostics: null,
+        completionState: "completed",
+      },
+      {
+        id: "c2000000-0000-4000-8000-000000000001",
+        inReplyToMessageId: "c3000000-0000-4000-8000-000000000001",
+        role: "assistant",
+        content: "Historical answer from revision one.",
+        createdAt: nextTimestamp(),
+        answerClassification: "supported",
+        sourceSetRevision: 1,
+        sourceManifest: oldManifest,
+        sourceCoverage: oldCoverage,
+        evidenceSnapshot: {
+          projectId,
+          sourceSetRevision: 1,
+          passages: [oldPassage],
+        },
+        citationDiagnostics: [],
+      },
+    ],
+    sourceSetEvents: [
+      {
+        eventId: "e3200000-0000-4000-8000-000000000001",
+        projectId,
+        revision: 2,
+        kind: "added",
+        videoId: added.id,
+        videoTitle: added.title,
+        fromPosition: null,
+        toPosition: 2,
+        fromStatus: null,
+        toStatus: "ready",
+        createdAt: nextTimestamp(),
+      },
+    ],
+  };
+  projectVideos.push({
+    project_id: projectId,
+    video_id: added.id,
+    position: 2,
+    status: "ready",
+    failure_code: null,
+    added_at: nextTimestamp(),
+    status_updated_at: nextTimestamp(),
+  });
+  sourceSetRevisions.set(projectId, 2);
+  projectConversations.set(projectId, conversation);
+  projectConversationThreads.set(projectId, [conversation]);
+  // Keep the generated turn IDs distinct from the historical answer pair.
+  messageSequence = 1;
 }
 
 async function expectProjectQuestionComposerReady(page: Page) {
@@ -418,6 +554,72 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
   );
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+});
+
+test("Project Conversation preserves Source Set boundaries across desktop and mobile", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Source Set audit lab",
+  );
+  seedSourceSetAuditConversation(projectId);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await expect(page.getByText("Historical answer from revision one.")).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "Source Set change revision 2" }),
+  ).toContainText("Added Beta processing to the Source Set");
+  const oldAnswer = page
+    .locator("article")
+    .filter({ hasText: "Historical answer from revision one." });
+  await expect(oldAnswer.getByLabel("Immutable Evidence Snapshot")).toContainText(
+    "Source Set revision 1",
+  );
+
+  await page.getByLabel("Ask the Project").fill("What changed for the new Source Set?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByText("Preparing answer")).toBeVisible();
+  await expect(page.getByLabel("Answer source manifest")).toHaveCount(2);
+  gatewayGate.release();
+
+  await expect(page.getByLabel("Immutable Evidence Snapshot")).toHaveCount(2);
+  const newAnswer = page
+    .locator("article")
+    .filter({ hasText: "Climate adaptation is supported" });
+  await expect(newAnswer).toBeVisible();
+  await expect(newAnswer.getByLabel("Immutable Evidence Snapshot")).toContainText(
+    "Source Set revision 2",
+  );
+  await expect(
+    page.getByRole("status", { name: "Source Set change revision 2" }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByText("Historical answer from revision one.")).toBeVisible();
+  await expect(page.getByText("Climate adaptation is supported")).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "Source Set change revision 2" }),
+  ).toContainText("Revision 2");
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "Historical answer from revision one." })
+      .getByLabel("Immutable Evidence Snapshot"),
+  ).toContainText("Source Set revision 1");
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "Climate adaptation is supported" })
+      .getByLabel("Immutable Evidence Snapshot"),
+  ).toContainText("Source Set revision 2");
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -1574,6 +1776,7 @@ async function handleSourceSetRpc(
       sourceSetRevision: body.p_source_set_revision,
       sourceManifest: body.p_source_manifest,
       sourceCoverage: body.p_source_coverage,
+      evidenceSnapshot: body.p_evidence_snapshot,
       citationDiagnostics: body.p_citation_diagnostics,
     });
     userMessage.completionState = "completed";
@@ -1687,6 +1890,7 @@ async function handleSourceSetRpc(
       outcome: "ready",
       conversationId: conversation?.id ?? null,
       messages: messages.map(visibleConversationMessage),
+      sourceSetEvents: conversation?.sourceSetEvents ?? [],
       messagesUsed: conversationThreads(projectId).reduce(
         (total, thread) =>
           total + thread.messages.filter((message) => message.role === "user").length,
@@ -1706,6 +1910,7 @@ async function handleSourceSetRpc(
       messages: conversation
         ? visibleConversationMessagesAfterClear(conversation).map(visibleConversationMessage)
         : [],
+      sourceSetEvents: conversation?.sourceSetEvents ?? [],
       messagesUsed: conversationThreads(projectId).reduce(
         (total, thread) =>
           total + thread.messages.filter((message) => message.role === "user").length,
@@ -1762,7 +1967,7 @@ async function handleSourceSetRpc(
       content: body.p_question.trim(),
       createdAt: nextTimestamp(),
       answerClassification: null,
-      sourceSetRevision: null,
+      sourceSetRevision: sourceSetRevisions.get(projectId) ?? 0,
       sourceManifest: null,
       sourceCoverage: null,
       citationDiagnostics: null,
@@ -2035,6 +2240,9 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     sourceSetRevision: message.sourceSetRevision,
     sourceManifest: message.sourceManifest,
     sourceCoverage: message.sourceCoverage,
+    ...(message.evidenceSnapshot
+      ? { evidenceSnapshot: message.evidenceSnapshot }
+      : {}),
     citationDiagnostics: message.citationDiagnostics,
   };
 }

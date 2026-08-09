@@ -92,6 +92,7 @@ export function createProjectGroundedAnswerCapability(
           conversation: {
             conversationId: parsed.data.conversationId,
             messages: parsed.data.messages,
+            sourceSetEvents: parsed.data.sourceSetEvents,
             messagesUsed: parsed.data.messagesUsed,
             messagesLimit: parsed.data.messagesLimit,
             tier: parsed.data.tier,

@@ -108,6 +108,76 @@ describe("Project Grounded Answer persistence adapter", () => {
     expect(mocks.serviceRole).not.toHaveBeenCalled();
   });
 
+  it("retains Source Set events and immutable assistant evidence on load", async () => {
+    const snapshot = artifacts().evidenceSnapshot;
+    const rpc = vi.fn().mockResolvedValue({
+      error: null,
+      data: {
+        outcome: "ready",
+        conversationId: CONVERSATION_ID,
+        messages: [
+          {
+            id: USER_MESSAGE_ID,
+            inReplyToMessageId: null,
+            role: "user",
+            content: "What changed?",
+            answerClassification: null,
+            sourceSetRevision: 2,
+            sourceManifest: null,
+            sourceCoverage: null,
+            evidenceSnapshot: null,
+            citationDiagnostics: null,
+            createdAt: "2026-08-09T13:00:00.000Z",
+          },
+          {
+            id: ASSISTANT_ID,
+            inReplyToMessageId: USER_MESSAGE_ID,
+            role: "assistant",
+            content: "The answer remains verifiable.",
+            answerClassification: "supported",
+            sourceSetRevision: 2,
+            sourceManifest: artifacts().sourceManifest,
+            sourceCoverage: artifacts().sourceCoverage,
+            evidenceSnapshot: snapshot,
+            citationDiagnostics: [],
+            createdAt: "2026-08-09T13:00:01.000Z",
+          },
+        ],
+        sourceSetEvents: [
+          {
+            eventId: "70000000-0000-4000-8000-000000000001",
+            projectId: PROJECT_ID,
+            revision: 2,
+            kind: "added",
+            videoId: "80000000-0000-4000-8000-000000000001",
+            videoTitle: "New source",
+            fromPosition: null,
+            toPosition: 1,
+            fromStatus: null,
+            toStatus: "ready",
+            createdAt: "2026-08-09T12:59:00.000Z",
+          },
+        ],
+        messagesUsed: 1,
+        messagesLimit: 5,
+        tier: "free",
+      },
+    });
+
+    const result = await createProjectGroundedAnswerCapability(
+      { rpc } as never,
+      { projectId: PROJECT_ID, ownerId: OWNER_ID },
+    ).load(CONVERSATION_ID);
+
+    expect(result).toMatchObject({
+      status: "ready",
+      conversation: {
+        sourceSetEvents: [{ revision: 2, kind: "added" }],
+        messages: [{ sourceSetRevision: 2 }, { evidenceSnapshot: snapshot }],
+      },
+    });
+  });
+
   it("uses only service role plus owner/project/user/attempt coherence for completion", async () => {
     mocks.serviceRpc.mockResolvedValue({
       error: null,
