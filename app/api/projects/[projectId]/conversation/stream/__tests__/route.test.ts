@@ -99,14 +99,21 @@ const SUBJECT = {
   passageSearch: { search: mocks.search },
 };
 
-function request(question = "When did the launch happen?", signal?: AbortSignal) {
+function request(
+  question = "When did the launch happen?",
+  signal?: AbortSignal,
+  conversationId?: string,
+) {
   return new Request(`http://test/api/projects/${PROJECT_ID}/conversation/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Request-ID": REQUEST_ID,
     },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      ...(conversationId ? { conversationId } : {}),
+    }),
     signal,
   });
 }
@@ -209,6 +216,18 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(mocks.checkRateLimit).toHaveBeenCalledWith(USER_ID, false);
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.search).not.toHaveBeenCalled();
+  });
+
+  it("passes a selected conversation identity to the durable reservation", async () => {
+    const response = await POST(
+      request("When did the launch happen?", undefined, CONVERSATION_ID),
+      CONTEXT,
+    );
+    await response.text();
+    expect(mocks.start).toHaveBeenCalledWith(
+      "When did the launch happen?",
+      CONVERSATION_ID,
+    );
   });
 
   it("preserves the stable 402 chat envelope and consumes no retrieval/provider work", async () => {

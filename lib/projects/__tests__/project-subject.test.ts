@@ -172,6 +172,12 @@ describe("ProjectSubject ownership boundary", () => {
           cancel: expect.any(Function),
           complete: expect.any(Function),
         },
+        conversations: {
+          list: expect.any(Function),
+          create: expect.any(Function),
+          rename: expect.any(Function),
+          clear: expect.any(Function),
+        },
       },
     });
     if (result.kind === "resolved") {

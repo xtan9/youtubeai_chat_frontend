@@ -10,6 +10,7 @@ export const PROJECT_GROUNDED_PASSAGE_LIMIT = 8;
 export const PROJECT_GROUNDED_RETRIEVAL_LIMIT = 10;
 export const PROJECT_QUESTION_MESSAGE_ID_HEADER =
   "X-Project-Question-Message-ID";
+export const PROJECT_CONVERSATION_NAME_MAX_LENGTH = 120;
 
 function codePointLength(value: string) {
   return Array.from(value).length;
@@ -35,7 +36,10 @@ const ProjectQuestionSchema = z
   });
 
 export const ProjectGroundedQuestionRequestSchema = z
-  .object({ question: ProjectQuestionSchema })
+  .object({
+    question: ProjectQuestionSchema,
+    conversationId: z.uuid().optional(),
+  })
   .strict();
 
 export const ProjectGroundedCancellationRequestSchema = z
@@ -290,6 +294,98 @@ export type ProjectConversationMessage = z.infer<
   typeof ProjectConversationMessageSchema
 >;
 
+const ProjectConversationNameValueSchema = z
+  .string()
+  .trim()
+  .superRefine((name, context) => {
+    const length = codePointLength(name);
+    if (length < 1 || length > PROJECT_CONVERSATION_NAME_MAX_LENGTH) {
+      context.addIssue({
+        code: "custom",
+        message: "Conversation names must be between 1 and 120 characters.",
+      });
+    }
+  });
+
+/** A selector/list representation that never includes conversation content. */
+export const ProjectConversationSummarySchema = z
+  .object({
+    conversationId: z.uuid(),
+    name: ProjectConversationNameValueSchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    messageCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type ProjectConversationSummary = z.infer<
+  typeof ProjectConversationSummarySchema
+>;
+
+export const ProjectConversationListSchema = z
+  .object({
+    conversations: z.array(ProjectConversationSummarySchema),
+    messagesUsed: z.number().int().nonnegative(),
+    messagesLimit: z.literal(5).nullable(),
+    tier: z.enum(["free", "pro"]),
+  })
+  .strict();
+
+export type ProjectConversationList = z.infer<
+  typeof ProjectConversationListSchema
+>;
+
+export const ProjectConversationDatabaseSummarySchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    messageCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ProjectConversationDatabaseListResultSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z
+      .object({
+        outcome: z.literal("ready"),
+        conversations: z.array(ProjectConversationDatabaseSummarySchema),
+        messagesUsed: z.number().int().nonnegative(),
+        messagesLimit: z.literal(5).nullable(),
+        tier: z.enum(["free", "pro"]),
+      })
+      .strict(),
+    z.object({ outcome: z.literal("missing") }).strict(),
+  ],
+);
+
+export const ProjectConversationNameSchema =
+  ProjectConversationNameValueSchema;
+
+export const ProjectConversationCreateRequestSchema = z
+  .object({ name: ProjectConversationNameSchema.optional() })
+  .strict();
+
+export const ProjectConversationRenameRequestSchema = z
+  .object({ name: ProjectConversationNameSchema })
+  .strict();
+
+export const ProjectConversationMutationDatabaseResultSchema =
+  z.discriminatedUnion("outcome", [
+    z
+      .object({
+        outcome: z.literal("created"),
+        conversation: ProjectConversationDatabaseSummarySchema,
+      })
+      .strict(),
+    z.object({ outcome: z.literal("renamed") }).strict(),
+    z.object({ outcome: z.literal("cleared") }).strict(),
+    z.object({ outcome: z.literal("missing") }).strict(),
+    z.object({ outcome: z.literal("invalid") }).strict(),
+  ]);
+
 export const ProjectConversationSchema = z
   .object({
     conversationId: z.uuid().nullable(),
@@ -440,8 +536,11 @@ export type ProjectQuestionStartResolution =
   | { readonly status: "unavailable" };
 
 export interface ProjectGroundedAnswerCapability {
-  load(): Promise<ProjectGroundedAnswerResolution>;
-  start(question: string): Promise<ProjectQuestionStartResolution>;
+  load(conversationId?: string): Promise<ProjectGroundedAnswerResolution>;
+  start(
+    question: string,
+    conversationId?: string,
+  ): Promise<ProjectQuestionStartResolution>;
   cancel(userMessageId: string): Promise<ProjectQuestionCancellationResolution>;
   complete(input: {
     readonly reservation: ProjectQuestionReservation;
@@ -450,4 +549,30 @@ export interface ProjectGroundedAnswerCapability {
     readonly artifacts: z.infer<typeof ProjectAnswerArtifactsSchema>;
     readonly citationDiagnostics: readonly ProjectCitationDiagnostic[];
   }): Promise<ProjectAnswerCompletionResolution>;
+}
+
+export type ProjectConversationListResolution =
+  | ({ readonly status: "ready" } & ProjectConversationList)
+  | { readonly status: "missing" }
+  | { readonly status: "unavailable" };
+
+export type ProjectConversationMutationResolution =
+  | {
+      readonly status: "created";
+      readonly conversation: ProjectConversationSummary;
+    }
+  | { readonly status: "renamed" }
+  | { readonly status: "cleared" }
+  | { readonly status: "missing" }
+  | { readonly status: "invalid" }
+  | { readonly status: "unavailable" };
+
+export interface ProjectConversationManagementCapability {
+  list(): Promise<ProjectConversationListResolution>;
+  create(name?: string): Promise<ProjectConversationMutationResolution>;
+  rename(
+    conversationId: string,
+    name: string,
+  ): Promise<ProjectConversationMutationResolution>;
+  clear(conversationId: string): Promise<ProjectConversationMutationResolution>;
 }

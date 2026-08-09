@@ -6,6 +6,8 @@ import { createProjectGroundedAnswerCapability } from "./project-grounded-answer
 import type { ProjectGroundedAnswerCapability } from "./project-grounded-answer-contract";
 import { createProjectPassageSearchCapability } from "./project-passage-search";
 import type { ProjectPassageSearchCapability } from "./project-passage-search-contract";
+import { createProjectConversationCapability } from "./project-conversations";
+import type { ProjectConversationManagementCapability } from "./project-grounded-answer-contract";
 
 export type Project = Readonly<{
   id: string;
@@ -36,6 +38,7 @@ export type ProjectSubject = Readonly<{
   lastActiveAt: string;
   passageSearch?: ProjectPassageSearchCapability;
   groundedAnswers?: ProjectGroundedAnswerCapability;
+  conversations?: ProjectConversationManagementCapability;
 }>;
 
 export type ProjectOutcome<T> =
@@ -260,6 +263,7 @@ export async function resolveProjectSubject(
       ...value,
       passageSearch: createProjectPassageSearchCapability(supabase, value),
       groundedAnswers: createProjectGroundedAnswerCapability(supabase, value),
+      conversations: createProjectConversationCapability(supabase, value),
     },
   };
 }

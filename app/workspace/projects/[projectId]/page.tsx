@@ -58,6 +58,7 @@ export default async function ProjectPage({
     return <ProjectOutcomeState kind="unavailable" />;
   }
   const groundedAnswers = subject.value.groundedAnswers;
+  const conversationManagement = subject.value.conversations;
 
   let project: Awaited<ReturnType<typeof openResolvedProject>>;
   let sourceSet: Awaited<ReturnType<typeof loadProjectSourceSet>>;
@@ -65,17 +66,35 @@ export default async function ProjectPage({
   let conversation: Awaited<
     ReturnType<typeof groundedAnswers.load>
   >;
+  let conversationList: Awaited<ReturnType<NonNullable<typeof conversationManagement>["list"]>>;
   try {
     await reconcileStaleProjectVideoProcessing(
       subject.value,
       principalResult.principal.smokeProEntitled === true,
     );
-    [project, sourceSet, candidates, conversation] = await Promise.all([
+    [project, sourceSet, candidates, conversation, conversationList] = await Promise.all([
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),
       loadProjectHistoryCandidates(supabase, subject.value),
       groundedAnswers.load(),
+      conversationManagement?.list() ??
+        Promise.resolve({ status: "unavailable" as const }),
     ]);
+
+    // A Project may contain named threads before the legacy default thread has
+    // ever been used. In that case the compatibility loader has no history to
+    // return, so resume the first listed thread instead of presenting a blank
+    // active conversation after a page reload.
+    if (
+      conversation.status === "ready" &&
+      conversation.conversation.conversationId === null &&
+      conversationList.status === "ready" &&
+      conversationList.conversations[0]
+    ) {
+      conversation = await groundedAnswers.load(
+        conversationList.conversations[0].conversationId,
+      );
+    }
   } catch {
     return <ProjectOutcomeState kind="unavailable" />;
   }
@@ -95,6 +114,9 @@ export default async function ProjectPage({
       initialProject={project.value}
       initialSourceSet={sourceSet.value}
       initialConversation={conversation.conversation}
+      initialConversations={
+        conversationList.status === "ready" ? conversationList.conversations : []
+      }
       initialCandidatePage={
         candidates.kind === "resolved" ? candidates.value : null
       }

@@ -57,11 +57,19 @@ export function createProjectGroundedAnswerCapability(
   target: ProjectGroundedAnswerTarget,
 ): ProjectGroundedAnswerCapability {
   return {
-    async load() {
+    async load(conversationId) {
       try {
-        const result = await supabase.rpc("load_default_project_conversation", {
-          p_project_id: target.projectId,
-        });
+        const result = await supabase.rpc(
+          conversationId
+            ? "load_project_conversation"
+            : "load_default_project_conversation",
+          conversationId
+            ? {
+                p_project_id: target.projectId,
+                p_conversation_id: conversationId,
+              }
+            : { p_project_id: target.projectId },
+        );
         if (result.error) {
           logGroundedAnswerFailure(
             target,
@@ -100,12 +108,21 @@ export function createProjectGroundedAnswerCapability(
       }
     },
 
-    async start(question) {
+    async start(question, conversationId) {
       try {
-        const result = await supabase.rpc("start_project_grounded_question", {
-          p_project_id: target.projectId,
-          p_question: question,
-        });
+        const result = await supabase.rpc(
+          "start_project_grounded_question",
+          conversationId
+            ? {
+                p_project_id: target.projectId,
+                p_question: question,
+                p_conversation_id: conversationId,
+              }
+            : {
+                p_project_id: target.projectId,
+                p_question: question,
+              },
+        );
         if (result.error) {
           logGroundedAnswerFailure(
             target,

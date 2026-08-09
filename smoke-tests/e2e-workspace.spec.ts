@@ -99,6 +99,10 @@ type FixtureConversation = {
   id: string;
   projectId: string;
   messages: FixtureConversationMessage[];
+  name?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  clearedAt?: string;
 };
 
 type FixtureGatewayGate = {
@@ -113,6 +117,7 @@ const projectVideos: FixtureProjectVideo[] = [];
 const processedVideoIds = new Set<string>();
 const sourceSetRevisions = new Map<string, number>();
 const projectConversations = new Map<string, FixtureConversation>();
+const projectConversationThreads = new Map<string, FixtureConversation[]>();
 let projectSequence = 0;
 let clockSequence = 0;
 let conversationSequence = 0;
@@ -180,6 +185,7 @@ test.beforeEach(() => {
   processedVideoIds.clear();
   sourceSetRevisions.clear();
   projectConversations.clear();
+  projectConversationThreads.clear();
   projectSequence = 0;
   clockSequence = 0;
   conversationSequence = 0;
@@ -474,6 +480,75 @@ test("Project Conversation preserves only the user message after gateway failure
   expect(projectConversations.get(projectId)?.messages).toMatchObject([
     { role: "user", content: "What fails safely?", completionState: "reserved" },
   ]);
+});
+
+test("Researcher switches, clears, and retries named Project Conversations on desktop and mobile", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Conversation management lab",
+  );
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await expect(
+    page.getByRole("button", { name: /New conversation \d+ messages/ }),
+  ).toBeVisible();
+  // Reload before the legacy default has ever received a question. The named
+  // thread must be selected with its history rather than leaving a blank
+  // compatibility conversation active.
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: /New conversation 0 messages/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Rename New conversation" }).click();
+  const renameInput = page.getByRole("textbox", { name: "Conversation name" });
+  await renameInput.fill("Launch questions");
+  await page.getByRole("button", { name: "Save conversation name" }).click();
+  await expect(page.getByRole("button", { name: /Launch questions \d+ messages/ })).toBeVisible();
+
+  await page.getByLabel("Ask the Project").fill("What does the evidence support?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  gatewayGate.release();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await expect(page.getByRole("button", { name: "Rename New conversation" })).toBeVisible();
+  await page.getByRole("button", { name: "Rename New conversation" }).click();
+  await page.getByRole("textbox", { name: "Conversation name" }).fill("Comparison");
+  await page.getByRole("button", { name: "Save conversation name" }).click();
+  await expect(page.getByRole("button", { name: /Comparison \d+ messages/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /Launch questions/ }).first().click();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  await page.getByRole("button", { name: "Clear Launch questions" }).click();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
+  await expect(page.getByText("Ask your first Project question")).toBeVisible();
+
+  gatewayOutcome = "failure";
+  gatewayGate.release();
+  await page.getByLabel("Ask the Project").fill("What should retry safely?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByText(/Something went wrong answering your Project question/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+
+  gatewayOutcome = "success";
+  gatewayGate = createGatewayGate();
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  gatewayGate.release();
+  await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  await expect(page.getByRole("button", { name: "New conversation" })).toBeVisible();
 });
 
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
@@ -1401,6 +1476,7 @@ async function handleProjects(
     }
     sourceSetRevisions.delete(deleted.id);
     projectConversations.delete(deleted.id);
+    projectConversationThreads.delete(deleted.id);
     return sendJson(response, 200, [{ id: deleted.id }]);
   }
 
@@ -1416,6 +1492,7 @@ async function handleSourceSetRpc(
 ) {
   const body = (await readJson(request)) as {
     p_project_id?: string;
+    p_name?: string;
     p_query?: string;
     p_limit?: number;
     p_video_id?: string;
@@ -1448,7 +1525,7 @@ async function handleSourceSetRpc(
     if (!serviceRole || !projectId || body.p_owner_id !== projectOwnerId(projectId)) {
       return sendJson(response, 200, { outcome: "stale" });
     }
-    const conversation = projectConversations.get(projectId);
+    const conversation = findConversation(projectId, body.p_conversation_id);
     const userMessage = conversation?.messages.find(
       (message) =>
         message.id === body.p_user_message_id &&
@@ -1510,8 +1587,80 @@ async function handleSourceSetRpc(
     return sendJson(response, 200, { outcome: "missing" });
   }
 
+  if (url.pathname.endsWith("/list_project_conversations")) {
+    const tier = userSubscriptions.get(userId)?.tier ?? "free";
+    const threads = conversationThreads(projectId);
+    const messagesUsed = threads.reduce(
+      (total, thread) =>
+        total + thread.messages.filter((message) => message.role === "user").length,
+      0,
+    );
+    return sendJson(response, 200, {
+      outcome: "ready",
+      conversations: threads
+        .slice()
+        .sort((a, b) =>
+          (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "") || b.id.localeCompare(a.id),
+        )
+        .map((thread) => ({
+          id: thread.id,
+          name: thread.name ?? "Project Conversation",
+          createdAt: thread.createdAt ?? nextTimestamp(),
+          updatedAt: thread.updatedAt ?? thread.createdAt ?? nextTimestamp(),
+          messageCount: thread.clearedAt
+            ? thread.messages.filter((message) => message.createdAt > thread.clearedAt!).length
+            : thread.messages.length,
+        })),
+      messagesUsed,
+      messagesLimit: tier === "pro" ? null : 5,
+      tier,
+    });
+  }
+
+  if (url.pathname.endsWith("/create_project_conversation")) {
+    conversationSequence += 1;
+    const timestamp = nextTimestamp();
+    const conversation: FixtureConversation = {
+      id: `c1000000-0000-4000-8000-${String(conversationSequence).padStart(12, "0")}`,
+      projectId,
+      name: body.p_name?.trim() || "New conversation",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messages: [],
+    };
+    conversationThreads(projectId).push(conversation);
+    return sendJson(response, 200, {
+      outcome: "created",
+      conversation: {
+        id: conversation.id,
+        name: conversation.name,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        messageCount: 0,
+      },
+    });
+  }
+
+  if (url.pathname.endsWith("/rename_project_conversation")) {
+    const conversation = findConversation(projectId, body.p_conversation_id);
+    if (!conversation) return sendJson(response, 200, { outcome: "missing" });
+    const name = body.p_name?.trim() ?? "";
+    if (!name || name.length > 120) return sendJson(response, 200, { outcome: "invalid" });
+    conversation.name = name;
+    conversation.updatedAt = nextTimestamp();
+    return sendJson(response, 200, { outcome: "renamed" });
+  }
+
+  if (url.pathname.endsWith("/clear_project_conversation")) {
+    const conversation = findConversation(projectId, body.p_conversation_id);
+    if (!conversation) return sendJson(response, 200, { outcome: "missing" });
+    conversation.clearedAt = nextTimestamp();
+    conversation.updatedAt = conversation.clearedAt;
+    return sendJson(response, 200, { outcome: "cleared" });
+  }
+
   if (url.pathname.endsWith("/cancel_project_grounded_question")) {
-    const conversation = projectConversations.get(projectId);
+    const conversation = findConversation(projectId, body.p_conversation_id);
     const userMessage = conversation?.messages.find(
       (message) =>
         message.id === body.p_user_message_id && message.role === "user",
@@ -1529,15 +1678,39 @@ async function handleSourceSetRpc(
   }
 
   if (url.pathname.endsWith("/load_default_project_conversation")) {
-    const conversation = projectConversations.get(projectId);
+    const conversation = findConversation(projectId);
+    const tier = userSubscriptions.get(userId)?.tier ?? "free";
+    const messages = conversation
+      ? visibleConversationMessagesAfterClear(conversation)
+      : [];
+    return sendJson(response, 200, {
+      outcome: "ready",
+      conversationId: conversation?.id ?? null,
+      messages: messages.map(visibleConversationMessage),
+      messagesUsed: conversationThreads(projectId).reduce(
+        (total, thread) =>
+          total + thread.messages.filter((message) => message.role === "user").length,
+        0,
+      ),
+      messagesLimit: tier === "pro" ? null : 5,
+      tier,
+    });
+  }
+
+  if (url.pathname.endsWith("/load_project_conversation")) {
+    const conversation = findConversation(projectId, body.p_conversation_id);
     const tier = userSubscriptions.get(userId)?.tier ?? "free";
     return sendJson(response, 200, {
       outcome: "ready",
       conversationId: conversation?.id ?? null,
-      messages: (conversation?.messages ?? []).map(visibleConversationMessage),
-      messagesUsed:
-        conversation?.messages.filter((message) => message.role === "user")
-          .length ?? 0,
+      messages: conversation
+        ? visibleConversationMessagesAfterClear(conversation).map(visibleConversationMessage)
+        : [],
+      messagesUsed: conversationThreads(projectId).reduce(
+        (total, thread) =>
+          total + thread.messages.filter((message) => message.role === "user").length,
+        0,
+      ),
       messagesLimit: tier === "pro" ? null : 5,
       tier,
     });
@@ -1545,9 +1718,12 @@ async function handleSourceSetRpc(
 
   if (url.pathname.endsWith("/start_project_grounded_question")) {
     const tier = userSubscriptions.get(userId)?.tier ?? "free";
-    let conversation = projectConversations.get(projectId);
-    const messagesUsed =
-      conversation?.messages.filter((message) => message.role === "user").length ?? 0;
+    let conversation = findConversation(projectId, body.p_conversation_id);
+    const messagesUsed = conversationThreads(projectId).reduce(
+      (total, thread) =>
+        total + thread.messages.filter((message) => message.role === "user").length,
+      0,
+    );
     if (tier !== "pro" && messagesUsed >= 5) {
       return sendJson(response, 200, {
         outcome: "limit_reached",
@@ -1561,14 +1737,21 @@ async function handleSourceSetRpc(
     }
     if (!conversation) {
       conversationSequence += 1;
+      const timestamp = nextTimestamp();
       conversation = {
         id: `c1000000-0000-4000-8000-${String(conversationSequence).padStart(12, "0")}`,
         projectId,
+        name: "Project Conversation",
+        createdAt: timestamp,
+        updatedAt: timestamp,
         messages: [],
       };
       projectConversations.set(projectId, conversation);
+      projectConversationThreads.set(projectId, [conversation]);
     }
-    const history = conversation.messages.slice(-16).map(visibleConversationMessage);
+    const history = visibleConversationMessagesAfterClear(conversation)
+      .slice(-16)
+      .map(visibleConversationMessage);
     messageSequence += 1;
     const userMessageId = `c3000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
     const attemptToken = `c4000000-0000-4000-8000-${String(messageSequence).padStart(12, "0")}`;
@@ -1586,6 +1769,7 @@ async function handleSourceSetRpc(
       attemptToken,
       completionState: "reserved",
     });
+    conversation.updatedAt = nextTimestamp();
     return sendJson(response, 200, {
       outcome: "started",
       conversationId: conversation.id,
@@ -1853,6 +2037,35 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     sourceCoverage: message.sourceCoverage,
     citationDiagnostics: message.citationDiagnostics,
   };
+}
+
+function visibleConversationMessagesAfterClear(conversation: FixtureConversation) {
+  return conversation.clearedAt
+    ? conversation.messages.filter((message) => message.createdAt > conversation.clearedAt!)
+    : conversation.messages;
+}
+
+function conversationThreads(projectId: string) {
+  let threads = projectConversationThreads.get(projectId);
+  if (!threads) {
+    threads = [];
+    projectConversationThreads.set(projectId, threads);
+  }
+  const legacyDefault = projectConversations.get(projectId);
+  if (legacyDefault && !threads.some((thread) => thread.id === legacyDefault.id)) {
+    threads.unshift(legacyDefault);
+    projectConversationThreads.set(projectId, threads);
+  }
+  return threads;
+}
+
+function findConversation(projectId: string, conversationId?: string | null) {
+  const threads = conversationThreads(projectId);
+  if (conversationId) return threads.find((thread) => thread.id === conversationId);
+  return (
+    threads.find((thread) => thread.name === "Project Conversation") ??
+    threads[0]
+  );
 }
 
 function seedCanonicalHistory() {

@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import {
   ProjectConversationSchema,
+  ProjectConversationSummarySchema,
   ProjectGroundedSseEventSchema,
   PROJECT_QUESTION_MESSAGE_ID_HEADER,
   type ProjectAnswerClassification,
@@ -10,6 +11,7 @@ import {
   type ProjectAnswerSourceManifest,
   type ProjectCitationDiagnostic,
   type ProjectConversation,
+  type ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { logAppEvent } from "@/lib/observability";
@@ -25,6 +27,13 @@ export type ProjectConversationDraft = Readonly<{
 }>;
 
 type ConversationResponse = { conversation?: unknown; message?: string };
+type ConversationListResponse = {
+  conversations?: unknown;
+  messagesUsed?: number;
+  messagesLimit?: 5 | null;
+  tier?: "free" | "pro";
+  message?: string;
+};
 
 function parseEvent(line: string) {
   const trimmed = line.trim();
@@ -42,18 +51,32 @@ function parseEvent(line: string) {
 export function useProjectGroundedConversation(args: {
   readonly projectId: string;
   readonly initialConversation: ProjectConversation;
+  readonly initialConversations?: readonly ProjectConversationSummary[];
 }) {
   const [conversation, setConversation] = useState(args.initialConversation);
+  const [conversations, setConversations] = useState<
+    readonly ProjectConversationSummary[]
+  >(args.initialConversations ?? []);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    args.initialConversation.conversationId ??
+      args.initialConversations?.[0]?.conversationId ??
+      null,
+  );
   const [draft, setDraft] = useState<ProjectConversationDraft | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] =
     useState<UpgradeRequiredError | null>(null);
+  const [conversationLoading, setConversationLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const lastQuestionRef = useRef<string | null>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (conversationId = activeConversationId) => {
+    const query = conversationId
+      ? `?conversationId=${encodeURIComponent(conversationId)}`
+      : "";
     const response = await fetch(
-      `/api/projects/${args.projectId}/conversation`,
+      `/api/projects/${args.projectId}/conversation${query}`,
       { cache: "no-store" },
     );
     const payload = (await response.json()) as ConversationResponse;
@@ -67,7 +90,174 @@ export function useProjectGroundedConversation(args: {
       throw new Error("Project Conversation response was not valid.");
     }
     setConversation(parsed.data);
+    if (parsed.data.conversationId) {
+      setActiveConversationId(parsed.data.conversationId);
+      setConversations((current) =>
+        current.map((item) =>
+          item.conversationId === parsed.data.conversationId
+            ? { ...item, messageCount: parsed.data.messages.length }
+            : item,
+        ),
+      );
+    }
+  }, [activeConversationId, args.projectId]);
+
+  const refreshConversations = useCallback(async () => {
+    const response = await fetch(
+      `/api/projects/${args.projectId}/conversations`,
+      { cache: "no-store" },
+    );
+    const payload = (await response.json()) as ConversationListResponse;
+    if (!response.ok) {
+      throw new Error(
+        payload.message ?? "Could not load Project Conversations.",
+      );
+    }
+    const parsed = ProjectConversationSummarySchema.array().safeParse(
+      payload.conversations,
+    );
+    if (!parsed.success) throw new Error("Project Conversations response was not valid.");
+    setConversations(parsed.data);
+    return parsed.data;
   }, [args.projectId]);
+
+  const selectConversation = useCallback(
+    async (conversationId: string) => {
+      if (conversationId === activeConversationId && conversation.conversationId) {
+        return;
+      }
+      if (abortRef.current) return;
+      setConversationLoading(true);
+      setError(null);
+      try {
+        await reload(conversationId);
+        setActiveConversationId(conversationId);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not load the Project Conversation.",
+        );
+      } finally {
+        setConversationLoading(false);
+      }
+    },
+    [abortRef, activeConversationId, conversation.conversationId, reload],
+  );
+
+  const createConversation = useCallback(
+    async (name?: string) => {
+      if (abortRef.current) return null;
+      setConversationLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(
+          `/api/projects/${args.projectId}/conversations`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(name ? { name } : {}),
+          },
+        );
+        const payload = (await response.json()) as {
+          conversation?: unknown;
+          message?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.message ?? "Could not create a Project Conversation.");
+        }
+        const parsed = ProjectConversationSummarySchema.safeParse(
+          payload.conversation,
+        );
+        if (!parsed.success) throw new Error("Project Conversation response was not valid.");
+        setConversations((current) => [parsed.data, ...current]);
+        setActiveConversationId(parsed.data.conversationId);
+        setConversation({
+          conversationId: parsed.data.conversationId,
+          messages: [],
+          messagesUsed: conversation.messagesUsed,
+          messagesLimit: conversation.messagesLimit,
+          tier: conversation.tier,
+        });
+        return parsed.data;
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not create a Project Conversation.",
+        );
+        return null;
+      } finally {
+        setConversationLoading(false);
+      }
+    },
+    [abortRef, args.projectId, conversation.messagesLimit, conversation.messagesUsed, conversation.tier],
+  );
+
+  const renameConversation = useCallback(
+    async (conversationId: string, name: string) => {
+      try {
+        const response = await fetch(
+          `/api/projects/${args.projectId}/conversations/${conversationId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          },
+        );
+        const payload = (await response.json()) as { message?: string };
+        if (!response.ok) {
+          throw new Error(payload.message ?? "Could not rename the Project Conversation.");
+        }
+        setConversations((current) =>
+          current.map((item) =>
+            item.conversationId === conversationId
+              ? { ...item, name: name.trim() }
+              : item,
+          ),
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not rename the Project Conversation.",
+        );
+      }
+    },
+    [args.projectId],
+  );
+
+  const clearConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        const response = await fetch(
+          `/api/projects/${args.projectId}/conversations/${conversationId}`,
+          { method: "DELETE" },
+        );
+        const payload = (await response.json()) as { message?: string };
+        if (!response.ok) {
+          throw new Error(payload.message ?? "Could not clear the Project Conversation.");
+        }
+        if (conversationId === activeConversationId) {
+          await reload(conversationId);
+        }
+        setConversations((current) =>
+          current.map((item) =>
+            item.conversationId === conversationId
+              ? { ...item, messageCount: 0, updatedAt: new Date().toISOString() }
+              : item,
+          ),
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not clear the Project Conversation.",
+        );
+      }
+    },
+    [activeConversationId, args.projectId, reload],
+  );
 
   const abort = useCallback(() => abortRef.current?.abort(), []);
 
@@ -75,6 +265,7 @@ export function useProjectGroundedConversation(args: {
     async (rawQuestion: string) => {
       const question = rawQuestion.trim();
       if (!question || abortRef.current) return;
+      lastQuestionRef.current = question;
       const controller = new AbortController();
       abortRef.current = controller;
       setStreaming(true);
@@ -100,7 +291,12 @@ export function useProjectGroundedConversation(args: {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question }),
+            body: JSON.stringify({
+              question,
+              ...(activeConversationId
+                ? { conversationId: activeConversationId }
+                : {}),
+            }),
             signal: controller.signal,
           },
         );
@@ -266,16 +462,33 @@ export function useProjectGroundedConversation(args: {
         abortRef.current = null;
       }
     },
-    [args.projectId, reload],
+    [activeConversationId, args.projectId, reload],
   );
+
+  const retry = useCallback(() => {
+    // A retry is a fresh durable user turn. The failed turn remains visible
+    // under the Project's existing durability rule, so the server's shared
+    // Free quota intentionally counts the new attempt as another question.
+    if (lastQuestionRef.current) return send(lastQuestionRef.current);
+    return Promise.resolve();
+  }, [send]);
 
   return {
     conversation,
+    conversations,
+    activeConversationId,
     draft,
     streaming,
+    conversationLoading,
     error,
     upgradeError,
     send,
+    retry,
     abort,
+    selectConversation,
+    createConversation,
+    renameConversation,
+    clearConversation,
+    refreshConversations,
   } as const;
 }

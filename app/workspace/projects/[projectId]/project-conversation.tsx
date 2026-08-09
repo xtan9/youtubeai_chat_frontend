@@ -1,12 +1,13 @@
 "use client";
 
-import { Fragment, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { ExternalLink, Send, Square } from "lucide-react";
+import { Check, ExternalLink, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useProjectGroundedConversation } from "@/lib/hooks/useProjectGroundedConversation";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
@@ -17,6 +18,7 @@ import type {
   ProjectCitationDiagnostic,
   ProjectConversation,
   ProjectConversationMessage,
+  ProjectConversationSummary,
 } from "@/lib/projects/project-grounded-answer-contract";
 
 function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
@@ -204,15 +206,41 @@ function ConversationMessage({ message }: { message: ProjectConversationMessage 
 export function ProjectConversation({
   projectId,
   initialConversation,
+  initialConversations = [],
 }: {
   projectId: string;
   initialConversation: ProjectConversation;
+  initialConversations?: readonly ProjectConversationSummary[];
 }) {
   const [question, setQuestion] = useState("");
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
   const conversation = useProjectGroundedConversation({
     projectId,
     initialConversation,
+    initialConversations,
   });
+
+  const visibleConversations = useMemo(() => {
+    if (
+      conversation.conversation.conversationId &&
+      !conversation.conversations.some(
+        (item) => item.conversationId === conversation.conversation.conversationId,
+      )
+    ) {
+      return [
+        {
+          conversationId: conversation.conversation.conversationId,
+          name: "Project Conversation",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messageCount: conversation.conversation.messages.length,
+        },
+        ...conversation.conversations,
+      ];
+    }
+    return conversation.conversations;
+  }, [conversation.conversation, conversation.conversations]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -263,6 +291,129 @@ export function ProjectConversation({
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
+          <section
+            aria-labelledby="project-conversation-list-heading"
+            className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-sunken p-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3
+                id="project-conversation-list-heading"
+                className="text-body-sm font-semibold text-text-primary"
+              >
+                Conversation threads
+              </h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void conversation.createConversation()}
+                disabled={conversation.streaming || conversation.conversationLoading}
+              >
+                <Plus aria-hidden="true" />
+                New conversation
+              </Button>
+            </div>
+            {visibleConversations.length > 0 ? (
+              <ul className="flex flex-wrap gap-2" aria-label="Project Conversations">
+                {visibleConversations.map((item) => {
+                  const active =
+                    item.conversationId === conversation.activeConversationId;
+                  const editing = item.conversationId === editingConversationId;
+                  return (
+                    <li
+                      key={item.conversationId}
+                      className="flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border-subtle bg-surface-raised p-1"
+                    >
+                      {editing ? (
+                        <form
+                          className="flex min-w-0 items-center gap-1"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void conversation
+                              .renameConversation(item.conversationId, editingName)
+                              .then(() => setEditingConversationId(null));
+                          }}
+                        >
+                          <Label htmlFor={`conversation-name-${item.conversationId}`} className="sr-only">
+                            Conversation name
+                          </Label>
+                          <Input
+                            id={`conversation-name-${item.conversationId}`}
+                            value={editingName}
+                            onChange={(event) => setEditingName(event.target.value)}
+                            maxLength={120}
+                            autoFocus
+                            className="h-8 w-40"
+                          />
+                          <Button type="submit" size="icon" variant="ghost" aria-label="Save conversation name">
+                            <Check aria-hidden="true" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            aria-label="Cancel renaming conversation"
+                            onClick={() => setEditingConversationId(null)}
+                          >
+                            <X aria-hidden="true" />
+                          </Button>
+                        </form>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="min-w-0 max-w-full rounded px-2 py-1 text-left text-body-sm font-medium text-text-primary outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-state-focus"
+                            aria-pressed={active}
+                            onClick={() => void conversation.selectConversation(item.conversationId)}
+                          >
+                            <span className="block max-w-48 truncate">{item.name}</span>
+                            <span className="block text-caption text-text-muted">
+                              {item.messageCount} {item.messageCount === 1 ? "message" : "messages"}
+                            </span>
+                          </button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Rename ${item.name}`}
+                            onClick={() => {
+                              setEditingConversationId(item.conversationId);
+                              setEditingName(item.name);
+                            }}
+                            disabled={conversation.streaming}
+                          >
+                            <Pencil aria-hidden="true" />
+                          </Button>
+                          {active ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              aria-label={`Clear ${item.name}`}
+                              onClick={() => void conversation.clearConversation(item.conversationId)}
+                              disabled={conversation.streaming || conversation.conversationLoading}
+                            >
+                              <Trash2 aria-hidden="true" />
+                            </Button>
+                          ) : null}
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-body-sm text-text-secondary">
+                No saved conversations yet. Start a question or create a new thread.
+              </p>
+            )}
+            {conversation.conversationLoading ? (
+              <p role="status" className="text-caption text-text-muted">
+                Loading conversation history…
+              </p>
+            ) : null}
+          </section>
+
           <div
             className="flex flex-col gap-4"
             aria-label="Project Conversation messages"
@@ -311,9 +462,18 @@ export function ProjectConversation({
             </p>
           ) : null}
           {conversation.error ? (
-            <p role="alert" className="text-body-sm text-accent-danger">
-              {conversation.error}
-            </p>
+            <div className="flex flex-wrap items-center gap-3" role="alert">
+              <p className="text-body-sm text-accent-danger">{conversation.error}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void conversation.retry()}
+                disabled={conversation.streaming || conversation.conversationLoading}
+              >
+                Try again
+              </Button>
+            </div>
           ) : null}
 
           {atCap ? (

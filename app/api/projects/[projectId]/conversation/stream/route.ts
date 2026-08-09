@@ -132,6 +132,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const started = await subject.value.groundedAnswers.start(
     parsed.data.question,
+    parsed.data.conversationId,
   );
   switch (started.status) {
     case "limit_reached":
