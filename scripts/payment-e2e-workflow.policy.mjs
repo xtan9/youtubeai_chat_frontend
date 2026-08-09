@@ -19,7 +19,11 @@ test("runs the application and Supabase locally instead of using hosted staging"
 });
 
 test("forwards Stripe sandbox webhooks to the local application", () => {
-  assert.match(workflow, /stripe\/stripe-cli:v1\.45\.1/);
+  assert.match(
+    workflow,
+    /stripe\/stripe-cli:v1\.45\.1@sha256:[a-f0-9]{64}/,
+    "Stripe CLI image must be pinned to an immutable digest",
+  );
   assert.match(workflow, /--network host/);
   assert.match(workflow, /--forward-to http:\/\/127\.0\.0\.1:3000\/api\/webhooks\/stripe/);
   assert.match(workflow, /grep -o 'whsec_\[A-Za-z0-9\]\*'.*\|\| true/);

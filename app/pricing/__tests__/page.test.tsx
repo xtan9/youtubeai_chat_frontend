@@ -186,7 +186,10 @@ describe("PricingPage", () => {
   });
 
   it("does not route while the learner's entitlements are still loading", async () => {
-    (useEntitlements as unknown as Mock).mockReturnValue({ data: undefined });
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: undefined,
+      isPending: true,
+    });
     const fetchSpy = vi.spyOn(global, "fetch");
     renderPage();
 
@@ -196,6 +199,30 @@ describe("PricingPage", () => {
     expect(monthly.disabled).toBe(true);
     fireEvent.click(monthly);
 
+    expect(await getRouterPush()).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry when entitlements fail instead of loading forever", async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: undefined });
+    (useEntitlements as unknown as Mock).mockReturnValue({
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      isPending: false,
+      refetch,
+    });
+    const fetchSpy = vi.spyOn(global, "fetch");
+    renderPage();
+
+    const monthly = screen.getByRole("button", {
+      name: "Retry monthly pricing",
+    }) as HTMLButtonElement;
+    expect(monthly.disabled).toBe(false);
+    expect(screen.getAllByText(/couldn't load your account status/i)).toHaveLength(2);
+    fireEvent.click(monthly);
+
+    await waitFor(() => expect(refetch).toHaveBeenCalledOnce());
     expect(await getRouterPush()).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

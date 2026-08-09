@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           docker run --detach --name payment-e2e-stripe-listener --network host \
-            stripe/stripe-cli:v1.45.1 listen \
+            stripe/stripe-cli:v1.45.1@sha256:bd6a58ce59032d754916a917fb6c0fe87415e516856b5006cd626ed80d16947a listen \
             --api-key "$PAYMENT_E2E_STRIPE_SECRET_KEY" \
             --events checkout.session.completed,customer.subscription.updated,customer.subscription.deleted \
             --forward-to http://127.0.0.1:3000/api/webhooks/stripe
