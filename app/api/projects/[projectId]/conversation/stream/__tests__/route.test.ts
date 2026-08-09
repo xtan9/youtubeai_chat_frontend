@@ -2,18 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const mocks = vi.hoisted(() => ({
-  requireRegisteredResearcher: vi.fn(),
-  createClient: vi.fn(),
-  resolveProjectSubject: vi.fn(),
-  checkRateLimit: vi.fn(),
-  start: vi.fn(),
-  cancel: vi.fn(),
-  complete: vi.fn(),
-  search: vi.fn(),
-  streamChatCompletion: vi.fn(),
-  logAppEvent: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const beginPersistence = vi.fn();
+  return {
+    requireRegisteredResearcher: vi.fn(),
+    createClient: vi.fn(),
+    resolveProjectSubject: vi.fn(),
+    checkRateLimit: vi.fn(),
+    start: vi.fn(),
+    cancel: vi.fn(),
+    beginPersistence,
+    search: vi.fn(),
+    streamChatCompletion: vi.fn(),
+    logAppEvent: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/projects/registered-researcher", () => ({
   requireRegisteredResearcher: mocks.requireRegisteredResearcher,
@@ -39,6 +42,7 @@ const USER_MESSAGE_ID = "40000000-0000-4000-8000-000000000001";
 const ATTEMPT_TOKEN = "50000000-0000-4000-8000-000000000001";
 const ASSISTANT_ID = "60000000-0000-4000-8000-000000000001";
 const VIDEO_ID = "70000000-0000-4000-8000-000000000001";
+const SECOND_VIDEO_ID = "70000000-0000-4000-8000-000000000002";
 const REQUEST_ID = "issue-318-route-test";
 const CONTEXT = { params: Promise.resolve({ projectId: PROJECT_ID }) };
 
@@ -59,12 +63,28 @@ const PASSAGE = {
   truncatedEnd: false,
 } as const;
 
+const SECOND_PASSAGE = {
+  ...PASSAGE,
+  passageId: `${SECOND_VIDEO_ID}:1:0:46`,
+  videoId: SECOND_VIDEO_ID,
+  youtubeVideoId: "aaaaaaa0002",
+  title: "Regional launch notes",
+  channelName: "Second research channel",
+  text: "La fuente dice que el lanzamiento fue en mayo.",
+  excerptEndCharacter: 46,
+  startSeconds: 52,
+  endSeconds: 68,
+  language: "es",
+} as const;
+
 const READY_SEARCH = {
   status: "ready" as const,
   sourceSetRevision: 3,
   coverage: {
-    totalVideos: 1,
-    readyVideos: 1,
+    // The second ready Video has durable, numeric negative-timed Transcript
+    // data. It counts as ready by #317 parity but contributes no usable passage.
+    totalVideos: 2,
+    readyVideos: 2,
     unavailableVideos: [],
     passagesExamined: 9,
   },
@@ -102,13 +122,16 @@ const BALANCED_SEARCH = {
 
 const STARTED = {
   status: "started" as const,
+  created: true,
   conversationId: CONVERSATION_ID,
   userMessageId: USER_MESSAGE_ID,
   attemptToken: ATTEMPT_TOKEN,
+  completionState: "reserved" as const,
   messagesUsed: 1,
   messagesLimit: 5 as const,
   tier: "free" as const,
   history: [],
+  goal: "Focus on launches, but this is not evidence.",
 };
 
 const SUBJECT = {
@@ -121,9 +144,11 @@ const SUBJECT = {
   lastActiveAt: "2026-08-09T00:00:00.000Z",
   groundedAnswers: {
     load: vi.fn(),
+    loadAttempt: vi.fn(),
     start: mocks.start,
     cancel: mocks.cancel,
-    complete: mocks.complete,
+    beginPersistence: mocks.beginPersistence,
+    complete: vi.fn(),
   },
   passageSearch: { search: mocks.search },
 };
@@ -139,19 +164,23 @@ function request(
     | "find_gaps"
     | "project_assessment",
 ) {
-  return new Request(`http://test/api/projects/${PROJECT_ID}/conversation/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-ID": REQUEST_ID,
+  return new Request(
+    `http://test/api/projects/${PROJECT_ID}/conversation/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-ID": REQUEST_ID,
+      },
+      body: JSON.stringify({
+        questionId: USER_MESSAGE_ID,
+        question,
+        ...(conversationId ? { conversationId } : {}),
+        ...(mode ? { mode } : {}),
+      }),
+      signal,
     },
-    body: JSON.stringify({
-      question,
-      ...(conversationId ? { conversationId } : {}),
-      ...(mode ? { mode } : {}),
-    }),
-    signal,
-  });
+  );
 }
 
 async function events(response: Response) {
@@ -184,19 +213,22 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     mocks.checkRateLimit.mockResolvedValue({ allowed: true, remaining: 99 });
     mocks.start.mockResolvedValue(STARTED);
     mocks.cancel.mockResolvedValue({ status: "cancelled" });
+    mocks.beginPersistence.mockResolvedValue({ status: "started" });
     mocks.search.mockResolvedValue(READY_SEARCH);
-    mocks.complete.mockResolvedValue({
-      outcome: "completed",
+    mocks.beginPersistence.mockImplementation(async (input) => ({
+      outcome: "completed" as const,
       assistantMessageId: ASSISTANT_ID,
-    });
+      answerClassification: input.classification,
+      citationDiagnostics: [],
+    }));
     model("SUPPORTED\nThe launch", " happened in April [S1 @ 00:42].");
   });
 
   it("validates strict code-point-bounded input before any auth or database work", async () => {
     for (const body of [
-      { question: "x" },
-      { question: "x".repeat(201) },
-      { question: "valid", ownerId: USER_ID },
+      { questionId: USER_MESSAGE_ID, question: "x" },
+      { questionId: USER_MESSAGE_ID, question: "x".repeat(201) },
+      { questionId: USER_MESSAGE_ID, question: "valid", ownerId: USER_ID },
     ]) {
       const response = await POST(
         new Request("http://test", {
@@ -231,7 +263,10 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
 
   it("keeps foreign and nonexistent Projects indistinguishable", async () => {
     const bodies = [];
-    for (const projectId of [PROJECT_ID, "10000000-0000-4000-8000-000000000009"]) {
+    for (const projectId of [
+      PROJECT_ID,
+      "10000000-0000-4000-8000-000000000009",
+    ]) {
       mocks.resolveProjectSubject.mockResolvedValueOnce({ kind: "missing" });
       const response = await POST(request(), {
         params: Promise.resolve({ projectId }),
@@ -261,12 +296,21 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     );
     await response.text();
     expect(mocks.start).toHaveBeenCalledWith(
+      USER_MESSAGE_ID,
       "When did the launch happen?",
       CONVERSATION_ID,
+      "question",
     );
   });
 
   it("keeps guided synthesis on the grounded stream, persistence, and citation path", async () => {
+    mocks.search.mockResolvedValueOnce({
+      ...READY_SEARCH,
+      passages: [PASSAGE, SECOND_PASSAGE],
+    });
+    model(
+      "SUPPORTED\nOne source says April [S1 @ 00:42], while another says May [S2 @ 00:52].",
+    );
     const response = await POST(
       request(
         "Compare the edited viewpoints without averaging them.",
@@ -279,6 +323,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     const streamed = await events(response);
 
     expect(mocks.start).toHaveBeenCalledWith(
+      USER_MESSAGE_ID,
       "Compare the edited viewpoints without averaging them.",
       undefined,
       "compare_viewpoints",
@@ -288,7 +333,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       classification: "supported",
       mode: "compare_viewpoints",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         classification: "supported",
         mode: "compare_viewpoints",
@@ -298,11 +343,13 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       .content as string;
     expect(prompt).toContain("GUIDED_SYNTHESIS_MODE: COMPARE_VIEWPOINTS");
     expect(prompt).toContain("Do not average, merge, or manufacture consensus");
+    expect(prompt).toContain("La fuente dice que el lanzamiento fue en mayo.");
   });
 
   it("keeps Project Assessment source claims, criteria, and confidence on the grounded path", async () => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
     model(
-      "SUPPORTED\nProject Assessment\n\nCompeting positions\nThe launch-in-April position is supported by the available passage [S1 @ 00:42].\n\nCriteria\nDirectness and relevance support this position [S1 @ 00:42].\n\nConfidence: medium",
+      "SUPPORTED\nProject Assessment\n\nCompeting positions\nThe launch-in-April position is supported by the available passage [S1 @ 00:42]. The May position depends on local testing [S2 @ 00:44].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:44].\n\nConfidence: medium",
     );
     const response = await POST(
       request(
@@ -316,6 +363,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     const streamed = await events(response);
 
     expect(mocks.start).toHaveBeenCalledWith(
+      USER_MESSAGE_ID,
       "Which launch timing is better supported?",
       undefined,
       "project_assessment",
@@ -330,7 +378,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       classification: "supported",
       mode: "project_assessment",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "project_assessment" }),
     );
     const prompt = mocks.streamChatCompletion.mock.calls[0]?.[0].messages[0]
@@ -341,7 +389,10 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
   });
 
   it("abstains deterministically instead of persisting malformed Project Assessment prose", async () => {
-    model("SUPPORTED\nProject Assessment\nApril seems better supported [S1 @ 00:42].");
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
+    model(
+      "SUPPORTED\nProject Assessment\nApril seems better supported [S1 @ 00:42].",
+    );
     const streamed = await events(
       await POST(
         request(
@@ -368,7 +419,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       type: "delta",
       text: "The Project evidence cannot resolve which position is better supported, so I can't provide a Project Assessment without guessing.",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         classification: "abstained",
         assistantContent:
@@ -378,6 +429,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
   });
 
   it("buffers every structured model chunk until the response contract passes", async () => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
     model(
       "SUPPORTED\nProject Assessment\n\nCompeting positions\nLeaked before validation [S1 @ 00:42].",
       "\n\nThis unstructured continuation is also not safe [S1 @ 00:42].",
@@ -401,7 +453,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       classification: "abstained",
       mode: "project_assessment",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "abstained" }),
     );
   });
@@ -429,7 +481,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       classification: "abstained",
       mode: "project_assessment",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "abstained" }),
     );
   });
@@ -461,10 +513,10 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       type: "delta",
       text: expect.stringContaining("April is supported"),
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "supported" }),
     );
-    const completion = mocks.complete.mock.calls[0]?.[0] as {
+    const completion = mocks.beginPersistence.mock.calls[0]?.[0] as {
       assistantContent: string;
       artifacts: {
         sourceManifest: { sources: Array<{ sourceId: string }> };
@@ -472,13 +524,15 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     };
     expect(completion.assistantContent).toContain("[S1 @ 00:42]");
     expect(completion.assistantContent).toContain("[S2 @ 00:44]");
-    expect(completion.artifacts.sourceManifest.sources.map((source) => source.sourceId)).toEqual([
-      "S1",
-      "S2",
-    ]);
+    expect(
+      completion.artifacts.sourceManifest.sources.map(
+        (source) => source.sourceId,
+      ),
+    ).toEqual(["S1", "S2"]);
   });
 
   it("uses a deterministic Project Assessment abstention when evidence cannot resolve a position", async () => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
     model("ABSTAINED\nThe model must not expose this unsupported claim.");
     const streamed = await events(
       await POST(
@@ -497,7 +551,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       type: "delta",
       text: "The Project evidence cannot resolve which position is better supported, so I can't provide a Project Assessment without guessing.",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         classification: "abstained",
         mode: "project_assessment",
@@ -530,12 +584,12 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       ),
     );
 
-    expect(streamed[2]).toEqual({
+    expect(streamed[3]).toEqual({
       type: "answer_start",
       classification: "unsupported",
       mode: "find_gaps",
     });
-    expect(streamed[3]).toEqual({
+    expect(streamed[4]).toEqual({
       type: "delta",
       text: "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
     });
@@ -572,7 +626,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       type: "delta",
       text: "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         classification: "abstained",
         assistantContent:
@@ -580,6 +634,41 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       }),
     );
   });
+  it.each([0, 1])(
+    "durably declines guided synthesis with %i evidenced Videos without a provider call",
+    async (sourceCount) => {
+      mocks.search.mockResolvedValueOnce({
+        ...READY_SEARCH,
+        passages: [PASSAGE].slice(0, sourceCount),
+      });
+
+      const streamed = await events(
+        await POST(
+          request(
+            "Compare the evidence without inventing consensus.",
+            undefined,
+            undefined,
+            "compare_viewpoints",
+          ),
+          CONTEXT,
+        ),
+      );
+
+      expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+      expect(streamed).toContainEqual({
+        type: "answer_start",
+        classification: "unsupported",
+        mode: "compare_viewpoints",
+      });
+      expect(mocks.beginPersistence).toHaveBeenCalledWith(
+        expect.objectContaining({
+          classification: "unsupported",
+          mode: "compare_viewpoints",
+        }),
+      );
+      expect(streamed.at(-1)).toMatchObject({ type: "done" });
+    },
+  );
 
   it("preserves the stable 402 chat envelope and consumes no retrieval/provider work", async () => {
     mocks.start.mockResolvedValue({
@@ -603,48 +692,85 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
+  it.each(["reserved", "completed", "cancelled"] as const)(
+    "reconciles an existing same-ID %s attempt without duplicate generation",
+    async (completionState) => {
+      mocks.start.mockResolvedValue({
+        ...STARTED,
+        created: false,
+        completionState,
+      });
+
+      const response = await POST(request(), CONTEXT);
+
+      expect(response.status).toBe(409);
+      expect(response.headers.get("X-Project-Question-Message-ID")).toBe(
+        USER_MESSAGE_ID,
+      );
+      await expect(response.json()).resolves.toEqual({
+        message: "This Project question is already reserved.",
+        errorCode: "project_question_exists",
+        completionState,
+        questionId: USER_MESSAGE_ID,
+      });
+      expect(mocks.search).not.toHaveBeenCalled();
+      expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+      expect(mocks.beginPersistence).not.toHaveBeenCalled();
+      expect(mocks.cancel).not.toHaveBeenCalled();
+    },
+  );
+
   it("emits manifest and exact coverage before any assistant event, hides the control line, and persists before done", async () => {
     const response = await POST(request(), CONTEXT);
+    expect(mocks.start).toHaveBeenCalledWith(
+      USER_MESSAGE_ID,
+      "When did the launch happen?",
+      undefined,
+      "question",
+    );
     expect(response.headers.get("X-Project-Question-Message-ID")).toBe(
       USER_MESSAGE_ID,
     );
     const streamed = await events(response);
     expect(streamed.map((event) => event.type)).toEqual([
+      "question_reserved",
       "source_manifest",
       "source_coverage",
       "answer_start",
       "delta",
-      "delta",
+      "persistence_started",
       "citation_diagnostics",
       "done",
     ]);
-    expect(streamed[0]).toMatchObject({
+    expect(streamed[0]).toEqual({
+      type: "question_reserved",
+      userMessageId: USER_MESSAGE_ID,
+    });
+    expect(streamed[1]).toMatchObject({
       manifest: { sourceSetRevision: 3, sources: [{ sourceId: "S1" }] },
     });
-    expect(streamed[1]).toEqual({
+    expect(streamed[2]).toEqual({
       type: "source_coverage",
       coverage: {
-        totalVideos: 1,
-        readyVideos: 1,
-        evidenceVideos: 1,
+        totalVideos: 2,
+        readyVideos: 2,
+        usedVideos: 1,
         unavailableVideos: [],
         passagesExamined: 9,
-        evidencePassages: 1,
+        passagesUsed: 1,
       },
     });
     expect(JSON.stringify(streamed)).not.toContain("SUPPORTED\\n");
-    expect(mocks.complete).toHaveBeenCalledOnce();
+    expect(mocks.beginPersistence).toHaveBeenCalledOnce();
     expect(streamed.at(-1)).toEqual({
       type: "done",
       assistantMessageId: ASSISTANT_ID,
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         reservation: expect.objectContaining({ attemptToken: ATTEMPT_TOKEN }),
-        assistantContent:
-          "The launch happened in April [S1 @ 00:42].",
+        assistantContent: "The launch happened in April [S1 @ 00:42].",
         classification: "supported",
-        citationDiagnostics: [],
       }),
     );
     const prompt = mocks.streamChatCompletion.mock.calls[0]?.[0].messages[0]
@@ -654,12 +780,42 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(prompt).not.toContain("Summary evidence");
   });
 
+  it("emits the exact reservation before passage retrieval can finish", async () => {
+    let releaseSearch!: () => void;
+    const searchGate = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    mocks.search.mockImplementation(async () => {
+      await searchGate;
+      return READY_SEARCH;
+    });
+
+    const response = await POST(request(), CONTEXT);
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(JSON.parse(first.slice(6))).toEqual({
+      type: "question_reserved",
+      userMessageId: USER_MESSAGE_ID,
+    });
+    expect(mocks.search).toHaveBeenCalledOnce();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    releaseSearch();
+    await reader.cancel();
+  });
+
   it("waits for the atomic terminal write before emitting done", async () => {
     let release!: () => void;
-    const waiting = new Promise<void>((resolve) => { release = resolve; });
-    mocks.complete.mockImplementation(async () => {
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mocks.beginPersistence.mockImplementation(async () => {
       await waiting;
-      return { outcome: "completed", assistantMessageId: ASSISTANT_ID };
+      return {
+        outcome: "completed",
+        assistantMessageId: ASSISTANT_ID,
+        answerClassification: "supported",
+        citationDiagnostics: [],
+      };
     });
     const response = await POST(request(), CONTEXT);
     let streamSettled = false;
@@ -667,7 +823,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       streamSettled = true;
       return value;
     });
-    await vi.waitFor(() => expect(mocks.complete).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mocks.beginPersistence).toHaveBeenCalledOnce());
     expect(streamSettled).toBe(false);
     release();
     expect((await streamed).at(-1)).toEqual({
@@ -680,55 +836,68 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     const answer =
       "The launch is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
     model(`SUPPORTED\n${answer}`);
+    const authoritativeDiagnostics = [
+      { kind: "unknown_source", raw: "[S9 @ 00:10]", sourceId: "S9" },
+      {
+        kind: "timestamp_not_in_evidence",
+        raw: "[S1 @ 00:43]",
+        sourceId: "S1",
+      },
+      { kind: "malformed", raw: "[S1 at 00:42]" },
+    ];
+    mocks.beginPersistence.mockResolvedValue({
+      outcome: "completed",
+      assistantMessageId: ASSISTANT_ID,
+      answerClassification: "supported",
+      citationDiagnostics: authoritativeDiagnostics,
+    });
     const streamed = await events(await POST(request(), CONTEXT));
 
     expect(streamed.map((event) => event.type)).toContain("done");
-    expect(streamed.find((event) => event.type === "citation_diagnostics"))
-      .toEqual({
-        type: "citation_diagnostics",
-        diagnostics: [
-          { kind: "unknown_source", raw: "[S9 @ 00:10]", sourceId: "S9" },
-          {
-            kind: "timestamp_not_in_evidence",
-            raw: "[S1 @ 00:43]",
-            sourceId: "S1",
-          },
-          { kind: "malformed", raw: "[S1 at 00:42]" },
-        ],
-      });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(
+      streamed.find((event) => event.type === "citation_diagnostics"),
+    ).toEqual({
+      type: "citation_diagnostics",
+      diagnostics: authoritativeDiagnostics,
+    });
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         assistantContent: answer,
-        citationDiagnostics: expect.arrayContaining([
-          expect.objectContaining({ kind: "unknown_source" }),
-          expect.objectContaining({ kind: "timestamp_not_in_evidence" }),
-          expect.objectContaining({ kind: "malformed" }),
-        ]),
       }),
     );
   });
 
-  it("discards a model-declared supported answer with no validated citation", async () => {
+  it("durably downgrades a model-declared supported answer with no valid citation", async () => {
     model("SUPPORTED\nThe launch happened in April without a source.");
 
     const streamed = await events(await POST(request(), CONTEXT));
 
-    expect(streamed.at(-1)).toMatchObject({ type: "error" });
-    expect(streamed.some((event) => event.type === "done")).toBe(false);
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "unsupported",
+    });
+    expect(streamed.at(-1)).toMatchObject({ type: "done" });
     expect(mocks.start).toHaveBeenCalledOnce();
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "unsupported" }),
+    );
   });
 
-  it("discards a supported answer when any additional factual sentence is uncited", async () => {
+  it("durably downgrades supported text when any additional factual sentence is uncited", async () => {
     model(
       "SUPPORTED\nThe launch happened in April [S1 @ 00:42]. It also happened in May.",
     );
 
     const streamed = await events(await POST(request(), CONTEXT));
 
-    expect(streamed.at(-1)).toMatchObject({ type: "error" });
-    expect(streamed.some((event) => event.type === "done")).toBe(false);
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "unsupported",
+    });
+    expect(streamed.at(-1)).toMatchObject({ type: "done" });
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "unsupported" }),
+    );
   });
 
   it("replaces model prose after ABSTAINED with the deterministic safe abstention", async () => {
@@ -745,7 +914,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       type: "delta",
       text: "The Evidence Snapshot does not support a confident answer to this question.",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({
         classification: "abstained",
         assistantContent:
@@ -779,18 +948,20 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     const streamed = await events(await POST(request(), CONTEXT));
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
     expect(streamed.map((event) => event.type)).toEqual([
+      "question_reserved",
       "source_manifest",
       "source_coverage",
       "answer_start",
       "delta",
+      "persistence_started",
       "citation_diagnostics",
       "done",
     ]);
-    expect(streamed[2]).toEqual({
+    expect(streamed[3]).toEqual({
       type: "answer_start",
       classification: "unsupported",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "unsupported" }),
     );
   });
@@ -811,44 +982,84 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     const streamed = await events(await POST(request(), CONTEXT));
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
     expect(streamed.map((event) => event.type)).toEqual([
+      "question_reserved",
       "source_manifest",
       "source_coverage",
       "answer_start",
       "delta",
+      "persistence_started",
       "citation_diagnostics",
       "done",
     ]);
-    expect(streamed[2]).toEqual({
+    expect(streamed[3]).toEqual({
       type: "answer_start",
       classification: "unsupported",
     });
-    expect(streamed[3]).toEqual({
+    expect(streamed[4]).toEqual({
       type: "delta",
       text: "The available Project passages do not support an answer to this question.",
     });
-    expect(mocks.complete).toHaveBeenCalledWith(
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "unsupported" }),
     );
   });
 
   it.each([
-    ["invalid control line", async function* () { yield { type: "delta", text: "MAYBE\nanswer" }; }],
-    ["control line with extra text", async function* () { yield { type: "delta", text: "SUPPORTED extra\nanswer [S1 @ 00:42]." }; }],
-    ["contradictory control line", async function* () { yield { type: "delta", text: "SUPPORTED\nABSTAINED\nanswer [S1 @ 00:42]." }; }],
-    ["empty answer", async function* () { yield { type: "delta", text: "SUPPORTED\n" }; }],
-    ["provider failure", async function* () { yield { type: "delta", text: "SUPPORTED\npartial" }; throw new Error("gateway failed"); }],
-  ])("keeps the reserved user only after %s", async (_name, generator) => {
+    [
+      "invalid control line",
+      async function* () {
+        yield { type: "delta", text: "MAYBE\nanswer" };
+      },
+    ],
+    [
+      "control line with extra text",
+      async function* () {
+        yield { type: "delta", text: "SUPPORTED extra\nanswer [S1 @ 00:42]." };
+      },
+    ],
+    [
+      "contradictory control line",
+      async function* () {
+        yield {
+          type: "delta",
+          text: "SUPPORTED\nABSTAINED\nanswer [S1 @ 00:42].",
+        };
+      },
+    ],
+    [
+      "empty answer",
+      async function* () {
+        yield { type: "delta", text: "SUPPORTED\n" };
+      },
+    ],
+    [
+      "provider failure",
+      async function* () {
+        yield { type: "delta", text: "SUPPORTED\npartial" };
+        throw new Error("gateway failed");
+      },
+    ],
+  ])("cancels the reserved attempt after %s", async (_name, generator) => {
     mocks.streamChatCompletion.mockImplementation(generator);
     const streamed = await events(await POST(request(), CONTEXT));
     expect(streamed.at(-1)).toMatchObject({ type: "error" });
     expect(streamed.some((event) => event.type === "done")).toBe(false);
     expect(mocks.start).toHaveBeenCalledOnce();
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.beginPersistence).not.toHaveBeenCalled();
+    expect(mocks.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: STARTED.conversationId,
+        userMessageId: STARTED.userMessageId,
+        attemptToken: STARTED.attemptToken,
+      }),
+    );
   });
 
   it("does not persist a partial assistant when the consumer cancels", async () => {
     let release!: () => void;
-    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta", text: "SUPPORTED\npartial" };
       await wait;
@@ -859,41 +1070,105 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     await reader.read();
     await reader.read();
     await reader.read();
-    await reader.read();
     const cancelled = reader.cancel();
     release();
     await cancelled;
     await Promise.resolve();
     expect(mocks.start).toHaveBeenCalledOnce();
-    expect(mocks.cancel).toHaveBeenCalledWith(USER_MESSAGE_ID);
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: STARTED.conversationId,
+        userMessageId: STARTED.userMessageId,
+        attemptToken: STARTED.attemptToken,
+      }),
+    );
+    expect(mocks.beginPersistence).not.toHaveBeenCalled();
   });
 
-  it("fences a cancellation while terminal completion is blocked", async () => {
+  it("lets the atomic terminal write win when the consumer cancels in-flight", async () => {
     let release!: () => void;
+    let completionFinished = false;
     const waiting = new Promise<void>((resolve) => {
       release = resolve;
     });
-    mocks.complete.mockImplementation(async () => {
+    mocks.beginPersistence.mockImplementation(async () => {
       await waiting;
-      return { outcome: "completed", assistantMessageId: ASSISTANT_ID };
+      completionFinished = true;
+      return {
+        outcome: "completed",
+        assistantMessageId: ASSISTANT_ID,
+        answerClassification: "supported",
+        citationDiagnostics: [],
+      };
+    });
+    mocks.cancel.mockImplementation(async () => {
+      await waiting;
+      return { status: "completed", assistantMessageId: ASSISTANT_ID };
     });
 
     const response = await POST(request(), CONTEXT);
     const reader = response.body!.getReader();
-    await vi.waitFor(() => expect(mocks.complete).toHaveBeenCalledOnce());
-    await reader.cancel();
-    expect(mocks.cancel).toHaveBeenCalledWith(USER_MESSAGE_ID);
-    release();
+    await vi.waitFor(() => expect(mocks.beginPersistence).toHaveBeenCalledOnce());
+    const cancelled = reader.cancel();
     await vi.waitFor(() => expect(mocks.cancel).toHaveBeenCalledOnce());
+    expect(mocks.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessageId: USER_MESSAGE_ID }),
+    );
+    release();
+    await cancelled;
+    await vi.waitFor(() => expect(completionFinished).toBe(true));
+    expect(mocks.beginPersistence).toHaveBeenCalledOnce();
   });
 
   it("emits an error without done when terminal persistence fails", async () => {
-    mocks.complete.mockResolvedValue({ outcome: "stale" });
+    mocks.beginPersistence.mockResolvedValue({ outcome: "stale" });
     const streamed = await events(await POST(request(), CONTEXT));
     expect(streamed.at(-1)).toMatchObject({ type: "error" });
     expect(streamed.some((event) => event.type === "done")).toBe(false);
+    expect(mocks.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessageId: USER_MESSAGE_ID }),
+    );
   });
+
+  it.each([
+    [
+      "stale completion",
+      () => mocks.beginPersistence.mockResolvedValue({ outcome: "stale" }),
+      () =>
+        mocks.cancel
+          .mockResolvedValueOnce({ status: "unavailable" })
+          .mockResolvedValueOnce({ status: "unavailable" })
+          .mockResolvedValueOnce({ status: "cancelled" }),
+    ],
+    [
+      "thrown completion and transient cancel exceptions",
+      () => mocks.beginPersistence.mockRejectedValue(new Error("database unavailable")),
+      () =>
+        mocks.cancel
+          .mockRejectedValueOnce(new Error("cancel unavailable"))
+          .mockRejectedValueOnce(new Error("cancel unavailable"))
+          .mockResolvedValueOnce({ status: "cancelled" }),
+    ],
+  ])(
+    "retries token-fenced cancellation after %s",
+    async (_name, arrangeCompletion, arrangeCancellation) => {
+      arrangeCompletion();
+      arrangeCancellation();
+
+      const streamed = await events(await POST(request(), CONTEXT));
+
+      expect(streamed.at(-1)).toMatchObject({ type: "error" });
+      expect(streamed.some((event) => event.type === "done")).toBe(false);
+      expect(mocks.cancel).toHaveBeenCalledTimes(3);
+      for (const call of mocks.cancel.mock.calls) {
+        expect(call[0]).toMatchObject({
+          conversationId: CONVERSATION_ID,
+          userMessageId: USER_MESSAGE_ID,
+          attemptToken: ATTEMPT_TOKEN,
+        });
+      }
+    },
+  );
 
   it.each([
     ["missing", 404, null],
@@ -913,21 +1188,25 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     },
   );
 
-  it.each([
-    ["missing", 404, null],
-    ["invalid", 503, "PROJECTS_UNAVAILABLE"],
-    ["unavailable", 503, "PROJECTS_UNAVAILABLE"],
-  ])(
-    "handles a %s passage-search outcome without provider work",
-    async (status, expectedStatus, errorId) => {
+  it.each(["missing", "invalid", "unavailable"])(
+    "cancels the reservation and emits a stream error for %s passage search",
+    async (status) => {
       mocks.search.mockResolvedValue({ status });
       const response = await POST(request(), CONTEXT);
-      expect(response.status).toBe(expectedStatus);
+      expect(response.status).toBe(200);
+      const streamed = await events(response);
+      expect(streamed[0]).toEqual({
+        type: "question_reserved",
+        userMessageId: USER_MESSAGE_ID,
+      });
+      expect(streamed.at(-1)).toMatchObject({ type: "error" });
       expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
-      if (errorId) {
-        expect(response.headers.get("X-Request-ID")).toBe(REQUEST_ID);
-        expect(response.headers.get("X-Error-ID")).toBe(errorId);
-      }
+      expect(mocks.cancel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userMessageId: STARTED.userMessageId,
+          attemptToken: STARTED.attemptToken,
+        }),
+      );
     },
   );
 

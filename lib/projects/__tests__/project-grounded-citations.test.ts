@@ -93,6 +93,45 @@ describe("Project Grounded Answer citation validation", () => {
     ).toBe(content);
   });
 
+  it.each([
+    "[[S1 @ 00:42]]",
+    "[[S1 @ 00:42]",
+    "[ [S1 @ 00:42] ]",
+    "[prefix [S1 @ 00:42]]",
+    "[prefix [S1 @ 00:42]",
+  ])("keeps the whole containing malformed range plain: %s", (content) => {
+    expect(inspectProjectCitations(content, manifest())).toMatchObject({
+      validCitationCount: 0,
+      diagnostics: [{ kind: "malformed", raw: content }],
+    });
+    expect(parseProjectCitations(content, manifest())).toEqual([
+      { type: "text", value: content },
+    ]);
+  });
+
+  it("detects a marker after astral text and truncates raw by Unicode code point", () => {
+    const malformed = `[${"😀".repeat(90)} S1 at 00:42]`;
+    const valid = "Evidence 😀 [S1 @ 00:42].";
+    const inspection = inspectProjectCitations(
+      `${valid} Malformed ${malformed}`,
+      manifest(),
+    );
+
+    expect(inspection.validCitationCount).toBe(1);
+    expect(inspection.diagnostics).toEqual([
+      {
+        kind: "malformed",
+        raw: Array.from(malformed).slice(0, 80).join(""),
+      },
+    ]);
+    expect(Array.from(inspection.diagnostics[0]!.raw)).toHaveLength(80);
+    expect(parseProjectCitations(valid, manifest())).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "citation", raw: "[S1 @ 00:42]" }),
+      ]),
+    );
+  });
+
   it("requires a validated citation in every supported factual sentence", () => {
     expect(
       inspectProjectCitations(
@@ -115,6 +154,17 @@ describe("Project Grounded Answer citation validation", () => {
         manifest(),
       ).allClaimsCited,
     ).toBe(true);
+  });
+
+  it("exempts the required Assessment headings and confidence line", () => {
+    const inspection = inspectProjectCitations(
+      "Project Assessment\nCompeting positions\nApril is supported [S1 @ 00:42].\nCriteria\nDirectness favors April [S1 @ 00:42].\nConfidence: medium",
+      manifest(),
+    );
+
+    expect(inspection.validCitationCount).toBe(2);
+    expect(inspection.allClaimsCited).toBe(true);
+    expect(inspection.validSourceIds).toEqual(["S1"]);
   });
 
   it("keeps a cited gap proposal valid when punctuation follows the citation", () => {

@@ -382,6 +382,11 @@ begin
   );
   if balanced_result ->> 'outcome' <> 'ready'
     or jsonb_array_length(balanced_result -> 'passages') <> 2
+    or (balanced_result #>> '{coverage,totalVideos}')::integer <> 4
+    or (balanced_result #>> '{coverage,readyVideos}')::integer <> 3
+    or jsonb_array_length(
+      balanced_result #> '{coverage,unavailableVideos}'
+    ) <> 1
     or not exists (
       select 1
       from jsonb_array_elements(balanced_result -> 'passages') as item(value)
@@ -406,11 +411,12 @@ begin
       where item.value ->> 'videoId' = 'a3222000-0000-4000-8000-000000000004'
         and item.value ->> 'failureCode' = 'evidence_unavailable'
     )
-    or not exists (
+    or exists (
       select 1
-      from jsonb_array_elements(balanced_result #> '{coverage,unavailableVideos}') as item(value)
+      from jsonb_array_elements(
+        balanced_result #> '{coverage,unavailableVideos}'
+      ) as item(value)
       where item.value ->> 'videoId' = 'a3222000-0000-4000-8000-000000000005'
-        and item.value ->> 'failureCode' = 'evidence_unavailable'
     )
   then
     raise exception 'REGRESSION: balanced assessment retrieval dropped a competing source: %', balanced_result;

@@ -94,8 +94,8 @@ values
     '87000000-0000-4000-8000-000000000007',
     'https://www.youtube.com/watch?v=ggggggg1007',
     'ggggggg1007',
-    'Malformed ready evidence',
-    'Evidence Repair Lab',
+    'Negative timing readiness evidence',
+    'Evidence Boundary Lab',
     'en'
   );
 
@@ -223,7 +223,7 @@ values
     '87000000-0000-4000-8000-000000000007',
     'manual_captions',
     'en',
-    '[{"text":"huge numeric timestamp","start":1e1000,"duration":4},{"text":"non-finite timestamp","start":"NaN","duration":"Infinity"}]'::jsonb
+    '[{"text":"negative timing must never become a passage","start":-4,"duration":3},{"text":"huge numeric timestamp","start":1e1000,"duration":4},{"text":"non-finite timestamp","start":"NaN","duration":"Infinity"}]'::jsonb
   );
 
 insert into public.summaries (
@@ -253,7 +253,7 @@ values
   ),
   (
     '87000000-0000-4000-8000-000000000007',
-    'Malformed ready summary',
+    'Negative timing readiness summary',
     'manual_captions',
     null
   );
@@ -336,6 +336,7 @@ begin
 
   if project_private.safe_transcript_seconds('1e1000'::jsonb) is not null
     or project_private.safe_transcript_seconds('"NaN"'::jsonb) is not null
+    or project_private.safe_transcript_seconds('-4'::jsonb) is distinct from -4
     or (select occurrence_count from project_private.literal_term_summary('said', 'ai')) <> 0
     or (select occurrence_count from project_private.literal_term_summary('ai!', 'ai')) <> 1
     or (select first_position from project_private.literal_term_summary('ai!', 'ai')) <> 1
@@ -403,6 +404,25 @@ begin
   then
     raise exception 'REGRESSION: Project Search private helper semantics drifted';
   end if;
+
+  if (
+    select pg_catalog.array_agg(
+      namespaces.nspname || '.' || procedures.proname
+      order by namespaces.nspname, procedures.proname
+    )
+    from pg_catalog.pg_proc as procedures
+    join pg_catalog.pg_namespace as namespaces
+      on namespaces.oid = procedures.pronamespace
+    where procedures.oid <>
+      'project_private.safe_transcript_seconds(jsonb)'::regprocedure
+      and procedures.prosrc like '%project_private.safe_transcript_seconds(%'
+  ) is distinct from array[
+    'project_private.project_grounded_live_source_projection_v2',
+    'public.search_project_transcript_passages',
+    'public.search_project_transcript_passages_balanced'
+  ]::text[] then
+    raise exception 'REGRESSION: safe Transcript timing gained an unaudited function consumer';
+  end if;
 end;
 $$;
 
@@ -452,23 +472,24 @@ begin
   if result ->> 'outcome' <> 'ready'
     or (result ->> 'sourceSetRevision')::integer <> 11
     or (result #>> '{coverage,totalVideos}')::integer <> 5
-    or (result #>> '{coverage,readyVideos}')::integer <> 2
-    or pg_catalog.jsonb_array_length(result #> '{coverage,unavailableVideos}') <> 3
-    or result #>> '{coverage,unavailableVideos,2,failureCode}' <> 'evidence_unavailable'
-    or not exists (
-      select 1
-      from pg_catalog.jsonb_array_elements(
-        result #> '{coverage,unavailableVideos}'
-      ) as unavailable(video)
-      where unavailable.video #>> '{videoId}'
-        = '87000000-0000-4000-8000-000000000007'
-        and unavailable.video #>> '{failureCode}' = 'evidence_unavailable'
-    )
+    or (result #>> '{coverage,readyVideos}')::integer <> 3
+    or (result #>> '{coverage,passagesExamined}')::integer <> 33
+    or pg_catalog.jsonb_array_length(result #> '{coverage,unavailableVideos}') <> 2
     or result #>> '{passages,0,videoId}' <> '81000000-0000-4000-8000-000000000001'
     or result #>> '{passages,0,youtubeVideoId}' <> 'aaaaaaa1001'
     or (result #>> '{passages,0,startSeconds}')::numeric <> 42
     or result #>> '{passages,0,text}' <> '   Solar solar solar evidence is repeated but stable.'
     or (result #>> '{passages,0,excerptStartCharacter}')::integer <> 0
+    or exists (
+      select 1
+      from pg_catalog.jsonb_array_elements(result -> 'passages') as passage(item)
+      where passage.item ->> 'videoId' = '87000000-0000-4000-8000-000000000007'
+        or (passage.item ->> 'startSeconds')::numeric < 0
+        or (
+          passage.item -> 'endSeconds' <> 'null'::jsonb
+          and (passage.item ->> 'endSeconds')::numeric < 0
+        )
+    )
   then
     raise exception 'REGRESSION: owner Search identity, coverage, or exact text drifted: %', result;
   end if;
@@ -589,7 +610,7 @@ begin
   );
   if result ->> 'outcome' <> 'no_results'
     or pg_catalog.jsonb_array_length(result -> 'passages') <> 0
-    or pg_catalog.jsonb_array_length(result #> '{coverage,unavailableVideos}') <> 3
+    or pg_catalog.jsonb_array_length(result #> '{coverage,unavailableVideos}') <> 2
   then
     raise exception 'REGRESSION: partial-coverage no-results classification drifted: %', result;
   end if;

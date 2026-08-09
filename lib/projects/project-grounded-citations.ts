@@ -27,35 +27,41 @@ type BracketCandidate = {
 };
 
 function bracketCandidates(content: string): readonly BracketCandidate[] {
+  const characters = Array.from(content);
   const candidates: BracketCandidate[] = [];
-  for (let index = 0; index < content.length; index += 1) {
-    if (content[index] !== "[") continue;
-    const start = index;
-    let depth = 0;
-    let closed = false;
-    let end = content.length;
-    for (let cursor = index; cursor < content.length; cursor += 1) {
-      const character = content[cursor];
-      if (character === "\n") {
-        end = cursor;
-        break;
+  let depth = 0;
+  let startCharacterIndex = 0;
+  let startCodeUnitIndex = 0;
+  let codeUnitIndex = 0;
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index];
+    if (character === "[") {
+      if (depth === 0) {
+        startCharacterIndex = index;
+        startCodeUnitIndex = codeUnitIndex;
       }
-      if (character === "[") depth += 1;
-      if (character !== "]") continue;
+      depth += 1;
+    } else if (character === "]" && depth > 0) {
       depth -= 1;
       if (depth === 0) {
-        end = cursor + 1;
-        closed = true;
-        break;
+        const end = codeUnitIndex + character.length;
+        candidates.push({
+          raw: characters.slice(startCharacterIndex, index + 1).join(""),
+          start: startCodeUnitIndex,
+          end,
+          closed: true,
+        });
       }
     }
+    codeUnitIndex += character.length;
+  }
+  if (depth > 0) {
     candidates.push({
-      raw: content.slice(start, end),
-      start,
-      end,
-      closed,
+      raw: characters.slice(startCharacterIndex).join(""),
+      start: startCodeUnitIndex,
+      end: content.length,
+      closed: false,
     });
-    index = Math.max(index, end - 1);
   }
   return candidates;
 }
@@ -65,7 +71,34 @@ function looksLikeCitation(raw: string) {
 }
 
 function diagnosticRaw(raw: string) {
-  return raw.slice(0, 80);
+  return Array.from(raw).slice(0, 80).join("");
+}
+
+function claimRanges(content: string) {
+  const characters = Array.from(content);
+  const ranges: Array<readonly [number, number]> = [];
+  let depth = 0;
+  let claimStart = 0;
+  let codeUnitIndex = 0;
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index];
+    if (character === "[") depth += 1;
+    else if (character === "]" && depth > 0) depth -= 1;
+    const claimEnd = codeUnitIndex + character.length;
+    const next = characters[index + 1];
+    if (
+      depth === 0 &&
+      (character === "\n" ||
+        (/[.!?\u3002\uff01\uff1f]/u.test(character) &&
+          (next === undefined || /\s/u.test(next))))
+    ) {
+      ranges.push([claimStart, claimEnd]);
+      claimStart = claimEnd;
+    }
+    codeUnitIndex = claimEnd;
+  }
+  if (claimStart < content.length) ranges.push([claimStart, content.length]);
+  return ranges;
 }
 
 function isPresentationHeading(prose: string) {
@@ -153,15 +186,13 @@ export function inspectProjectCitations(
   const diagnostics: ProjectCitationDiagnostic[] = [];
   const validCitations: Array<BracketCandidate> = [];
   const validSourceIds = new Set<string>();
-  for (const candidate of bracketCandidates(content)) {
+  const candidates = bracketCandidates(content);
+  for (const candidate of candidates) {
     const match = candidate.closed
       ? CANONICAL_CITATION.exec(candidate.raw)
       : null;
     if (!match) {
-      if (
-        diagnostics.length < 20 &&
-        looksLikeCitation(candidate.raw)
-      ) {
+      if (diagnostics.length < 20 && looksLikeCitation(candidate.raw)) {
         diagnostics.push({
           kind: "malformed",
           raw: diagnosticRaw(candidate.raw),
@@ -187,33 +218,47 @@ export function inspectProjectCitations(
 
   let allClaimsCited = true;
   let hasClaim = false;
-  const claimBoundary = /[.!?\u3002\uff01\uff1f]+(?=\s|$)|\n+/gu;
-  let claimStart = 0;
-  const inspectClaim = (claimEnd: number) => {
-    const claim = content.slice(claimStart, claimEnd);
-    const candidates = bracketCandidates(claim);
-    let prose = claim;
-    for (const candidate of [...candidates].reverse()) {
-      prose =
-        prose.slice(0, candidate.start) + prose.slice(candidate.end);
+  let candidateIndex = 0;
+  let validCitationIndex = 0;
+  for (const [claimStart, claimEnd] of claimRanges(content)) {
+    while (
+      candidateIndex < candidates.length &&
+      candidates[candidateIndex].end <= claimStart
+    ) {
+      candidateIndex += 1;
     }
+    let prose = "";
+    let proseStart = claimStart;
+    let nextCandidateIndex = candidateIndex;
+    while (
+      nextCandidateIndex < candidates.length &&
+      candidates[nextCandidateIndex].start < claimEnd
+    ) {
+      const candidate = candidates[nextCandidateIndex];
+      if (candidate.start >= claimStart && candidate.end <= claimEnd) {
+        prose += content.slice(proseStart, candidate.start);
+        proseStart = candidate.end;
+      }
+      nextCandidateIndex += 1;
+    }
+    prose += content.slice(proseStart, claimEnd);
+    candidateIndex = nextCandidateIndex;
+
+    while (
+      validCitationIndex < validCitations.length &&
+      validCitations[validCitationIndex].end <= claimStart
+    ) {
+      validCitationIndex += 1;
+    }
+    const claimHasValidCitation =
+      validCitationIndex < validCitations.length &&
+      validCitations[validCitationIndex].start >= claimStart &&
+      validCitations[validCitationIndex].end <= claimEnd;
     if (/[\p{L}\p{N}]/u.test(prose) && !isPresentationHeading(prose)) {
       hasClaim = true;
-      if (
-        !validCitations.some(
-          (citation) =>
-            citation.start >= claimStart && citation.end <= claimEnd,
-        )
-      ) {
-        allClaimsCited = false;
-      }
+      if (!claimHasValidCitation) allClaimsCited = false;
     }
-    claimStart = claimEnd;
-  };
-  for (const boundary of content.matchAll(claimBoundary)) {
-    inspectClaim((boundary.index ?? 0) + boundary[0].length);
   }
-  if (claimStart < content.length) inspectClaim(content.length);
 
   return {
     diagnostics,
@@ -244,9 +289,7 @@ export function parseProjectCitations(
       manifest,
       match[3],
     );
-    parts.push(
-      validation.citation ?? { type: "text", value: candidate.raw },
-    );
+    parts.push(validation.citation ?? { type: "text", value: candidate.raw });
     lastIndex = candidate.end;
   }
   if (lastIndex < content.length) {

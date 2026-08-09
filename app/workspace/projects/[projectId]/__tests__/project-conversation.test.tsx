@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { axe } from "@/tests-utils/axe";
 import { renderWithProviders } from "@/tests-utils/renderWithProviders";
 import type {
@@ -9,26 +9,32 @@ import type {
 } from "@/lib/projects/project-grounded-answer-contract";
 import { ProjectConversation } from "../project-conversation";
 
+const mocks = vi.hoisted(() => ({ capture: vi.fn() }));
+
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: mocks.capture,
+}));
+
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const USER_MESSAGE_ID = "20000000-0000-4000-8000-000000000001";
 const VIDEO_ID = "30000000-0000-4000-8000-000000000001";
 const UNAVAILABLE_VIDEO_ID = "30000000-0000-4000-8000-000000000002";
 
-function conversation(
-  overrides: Partial<Conversation> = {},
-): Conversation {
+function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     conversationId: null,
     messages: [],
     messagesUsed: 0,
     messagesLimit: 5,
     tier: "free",
+    nextCursor: null,
     ...overrides,
   };
 }
 
 describe("ProjectConversation", () => {
   afterEach(() => {
+    mocks.capture.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -46,6 +52,27 @@ describe("ProjectConversation", () => {
     expect(
       screen.getByRole("link", { name: "View Pro plans" }).getAttribute("href"),
     ).toBe("/pricing?source_surface=project_chat_limit");
+    await waitFor(() =>
+      expect(mocks.capture).toHaveBeenCalledWith(
+        "subscription_discovery_viewed",
+        {
+          source_surface: "project_chat_limit",
+          presentation_state: "upgrade_to_pro",
+          authentication_state: "registered",
+          device_class: "desktop",
+        },
+      ),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "View Pro plans" }));
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "subscription_discovery_clicked",
+      {
+        source_surface: "project_chat_limit",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "desktop",
+      },
+    );
     expect(screen.queryByLabelText("Ask the Project")).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -58,7 +85,11 @@ describe("ProjectConversation", () => {
           [
             `data: ${JSON.stringify({
               type: "source_manifest",
-              manifest: { projectId: PROJECT_ID, sourceSetRevision: 1, sources: [] },
+              manifest: {
+                projectId: PROJECT_ID,
+                sourceSetRevision: 1,
+                sources: [],
+              },
             })}`,
             `data: ${JSON.stringify({
               type: "source_coverage",
@@ -102,28 +133,36 @@ describe("ProjectConversation", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Compare viewpoints" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Find common themes" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Compare viewpoints" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Find common themes" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Find gaps and unexplored angles" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Project Assessment" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Project Assessment" }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Compare viewpoints" }));
     const input = screen.getByLabelText("Ask the Project");
-    expect((input as HTMLTextAreaElement).value).toContain("Compare the viewpoints");
-    fireEvent.change(input, { target: { value: "Compare only the edited question" } });
+    expect((input as HTMLTextAreaElement).value).toContain(
+      "Compare the viewpoints",
+    );
+    fireEvent.change(input, {
+      target: { value: "Compare only the edited question" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Ask Project" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({
-        body: JSON.stringify({
-          question: "Compare only the edited question",
-          mode: "compare_viewpoints",
-        }),
-      }),
-    );
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      question: "Compare only the edited question",
+      mode: "compare_viewpoints",
+    });
     expect(container.querySelector('[class*="overflow-y"]')).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -157,6 +196,7 @@ describe("ProjectConversation", () => {
               createdAt: "2026-08-09T12:00:00.000Z",
               mode: "project_assessment",
               answerClassification: null,
+              completionState: "completed",
               sourceSetRevision: 1,
               sourceManifest: null,
               sourceCoverage: null,
@@ -167,18 +207,20 @@ describe("ProjectConversation", () => {
               inReplyToMessageId: USER_MESSAGE_ID,
               role: "assistant",
               mode: "project_assessment",
-              content: "Project Assessment\nThe April timing is better supported [S1 @ 00:42].",
+              content:
+                "Project Assessment\nThe April timing is better supported [S1 @ 00:42].",
               createdAt: "2026-08-09T12:00:01.000Z",
               answerClassification: "supported",
+              completionState: null,
               sourceSetRevision: 1,
               sourceManifest,
               sourceCoverage: {
                 totalVideos: 1,
                 readyVideos: 1,
-                evidenceVideos: 1,
+                usedVideos: 1,
                 unavailableVideos: [],
                 passagesExamined: 1,
-                evidencePassages: 1,
+                passagesUsed: 1,
               },
               citationDiagnostics: [],
             },
@@ -195,6 +237,7 @@ describe("ProjectConversation", () => {
   });
 
   it("renders a private evidence ledger before linked and diagnostic citations", async () => {
+    const astralMalformed = `[${"😀".repeat(90)} S9 at 00:10]`;
     const sourceManifest: ProjectAnswerSourceManifest = {
       projectId: PROJECT_ID,
       sourceSetRevision: 3,
@@ -218,7 +261,7 @@ describe("ProjectConversation", () => {
     const sourceCoverage = {
       totalVideos: 2,
       readyVideos: 1,
-      evidenceVideos: 1,
+      usedVideos: 1,
       unavailableVideos: [
         {
           videoId: UNAVAILABLE_VIDEO_ID,
@@ -230,7 +273,7 @@ describe("ProjectConversation", () => {
         },
       ],
       passagesExamined: 9,
-      evidencePassages: 1,
+      passagesUsed: 1,
     };
     const { container } = renderWithProviders(
       <ProjectConversation
@@ -246,6 +289,7 @@ describe("ProjectConversation", () => {
               content: "When was the launch?",
               createdAt: "2026-08-09T12:00:00.000Z",
               answerClassification: null,
+              completionState: "completed",
               sourceSetRevision: null,
               sourceManifest: null,
               sourceCoverage: null,
@@ -255,10 +299,10 @@ describe("ProjectConversation", () => {
               id: "50000000-0000-4000-8000-000000000001",
               inReplyToMessageId: USER_MESSAGE_ID,
               role: "assistant",
-              content:
-                "The launch spans [S1 @ 00:42-00:58]. Unknown [S9 @ 00:10].",
+              content: `The launch spans [S1 @ 00:42-00:58]. Unknown [S9 @ 00:10]. ${astralMalformed}`,
               createdAt: "2026-08-09T12:00:01.000Z",
               answerClassification: "supported",
+              completionState: null,
               sourceSetRevision: 3,
               sourceManifest,
               sourceCoverage,
@@ -267,6 +311,10 @@ describe("ProjectConversation", () => {
                   kind: "unknown_source",
                   raw: "[S9 @ 00:10]",
                   sourceId: "S9",
+                },
+                {
+                  kind: "malformed",
+                  raw: Array.from(astralMalformed).slice(0, 80).join(""),
                 },
               ],
             },
@@ -280,7 +328,7 @@ describe("ProjectConversation", () => {
     });
     expect(region.classList.contains("ph-no-capture")).toBe(true);
     expect(region.hasAttribute("data-ph-no-autocapture")).toBe(true);
-    expect(screen.getByText("Evidence Snapshot passages")).toBeTruthy();
+    expect(screen.getByText("Passages selected")).toBeTruthy();
     expect(screen.getByText("Pending source")).toBeTruthy();
     expect(screen.getByText("Processing")).toBeTruthy();
     expect(
@@ -291,8 +339,10 @@ describe("ProjectConversation", () => {
         .getAttribute("href"),
     ).toBe("https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
     expect(screen.queryByRole("link", { name: /\[S9 @ 00:10\]/ })).toBeNull();
+    expect(container.textContent).toContain(astralMalformed);
+    expect(screen.queryByRole("link", { name: /S9 at 00:10/ })).toBeNull();
     expect(screen.getByRole("note").textContent).toContain(
-      "1 citation could not be linked",
+      "2 citations could not be linked",
     );
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -311,6 +361,7 @@ describe("ProjectConversation", () => {
               content: "What changed?",
               createdAt: "2026-08-09T13:00:00.000Z",
               answerClassification: null,
+              completionState: "completed",
               sourceSetRevision: 2,
               sourceManifest: null,
               sourceCoverage: null,
@@ -337,7 +388,9 @@ describe("ProjectConversation", () => {
       />,
     );
 
-    expect(screen.getByRole("status", { name: "Source Set change revision 2" })).toBeTruthy();
+    expect(
+      screen.getByRole("status", { name: "Source Set change revision 2" }),
+    ).toBeTruthy();
     expect(screen.getByText(/Added New source to the Source Set/)).toBeTruthy();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -377,9 +430,15 @@ describe("ProjectConversation", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Conversation threads" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Rename Launch questions" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clear Launch questions" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Conversation threads" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Rename Launch questions" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Clear Launch questions" }),
+    ).toBeTruthy();
     const comparisonButton = screen.getByRole("button", {
       name: /^Comparison\s+0\s+messages$/,
     });
@@ -390,9 +449,220 @@ describe("ProjectConversation", () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         `/api/projects/${PROJECT_ID}/conversation?conversationId=${secondId}`,
-        { cache: "no-store" },
+        expect.objectContaining({ cache: "no-store" }),
       ),
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("uses shared code-point validation without a UTF-16 maxLength mismatch", () => {
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation()}
+      />,
+    );
+    const textarea = screen.getByLabelText("Ask the Project");
+    expect(textarea.hasAttribute("maxlength")).toBe(false);
+
+    fireEvent.change(textarea, { target: { value: "🧪".repeat(2) } });
+    expect(screen.getByText(/2\/200 characters/)).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: "🧪".repeat(200) } });
+    expect(screen.getByText(/200\/200 characters/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Ask Project" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+
+    fireEvent.change(textarea, { target: { value: "🧪".repeat(201) } });
+    expect(screen.getByText(/201\/200 characters/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Ask Project" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(textarea.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("loads earlier complete turns from the governed cursor", async () => {
+    const earlier = conversation({
+      conversationId: "40000000-0000-4000-8000-000000000001",
+      messagesUsed: 26,
+      messages: [
+        {
+          id: USER_MESSAGE_ID,
+          inReplyToMessageId: null,
+          role: "user",
+          content: "Earlier question",
+          createdAt: "2026-08-08T12:00:00.000Z",
+          answerClassification: null,
+          completionState: "cancelled",
+          sourceSetRevision: null,
+          sourceManifest: null,
+          sourceCoverage: null,
+          citationDiagnostics: null,
+        },
+      ],
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ conversation: earlier }));
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          conversationId: "40000000-0000-4000-8000-000000000001",
+          messagesUsed: 26,
+          nextCursor: "opaque-cursor",
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
+    await screen.findByText("Earlier question");
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/projects/${PROJECT_ID}/conversation?cursor=opaque-cursor&conversationId=40000000-0000-4000-8000-000000000001`,
+      expect.objectContaining({
+        cache: "no-store",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("loads earlier Source Set activity through its independent cursor", async () => {
+    const event = {
+      eventId: "70000000-0000-4000-8000-000000000001",
+      projectId: PROJECT_ID,
+      revision: 1,
+      kind: "added" as const,
+      videoId: VIDEO_ID,
+      videoTitle: "Earlier source",
+      fromPosition: null,
+      toPosition: 1,
+      fromStatus: null,
+      toStatus: "ready" as const,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    };
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json({
+        eventPage: { events: [event], nextCursor: null },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          nextEventCursor: "opaque-event-cursor",
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load earlier activity" }),
+    );
+
+    expect(
+      await screen.findByText(/Added Earlier source to the Source Set/),
+    ).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/projects/${PROJECT_ID}/conversation?eventCursor=opaque-event-cursor`,
+      expect.objectContaining({
+        cache: "no-store",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Load earlier activity" }),
+    ).toBeNull();
+  });
+
+  it("disables Stop and announces only the durable terminal completion", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(USER_MESSAGE_ID);
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const responseBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(responseBody, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "X-Project-Question-Message-ID": USER_MESSAGE_ID,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ conversation: conversation({ messagesUsed: 1 }) }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Ask the Project"), {
+      target: { value: "When was the launch?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Project" }));
+    act(() => {
+      const events = [
+        { type: "question_reserved", userMessageId: USER_MESSAGE_ID },
+        {
+          type: "source_manifest",
+          manifest: {
+            projectId: PROJECT_ID,
+            sourceSetRevision: 0,
+            sources: [],
+          },
+        },
+        {
+          type: "source_coverage",
+          coverage: {
+            totalVideos: 0,
+            readyVideos: 0,
+            usedVideos: 0,
+            unavailableVideos: [],
+            passagesExamined: 0,
+            passagesUsed: 0,
+          },
+        },
+        { type: "answer_start", classification: "unsupported" },
+        { type: "delta", text: "No evidence was available." },
+        { type: "persistence_started", userMessageId: USER_MESSAGE_ID },
+      ];
+      streamController.enqueue(
+        new TextEncoder().encode(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        ),
+      );
+    });
+
+    const saving = await screen.findByRole("button", { name: "Saving..." });
+    expect(saving.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Saving the Grounded Answer.")).toBeTruthy();
+    expect(screen.queryByText(/Grounded Answer complete/)).toBeNull();
+
+    act(() => {
+      streamController.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: "citation_diagnostics", diagnostics: [] })}\n\n` +
+            `data: ${JSON.stringify({ type: "done", assistantMessageId: "50000000-0000-4000-8000-000000000001" })}\n\n`,
+        ),
+      );
+      streamController.close();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText("Grounded Answer complete. Unsupported by sources."),
+      ).toBeTruthy(),
+    );
   });
 });

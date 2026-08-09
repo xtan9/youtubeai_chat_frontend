@@ -58,6 +58,25 @@ const studyGuide: Extract<
   generationsLimit: 1,
 };
 
+const SELECTED_ID = "40000000-0000-4000-8000-000000000002";
+const DEFAULT_ID = "40000000-0000-4000-8000-000000000001";
+
+function conversation(conversationId: string) {
+  return {
+    status: "ready" as const,
+    conversation: {
+      conversationId,
+      messages: [],
+      sourceSetEvents: [],
+      nextCursor: null,
+      nextEventCursor: null,
+      messagesUsed: 0,
+      messagesLimit: 5 as const,
+      tier: "free" as const,
+    },
+  };
+}
+
 describe("Project page Artifact composition", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -119,11 +138,42 @@ describe("Project page Artifact composition", () => {
   it("loads the Study Guide on the server and supplies it with the Project view", async () => {
     const output = (await ProjectPage({
       params: Promise.resolve({ projectId: PROJECT_ID }),
+      searchParams: Promise.resolve({}),
     })) as ReactElement<{
       initialStudyGuide: ProjectArtifactLoadResolution;
     }>;
 
     expect(mocks.loadArtifact).toHaveBeenCalledWith("study_guide");
     expect(output.props.initialStudyGuide).toEqual(studyGuide);
+  });
+
+  it("loads the owned conversation named by the URL query", async () => {
+    mocks.loadConversation.mockResolvedValue(conversation(SELECTED_ID));
+
+    const output = (await ProjectPage({
+      params: Promise.resolve({ projectId: PROJECT_ID }),
+      searchParams: Promise.resolve({ conversationId: SELECTED_ID }),
+    })) as ReactElement<{
+      initialConversation: { conversationId: string | null };
+    }>;
+
+    expect(mocks.loadConversation).toHaveBeenCalledWith(SELECTED_ID);
+    expect(output.props.initialConversation.conversationId).toBe(SELECTED_ID);
+  });
+
+  it("falls back without disclosing a missing or foreign conversation", async () => {
+    mocks.loadConversation
+      .mockResolvedValueOnce({ status: "missing" })
+      .mockResolvedValueOnce(conversation(DEFAULT_ID));
+
+    const output = (await ProjectPage({
+      params: Promise.resolve({ projectId: PROJECT_ID }),
+      searchParams: Promise.resolve({ conversationId: SELECTED_ID }),
+    })) as ReactElement<{
+      initialConversation: { conversationId: string | null };
+    }>;
+
+    expect(mocks.loadConversation.mock.calls).toEqual([[SELECTED_ID], []]);
+    expect(output.props.initialConversation.conversationId).toBe(DEFAULT_ID);
   });
 });

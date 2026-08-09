@@ -306,7 +306,7 @@ export function ProjectStudyGuide({
           kind: "study_guide",
           tier: next.tier,
           source_set_revision: next.current.sourceSetRevision,
-          evidence_videos: next.current.sourceCoverage.evidenceVideos,
+          evidence_videos: next.current.sourceCoverage.usedVideos,
           evidence_passages: next.current.evidenceSnapshot.passages.length,
           generations_used: next.generationsUsed,
         });

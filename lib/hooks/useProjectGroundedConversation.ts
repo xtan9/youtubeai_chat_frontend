@@ -1,17 +1,21 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  PROJECT_QUESTION_MESSAGE_ID_HEADER,
   ProjectConversationSchema,
   ProjectConversationSummarySchema,
+  ProjectGroundedAttemptResolutionSchema,
+  ProjectGroundedQuestionRequestSchema,
   ProjectGroundedSseEventSchema,
-  PROJECT_QUESTION_MESSAGE_ID_HEADER,
+  ProjectSourceSetEventPageSchema,
   type ProjectAnswerClassification,
   type ProjectAnswerCoverage,
   type ProjectAnswerSourceManifest,
   type ProjectCitationDiagnostic,
   type ProjectConversation,
   type ProjectConversationSummary,
+  type ProjectConversationMessage,
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
   PROJECT_DEFAULT_CONVERSATION_MODE,
@@ -39,6 +43,39 @@ type ConversationListResponse = {
   tier?: "free" | "pro";
   message?: string;
 };
+type AttemptResponse = { attempt?: unknown; message?: string };
+type EventPageResponse = { eventPage?: unknown; message?: string };
+type AssistantMessage = Extract<
+  ProjectConversationMessage,
+  { role: "assistant" }
+>;
+type AttemptTerminal =
+  | { readonly state: "absent" }
+  | { readonly state: "cancelled" }
+  | { readonly state: "completed"; readonly assistant: AssistantMessage };
+
+const UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS = 8;
+
+function reconciliationDelay(attempt: number) {
+  if (attempt === 0) return 0;
+  return Math.min(1_000, 25 * 2 ** Math.min(attempt - 1, 6));
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted || milliseconds === 0) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(finish, milliseconds);
+    function finish() {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
 
 type LastQuestionIntent = Readonly<{
   question: string;
@@ -58,6 +95,39 @@ function parseEvent(line: string) {
   }
 }
 
+function captureCompletion(input: {
+  readonly classification: ProjectAnswerClassification;
+  readonly mode?: ProjectConversationMode;
+  readonly manifest: ProjectAnswerSourceManifest;
+  readonly coverage: ProjectAnswerCoverage;
+  readonly diagnosticCount: number;
+}) {
+  captureAnalyticsEvent("project_grounded_answer_completed", {
+    classification: input.classification,
+    ...(input.mode === undefined || input.mode === PROJECT_DEFAULT_CONVERSATION_MODE
+      ? {}
+      : { mode: input.mode }),
+    source_set_revision: input.manifest.sourceSetRevision,
+    total_videos: input.coverage.totalVideos,
+    ready_videos: input.coverage.readyVideos,
+    used_videos: input.coverage.usedVideos,
+    unavailable_videos: input.coverage.unavailableVideos.length,
+    passages_examined: input.coverage.passagesExamined,
+    passages_used: input.coverage.passagesUsed,
+    citation_diagnostics: input.diagnosticCount,
+  });
+}
+
+function completionAnnouncement(classification: ProjectAnswerClassification) {
+  if (classification === "supported") {
+    return "Grounded Answer complete. Evidence supported.";
+  }
+  if (classification === "abstained") {
+    return "Grounded Answer complete. Abstained.";
+  }
+  return "Grounded Answer complete. Unsupported by sources.";
+}
+
 export function useProjectGroundedConversation(args: {
   readonly projectId: string;
   readonly initialConversation: ProjectConversation;
@@ -74,43 +144,106 @@ export function useProjectGroundedConversation(args: {
   );
   const [draft, setDraft] = useState<ProjectConversationDraft | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [persistenceStarted, setPersistenceStarted] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] =
     useState<UpgradeRequiredError | null>(null);
   const [conversationLoading, setConversationLoading] = useState(false);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [loadingEarlierActivity, setLoadingEarlierActivity] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const reconciliationAbortRef = useRef<AbortController | null>(null);
+  const selectionAbortRef = useRef<AbortController | null>(null);
+  const messagePageAbortRef = useRef<AbortController | null>(null);
+  const activityPageAbortRef = useRef<AbortController | null>(null);
   const lastQuestionRef = useRef<LastQuestionIntent | null>(null);
+  const persistenceStartedRef = useRef(false);
+  const sendEpochRef = useRef(0);
+  const selectionEpochRef = useRef(0);
 
-  const reload = useCallback(async (conversationId = activeConversationId) => {
-    const query = conversationId
-      ? `?conversationId=${encodeURIComponent(conversationId)}`
-      : "";
-    const response = await fetch(
-      `/api/projects/${args.projectId}/conversation${query}`,
-      { cache: "no-store" },
-    );
-    const payload = (await response.json()) as ConversationResponse;
-    if (!response.ok) {
-      throw new Error(
-        payload.message ?? "Could not reload the Project Conversation.",
+  useEffect(() => {
+    return () => {
+      selectionEpochRef.current += 1;
+      sendEpochRef.current += 1;
+      selectionAbortRef.current?.abort();
+      messagePageAbortRef.current?.abort();
+      activityPageAbortRef.current?.abort();
+      reconciliationAbortRef.current?.abort();
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const persistConversationUrl = useCallback((conversationId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("conversationId", conversationId);
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
+
+  const reload = useCallback(
+    async (
+      conversationId = activeConversationId,
+      options?: {
+        readonly signal?: AbortSignal;
+        readonly shouldCommit?: () => boolean;
+      },
+    ) => {
+      const query = conversationId
+        ? `?conversationId=${encodeURIComponent(conversationId)}`
+        : "";
+      const response = await fetch(
+        `/api/projects/${args.projectId}/conversation${query}`,
+        { cache: "no-store", signal: options?.signal },
       );
-    }
-    const parsed = ProjectConversationSchema.safeParse(payload.conversation);
-    if (!parsed.success) {
-      throw new Error("Project Conversation response was not valid.");
-    }
-    setConversation(parsed.data);
-    if (parsed.data.conversationId) {
-      setActiveConversationId(parsed.data.conversationId);
-      setConversations((current) =>
-        current.map((item) =>
-          item.conversationId === parsed.data.conversationId
-            ? { ...item, messageCount: parsed.data.messages.length }
-            : item,
-        ),
-      );
-    }
-  }, [activeConversationId, args.projectId]);
+      const payload = (await response.json()) as ConversationResponse;
+      if (!response.ok) {
+        throw new Error(
+          payload.message ?? "Could not reload the Project Conversation.",
+        );
+      }
+      const parsed = ProjectConversationSchema.safeParse(payload.conversation);
+      if (!parsed.success) {
+        throw new Error("Project Conversation response was not valid.");
+      }
+      if (options?.shouldCommit && !options.shouldCommit()) return parsed.data;
+      setConversation(parsed.data);
+      if (parsed.data.conversationId) {
+        setActiveConversationId(parsed.data.conversationId);
+        setConversations((current) => {
+          const existing = current.find(
+            (item) => item.conversationId === parsed.data.conversationId,
+          );
+          if (!existing) {
+            const timestamp = new Date().toISOString();
+            return [
+              {
+                conversationId: parsed.data.conversationId!,
+                name: "Project Conversation",
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                messageCount: parsed.data.messages.length,
+              },
+              ...current,
+            ];
+          }
+          return current.map((item) =>
+            item.conversationId === parsed.data.conversationId
+              ? {
+                  ...item,
+                  messageCount: Math.max(
+                    item.messageCount,
+                    parsed.data.messages.length,
+                  ),
+                }
+              : item,
+          );
+        });
+      }
+      return parsed.data;
+    },
+    [activeConversationId, args.projectId],
+  );
 
   const refreshConversations = useCallback(async () => {
     const response = await fetch(
@@ -137,27 +270,60 @@ export function useProjectGroundedConversation(args: {
         return;
       }
       if (abortRef.current) return;
+      selectionAbortRef.current?.abort();
+      messagePageAbortRef.current?.abort();
+      activityPageAbortRef.current?.abort();
+      setLoadingEarlier(false);
+      setLoadingEarlierActivity(false);
+      const controller = new AbortController();
+      const selectionEpoch = selectionEpochRef.current + 1;
+      selectionEpochRef.current = selectionEpoch;
+      selectionAbortRef.current = controller;
       setConversationLoading(true);
       setError(null);
       try {
-        await reload(conversationId);
-        setActiveConversationId(conversationId);
+        await reload(conversationId, {
+          signal: controller.signal,
+          shouldCommit: () =>
+            !controller.signal.aborted &&
+            selectionEpochRef.current === selectionEpoch,
+        });
+        if (!controller.signal.aborted && selectionEpochRef.current === selectionEpoch) {
+          persistConversationUrl(conversationId);
+        }
       } catch (caught) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Could not load the Project Conversation.",
-        );
+        if (!controller.signal.aborted && selectionEpochRef.current === selectionEpoch) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Could not load the Project Conversation.",
+          );
+        }
       } finally {
-        setConversationLoading(false);
+        if (selectionEpochRef.current === selectionEpoch) {
+          selectionAbortRef.current = null;
+          setConversationLoading(false);
+        }
       }
     },
-    [abortRef, activeConversationId, conversation.conversationId, reload],
+    [
+      abortRef,
+      activeConversationId,
+      conversation.conversationId,
+      persistConversationUrl,
+      reload,
+    ],
   );
 
   const createConversation = useCallback(
     async (name?: string) => {
       if (abortRef.current) return null;
+      selectionEpochRef.current += 1;
+      selectionAbortRef.current?.abort();
+      messagePageAbortRef.current?.abort();
+      activityPageAbortRef.current?.abort();
+      setLoadingEarlier(false);
+      setLoadingEarlierActivity(false);
       setConversationLoading(true);
       setError(null);
       try {
@@ -182,12 +348,15 @@ export function useProjectGroundedConversation(args: {
         if (!parsed.success) throw new Error("Project Conversation response was not valid.");
         setConversations((current) => [parsed.data, ...current]);
         setActiveConversationId(parsed.data.conversationId);
+        persistConversationUrl(parsed.data.conversationId);
         setConversation({
           conversationId: parsed.data.conversationId,
           messages: [],
           // Source Set events belong to the Project, not to one thread. Keep
           // the already-loaded timeline visible while the new thread is empty.
           sourceSetEvents: conversation.sourceSetEvents,
+          nextCursor: null,
+          nextEventCursor: conversation.nextEventCursor ?? null,
           messagesUsed: conversation.messagesUsed,
           messagesLimit: conversation.messagesLimit,
           tier: conversation.tier,
@@ -209,8 +378,10 @@ export function useProjectGroundedConversation(args: {
       args.projectId,
       conversation.messagesLimit,
       conversation.messagesUsed,
+      conversation.nextEventCursor,
       conversation.sourceSetEvents,
       conversation.tier,
+      persistConversationUrl,
     ],
   );
 
@@ -247,8 +418,89 @@ export function useProjectGroundedConversation(args: {
     [args.projectId],
   );
 
+  const reconcileAttempt = useCallback(
+    async (
+      userMessageId: string,
+      conversationId: string | null,
+      epoch: number,
+      signal: AbortSignal,
+      reservationKnown: boolean,
+    ): Promise<AttemptTerminal | null> => {
+      let attempt = 0;
+      let unknownChecks = 0;
+      let loggedErrorName: string | null = null;
+      while (sendEpochRef.current === epoch && !signal.aborted) {
+        await abortableDelay(reconciliationDelay(attempt), signal);
+        attempt += 1;
+        if (signal.aborted || sendEpochRef.current !== epoch) return null;
+        try {
+          const response = await fetch(
+            `/api/projects/${args.projectId}/conversation/attempt/${userMessageId}${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ""}`,
+            { cache: "no-store", signal },
+          );
+          if (signal.aborted || sendEpochRef.current !== epoch) return null;
+          if (response.status === 404) {
+            if (
+              !reservationKnown &&
+              ++unknownChecks >= UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS
+            ) {
+              return { state: "absent" };
+            }
+            continue;
+          }
+          const payload = (await response.json()) as AttemptResponse;
+          if (!response.ok) {
+            throw new Error(
+              payload.message ?? "Could not check the Grounded Answer.",
+            );
+          }
+          const parsed = ProjectGroundedAttemptResolutionSchema.safeParse(
+            payload.attempt,
+          );
+          if (!parsed.success || parsed.data.status !== "ready") {
+            throw new Error("Grounded Answer attempt response was not valid.");
+          }
+          reservationKnown = true;
+          if (parsed.data.state === "cancelled") {
+            return { state: "cancelled" };
+          }
+          if (
+            parsed.data.state === "completed" &&
+            parsed.data.assistant
+          ) {
+            return {
+              state: "completed",
+              assistant: parsed.data.assistant,
+            };
+          }
+        } catch (caught) {
+          if (signal.aborted) return null;
+          if (
+            !reservationKnown &&
+            ++unknownChecks >= UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS
+          ) {
+            return { state: "absent" };
+          }
+          const errorName = caught instanceof Error ? caught.name : typeof caught;
+          if (errorName !== loggedErrorName) {
+            loggedErrorName = errorName;
+            logAppEvent("error", "[project-conversation] reconciliation failed", {
+              errorId: "PROJECT_CONVERSATION_RECONCILIATION_FAILED",
+              errorName,
+            });
+          }
+        }
+      }
+      return null;
+    },
+    [args.projectId],
+  );
+
   const clearConversation = useCallback(
     async (conversationId: string) => {
+      messagePageAbortRef.current?.abort();
+      selectionEpochRef.current += 1;
+      setLoadingEarlier(false);
       try {
         const response = await fetch(
           `/api/projects/${args.projectId}/conversations/${conversationId}`,
@@ -279,21 +531,179 @@ export function useProjectGroundedConversation(args: {
     [activeConversationId, args.projectId, reload],
   );
 
-  const abort = useCallback(() => abortRef.current?.abort(), []);
+  const abort = useCallback(() => {
+    if (!persistenceStartedRef.current && abortRef.current) {
+      setReconciling(true);
+      setAnnouncement("Checking whether the Grounded Answer was saved.");
+      abortRef.current.abort();
+    }
+  }, []);
+
+  const loadEarlier = useCallback(async () => {
+    const cursor = conversation.nextCursor;
+    if (!cursor || loadingEarlier) return;
+    messagePageAbortRef.current?.abort();
+    const controller = new AbortController();
+    const conversationIdAtLoad = activeConversationId;
+    const selectionEpoch = selectionEpochRef.current;
+    messagePageAbortRef.current = controller;
+    setLoadingEarlier(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/projects/${args.projectId}/conversation?${new URLSearchParams({
+          cursor,
+          ...(conversationIdAtLoad
+            ? { conversationId: conversationIdAtLoad }
+            : {}),
+        }).toString()}`,
+        { cache: "no-store", signal: controller.signal },
+      );
+      const payload = (await response.json()) as ConversationResponse;
+      if (!response.ok) {
+        throw new Error(
+          payload.message ?? "Could not load earlier Project messages.",
+        );
+      }
+      const parsed = ProjectConversationSchema.safeParse(payload.conversation);
+      if (!parsed.success) {
+        throw new Error("Project Conversation response was not valid.");
+      }
+      if (
+        controller.signal.aborted ||
+        selectionEpochRef.current !== selectionEpoch
+      ) return;
+      setConversation((current) => {
+        if (current.conversationId !== conversationIdAtLoad) return current;
+        const known = new Set(current.messages.map((message) => message.id));
+        return {
+          ...current,
+          ...parsed.data,
+          sourceSetEvents: current.sourceSetEvents,
+          nextEventCursor: current.nextEventCursor,
+          messages: [
+            ...parsed.data.messages.filter((message) => !known.has(message.id)),
+            ...current.messages,
+          ],
+        };
+      });
+    } catch (caught) {
+      if (!controller.signal.aborted) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not load earlier Project messages.",
+        );
+      }
+    } finally {
+      if (messagePageAbortRef.current === controller) {
+        messagePageAbortRef.current = null;
+        setLoadingEarlier(false);
+      }
+    }
+  }, [
+    activeConversationId,
+    args.projectId,
+    conversation.nextCursor,
+    loadingEarlier,
+  ]);
+
+  const loadEarlierActivity = useCallback(async () => {
+    const eventCursor = conversation.nextEventCursor;
+    if (!eventCursor || loadingEarlierActivity) return;
+    activityPageAbortRef.current?.abort();
+    const controller = new AbortController();
+    const conversationIdAtLoad = activeConversationId;
+    const selectionEpoch = selectionEpochRef.current;
+    activityPageAbortRef.current = controller;
+    setLoadingEarlierActivity(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/projects/${args.projectId}/conversation?${new URLSearchParams({
+          eventCursor,
+        }).toString()}`,
+        { cache: "no-store", signal: controller.signal },
+      );
+      const payload = (await response.json()) as EventPageResponse;
+      if (!response.ok) {
+        throw new Error(
+          payload.message ?? "Could not load earlier Source Set activity.",
+        );
+      }
+      const parsed = ProjectSourceSetEventPageSchema.safeParse(
+        payload.eventPage,
+      );
+      if (!parsed.success) {
+        throw new Error("Source Set activity response was not valid.");
+      }
+      if (
+        controller.signal.aborted ||
+        selectionEpochRef.current !== selectionEpoch
+      ) return;
+      setConversation((current) => {
+        if (current.conversationId !== conversationIdAtLoad) return current;
+        const known = new Set(
+          (current.sourceSetEvents ?? []).map((event) => event.eventId),
+        );
+        return {
+          ...current,
+          sourceSetEvents: [
+            ...parsed.data.events.filter((event) => !known.has(event.eventId)),
+            ...(current.sourceSetEvents ?? []),
+          ],
+          nextEventCursor: parsed.data.nextCursor,
+        };
+      });
+    } catch (caught) {
+      if (!controller.signal.aborted) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not load earlier Source Set activity.",
+        );
+      }
+    } finally {
+      if (activityPageAbortRef.current === controller) {
+        activityPageAbortRef.current = null;
+        setLoadingEarlierActivity(false);
+      }
+    }
+  }, [
+    activeConversationId,
+    args.projectId,
+    conversation.nextEventCursor,
+    loadingEarlierActivity,
+  ]);
 
   const send = useCallback(
     async (
       rawQuestion: string,
       mode: ProjectConversationMode = PROJECT_DEFAULT_CONVERSATION_MODE,
     ) => {
-      const question = rawQuestion.trim();
-      if (!question || abortRef.current) return;
+      const parsedQuestion = ProjectGroundedQuestionRequestSchema.safeParse({
+        questionId: crypto.randomUUID(),
+        question: rawQuestion,
+        mode,
+      });
+      if (!parsedQuestion.success || abortRef.current) return;
+      const question = parsedQuestion.data.question;
+      const questionId = parsedQuestion.data.questionId;
       lastQuestionRef.current = { question, mode };
       const controller = new AbortController();
+      const reconciliationController = new AbortController();
+      const conversationIdAtSend = activeConversationId;
+      const epoch = sendEpochRef.current + 1;
+      sendEpochRef.current = epoch;
       abortRef.current = controller;
+      reconciliationAbortRef.current = reconciliationController;
+      persistenceStartedRef.current = false;
       setStreaming(true);
+      setPersistenceStarted(false);
+      setReconciling(false);
       setError(null);
       setUpgradeError(null);
+      setAnnouncement("Examining bounded Project passages.");
       let upgradeWasRequired = false;
       let currentDraft: ProjectConversationDraft = {
         user: question,
@@ -307,7 +717,8 @@ export function useProjectGroundedConversation(args: {
       setDraft(currentDraft);
       let completed = false;
       let aborted = false;
-      let reservedUserMessageId: string | null = null;
+      let shouldReconcile = true;
+      let reservationKnown = false;
 
       try {
         const response = await fetch(
@@ -316,18 +727,18 @@ export function useProjectGroundedConversation(args: {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              questionId,
               question,
-              ...(activeConversationId
-                ? { conversationId: activeConversationId }
+              ...(conversationIdAtSend
+                ? { conversationId: conversationIdAtSend }
                 : {}),
               ...(mode === PROJECT_DEFAULT_CONVERSATION_MODE ? {} : { mode }),
             }),
             signal: controller.signal,
           },
         );
-        reservedUserMessageId = response.headers.get(
-          PROJECT_QUESTION_MESSAGE_ID_HEADER,
-        );
+        reservationKnown =
+          response.headers.get(PROJECT_QUESTION_MESSAGE_ID_HEADER) === questionId;
         if (!response.ok) {
           let payload: {
             message?: string;
@@ -340,6 +751,11 @@ export function useProjectGroundedConversation(args: {
           } catch {
             // Keep the stable generic fallback for non-JSON infrastructure errors.
           }
+          const existingAttempt =
+            response.status === 409 &&
+            payload.errorCode === "project_question_exists";
+          reservationKnown ||= existingAttempt;
+          shouldReconcile = existingAttempt || response.status >= 500;
           if (response.status === 402) {
             throw new UpgradeRequiredError({
               errorCode: "free_chat_exceeded",
@@ -362,9 +778,16 @@ export function useProjectGroundedConversation(args: {
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
           for (const line of lines) {
+            if (sendEpochRef.current !== epoch) continue;
             const event = parseEvent(line);
             if (!event) continue;
             switch (event.type) {
+              case "question_reserved":
+                if (event.userMessageId !== questionId) {
+                  throw new Error("Grounded Answer reservation did not match.");
+                }
+                reservationKnown = true;
+                break;
               case "source_manifest":
                 currentDraft = { ...currentDraft, manifest: event.manifest };
                 break;
@@ -377,12 +800,18 @@ export function useProjectGroundedConversation(args: {
                   classification: event.classification,
                   mode: event.mode ?? currentDraft.mode,
                 };
+                setAnnouncement("Writing the Grounded Answer.");
                 break;
               case "delta":
                 currentDraft = {
                   ...currentDraft,
                   assistant: currentDraft.assistant + event.text,
                 };
+                break;
+              case "persistence_started":
+                persistenceStartedRef.current = true;
+                setPersistenceStarted(true);
+                setAnnouncement("Saving the Grounded Answer.");
                 break;
               case "citation_diagnostics":
                 currentDraft = {
@@ -392,28 +821,22 @@ export function useProjectGroundedConversation(args: {
                 break;
               case "done":
                 completed = true;
+                setAnnouncement(
+                  completionAnnouncement(
+                    currentDraft.classification ?? "unsupported",
+                  ),
+                );
                 if (
                   currentDraft.manifest &&
                   currentDraft.coverage &&
                   currentDraft.classification
                 ) {
-                  captureAnalyticsEvent("project_grounded_answer_completed", {
+                  captureCompletion({
                     classification: currentDraft.classification,
-                    ...(currentDraft.mode === PROJECT_DEFAULT_CONVERSATION_MODE
-                      ? {}
-                      : { mode: currentDraft.mode }),
-                    source_set_revision:
-                      currentDraft.manifest.sourceSetRevision,
-                    total_videos: currentDraft.coverage.totalVideos,
-                    ready_videos: currentDraft.coverage.readyVideos,
-                    evidence_videos: currentDraft.coverage.evidenceVideos,
-                    unavailable_videos:
-                      currentDraft.coverage.unavailableVideos.length,
-                    passages_examined:
-                      currentDraft.coverage.passagesExamined,
-                    evidence_passages:
-                      currentDraft.coverage.evidencePassages,
-                    citation_diagnostics: currentDraft.diagnostics.length,
+                    mode: currentDraft.mode,
+                    manifest: currentDraft.manifest,
+                    coverage: currentDraft.coverage,
+                    diagnosticCount: currentDraft.diagnostics.length,
                   });
                 }
                 break;
@@ -428,10 +851,11 @@ export function useProjectGroundedConversation(args: {
         aborted =
           controller.signal.aborted ||
           (caught instanceof DOMException && caught.name === "AbortError");
-        // Partial assistant output is never retained after abort/failure. The
-        // subsequent reload keeps the already-reserved user message only.
-        setDraft(null);
-        if (!aborted) {
+        if (sendEpochRef.current === epoch) setDraft(null);
+        if (aborted && sendEpochRef.current === epoch) {
+          setAnnouncement("Checking whether the Grounded Answer was saved.");
+        }
+        if (!aborted && sendEpochRef.current === epoch) {
           if (caught instanceof UpgradeRequiredError) {
             upgradeWasRequired = true;
             setUpgradeError(caught);
@@ -444,34 +868,46 @@ export function useProjectGroundedConversation(args: {
           }
         }
       } finally {
-        if (aborted && reservedUserMessageId) {
-          try {
-            const cancellation = await fetch(
-              `/api/projects/${args.projectId}/conversation/cancel`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  userMessageId: reservedUserMessageId,
-                }),
-              },
-            );
-            if (!cancellation.ok) {
-              throw new Error("Project question cancellation was not confirmed.");
-            }
-          } catch (cancellationError) {
-            logAppEvent("error", "[project-conversation] cancellation failed", {
-              errorId: "PROJECT_CONVERSATION_CANCELLATION_FAILED",
-              errorName:
-                cancellationError instanceof Error
-                  ? cancellationError.name
-                  : typeof cancellationError,
-            });
-            setError("Could not confirm that the answer was stopped. Reload the Project.");
-          }
-        }
         try {
-          await reload();
+          if (!completed && shouldReconcile && !upgradeWasRequired) {
+            if (sendEpochRef.current === epoch) setReconciling(true);
+            const terminal = await reconcileAttempt(
+              questionId,
+              conversationIdAtSend,
+              epoch,
+              reconciliationController.signal,
+              reservationKnown,
+            );
+            if (terminal?.state === "completed") {
+              if (sendEpochRef.current === epoch) {
+                setError(null);
+                setAnnouncement(
+                  completionAnnouncement(
+                    terminal.assistant.answerClassification,
+                  ),
+                );
+              }
+              captureCompletion({
+                classification: terminal.assistant.answerClassification,
+                mode: terminal.assistant.mode,
+                manifest: terminal.assistant.sourceManifest,
+                coverage: terminal.assistant.sourceCoverage,
+                diagnosticCount:
+                  terminal.assistant.citationDiagnostics.length,
+              });
+            } else if (terminal?.state === "cancelled") {
+              if (sendEpochRef.current === epoch) {
+                setAnnouncement("Generation stopped. Your question was saved.");
+              }
+            } else if (terminal?.state === "absent") {
+              if (sendEpochRef.current === epoch) {
+                setAnnouncement("Generation stopped before your question was saved.");
+              }
+            }
+          }
+          if (sendEpochRef.current === epoch) {
+            await reload(conversationIdAtSend);
+          }
         } catch (reloadError) {
           logAppEvent("error", "[project-conversation] reload failed", {
             errorId: "PROJECT_CONVERSATION_RELOAD_FAILED",
@@ -480,18 +916,30 @@ export function useProjectGroundedConversation(args: {
                 ? reloadError.name
                 : typeof reloadError,
           });
-          if (!upgradeWasRequired) {
+          if (!upgradeWasRequired && sendEpochRef.current === epoch) {
             setError((current) =>
               current ?? "Could not reload the Project Conversation.",
             );
           }
         }
-        setDraft(null);
-        setStreaming(false);
-        abortRef.current = null;
+        if (sendEpochRef.current === epoch) {
+          reconciliationController.abort();
+          reconciliationAbortRef.current = null;
+          setDraft(null);
+          setStreaming(false);
+          setPersistenceStarted(false);
+          setReconciling(false);
+          abortRef.current = null;
+          persistenceStartedRef.current = false;
+        }
       }
     },
-    [activeConversationId, args.projectId, reload],
+    [
+      activeConversationId,
+      args.projectId,
+      reconcileAttempt,
+      reload,
+    ],
   );
 
   const retry = useCallback(() => {
@@ -514,8 +962,15 @@ export function useProjectGroundedConversation(args: {
     draft,
     streaming,
     conversationLoading,
+    persistenceStarted,
+    reconciling,
     error,
     upgradeError,
+    announcement,
+    loadingEarlier,
+    loadingEarlierActivity,
+    loadEarlier,
+    loadEarlierActivity,
     send,
     retry,
     abort,

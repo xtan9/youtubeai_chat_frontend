@@ -113,7 +113,13 @@ jobs:
             if [[ "$(basename "$f")" == "20260809210000_canonical_video_identity_and_private_cache.sql" ]]; then
               psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_legacy_video_identity_after_canonical.sql
             fi
+            if [[ "$f" == *"20260809111726_complete_project_grounded_answer.sql" ]]; then
+              psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/pre_migration_project_grounded_coverage.sql
+            fi
             psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_source_set_service_dml_denied.sql
+            if [[ "$(basename "$f")" > "20260809210000" ]]; then
+              psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_grounded_rollout_compatibility.sql
+            fi
             echo "::endgroup::"
           done
       - name: Workspace and Project contract - representative legacy
@@ -160,7 +166,13 @@ jobs:
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f to fresh database"
             PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
+            if [[ "$f" == *"20260809111726_complete_project_grounded_answer.sql" ]]; then
+              PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/pre_migration_project_grounded_coverage.sql
+            fi
             PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_source_set_service_dml_denied.sql
+            if [[ "$(basename "$f")" > "20260809210000" ]]; then
+              PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_grounded_rollout_compatibility.sql
+            fi
             echo "::endgroup::"
           done
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
