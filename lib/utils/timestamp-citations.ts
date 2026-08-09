@@ -4,6 +4,7 @@ export type CitationPart =
       readonly type: "timestamp";
       readonly raw: string;
       readonly seconds: number;
+      readonly endSeconds?: number;
     };
 
 // Match [mm:ss], [hh:mm:ss], or a range containing either shape. The bracket
@@ -52,7 +53,16 @@ export function parseCitations(input: string): CitationPart[] {
         endSeconds !== null &&
         endSeconds >= startSeconds);
     if (startSeconds !== null && validRange) {
-      parts.push({ type: "timestamp", raw: m[0], seconds: startSeconds });
+      parts.push(
+        endSeconds === null
+          ? { type: "timestamp", raw: m[0], seconds: startSeconds }
+          : {
+              type: "timestamp",
+              raw: m[0],
+              seconds: startSeconds,
+              endSeconds,
+            },
+      );
     } else {
       parts.push({ type: "text", value: m[0] });
     }
