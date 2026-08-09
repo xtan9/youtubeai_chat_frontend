@@ -110,4 +110,17 @@ test.describe("public plan discovery", () => {
       "https://www.youtubeai.chat/pricing",
     );
   });
+
+  test("Plan & Billing is a real registered-only destination", async ({
+    page,
+  }) => {
+    await page.goto(`${BASE_URL}/faq`);
+    const pricingQuestion = page.getByRole("button", {
+      name: /what do the free plan and pro plan include/i,
+    });
+    await pricingQuestion.click();
+
+    await page.getByRole("link", { name: "Plan & Billing" }).click();
+    await expect(page).toHaveURL(`${BASE_URL}/auth/login`);
+  });
 });
