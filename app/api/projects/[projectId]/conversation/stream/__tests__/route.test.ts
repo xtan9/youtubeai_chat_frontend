@@ -103,6 +103,7 @@ function request(
   question = "When did the launch happen?",
   signal?: AbortSignal,
   conversationId?: string,
+  mode?: "question" | "compare_viewpoints" | "common_themes",
 ) {
   return new Request(`http://test/api/projects/${PROJECT_ID}/conversation/stream`, {
     method: "POST",
@@ -113,6 +114,7 @@ function request(
     body: JSON.stringify({
       question,
       ...(conversationId ? { conversationId } : {}),
+      ...(mode ? { mode } : {}),
     }),
     signal,
   });
@@ -228,6 +230,40 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       "When did the launch happen?",
       CONVERSATION_ID,
     );
+  });
+
+  it("keeps guided synthesis on the grounded stream, persistence, and citation path", async () => {
+    const response = await POST(
+      request(
+        "Compare the edited viewpoints without averaging them.",
+        undefined,
+        undefined,
+        "compare_viewpoints",
+      ),
+      CONTEXT,
+    );
+    const streamed = await events(response);
+
+    expect(mocks.start).toHaveBeenCalledWith(
+      "Compare the edited viewpoints without averaging them.",
+      undefined,
+      "compare_viewpoints",
+    );
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "supported",
+      mode: "compare_viewpoints",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        classification: "supported",
+        mode: "compare_viewpoints",
+      }),
+    );
+    const prompt = mocks.streamChatCompletion.mock.calls[0]?.[0].messages[0]
+      .content as string;
+    expect(prompt).toContain("GUIDED_SYNTHESIS_MODE: COMPARE_VIEWPOINTS");
+    expect(prompt).toContain("Do not average, merge, or manufacture consensus");
   });
 
   it("preserves the stable 402 chat envelope and consumes no retrieval/provider work", async () => {

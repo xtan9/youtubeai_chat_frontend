@@ -51,6 +51,7 @@ describe("Project Grounded Answer prompt boundary", () => {
     expect(primer).toContain("never present a truncated excerpt as complete context");
     expect(primer).toContain("Never append an uncited sentence");
     expect(primer).toContain("ABSTAINED on the first line and no other text");
+    expect(primer).not.toContain("GUIDED_SYNTHESIS_MODE");
     expect(messages).toHaveLength(3);
   });
 

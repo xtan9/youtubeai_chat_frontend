@@ -155,6 +155,72 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("launch");
   });
 
+  it("carries guided mode through the stream, durable reload, and content-free analytics", async () => {
+    const durable = {
+      ...USER_ONLY,
+      messages: [
+        { ...USER_ONLY.messages[0], mode: "compare_viewpoints" as const },
+        {
+          id: ASSISTANT_ID,
+          inReplyToMessageId: USER_ID,
+          role: "assistant" as const,
+          content: "The sources disagree [S1 @ 00:42].",
+          createdAt: "2026-08-09T12:00:01.000Z",
+          answerClassification: "supported" as const,
+          sourceSetRevision: 3,
+          sourceManifest: MANIFEST,
+          sourceCoverage: COVERAGE,
+          citationDiagnostics: [],
+          mode: "compare_viewpoints" as const,
+        },
+      ],
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse(
+          { type: "source_manifest", manifest: MANIFEST },
+          { type: "source_coverage", coverage: COVERAGE },
+          { type: "answer_start", classification: "supported", mode: "compare_viewpoints" },
+          { type: "delta", text: "The sources disagree [S1 @ 00:42]." },
+          { type: "citation_diagnostics", diagnostics: [] },
+          { type: "done", assistantMessageId: ASSISTANT_ID },
+        ),
+      )
+      .mockResolvedValueOnce(json({ conversation: durable }));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: INITIAL,
+      }),
+    );
+
+    await act(() =>
+      result.current.send(
+        "Compare the viewpoints without averaging them.",
+        "compare_viewpoints",
+      ),
+    );
+
+    expect(fetch.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          question: "Compare the viewpoints without averaging them.",
+          mode: "compare_viewpoints",
+        }),
+      }),
+    );
+    expect(result.current.conversation.messages).toMatchObject([
+      { role: "user", mode: "compare_viewpoints" },
+      { role: "assistant", mode: "compare_viewpoints" },
+    ]);
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "project_grounded_answer_completed",
+      expect.objectContaining({ mode: "compare_viewpoints" }),
+    );
+  });
+
   it("keeps the next send fenced until canonical reload finishes", async () => {
     let releaseReload!: () => void;
     const reloadGate = new Promise<void>((resolve) => {

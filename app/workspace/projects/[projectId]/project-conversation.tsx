@@ -25,6 +25,11 @@ import {
   projectSourceSetEventLabel,
   type ProjectSourceSetEvent,
 } from "@/lib/projects/project-source-set-audit";
+import {
+  PROJECT_DEFAULT_CONVERSATION_MODE,
+  PROJECT_GUIDED_ACTIONS,
+  type ProjectConversationMode,
+} from "@/lib/projects/project-grounded-synthesis";
 
 function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
   const metrics = [
@@ -193,6 +198,15 @@ function ClassificationBadge({
   return <Badge variant="outline">{label}</Badge>;
 }
 
+function ModeBadge({ mode }: { mode?: ProjectConversationMode }) {
+  if (!mode || mode === PROJECT_DEFAULT_CONVERSATION_MODE) return null;
+  const label =
+    mode === "compare_viewpoints"
+      ? "Compare viewpoints"
+      : "Find common themes";
+  return <Badge variant="secondary">{label}</Badge>;
+}
+
 function AssistantAnswer({
   content,
   manifest,
@@ -200,6 +214,7 @@ function AssistantAnswer({
   classification,
   diagnostics,
   evidenceSnapshot,
+  mode,
 }: {
   content: string;
   manifest: ProjectAnswerSourceManifest;
@@ -207,6 +222,7 @@ function AssistantAnswer({
   classification: ProjectAnswerClassification | null;
   diagnostics: readonly ProjectCitationDiagnostic[];
   evidenceSnapshot?: ProjectEvidenceSnapshot;
+  mode?: ProjectConversationMode;
 }) {
   return (
     <article className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-raised p-4">
@@ -214,7 +230,10 @@ function AssistantAnswer({
         <p className="text-body-sm font-medium text-text-secondary">
           Grounded Answer
         </p>
-        <ClassificationBadge classification={classification} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ModeBadge mode={mode} />
+          <ClassificationBadge classification={classification} />
+        </div>
       </div>
       <SourceManifest manifest={manifest} />
       <CoverageLedger coverage={coverage} />
@@ -245,6 +264,7 @@ function ConversationMessage({ message }: { message: ProjectConversationMessage 
       classification={message.answerClassification}
       diagnostics={message.citationDiagnostics}
       evidenceSnapshot={message.evidenceSnapshot}
+      mode={message.mode}
     />
   );
 }
@@ -259,6 +279,9 @@ export function ProjectConversation({
   initialConversations?: readonly ProjectConversationSummary[];
 }) {
   const [question, setQuestion] = useState("");
+  const [questionMode, setQuestionMode] = useState<ProjectConversationMode>(
+    PROJECT_DEFAULT_CONVERSATION_MODE,
+  );
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const conversation = useProjectGroundedConversation({
@@ -293,7 +316,7 @@ export function ProjectConversation({
     const nextQuestion = question.trim();
     if (nextQuestion.length < 2 || conversation.streaming) return;
     setQuestion("");
-    void conversation.send(nextQuestion);
+    void conversation.send(nextQuestion, questionMode);
   }
 
   const atCap =
@@ -493,6 +516,37 @@ export function ProjectConversation({
                   Answers use bounded Transcript passages only. Project Goals
                   guide relevance but are never evidence.
                 </p>
+                <div
+                  className="mt-4 flex flex-col gap-2 text-left"
+                  aria-label="Guided Project Conversation actions"
+                >
+                  <p className="text-caption font-medium text-text-secondary">
+                    Start with a guided comparison
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {PROJECT_GUIDED_ACTIONS.map((action) => (
+                      <Button
+                        key={action.mode}
+                        type="button"
+                        variant="outline"
+                        className="h-auto min-h-14 justify-start whitespace-normal text-left"
+                        aria-label={action.label}
+                        onClick={() => {
+                          setQuestion(action.question);
+                          setQuestionMode(action.mode);
+                        }}
+                        disabled={conversation.streaming}
+                      >
+                        <span className="flex min-w-0 flex-col items-start gap-0.5">
+                          <span>{action.label}</span>
+                          <span className="text-caption font-normal text-text-muted">
+                            {action.description}
+                          </span>
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -524,6 +578,7 @@ export function ProjectConversation({
                     coverage={conversation.draft.coverage}
                     classification={conversation.draft.classification}
                     diagnostics={conversation.draft.diagnostics}
+                    mode={conversation.draft.mode}
                   />
                 ) : null}
               </>
@@ -571,6 +626,14 @@ export function ProjectConversation({
             <form onSubmit={submit} className="flex flex-col gap-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="project-question">Ask the Project</Label>
+                {questionMode !== PROJECT_DEFAULT_CONVERSATION_MODE ? (
+                  <div className="flex flex-wrap items-center gap-2" role="status">
+                    <ModeBadge mode={questionMode} />
+                    <span className="text-caption text-text-muted">
+                      Edit this question before sending; the selected grounded action will be preserved.
+                    </span>
+                  </div>
+                ) : null}
                 <Textarea
                   id="project-question"
                   value={question}
