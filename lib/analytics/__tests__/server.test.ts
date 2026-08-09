@@ -70,6 +70,29 @@ describe("captureSubscriptionActivated", () => {
     expect(mocks.captureImmediate).not.toHaveBeenCalled();
   });
 
+  it("captures governed discovery attribution without changing the event name", async () => {
+    await captureSubscriptionActivated("user-1", {
+      source_surface: "global_header",
+      presentation_state: "upgrade_to_pro",
+      authentication_state: "registered",
+      device_class: "mobile",
+      plan: "yearly",
+      billing_interval: "yearly",
+      subscription_status: "active",
+    });
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "subscription_activated",
+      properties: expect.objectContaining({
+        source_surface: "global_header",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "mobile",
+      }),
+    });
+  });
+
   it("does not trust user-editable metadata for server suppression", async () => {
     await captureSubscriptionActivated(
       "human-user",
@@ -107,5 +130,31 @@ describe("captureSubscriptionActivated", () => {
     });
 
     expect(mocks.PostHog).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid activation attribution before constructing PostHog", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await captureSubscriptionActivated(
+      "user-1",
+      {
+        source_surface: "global_header",
+        presentation_state: "upgrade_to_pro",
+        authentication_state: "registered",
+        device_class: "smart_tv",
+        plan: "monthly",
+        billing_interval: "monthly",
+        subscription_status: "active",
+      } as never,
+    );
+
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] invalid subscription discovery event",
+      expect.objectContaining({
+        errorId: "ANALYTICS_SUBSCRIPTION_DISCOVERY_INVALID",
+        event: "subscription_activated",
+      }),
+    );
   });
 });

@@ -1,3 +1,9 @@
+import type {
+  LegacyCheckoutStartedProperties,
+  LegacySubscriptionActivatedProperties,
+  SubscriptionDiscoveryEventProperties,
+} from "./subscription-discovery";
+
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
 export type AccountType = "anonymous" | "registered" | "free" | "pro";
@@ -5,6 +11,33 @@ export type BillingPlan = "monthly" | "yearly" | "unknown";
 export type PaywallVariant = "summary-cap" | "chat-cap" | "history-cap";
 export type PaywallCta = "primary" | "secondary";
 export type EntitlementTier = "anon" | "free" | "pro";
+
+export const ANALYTICS_EVENT_NAMES = [
+  "signup_completed",
+  "summary_succeeded",
+  "summary_failed",
+  "chat_started",
+  "subscription_discovery_viewed",
+  "subscription_discovery_clicked",
+  "pricing_viewed",
+  "plan_choice_attempted",
+  "checkout_started",
+  "checkout_failed",
+  "subscription_activated",
+  "summary_button_clicked",
+  "new_summary_button_clicked",
+  "hero_demo_sample_selected",
+  "paywall_cap_hit_viewed",
+  "paywall_cap_cta_clicked",
+] as const satisfies readonly AnalyticsEventName[];
+
+const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
+
+export function isAnalyticsEventName(
+  event: unknown,
+): event is AnalyticsEventName {
+  return typeof event === "string" && analyticsEventNames.has(event);
+}
 
 export interface AnalyticsEventProperties {
   signup_completed: {
@@ -38,18 +71,17 @@ export interface AnalyticsEventProperties {
     account_type: "anonymous" | "registered";
     source_surface: "summary" | "hero_demo";
   };
-  checkout_started: {
-    account_type: "free";
-    source_surface: "pricing";
-    plan: Exclude<BillingPlan, "unknown">;
-    billing_interval: Exclude<BillingPlan, "unknown">;
-  };
-  subscription_activated: {
-    source_surface: "stripe_webhook";
-    plan: BillingPlan;
-    billing_interval: BillingPlan;
-    subscription_status: "active" | "trialing";
-  };
+  subscription_discovery_viewed: SubscriptionDiscoveryEventProperties["subscription_discovery_viewed"];
+  subscription_discovery_clicked: SubscriptionDiscoveryEventProperties["subscription_discovery_clicked"];
+  pricing_viewed: SubscriptionDiscoveryEventProperties["pricing_viewed"];
+  plan_choice_attempted: SubscriptionDiscoveryEventProperties["plan_choice_attempted"];
+  checkout_started:
+    | LegacyCheckoutStartedProperties
+    | SubscriptionDiscoveryEventProperties["checkout_started"];
+  checkout_failed: SubscriptionDiscoveryEventProperties["checkout_failed"];
+  subscription_activated:
+    | LegacySubscriptionActivatedProperties
+    | SubscriptionDiscoveryEventProperties["subscription_activated"];
   summary_button_clicked: {
     source_surface: "homepage";
   };
