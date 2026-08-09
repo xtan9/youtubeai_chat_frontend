@@ -187,7 +187,6 @@
    * same palette tokens) stay byte-identical. */
   --color-accent-brand: var(--color-purple-500);
   --color-accent-brand-secondary: var(--color-cyan-500);
-  --color-accent-video: var(--color-red-500);
   --color-accent-success: var(--color-emerald-500);
   --color-accent-warning: var(--color-amber-500);
   --color-accent-danger: hsl(0 84.2% 60.2%);  /* matches legacy --destructive light exactly */
@@ -270,7 +269,6 @@
 
   --color-accent-brand: var(--color-purple-400);
   --color-accent-brand-secondary: var(--color-cyan-400);
-  --color-accent-video: var(--color-red-500);
   --color-accent-success: var(--color-emerald-400);
   --color-accent-warning: var(--color-amber-400);
   --color-accent-danger: hsl(0 62.8% 30.6%);  /* matches legacy --destructive dark exactly */
