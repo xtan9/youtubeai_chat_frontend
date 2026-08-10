@@ -135,16 +135,19 @@ describe("Project page Artifact composition", () => {
     mocks.reconcile.mockResolvedValue(undefined);
   });
 
-  it("loads the Study Guide on the server and supplies it with the Project view", async () => {
+  it("loads both Artifact kinds on the server and supplies them with the Project view", async () => {
     const output = (await ProjectPage({
       params: Promise.resolve({ projectId: PROJECT_ID }),
       searchParams: Promise.resolve({}),
     })) as ReactElement<{
       initialStudyGuide: ProjectArtifactLoadResolution;
+      initialCreatorBrief: ProjectArtifactLoadResolution;
     }>;
 
-    expect(mocks.loadArtifact).toHaveBeenCalledWith("study_guide");
+    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(1, "study_guide");
+    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(2, "creator_brief");
     expect(output.props.initialStudyGuide).toEqual(studyGuide);
+    expect(output.props.initialCreatorBrief).toEqual(studyGuide);
   });
 
   it("loads the owned conversation named by the URL query", async () => {

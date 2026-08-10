@@ -6,8 +6,11 @@ import type {
 } from "./project-grounded-answer-contract";
 import {
   inspectProjectCitations,
-  parseProjectCitations,
 } from "./project-grounded-citations";
+import {
+  buildProjectArtifactMarkdown,
+  sanitizeProjectArtifactMarkdown,
+} from "./project-artifact-markdown";
 
 const REQUIRED_HEADINGS = [
   "# Study Guide",
@@ -16,30 +19,8 @@ const REQUIRED_HEADINGS = [
   "## Review questions",
 ] as const;
 
-const MARKDOWN_INLINE_LINK =
-  /!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/gu;
-const MARKDOWN_REFERENCE_LINK = /\[([^\]]+)\]\[[^\]]*\]/gu;
-const MARKDOWN_REFERENCE_DEFINITION = /^\s*\[[^\]]+\]:\s*\S+.*$/gmu;
-const MARKDOWN_AUTOLINK =
-  /<\s*(?:https?|javascript|data|vbscript|file):[^>]*>/giu;
-const MARKDOWN_RAW_HTML = /<\/?[A-Za-z][^>]*>/gu;
-const UNSAFE_OR_EXTERNAL_SCHEME =
-  /\b(?:https?|javascript|data|vbscript|file):[^\s<]+/giu;
-
-/**
- * Model prose is untrusted Markdown. Preserve its readable label/prose while
- * removing every author-supplied link target; canonical timestamp links are
- * added later from the validated Source Manifest.
- */
-export function sanitizeProjectStudyGuideMarkdown(rawContent: string) {
-  return rawContent
-    .replace(MARKDOWN_INLINE_LINK, "$1")
-    .replace(MARKDOWN_REFERENCE_LINK, "$1")
-    .replace(MARKDOWN_REFERENCE_DEFINITION, "")
-    .replace(MARKDOWN_AUTOLINK, "[link removed]")
-    .replace(MARKDOWN_RAW_HTML, "")
-    .replace(UNSAFE_OR_EXTERNAL_SCHEME, "[link removed]");
-}
+export const sanitizeProjectStudyGuideMarkdown =
+  sanitizeProjectArtifactMarkdown;
 
 function timestampValue(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -218,14 +199,5 @@ export function buildProjectStudyGuideMarkdown(
   content: string,
   sourceManifest: ProjectAnswerSourceManifest,
 ) {
-  return parseProjectCitations(
-    sanitizeProjectStudyGuideMarkdown(content),
-    sourceManifest,
-  )
-    .map((part) =>
-      part.type === "text"
-        ? part.value
-        : `[${part.raw.slice(1, -1)}](${part.href})`,
-    )
-    .join("");
+  return buildProjectArtifactMarkdown(content, sourceManifest);
 }

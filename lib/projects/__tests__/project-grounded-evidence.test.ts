@@ -30,6 +30,35 @@ describe("Project Grounded Answer evidence selection", () => {
     expect(selected[0]?.text).not.toContain("Invented goal claim");
   });
 
+  it("preserves one query-relevant passage per Video when balanced evidence is requested", () => {
+    const dominantSource = Array.from({ length: 8 }, (_, index) =>
+      passage({
+        segmentOrdinal: index + 1,
+        text: `Roadmap launch evidence ${index + 1}.`,
+        startSeconds: index * 10,
+      }),
+    );
+    const secondSource = passage({
+      videoId: VIDEO_TWO_ID,
+      youtubeVideoId: "bbbbbbb0002",
+      segmentOrdinal: 1,
+      text: "A customer interview challenges launch readiness.",
+      startSeconds: 84,
+    });
+
+    const selected = selectProjectEvidencePassages(
+      [...dominantSource, secondSource],
+      "Focus on roadmap launch.",
+      8,
+      true,
+    );
+
+    expect(selected).toHaveLength(8);
+    expect(selected.some((candidate) => candidate.videoId === VIDEO_TWO_ID)).toBe(
+      true,
+    );
+  });
+
   it("builds a bounded, exact manifest/snapshot/coverage trio", () => {
     const passages = Array.from({ length: 10 }, (_, index) =>
       passage({

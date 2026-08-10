@@ -30,9 +30,10 @@ export function selectProjectEvidencePassages(
   passages: readonly ProjectTranscriptPassage[],
   goal: string | null,
   limit = PROJECT_GROUNDED_PASSAGE_LIMIT,
+  balanceSources = false,
 ): readonly ProjectTranscriptPassage[] {
   const goalTerms = relevanceTerms(goal);
-  return passages
+  const ranked = passages
     .map((passage, originalIndex) => {
       const passageTerms = relevanceTerms(passage.text);
       let goalOverlap = 0;
@@ -45,9 +46,28 @@ export function selectProjectEvidencePassages(
       (left, right) =>
         right.goalOverlap - left.goalOverlap ||
         left.originalIndex - right.originalIndex,
-    )
-    .slice(0, limit)
-    .map(({ passage }) => passage);
+    );
+  if (!balanceSources) {
+    return ranked.slice(0, limit).map(({ passage }) => passage);
+  }
+
+  const bestByVideo = new Map<string, (typeof ranked)[number]>();
+  for (const candidate of ranked) {
+    if (!bestByVideo.has(candidate.passage.videoId)) {
+      bestByVideo.set(candidate.passage.videoId, candidate);
+    }
+  }
+  const selected = [...bestByVideo.values()].slice(0, limit);
+  const selectedPassageIds = new Set(
+    selected.map(({ passage }) => passage.passageId),
+  );
+  for (const candidate of ranked) {
+    if (selected.length >= limit) break;
+    if (selectedPassageIds.has(candidate.passage.passageId)) continue;
+    selected.push(candidate);
+    selectedPassageIds.add(candidate.passage.passageId);
+  }
+  return selected.map(({ passage }) => passage);
 }
 
 type SearchWithCoverage = Extract<
@@ -59,10 +79,16 @@ export function buildProjectAnswerArtifacts(args: {
   readonly projectId: string;
   readonly search: SearchWithCoverage;
   readonly goal: string | null;
+  readonly balanceSources?: boolean;
 }): AnswerArtifacts {
   const selected =
     args.search.status === "ready"
-      ? selectProjectEvidencePassages(args.search.passages, args.goal)
+      ? selectProjectEvidencePassages(
+          args.search.passages,
+          args.goal,
+          PROJECT_GROUNDED_PASSAGE_LIMIT,
+          args.balanceSources,
+        )
       : [];
   const sourcesByVideo = new Map<
     string,

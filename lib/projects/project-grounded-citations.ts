@@ -26,6 +26,15 @@ type BracketCandidate = {
   readonly closed: boolean;
 };
 
+export type CanonicalProjectCitationToken = {
+  readonly raw: string;
+  readonly start: number;
+  readonly end: number;
+  readonly sourceId: string;
+  readonly timestamp: string;
+  readonly endTimestamp?: string;
+};
+
 function bracketCandidates(content: string): readonly BracketCandidate[] {
   const characters = Array.from(content);
   const candidates: BracketCandidate[] = [];
@@ -64,6 +73,25 @@ function bracketCandidates(content: string): readonly BracketCandidate[] {
     });
   }
   return candidates;
+}
+
+export function findCanonicalProjectCitationTokens(
+  content: string,
+): readonly CanonicalProjectCitationToken[] {
+  return bracketCandidates(content).flatMap((candidate) => {
+    const match = candidate.closed
+      ? CANONICAL_CITATION.exec(candidate.raw)
+      : null;
+    if (!match) return [];
+    return [{
+      raw: candidate.raw,
+      start: candidate.start,
+      end: candidate.end,
+      sourceId: match[1],
+      timestamp: match[2],
+      ...(match[3] === undefined ? {} : { endTimestamp: match[3] }),
+    }];
+  });
 }
 
 function looksLikeCitation(raw: string) {
@@ -184,14 +212,18 @@ export function inspectProjectCitations(
   manifest: ProjectAnswerSourceManifest,
 ) {
   const diagnostics: ProjectCitationDiagnostic[] = [];
-  const validCitations: Array<BracketCandidate> = [];
+  const validCitations: CanonicalProjectCitationToken[] = [];
   const validSourceIds = new Set<string>();
   const candidates = bracketCandidates(content);
+  const canonicalByStart = new Map(
+    findCanonicalProjectCitationTokens(content).map((token) => [
+      token.start,
+      token,
+    ]),
+  );
   for (const candidate of candidates) {
-    const match = candidate.closed
-      ? CANONICAL_CITATION.exec(candidate.raw)
-      : null;
-    if (!match) {
+    const token = canonicalByStart.get(candidate.start);
+    if (!token) {
       if (diagnostics.length < 20 && looksLikeCitation(candidate.raw)) {
         diagnostics.push({
           kind: "malformed",
@@ -201,15 +233,15 @@ export function inspectProjectCitations(
       continue;
     }
     const validation = validationFor(
-      candidate.raw,
-      match[1],
-      match[2],
+      token.raw,
+      token.sourceId,
+      token.timestamp,
       manifest,
-      match[3],
+      token.endTimestamp,
     );
     if (validation.citation) {
-      validCitations.push(candidate);
-      validSourceIds.add(match[1]);
+      validCitations.push(token);
+      validSourceIds.add(token.sourceId);
     }
     if (validation.diagnostic && diagnostics.length < 20) {
       diagnostics.push(validation.diagnostic);
@@ -274,23 +306,20 @@ export function parseProjectCitations(
 ): ProjectCitationPart[] {
   const parts: ProjectCitationPart[] = [];
   let lastIndex = 0;
-  for (const candidate of bracketCandidates(content)) {
-    if (!candidate.closed) continue;
-    const match = CANONICAL_CITATION.exec(candidate.raw);
-    if (!match) continue;
-    const index = candidate.start;
+  for (const token of findCanonicalProjectCitationTokens(content)) {
+    const index = token.start;
     if (index > lastIndex) {
       parts.push({ type: "text", value: content.slice(lastIndex, index) });
     }
     const validation = validationFor(
-      candidate.raw,
-      match[1],
-      match[2],
+      token.raw,
+      token.sourceId,
+      token.timestamp,
       manifest,
-      match[3],
+      token.endTimestamp,
     );
-    parts.push(validation.citation ?? { type: "text", value: candidate.raw });
-    lastIndex = candidate.end;
+    parts.push(validation.citation ?? { type: "text", value: token.raw });
+    lastIndex = token.end;
   }
   if (lastIndex < content.length) {
     parts.push({ type: "text", value: content.slice(lastIndex) });

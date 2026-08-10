@@ -35,7 +35,7 @@ describe("Project Artifact analytics privacy contract", () => {
       failure_category: "quota",
     }],
     ["project_artifact_exported", {
-      kind: "study_guide",
+      kind: "creator_brief",
       format: "markdown",
     }],
   ] as const)("accepts governed %s events", (event, properties) => {

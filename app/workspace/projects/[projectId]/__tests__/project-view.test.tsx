@@ -29,9 +29,9 @@ vi.mock("../project-source-set", () => ({
     </button>
   ),
 }));
-vi.mock("../project-study-guide", () => ({
-  ProjectStudyGuide: ({ currentSourceSetRevision }: { currentSourceSetRevision: number }) => (
-    <output aria-label="Study Guide Source Set revision">
+vi.mock("../project-artifacts", () => ({
+  ProjectArtifacts: ({ currentSourceSetRevision }: { currentSourceSetRevision: number }) => (
+    <output aria-label="Artifact Source Set revision">
       {currentSourceSetRevision}
     </output>
   ),
@@ -42,7 +42,7 @@ vi.mock("../project-search", () => ({ ProjectSearch: () => null }));
 import { ProjectView } from "../project-view";
 
 describe("ProjectView shared Source Set state", () => {
-  it("propagates a same-page Source Set mutation to the Study Guide without reload", async () => {
+  it("propagates a same-page Source Set mutation to both Artifact kinds without reload", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ProjectView
@@ -78,11 +78,20 @@ describe("ProjectView shared Source Set state", () => {
           generationsUsed: 0,
           generationsLimit: 1,
         }}
+        initialCreatorBrief={{
+          status: "ready",
+          currentSourceSetRevision: 3,
+          current: null,
+          history: [],
+          tier: "free",
+          generationsUsed: 0,
+          generationsLimit: 1,
+        }}
       />,
     );
 
-    expect(screen.getByLabelText("Study Guide Source Set revision").textContent).toBe("3");
+    expect(screen.getByLabelText("Artifact Source Set revision").textContent).toBe("3");
     await user.click(screen.getByRole("button", { name: "Advance Source Set" }));
-    expect(screen.getByLabelText("Study Guide Source Set revision").textContent).toBe("4");
+    expect(screen.getByLabelText("Artifact Source Set revision").textContent).toBe("4");
   });
 });

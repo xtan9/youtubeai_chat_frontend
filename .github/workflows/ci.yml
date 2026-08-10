@@ -298,6 +298,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_study_guides.sql
       - name: Project Artifact concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_artifact_concurrency.sql
+      - name: Project Creator Brief contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_creator_briefs.sql
       - name: Video identity and cache access contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
       - name: Video identity concurrency - representative legacy
@@ -339,6 +341,7 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_assessment.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_study_guides.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_artifact_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_creator_briefs.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_concurrency.sql
       # Reproduces the cache-write upsert that broke translation caching
