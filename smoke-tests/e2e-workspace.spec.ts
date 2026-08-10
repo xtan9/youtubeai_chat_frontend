@@ -103,6 +103,8 @@ type FixtureConversationMessage = {
     | "project_assessment";
   attemptToken?: string;
   completionState?: "reserved" | "completed" | "cancelled" | null;
+  leaseExpiresAt?: number | null;
+  messageOrdinal?: number;
 };
 
 type FixtureSourceSetEvent = {
@@ -183,6 +185,10 @@ let artifactAttemptSequence = 0;
 let artifactSequence = 0;
 let gatewayOutcome: "success" | "failure" = "success";
 let gatewayGate = createGatewayGate();
+let groundedCancellationOutcome: "success" | "unavailable" = "success";
+let groundedCancellationRequests = 0;
+let groundedAttemptChecks = 0;
+let groundedAttemptLeaseMilliseconds = 135_000;
 let appProcess: ChildProcess | undefined;
 let appUrl = "";
 let supabaseFixture: Server | undefined;
@@ -254,6 +260,10 @@ test.beforeEach(() => {
   artifactAttemptSequence = 0;
   artifactSequence = 0;
   gatewayOutcome = "success";
+  groundedCancellationOutcome = "success";
+  groundedCancellationRequests = 0;
+  groundedAttemptChecks = 0;
+  groundedAttemptLeaseMilliseconds = 135_000;
   seedCanonicalHistory();
 });
 
@@ -381,6 +391,7 @@ function seedSourceSetAuditConversation(projectId: string) {
         sourceCoverage: null,
         citationDiagnostics: null,
         completionState: "completed",
+        messageOrdinal: 1,
       },
       {
         id: "c2000000-0000-4000-8000-000000000001",
@@ -398,6 +409,7 @@ function seedSourceSetAuditConversation(projectId: string) {
           passages: [oldPassage],
         },
         citationDiagnostics: [],
+        messageOrdinal: 1,
       },
     ],
     sourceSetEvents: [
@@ -448,13 +460,16 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await page.goto(`${appUrl}/workspace`);
 
+  // Wait for the client auth provider before exercising keyboard activation;
+  // otherwise an SSR-visible button can receive Enter before React hydrates.
+  await expect(page.getByRole("button", { name: "User menu" })).toBeVisible();
+
   await expect(
     page.getByRole("heading", { name: "Your research, ready to resume" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
   const emptyCreate = page.getByRole("button", { name: "Create Project" });
-  await emptyCreate.focus();
-  await page.keyboard.press("Enter");
+  await emptyCreate.press("Enter");
   await expect(page.getByRole("dialog", { name: "Create a Project" })).toBeVisible();
   await page.getByLabel("Project name").fill("Evidence review");
   await page.getByLabel("Project Goal (optional)").fill("Compare the two explanations.");
@@ -580,6 +595,13 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByRole("link", { name: /S1 @ 00:43/i })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /S1 at 00:42/i })).toHaveCount(0);
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
+  const usefulFeedback = page.getByRole("button", {
+    name: "Useful",
+    exact: true,
+  });
+  await usefulFeedback.click();
+  await expect(usefulFeedback).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Feedback recorded.")).toBeVisible();
   await expectProjectQuestionComposerReady(page);
 
   const persisted = projectConversations.get(projectId);
@@ -610,6 +632,9 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
   );
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Useful", exact: true }),
+  ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -817,8 +842,43 @@ test("Project Conversation preserves only the user message after gateway failure
   await expectProjectQuestionComposerReady(page);
   await expect(page.getByText("What fails safely?", { exact: true })).toBeVisible();
   await expect(page.getByText("Grounded Answer", { exact: true })).toHaveCount(0);
+  expect(groundedCancellationRequests).toBe(1);
+  expect(groundedAttemptChecks).toBe(1);
   expect(projectConversations.get(projectId)?.messages).toMatchObject([
     { role: "user", content: "What fails safely?", completionState: "cancelled" },
+  ]);
+});
+
+test("Project Conversation releases reconciliation after cancellation stays unavailable", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Grounded cancellation recovery lab",
+  );
+  gatewayOutcome = "failure";
+  groundedCancellationOutcome = "unavailable";
+  groundedAttemptLeaseMilliseconds = 500;
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByLabel("Ask the Project").fill("What remains recoverable?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+
+  await expect(
+    page.getByText(/Something went wrong answering your Project question/),
+  ).toBeVisible();
+  await expectProjectQuestionComposerReady(page);
+  expect(groundedCancellationRequests).toBe(3);
+  expect(groundedAttemptChecks).toBeGreaterThan(1);
+  expect(projectConversations.get(projectId)?.messages).toMatchObject([
+    {
+      role: "user",
+      content: "What remains recoverable?",
+      completionState: "cancelled",
+    },
   ]);
 });
 
@@ -2514,8 +2574,10 @@ async function handleSourceSetRpc(
       citationDiagnostics: citationAnalysis.diagnostics,
       completionState: null,
       mode: body.p_mode ?? userMessage.mode ?? "question",
+      messageOrdinal: userMessage.messageOrdinal,
     });
     userMessage.completionState = "completed";
+    userMessage.leaseExpiresAt = null;
     return sendJson(response, 200, {
       outcome: "completed",
       assistantMessageId,
@@ -2528,6 +2590,13 @@ async function handleSourceSetRpc(
     url.pathname.endsWith("/cancel_project_grounded_question") ||
     url.pathname.endsWith("/cancel_project_grounded_question_v2")
   ) {
+    groundedCancellationRequests += 1;
+    if (groundedCancellationOutcome === "unavailable") {
+      return sendJson(response, 503, {
+        code: "fixture_cancel_unavailable",
+        message: "Fixture cancellation unavailable",
+      });
+    }
     if (!serviceRole || !projectId || body.p_owner_id !== projectOwnerId(projectId)) {
       return sendJson(response, 200, { outcome: "stale" });
     }
@@ -2559,6 +2628,7 @@ async function handleSourceSetRpc(
       return sendJson(response, 200, { outcome: "stale" });
     }
     userMessage.completionState = "cancelled";
+    userMessage.leaseExpiresAt = null;
     return sendJson(response, 200, { outcome: "cancelled" });
   }
 
@@ -2747,6 +2817,7 @@ async function handleSourceSetRpc(
   }
 
   if (url.pathname.endsWith("/load_project_grounded_attempt_v2")) {
+    groundedAttemptChecks += 1;
     const conversation = body.p_conversation_id
       ? findConversation(projectId, body.p_conversation_id)
       : conversationThreads(projectId).find((thread) =>
@@ -2760,6 +2831,15 @@ async function handleSourceSetRpc(
         message.id === body.p_question_id && message.role === "user",
     );
     if (!userMessage) return sendJson(response, 200, { outcome: "missing" });
+    if (
+      userMessage.completionState === "reserved" &&
+      userMessage.leaseExpiresAt !== undefined &&
+      userMessage.leaseExpiresAt !== null &&
+      userMessage.leaseExpiresAt <= Date.now()
+    ) {
+      userMessage.completionState = "cancelled";
+      userMessage.leaseExpiresAt = null;
+    }
     const assistant = conversation?.messages.find(
       (message) =>
         message.role === "assistant" &&
@@ -2906,6 +2986,7 @@ async function handleSourceSetRpc(
         userMessageId: existing.id,
         attemptToken: existing.attemptToken,
         completionState: existing.completionState,
+        messageOrdinal: existing.messageOrdinal,
         messagesUsed,
         messagesLimit: tier === "pro" ? null : 5,
         tier,
@@ -2931,6 +3012,10 @@ async function handleSourceSetRpc(
       mode: body.p_mode ?? "question",
       attemptToken,
       completionState: "reserved",
+      leaseExpiresAt: Date.now() + groundedAttemptLeaseMilliseconds,
+      // `messagesUsed` is Project-wide across every thread and includes
+      // incomplete turns, matching the database's durable canonical ordinal.
+      messageOrdinal: messagesUsed + 1,
     });
     conversation.updatedAt = nextTimestamp();
     return sendJson(response, 200, {
@@ -2940,6 +3025,7 @@ async function handleSourceSetRpc(
       userMessageId,
       attemptToken,
       completionState: "reserved",
+      messageOrdinal: messagesUsed + 1,
       messagesUsed: messagesUsed + 1,
       messagesLimit: tier === "pro" ? null : 5,
       tier,
@@ -3222,6 +3308,9 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     citationDiagnostics: message.citationDiagnostics,
     ...(message.mode ? { mode: message.mode } : {}),
     completionState: message.role === "user" ? message.completionState : null,
+    ...(message.messageOrdinal
+      ? { messageOrdinal: message.messageOrdinal }
+      : {}),
   };
 }
 

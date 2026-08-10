@@ -153,6 +153,7 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     expect(mocks.capture).toHaveBeenCalledWith(
       "project_grounded_answer_completed",
       {
+        project_id: PROJECT_ID,
         classification: "supported",
         source_set_revision: 3,
         total_videos: 1,
@@ -417,7 +418,17 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     expect(JSON.stringify(result.current)).not.toContain(
       "Partial private answer",
     );
-    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.capture).toHaveBeenCalledExactlyOnceWith(
+      "project_action_failed",
+      {
+        project_id: PROJECT_ID,
+        action_kind: "message",
+        error_class: "processing",
+      },
+    );
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "Partial private answer",
+    );
   });
 
   it("polls the exact reserved question until pre-persistence cancellation is terminal", async () => {
@@ -698,6 +709,11 @@ describe("useProjectGroundedConversation canonical persistence", () => {
       expect(result.current.conversation).toEqual(cancelled);
       expect(result.current.streaming).toBe(false);
       expect(result.current.error).toBe("Empty response from server.");
+      expect(mocks.capture).toHaveBeenCalledWith("project_action_failed", {
+        project_id: PROJECT_ID,
+        action_kind: "message",
+        error_class: "protocol",
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -743,9 +759,61 @@ describe("useProjectGroundedConversation canonical persistence", () => {
       expect(result.current.announcement).toBe(
         "Generation stopped before your question was saved.",
       );
+      expect(mocks.capture).toHaveBeenCalledWith("project_action_failed", {
+        project_id: PROJECT_ID,
+        action_kind: "message",
+        error_class: "network",
+      });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("records one bounded failure when the grounded stream reports an error", async () => {
+    const cancelled = {
+      ...USER_ONLY,
+      messages: [
+        { ...USER_ONLY.messages[0], completionState: "cancelled" as const },
+      ],
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sse(
+          {
+            type: "question_reserved",
+            userMessageId: RESERVED_USER_MESSAGE_ID,
+          },
+          { type: "error", message: "Generation unavailable." },
+        ),
+      )
+      .mockResolvedValueOnce(
+        json({
+          attempt: {
+            status: "ready",
+            userMessageId: RESERVED_USER_MESSAGE_ID,
+            state: "cancelled",
+            assistant: null,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(json({ conversation: cancelled }));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProjectGroundedConversation({
+        projectId: PROJECT_ID,
+        initialConversation: INITIAL,
+      }),
+    );
+
+    await act(() => result.current.send("When was the launch?"));
+
+    expect(mocks.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "message",
+      error_class: "processing",
+    });
+    expect(result.current.error).toBe("Generation unavailable.");
   });
 
   it("settles an immediate pre-reservation abort instead of polling forever", async () => {
@@ -830,6 +898,12 @@ describe("useProjectGroundedConversation canonical persistence", () => {
     });
     expect(result.current.error).toBeNull();
     expect(result.current.conversation.messagesUsed).toBe(5);
+    expect(mocks.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "message",
+      error_class: "quota",
+      http_status: 402,
+    });
   });
 
   it("switches, creates, renames, and clears through the management boundaries", async () => {

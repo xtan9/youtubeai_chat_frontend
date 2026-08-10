@@ -135,7 +135,7 @@ describe("Project Grounded Answer stream transaction", () => {
     expect(emitted.some((event) => event.type === "delta")).toBe(false);
 
     release(completed("supported"));
-    await expect(pending).resolves.toEqual({ outcome: "completed" });
+    await expect(pending).resolves.toMatchObject({ outcome: "completed" });
     expect(emitted.map((event) => event.type)).toEqual([
       "answer_start",
       "delta",
@@ -256,7 +256,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: new AbortController().signal,
         emit: (event) => emitted.push(event),
       }),
-    ).resolves.toEqual({ outcome: "completed" });
+    ).resolves.toMatchObject({ outcome: "completed" });
 
     expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "unsupported" }),
@@ -322,7 +322,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: controller.signal,
         emit: (event) => emitted.push(event),
       }),
-    ).resolves.toEqual({ outcome: "aborted" });
+    ).resolves.toMatchObject({ outcome: "aborted" });
 
     expect(mocks.beginPersistence).not.toHaveBeenCalled();
     expect(emitted.some((event) => event.type === "persistence_started")).toBe(
@@ -349,7 +349,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: new AbortController().signal,
         emit: (event) => emitted.push(event),
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       outcome: "failed",
       stage: "persistence",
       errorClass: "stale",
@@ -384,7 +384,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: new AbortController().signal,
         emit: (event) => emitted.push(event),
       }),
-    ).resolves.toEqual({ outcome: "completed" });
+    ).resolves.toMatchObject({ outcome: "completed" });
     expect(mocks.beginPersistence).toHaveBeenCalledOnce();
     expect(hypotheticalReplay).not.toHaveBeenCalled();
     expect(emitted.at(-1)).toEqual({
@@ -410,7 +410,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: new AbortController().signal,
         emit: (event) => emitted.push(event),
       }),
-    ).resolves.toEqual({ outcome: "completed" });
+    ).resolves.toMatchObject({ outcome: "completed" });
     expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ assistantContent: content }),
     );
@@ -482,7 +482,7 @@ describe("Project Grounded Answer stream transaction", () => {
         signal: new AbortController().signal,
         emit: () => undefined,
       }),
-    ).resolves.toEqual({ outcome: "completed" });
+    ).resolves.toMatchObject({ outcome: "completed" });
     expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ assistantContent: accepted }),
     );

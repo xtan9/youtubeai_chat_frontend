@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { captureProjectActivityEvent } from "@/lib/analytics/server";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { reconcileStaleProjectVideoProcessing } from "@/lib/projects/project-video-processing";
 import {
@@ -82,7 +84,7 @@ export default async function ProjectPage({
   try {
     await reconcileStaleProjectVideoProcessing(
       subject.value,
-      principalResult.principal.smokeProEntitled === true,
+      principalResult.principal.businessAnalyticsSuppressed,
     );
     [
       project,
@@ -139,6 +141,15 @@ export default async function ProjectPage({
   ) {
     return <ProjectOutcomeState kind="unavailable" />;
   }
+  scheduleAnalyticsAfterResponse(() =>
+    captureProjectActivityEvent(
+      principalResult.principal.userId,
+      "project_opened",
+      { project_id: project.value.id },
+      principalResult.principal.businessAnalyticsSuppressed,
+      `project-opened:${project.value.id}:${new Date().toISOString().slice(0, 10)}`,
+    ),
+  );
   return (
     <ProjectView
       initialProject={project.value}

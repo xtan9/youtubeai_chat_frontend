@@ -4,13 +4,21 @@ vi.mock("server-only", () => ({}));
 
 const mocks = vi.hoisted(() => ({
   captureProjectVideoProcessingEvent: vi.fn(),
+  scheduleAnalyticsAfterResponse: vi.fn(),
   serviceRpc: vi.fn(),
   loadProjectSourceSet: vi.fn(),
   runServerSummaryRun: vi.fn(),
 }));
 
+vi.mock("@/lib/analytics/after", () => ({
+  scheduleAnalyticsAfterResponse: mocks.scheduleAnalyticsAfterResponse,
+}));
+
 vi.mock("@/lib/analytics/server", () => ({
   captureProjectVideoProcessingEvent: mocks.captureProjectVideoProcessingEvent,
+}));
+vi.mock("@/lib/analytics/project-server", () => ({
+  recordProjectAnalyticsTransition: vi.fn(),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({
   getServiceRoleClient: () => ({ rpc: mocks.serviceRpc }),
@@ -46,6 +54,7 @@ const PRINCIPAL = {
   userId: SUBJECT.ownerId,
   isAnonymous: false,
   email: "owner@example.com",
+  businessAnalyticsSuppressed: false,
 };
 const LEASE = {
   projectId: PROJECT_ID,
@@ -53,6 +62,7 @@ const LEASE = {
   youtubeUrl: URL,
   attemptId: ATTEMPT_ID,
   ordinal: 2,
+  sourceSetRevision: 1,
   attemptKind: "new" as const,
 };
 
@@ -82,6 +92,11 @@ function summaryResponse(cached: boolean): Response {
 describe("Project Video processing service", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.scheduleAnalyticsAfterResponse.mockImplementation(
+      (callback: () => void | Promise<void>) => {
+        void callback();
+      },
+    );
     mocks.captureProjectVideoProcessingEvent.mockResolvedValue(undefined);
     mocks.loadProjectSourceSet.mockResolvedValue({
       kind: "resolved",
@@ -110,7 +125,11 @@ describe("Project Video processing service", () => {
       0,
     );
 
-    expect(result).toEqual({ kind: "started", lease: LEASE });
+    expect(result).toEqual({
+      kind: "started",
+      sourceSetRevision: 1,
+      lease: LEASE,
+    });
   });
 
   it.each([
@@ -143,6 +162,7 @@ describe("Project Video processing service", () => {
         PRINCIPAL.userId,
         "project_video_processing_succeeded",
         {
+          project_id: PROJECT_ID,
           status: "ready",
           ordinal: 2,
           result_origin: origin,
@@ -160,6 +180,13 @@ describe("Project Video processing service", () => {
       data: { outcome: "transitioned", revision: 2 },
       error: null,
     });
+
+    let releaseCapture = () => {};
+    mocks.captureProjectVideoProcessingEvent.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseCapture = resolve;
+      }),
+    );
 
     await completeProjectVideoProcessing({
       subject: SUBJECT,
@@ -193,6 +220,7 @@ describe("Project Video processing service", () => {
       }),
       false,
     );
+    releaseCapture();
   });
 
   it("turns a missing durability proof into a classified persistence failure", async () => {
@@ -270,12 +298,40 @@ describe("Project Video processing service", () => {
       SUBJECT.ownerId,
       "project_video_processing_failed",
       {
+        project_id: PROJECT_ID,
         status: "failed",
         ordinal: 4,
         error_class: "interrupted",
         processing_seconds: 420,
       },
       false,
+    );
+  });
+
+  it("propagates marked-Smoke analytics suppression when a stale lease expires", async () => {
+    mocks.serviceRpc.mockResolvedValue({
+      data: {
+        outcome: "expired",
+        revision: 3,
+        expiredCount: 1,
+        expiredAttempts: [{ ordinal: 4, processingSeconds: 420 }],
+      },
+      error: null,
+    });
+
+    await reconcileStaleProjectVideoProcessing(SUBJECT, true);
+
+    expect(mocks.captureProjectVideoProcessingEvent).toHaveBeenCalledWith(
+      SUBJECT.ownerId,
+      "project_video_processing_failed",
+      {
+        project_id: PROJECT_ID,
+        status: "failed",
+        ordinal: 4,
+        error_class: "interrupted",
+        processing_seconds: 420,
+      },
+      true,
     );
   });
 });

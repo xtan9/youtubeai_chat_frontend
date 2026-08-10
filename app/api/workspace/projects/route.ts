@@ -1,3 +1,6 @@
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { captureProjectActivityEvent } from "@/lib/analytics/server";
+import { recordProjectAnalyticsTransition } from "@/lib/analytics/project-server";
 import { createClient } from "@/lib/supabase/server";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
 import { createProjectSchema } from "@/lib/projects/project-input";
@@ -62,5 +65,25 @@ export async function POST(request: Request) {
     parsed.data,
   );
   if (result.kind !== "resolved") return projectOutcomeResponse(result);
+  const createdAt = result.value.createdAt;
+  scheduleAnalyticsAfterResponse(async () => {
+    await Promise.all([
+      captureProjectActivityEvent(
+        researcher.principal.userId,
+        "project_created",
+        { project_id: result.value.id },
+        researcher.principal.businessAnalyticsSuppressed,
+        `project-created:${result.value.id}`,
+      ),
+      recordProjectAnalyticsTransition({
+        projectId: result.value.id,
+        ownerId: researcher.principal.userId,
+        trigger: "created",
+        occurredAt: createdAt,
+        businessAnalyticsSuppressed:
+          researcher.principal.businessAnalyticsSuppressed,
+      }),
+    ]);
+  });
   return Response.json({ project: result.value }, { status: 201 });
 }

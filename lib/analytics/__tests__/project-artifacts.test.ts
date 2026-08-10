@@ -7,6 +7,7 @@ import {
 describe("Project Artifact analytics privacy contract", () => {
   it("accepts only bounded Artifact generation and provenance aggregates", () => {
     const properties = {
+      project_id: "10000000-0000-4000-8000-000000000001",
       kind: "study_guide" as const,
       tier: "free" as const,
       source_set_revision: 4,
@@ -25,16 +26,19 @@ describe("Project Artifact analytics privacy contract", () => {
 
   it.each([
     ["project_artifact_generation_requested", {
+      project_id: "10000000-0000-4000-8000-000000000001",
       kind: "study_guide",
       tier: "pro",
       is_regeneration: true,
     }],
     ["project_artifact_generation_blocked", {
+      project_id: "10000000-0000-4000-8000-000000000001",
       kind: "study_guide",
       tier: "free",
       failure_category: "quota",
     }],
     ["project_artifact_exported", {
+      project_id: "10000000-0000-4000-8000-000000000001",
       kind: "creator_brief",
       format: "markdown",
     }],
@@ -46,7 +50,6 @@ describe("Project Artifact analytics privacy contract", () => {
   });
 
   it.each([
-    { project_id: "10000000-0000-4000-8000-000000000001" },
     { artifact_id: "20000000-0000-4000-8000-000000000001" },
     { project_name: "Private research" },
     { project_goal: "Private goal" },
@@ -60,6 +63,7 @@ describe("Project Artifact analytics privacy contract", () => {
       ProjectArtifactEventSchema.safeParse({
         event: "project_artifact_generation_completed",
         properties: {
+          project_id: "10000000-0000-4000-8000-000000000001",
           kind: "study_guide",
           tier: "free",
           source_set_revision: 4,
@@ -75,12 +79,14 @@ describe("Project Artifact analytics privacy contract", () => {
   it("rejects unsupported kinds, formats, categories, and unbounded counts", () => {
     expect(
       validateProjectArtifactEvent("project_artifact_exported", {
+        project_id: "10000000-0000-4000-8000-000000000001",
         kind: "transcript",
         format: "pdf",
       }).success,
     ).toBe(false);
     expect(
       validateProjectArtifactEvent("project_artifact_generation_blocked", {
+        project_id: "10000000-0000-4000-8000-000000000001",
         kind: "study_guide",
         tier: "free",
         failure_category: "provider_secret",
@@ -90,6 +96,7 @@ describe("Project Artifact analytics privacy contract", () => {
       validateProjectArtifactEvent(
         "project_artifact_generation_completed",
         {
+          project_id: "10000000-0000-4000-8000-000000000001",
           kind: "study_guide",
           tier: "free",
           source_set_revision: 4,

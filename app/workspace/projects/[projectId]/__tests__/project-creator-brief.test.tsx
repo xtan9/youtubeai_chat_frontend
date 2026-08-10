@@ -150,6 +150,21 @@ describe("ProjectCreatorBrief", () => {
       "project_artifact_generation_completed",
       expect.objectContaining({ kind: "creator_brief", generations_used: 1 }),
     );
+    await user.click(
+      screen.getAllByRole("link", { name: /S1 @ 00:42.*Launch notes/iu })[0]!,
+    );
+    expect(analytics.capture).toHaveBeenCalledWith(
+      "project_citation_clicked",
+      {
+        project_id: PROJECT_ID,
+        citation_context: "artifact",
+        artifact_id: next.current?.artifactId,
+        artifact_kind: "creator_brief",
+        citation_ordinal: 1,
+        source_ordinal: 1,
+        timestamp_seconds: 42,
+      },
+    );
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -231,11 +246,19 @@ describe("ProjectCreatorBrief", () => {
     expect(filename).toBe("launch-research-notes-creator-brief.md");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_exported",
-      { kind: "creator_brief", format: "clipboard" },
+      {
+        project_id: PROJECT_ID,
+        kind: "creator_brief",
+        format: "clipboard",
+      },
     );
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_exported",
-      { kind: "creator_brief", format: "markdown" },
+      {
+        project_id: PROJECT_ID,
+        kind: "creator_brief",
+        format: "markdown",
+      },
     );
   });
 });

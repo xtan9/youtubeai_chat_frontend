@@ -17,17 +17,23 @@ import {
   type ProjectVideoProcessingEventName,
   type ProjectVideoProcessingEventProperties,
 } from "./project-video-processing";
+import {
+  validateProjectActivityEvent,
+  type ProjectActivityEventName,
+  type ProjectActivityEventProperties,
+} from "./project-activity";
 
 const POSTHOG_HOST = "https://us.i.posthog.com";
 
 export type SubscriptionActivationCaptureStatus = "sent" | "skipped" | "failed";
+export type ProjectActivityCaptureStatus = "sent" | "skipped" | "failed";
 
 type SubscriptionActivationCaptureOptions = {
   /** Stable, non-identifying outbox marker used as the PostHog event UUID. */
   readonly activationMarker?: string;
 };
 
-function activationEventUuid(marker: string): string {
+function analyticsEventUuid(marker: string): string {
   const hex = createHash("sha256").update(marker).digest("hex").slice(0, 32).split("");
   // Keep the deterministic digest in RFC 4122 UUID shape without exposing the
   // user or subscription identifiers contained in the durable marker.
@@ -93,7 +99,7 @@ export async function captureSubscriptionActivated(
         ...validation.properties,
       },
       ...(options?.activationMarker
-        ? { uuid: activationEventUuid(options.activationMarker) }
+        ? { uuid: analyticsEventUuid(options.activationMarker) }
         : {}),
     };
     await client.captureImmediate(event);
@@ -112,6 +118,96 @@ export async function captureSubscriptionActivated(
       console.error("[analytics] server shutdown failed", {
         errorId: "ANALYTICS_SERVER_SHUTDOWN_FAILED",
         event: "subscription_activated",
+        err,
+      });
+    }
+  }
+}
+
+export async function captureProjectActivityEvent<
+  EventName extends ProjectActivityEventName,
+>(
+  distinctId: string,
+  event: EventName,
+  properties: ProjectActivityEventProperties[EventName],
+  syntheticSmokeAccount = false,
+  eventMarker?: string,
+  eventOccurredAt?: string,
+): Promise<void> {
+  await captureProjectActivityEventWithStatus(
+    distinctId,
+    event,
+    properties,
+    syntheticSmokeAccount,
+    eventMarker,
+    eventOccurredAt,
+  );
+}
+
+export async function captureProjectActivityEventWithStatus<
+  EventName extends ProjectActivityEventName,
+>(
+  distinctId: string,
+  event: EventName,
+  properties: ProjectActivityEventProperties[EventName],
+  syntheticSmokeAccount = false,
+  eventMarker?: string,
+  eventOccurredAt?: string,
+): Promise<ProjectActivityCaptureStatus> {
+  if (syntheticSmokeAccount) {
+    console.info("[analytics] suppressed synthetic business event", {
+      event,
+      ...SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
+    });
+    return "skipped";
+  }
+
+  const validation = validateProjectActivityEvent(event, properties);
+  if (!validation.success) {
+    console.error("[analytics] invalid Project activity event", {
+      errorId: "ANALYTICS_PROJECT_ACTIVITY_INVALID",
+      event,
+      issueCount: validation.issueCount,
+    });
+    return "skipped";
+  }
+
+  const projectToken = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
+  if (process.env.NODE_ENV !== "production" || !projectToken) return "skipped";
+
+  const client = new PostHog(projectToken, {
+    host: POSTHOG_HOST,
+    flushAt: 1,
+    flushInterval: 0,
+  });
+
+  try {
+    await client.captureImmediate({
+      distinctId,
+      event,
+      properties: {
+        analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
+        [ANALYTICS_SUBJECT_PROPERTY]: ANALYTICS_HUMAN_SUBJECT,
+        ...validation.properties,
+      },
+      ...(eventMarker ? { uuid: analyticsEventUuid(eventMarker) } : {}),
+      ...(eventOccurredAt ? { timestamp: new Date(eventOccurredAt) } : {}),
+    });
+    return "sent";
+  } catch (err) {
+    console.error("[analytics] server capture failed", {
+      errorId: "ANALYTICS_SERVER_CAPTURE_FAILED",
+      event,
+      err,
+    });
+    return "failed";
+  } finally {
+    try {
+      await client.shutdown();
+    } catch (err) {
+      console.error("[analytics] server shutdown failed", {
+        errorId: "ANALYTICS_SERVER_SHUTDOWN_FAILED",
+        event,
         err,
       });
     }

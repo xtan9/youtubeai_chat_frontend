@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
 import {
   PROJECT_PASSAGE_SEARCH_QUERY_MAX_LENGTH,
   PROJECT_PASSAGE_SEARCH_QUERY_MIN_LENGTH,
@@ -193,12 +194,30 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: normalizedQuery }),
       });
-      const payload = (await response.json()) as {
-        search?: unknown;
-        message?: string;
-      };
-      const parsed = ProjectPassageSearchResponseSchema.safeParse(payload.search);
-      if (!response.ok || !parsed.success) {
+      let payload: { search?: unknown; message?: string } = {};
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        if (response.ok) {
+          captureAnalyticsEvent("project_action_failed", {
+            project_id: projectId,
+            action_kind: "search",
+            error_class: "protocol",
+          });
+          setSearch(null);
+          setError("Project Search returned an invalid response. Try again.");
+          return;
+        }
+      }
+      if (!response.ok) {
+        captureAnalyticsEvent("project_action_failed", {
+          project_id: projectId,
+          action_kind: "search",
+          error_class: classifyProjectActionHttpFailure(response.status),
+          ...(response.status >= 400 && response.status <= 599
+            ? { http_status: response.status }
+            : {}),
+        });
         setSearch(null);
         setError(
           payload.message ??
@@ -207,8 +226,21 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
         return;
       }
 
+      const parsed = ProjectPassageSearchResponseSchema.safeParse(payload.search);
+      if (!parsed.success) {
+        captureAnalyticsEvent("project_action_failed", {
+          project_id: projectId,
+          action_kind: "search",
+          error_class: "protocol",
+        });
+        setSearch(null);
+        setError("Project Search returned an invalid response. Try again.");
+        return;
+      }
+
       setSearch(parsed.data);
       captureAnalyticsEvent("project_search_completed", {
+        project_id: projectId,
         source_set_revision: parsed.data.sourceSetRevision,
         outcome: parsed.data.status,
         result_count: parsed.data.passages.length,
@@ -218,6 +250,11 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
         passages_examined: parsed.data.coverage.passagesExamined,
       });
     } catch {
+      captureAnalyticsEvent("project_action_failed", {
+        project_id: projectId,
+        action_kind: "search",
+        error_class: "network",
+      });
       setSearch(null);
       setError(
         "Project Search is unavailable. Check your connection and try again.",

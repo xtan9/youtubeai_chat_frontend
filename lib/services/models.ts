@@ -14,6 +14,7 @@
 // YouTubeAI intentionally uses one model for both summaries and chat. The
 // gateway is CLIProxyAPI, which accepts the canonical Codex model ID below.
 export const SPARK = "gpt-5.3-codex-spark";
+export const CHAT_GATEWAY_PROVIDER = "cliproxyapi";
 
 // Backward-compatible aliases for legacy routing names. Both routes now use
 // the same Spark model; these are not separate model choices.

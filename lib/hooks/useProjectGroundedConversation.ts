@@ -24,6 +24,7 @@ import {
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { logAppEvent } from "@/lib/observability";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
 
 export type ProjectConversationDraft = Readonly<{
   user: string;
@@ -96,6 +97,7 @@ function parseEvent(line: string) {
 }
 
 function captureCompletion(input: {
+  readonly projectId: string;
   readonly classification: ProjectAnswerClassification;
   readonly mode?: ProjectConversationMode;
   readonly manifest: ProjectAnswerSourceManifest;
@@ -103,6 +105,7 @@ function captureCompletion(input: {
   readonly diagnosticCount: number;
 }) {
   captureAnalyticsEvent("project_grounded_answer_completed", {
+    project_id: input.projectId,
     classification: input.classification,
     ...(input.mode === undefined || input.mode === PROJECT_DEFAULT_CONVERSATION_MODE
       ? {}
@@ -719,6 +722,27 @@ export function useProjectGroundedConversation(args: {
       let aborted = false;
       let shouldReconcile = true;
       let reservationKnown = false;
+      let failureCaptured = false;
+      const captureMessageFailure = (
+        errorClass:
+          | ReturnType<typeof classifyProjectActionHttpFailure>
+          | "network"
+          | "processing"
+          | "protocol"
+          | "interrupted",
+        httpStatus?: number,
+      ) => {
+        if (failureCaptured) return;
+        failureCaptured = true;
+        captureAnalyticsEvent("project_action_failed", {
+          project_id: args.projectId,
+          action_kind: "message",
+          error_class: errorClass,
+          ...(httpStatus !== undefined && httpStatus >= 400 && httpStatus <= 599
+            ? { http_status: httpStatus }
+            : {}),
+        });
+      };
 
       try {
         const response = await fetch(
@@ -740,6 +764,10 @@ export function useProjectGroundedConversation(args: {
         reservationKnown =
           response.headers.get(PROJECT_QUESTION_MESSAGE_ID_HEADER) === questionId;
         if (!response.ok) {
+          captureMessageFailure(
+            classifyProjectActionHttpFailure(response.status),
+            response.status,
+          );
           let payload: {
             message?: string;
             errorCode?: string;
@@ -766,7 +794,10 @@ export function useProjectGroundedConversation(args: {
           }
           throw new Error(payload.message ?? "Could not send the question.");
         }
-        if (!response.body) throw new Error("Empty response from server.");
+        if (!response.body) {
+          captureMessageFailure("protocol");
+          throw new Error("Empty response from server.");
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -784,6 +815,7 @@ export function useProjectGroundedConversation(args: {
             switch (event.type) {
               case "question_reserved":
                 if (event.userMessageId !== questionId) {
+                  captureMessageFailure("protocol");
                   throw new Error("Grounded Answer reservation did not match.");
                 }
                 reservationKnown = true;
@@ -832,6 +864,7 @@ export function useProjectGroundedConversation(args: {
                   currentDraft.classification
                 ) {
                   captureCompletion({
+                    projectId: args.projectId,
                     classification: currentDraft.classification,
                     mode: currentDraft.mode,
                     manifest: currentDraft.manifest,
@@ -841,16 +874,23 @@ export function useProjectGroundedConversation(args: {
                 }
                 break;
               case "error":
+                captureMessageFailure("processing");
                 throw new Error(event.message);
             }
             setDraft(currentDraft);
           }
         }
-        if (!completed) throw new Error("The answer stream ended early.");
+        if (!completed) {
+          captureMessageFailure("interrupted");
+          throw new Error("The answer stream ended early.");
+        }
       } catch (caught) {
         aborted =
           controller.signal.aborted ||
           (caught instanceof DOMException && caught.name === "AbortError");
+        if (!aborted && !completed && !failureCaptured) {
+          captureMessageFailure("network");
+        }
         if (sendEpochRef.current === epoch) setDraft(null);
         if (aborted && sendEpochRef.current === epoch) {
           setAnnouncement("Checking whether the Grounded Answer was saved.");
@@ -888,6 +928,7 @@ export function useProjectGroundedConversation(args: {
                 );
               }
               captureCompletion({
+                projectId: args.projectId,
                 classification: terminal.assistant.answerClassification,
                 mode: terminal.assistant.mode,
                 manifest: terminal.assistant.sourceManifest,

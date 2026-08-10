@@ -14,6 +14,7 @@ const { mocks, afterCallbacks } = vi.hoisted(() => ({
     completeProjectVideoProcessing: vi.fn(),
     failProjectVideoProcessingCompletion: vi.fn(),
     failProjectVideoProcessingSchedule: vi.fn(),
+    captureProjectActivityEvent: vi.fn(),
   },
 }));
 
@@ -35,6 +36,9 @@ vi.mock("@/lib/projects/project-video-processing", () => ({
   failProjectVideoProcessingCompletion: mocks.failProjectVideoProcessingCompletion,
   failProjectVideoProcessingSchedule: mocks.failProjectVideoProcessingSchedule,
 }));
+vi.mock("@/lib/analytics/server", () => ({
+  captureProjectActivityEvent: mocks.captureProjectActivityEvent,
+}));
 
 import { POST } from "../route";
 
@@ -47,6 +51,7 @@ const PRINCIPAL = {
   userId: "owner-1",
   isAnonymous: false,
   email: "owner@example.com",
+  businessAnalyticsSuppressed: false,
 };
 const SUBJECT = {
   kind: "project" as const,
@@ -68,6 +73,7 @@ const LEASE = {
   youtubeUrl: YOUTUBE_URL,
   attemptId: ATTEMPT_ID,
   ordinal: 1,
+  sourceSetRevision: 1,
   attemptKind: "new" as const,
 };
 
@@ -98,6 +104,7 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
     mocks.completeProjectVideoProcessing.mockResolvedValue(undefined);
     mocks.failProjectVideoProcessingCompletion.mockResolvedValue(undefined);
     mocks.failProjectVideoProcessingSchedule.mockResolvedValue(undefined);
+    mocks.captureProjectActivityEvent.mockResolvedValue(undefined);
   });
 
   it("rejects an invalid URL before auth, membership, quota, or processing", async () => {
@@ -138,10 +145,24 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
       0,
     );
     expect(mocks.prepareProjectVideoProcessing).toHaveBeenCalledTimes(1);
-    expect(afterCallbacks).toHaveLength(1);
+    expect(afterCallbacks).toHaveLength(2);
     expect(mocks.completeProjectVideoProcessing).not.toHaveBeenCalled();
 
     await afterCallbacks[0]();
+    expect(mocks.captureProjectActivityEvent).toHaveBeenCalledWith(
+      PRINCIPAL.userId,
+      "project_source_added",
+      {
+        project_id: PROJECT_ID,
+        source_kind: "youtube_url",
+        readiness: "processing",
+        source_ordinal: 1,
+        source_set_revision: 1,
+      },
+      false,
+      `project-source-added:${PROJECT_ID}:${VIDEO_ID}`,
+    );
+    await afterCallbacks[1]();
     expect(mocks.completeProjectVideoProcessing).toHaveBeenCalledWith({
       subject: SUBJECT,
       lease: LEASE,
@@ -173,7 +194,7 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
 
     expect(responses.map((response) => response.status)).toEqual([202, 202]);
     expect(mocks.prepareProjectVideoProcessing).toHaveBeenCalledTimes(1);
-    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.after).toHaveBeenCalledTimes(2);
   });
 
   it("preserves the existing quota response and finalizes the membership failed", async () => {
@@ -204,7 +225,11 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
       upgradeUrl: "/pricing",
     });
     expect(mocks.completeProjectVideoProcessing).toHaveBeenCalledTimes(1);
-    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.captureProjectActivityEvent).not.toHaveBeenCalled();
+
+    await afterCallbacks[0]();
+    expect(mocks.captureProjectActivityEvent).toHaveBeenCalledTimes(1);
   });
 
   it("does no Summary Run work when the universal five-source cap wins", async () => {
@@ -250,6 +275,37 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
     });
   });
 
+  it("schedules source-added immediately when later preparation throws", async () => {
+    mocks.startProjectVideoProcessing.mockResolvedValue({
+      kind: "started",
+      sourceSetRevision: 7,
+      lease: { ...LEASE, sourceSetRevision: 7 },
+    });
+    mocks.prepareProjectVideoProcessing.mockRejectedValue(
+      new Error("preparation unavailable"),
+    );
+
+    const response = await POST(request(), CONTEXT);
+
+    expect(response.status).toBe(503);
+    expect(afterCallbacks).toHaveLength(1);
+    expect(mocks.captureProjectActivityEvent).not.toHaveBeenCalled();
+    await afterCallbacks[0]();
+    expect(mocks.captureProjectActivityEvent).toHaveBeenCalledWith(
+      PRINCIPAL.userId,
+      "project_source_added",
+      {
+        project_id: PROJECT_ID,
+        source_kind: "youtube_url",
+        readiness: "processing",
+        source_ordinal: 1,
+        source_set_revision: 7,
+      },
+      false,
+      `project-source-added:${PROJECT_ID}:${VIDEO_ID}`,
+    );
+  });
+
   it("fails an unexpected background exception without duplicating the started event", async () => {
     mocks.startProjectVideoProcessing.mockResolvedValue({
       kind: "started",
@@ -266,7 +322,7 @@ describe("POST /api/projects/[projectId]/source-set/process", () => {
 
     const response = await POST(request(), CONTEXT);
     expect(response.status).toBe(202);
-    await afterCallbacks[0]();
+    await afterCallbacks[1]();
 
     expect(mocks.failProjectVideoProcessingCompletion).toHaveBeenCalledWith({
       subject: SUBJECT,

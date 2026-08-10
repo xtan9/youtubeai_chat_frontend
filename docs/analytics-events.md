@@ -55,10 +55,10 @@ configuration.
 | `summary_succeeded` | The summary stream reaches a terminal summary event with non-empty summary output. | `account_type`, `source_surface`, `result_origin`, `output_language`, `transcription_seconds`, `summary_seconds`, `total_seconds` |
 | `summary_failed` | The summary request returns a terminal HTTP/query error or the accepted stream emits a terminal processing error. | `account_type`, `source_surface`, `output_language`, `failure_category`, `error_code`, optional `http_status` |
 | `chat_started` | The first chat stream for a video in the mounted client session completes with assistant output. | `account_type`, `source_surface` |
-| `project_video_processing_started` | An owned Project atomically grants this request the only processing lease for a canonical Video membership. | Governed `status`, 1â€“5 `ordinal`, and `attempt_kind` only. |
-| `project_video_processing_succeeded` | The leased Summary Run completes and durable Transcript + Summary evidence is verified before membership becomes ready. | Governed `status`, `ordinal`, cache/generated origin, and stage timings only. |
-| `project_video_processing_failed` | A leased Summary Run or its durable evidence handoff reaches a classified failure, including an expired interrupted lease. | Governed `status`, `ordinal`, `error_class`, and processing duration only. |
-| `project_grounded_answer_completed` | The Project Conversation stream receives `done` only after the complete answer, authoritative classification, source manifest, coverage, source-set revision, Evidence Snapshot, and citation diagnostics have been durably committed. Aborted, failed, empty, stale, or partially streamed attempts do not emit it. | `classification`, optional governed `mode` (`compare_viewpoints`, `common_themes`, `find_gaps`, or `project_assessment`; ordinary questions omit it), `source_set_revision`, `total_videos`, `ready_videos`, `used_videos`, `unavailable_videos`, `passages_examined`, `passages_used`, `citation_diagnostics` |
+| `project_video_processing_started` | An owned Project atomically grants this request the only processing lease for a canonical Video membership. | Stable `project_id`, governed `status`, 1-5 `ordinal`, and `attempt_kind` only. |
+| `project_video_processing_succeeded` | The leased Summary Run completes and durable Transcript + Summary evidence is verified before membership becomes ready. | Stable `project_id`, governed `status`, `ordinal`, cache/generated origin, and stage timings only. |
+| `project_video_processing_failed` | A leased Summary Run or its durable evidence handoff reaches a classified failure, including an expired interrupted lease. | Stable `project_id`, governed `status`, `ordinal`, `error_class`, and processing duration only. |
+| `project_grounded_answer_completed` | The Project Conversation stream receives `done` only after the complete answer, authoritative classification, source manifest, coverage, source-set revision, Evidence Snapshot, and citation diagnostics have been durably committed. Aborted, failed, empty, stale, or partially streamed attempts do not emit it. | Stable `project_id`, `classification`, optional governed `mode`, `source_set_revision`, and bounded coverage/retrieval/citation-diagnostic counts. |
 | `checkout_started` | The authenticated billing API returns a Stripe Checkout URL. A plan choice or failed API call is not counted. | See the Subscription-discovery contract above. |
 | `subscription_activated` | A signed Stripe webhook persists an `active` or `trialing` Pro Subscription. Subscription updates emit only on a non-Pro-to-Pro transition. | See the Subscription-discovery contract above. |
 
@@ -68,31 +68,85 @@ registration from a returning login without a Supabase auth hook or durable
 signup-intent state. Do not count OAuth initiation as completion.
 
 `project_grounded_answer_completed` is content-free. Its properties contain
-only the governed classification, revision, and aggregate counts. Never add a
-Researcher, Workspace, Project, Conversation, Message, or Video identifier;
-Project or Video names; the question, Goal, prior messages, Transcript passage,
-answer text, citation strings, URLs, or diagnostic raw values.
+only the stable Project UUID, governed classification, revision, and aggregate
+counts. Never add a Researcher, Workspace, Conversation, Message, or Video
+identifier; Project or Video names; the question, Goal, prior messages,
+Transcript passage, answer text, citation strings, URLs, or diagnostic raw
+values.
 
 ## Project Search
 
 `project_search_completed` is emitted only after direct Project passage search
 returns a classified `ready`, `no_results`, or `not_ready` outcome. Its strict
-properties are `source_set_revision`, `outcome`, `result_count`,
+properties are stable `project_id`, `source_set_revision`, `outcome`, `result_count`,
 `total_videos`, `ready_videos`, `unavailable_videos`, and `passages_examined`.
-The schema rejects extra properties. Never record a Project identifier or name,
-Project Goal, search query, Transcript passage, Video title or URL, channel
-name, or other Project content in this event.
+The schema rejects extra properties. Never record a Project name or Goal,
+search query, Transcript passage, Video title or URL, channel name, or other
+Project content in this event.
 
-The Search interface is also a PostHog no-capture subtree: autocapture and
-session replay must not record its input, result text, accessible labels, or
-YouTube links. Search uses a POST JSON body so the query is absent from request
-URLs, and the replay network privacy callback drops the entire Search request
-and response rather than masking selected fields.
+The Workspace and Project interfaces are PostHog no-capture subtrees:
+autocapture and session replay must not record Project names or Goals, inputs,
+result text, accessible labels, source metadata, or YouTube links. Project
+Search uses a POST JSON body so the query is absent from request URLs, and the
+replay network privacy callback drops every Project API request and response
+rather than trying to mask selected private fields.
+
+## Project activation, return, trust, and cost
+
+The stable `project_id` is the one approved Project correlation key. It is the
+private Project UUID already enforced by the ownership boundary, never a name
+or content-derived hash. `project_created` and the daily-deduplicated
+`project_opened` event make same-Project seven-day return measurable.
+
+Activation is canonical in `project_analytics_state`, not inferred from
+best-effort callback arrival. A service-only, row-locked RPC orders qualifying
+Search, Project Conversation message, or Artifact actions by their bounded
+occurrence timestamps. It records activation only when the same Project has at
+least two ready Videos. A later source-readiness transition can therefore
+activate a Project whose qualifying action came first, and a delayed callback
+for an earlier action corrects the durable first kind/timestamp.
+
+Every initial or corrected activation revision is written transactionally to a
+content-free service-only outbox. Delivery uses a lease and acknowledgement;
+retries reuse the deterministic Project/revision event UUID. The event timestamp
+and `activation_occurred_at` are the same durable anchor. In analysis, select the
+greatest `activation_revision` for each `project_id`: that revision supersedes
+earlier exports and is the authoritative activation kind, time, and seven-day
+return anchor. Request-time delivery is fail-soft, and a `CRON_SECRET`-protected
+daily drain recovers pending or expired leases without holding up product flows.
+
+| Event | Authoritative trigger | Governed properties |
+| --- | --- | --- |
+| `project_activated` | An immutable durable activation revision; the greatest revision per Project is authoritative. | `project_id`, activation revision, qualifying action kind, authoritative occurrence timestamp, ready Video count |
+| `project_source_added` | A History source is durably ready or a URL source receives its processing lease. | `project_id`, source kind, explicit `ready`/`processing` readiness, 1-5 source ordinal, revision |
+| `project_message_sent` | A new durable user-message reservation is created. | `project_id`, bounded message ordinal, coherent `first`/`subsequent` kind, tier, mode |
+| `project_citation_clicked` | A Researcher activates a validated canonical Grounded Answer or Study Guide timestamp citation. | `project_id`, strict answer-or-Artifact context and stable UUID, bounded message/citation/source ordinals, timestamp seconds |
+| `project_answer_feedback_submitted` | A Researcher chooses Useful or Not useful on a durable answer. | `project_id`, stable answer UUID, bounded message ordinal, governed rating |
+| `project_paywall_viewed` | The resolved Free Conversation or Artifact cap is visible. | `project_id`, paywall kind, tier, bounded used/limit counts |
+| `project_action_failed` | A governed action fails before its success event. | Optional `project_id` only for creation, action kind, error class, optional HTTP status |
+
+Generation accounting is idempotent per Project, operation UUID, and
+generation kind in the service-only `project_generation_usage` table. The LLM
+gateway is requested with streamed usage enabled. If the gateway omits the
+terminal usage chunk (including an interrupted stream), the record is
+`usage_unavailable` and contains no estimated tokens. If observed usage exists
+but the complete configured rate card does not, it is
+`rate_card_unavailable`. A measured cost requires all three numeric per-million
+token rates plus `PROJECT_MODEL_RATE_CARD_VERSION`, source, effective date,
+exact `PROJECT_MODEL_RATE_CARD_MODEL_ID`, and exact
+`PROJECT_MODEL_RATE_CARD_GATEWAY_PROVIDER`. The only accepted source is
+`provider_contract`; a public OpenAI price cannot be labeled authoritative for
+the configured CLIProxyAPI gateway. Rates are never hard-coded from a public
+model name because the billed gateway/provider contract is authoritative.
 
 ## Analysis model
 
 - Acquisition: `$pageview` and PostHog's standard referrer/UTM properties.
 - Activation: the first `summary_succeeded` per person.
+- Project activation: the greatest durable `activation_revision` per stable
+  `project_id`, attributed to that revision's qualifying action kind.
+- Project retention: `project_opened` for the same `project_id` seven days
+  after the greatest revision's authoritative activation timestamp.
 - Signup conversion: `signup_completed` after an acquisition page view.
 - Engagement and retention: repeat `summary_succeeded` events and adoption of
   `chat_started`, sliced by day since first activation.
@@ -106,6 +160,9 @@ and response rather than masking selected fields.
 - Reliability: `summary_failed / (summary_failed + summary_succeeded)`, with
   quota, auth, rate-limit, request, and processing failures reported
   separately.
+- Project trust and unit economics: citation clicks and answer feedback against
+  completed answers; classified Project failures and Video processing outcomes;
+  measured generation cost only when the versioned gateway rate card is complete.
 
 Before registration, client events use PostHog's anonymous visitor identity;
 Supabase anonymous user IDs are not identified. When the visitor registers,
@@ -133,8 +190,9 @@ the same delivery; a later `customer.subscription.updated` replay can also
 retry that marker, while the processing lease recovers a worker crash. A
 failure to persist the outbox state likewise returns 5xx.
 
-Smoke Account events are suppressed at the authenticated client identity
-boundary and at the trusted server activation boundary. Canonical business
+Smoke Account events and durable Project analytics writes are suppressed at
+the authenticated client identity boundary and trusted server principal
+boundary. Canonical business
 queries also exclude the durable `synthetic_smoke_account` marker from both
 event and person properties, so anonymous activity later merged into a Smoke
 Account cannot enter real-user conversion totals.

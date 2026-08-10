@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import { streamChatCompletion } from "@/lib/services/llm-chat-client";
+import {
+  streamChatCompletion,
+  type ChatTokenUsage,
+} from "@/lib/services/llm-chat-client";
 import {
   PROJECT_GROUNDED_ANSWER_MAX_LENGTH,
   type ProjectAnswerArtifacts,
@@ -33,13 +36,19 @@ type AnswerMode =
     };
 
 export type ProjectGroundedAnswerStreamResult =
-  | { readonly outcome: "completed" }
-  | { readonly outcome: "aborted" }
+  | { readonly outcome: "completed"; readonly generation?: ProjectGenerationAccounting }
+  | { readonly outcome: "aborted"; readonly generation?: ProjectGenerationAccounting }
   | {
       readonly outcome: "failed";
       readonly stage: "generation" | "persistence";
       readonly errorClass: string;
+      readonly generation?: ProjectGenerationAccounting;
     };
+
+export type ProjectGenerationAccounting = Readonly<{
+  usage?: ChatTokenUsage;
+  durationMs: number;
+}>;
 
 type StreamInput = Readonly<{
   mode: AnswerMode;
@@ -175,6 +184,20 @@ async function inspectAndPersist(
 export async function executeProjectGroundedAnswerStream(
   input: StreamInput,
 ): Promise<ProjectGroundedAnswerStreamResult> {
+  let generationStartedAt: number | null = null;
+  let usage: ChatTokenUsage | undefined;
+  const withGeneration = <Result extends ProjectGroundedAnswerStreamResult>(
+    result: Result,
+  ): Result => {
+    if (generationStartedAt === null) return result;
+    return {
+      ...result,
+      generation: {
+        ...(usage ? { usage } : {}),
+        durationMs: Math.max(0, Date.now() - generationStartedAt),
+      },
+    };
+  };
   try {
     if (input.mode.kind === "unsupported") {
       return await inspectAndPersist(input, input.mode.content, "unsupported");
@@ -202,11 +225,16 @@ export async function executeProjectGroundedAnswerStream(
       assistantChunks.push(completeText);
     };
 
+    generationStartedAt = Date.now();
     for await (const event of streamChatCompletion({
       messages: input.mode.messages,
       signal: input.signal,
     })) {
-      if (input.signal.aborted) return { outcome: "aborted" };
+      if (input.signal.aborted) return withGeneration({ outcome: "aborted" });
+      if (event.type === "usage") {
+        usage = event.usage;
+        continue;
+      }
       if (event.type !== "delta") continue;
 
       if (classification === null) {
@@ -274,13 +302,15 @@ export async function executeProjectGroundedAnswerStream(
       }
     }
 
-    return await inspectAndPersist(input, assistantBuffer, classification);
+    return withGeneration(
+      await inspectAndPersist(input, assistantBuffer, classification),
+    );
   } catch (error) {
-    if (input.signal.aborted) return { outcome: "aborted" };
-    return {
+    if (input.signal.aborted) return withGeneration({ outcome: "aborted" });
+    return withGeneration({
       outcome: "failed",
       stage: "generation",
       errorClass: errorClass(error),
-    };
+    });
   }
 }

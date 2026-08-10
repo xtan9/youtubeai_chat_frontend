@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
 }));
 
+const PROJECT_ID = "a0000000-0000-4000-8000-000000000001";
+
 vi.mock("posthog-js", () => ({
   default: {
     capture: mocks.capture,
@@ -105,6 +107,7 @@ describe("client analytics", () => {
 
   it("captures only governed Project Search outcome and coverage counts", () => {
     captureAnalyticsEvent("project_search_completed", {
+      project_id: PROJECT_ID,
       source_set_revision: 3,
       outcome: "no_results",
       result_count: 0,
@@ -116,6 +119,7 @@ describe("client analytics", () => {
 
     expect(mocks.capture).toHaveBeenCalledWith("project_search_completed", {
       analytics_schema_version: 1,
+      project_id: PROJECT_ID,
       source_set_revision: 3,
       outcome: "no_results",
       result_count: 0,
@@ -128,6 +132,7 @@ describe("client analytics", () => {
 
   it("captures only governed Project Artifact provenance aggregates", () => {
     captureAnalyticsEvent("project_artifact_generation_completed", {
+      project_id: PROJECT_ID,
       kind: "study_guide",
       tier: "free",
       source_set_revision: 3,
@@ -140,6 +145,7 @@ describe("client analytics", () => {
       "project_artifact_generation_completed",
       {
         analytics_schema_version: 1,
+        project_id: PROJECT_ID,
         kind: "study_guide",
         tier: "free",
         source_set_revision: 3,

@@ -2,7 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
 import { captureProjectVideoProcessingEvent } from "@/lib/analytics/server";
+import { recordProjectAnalyticsTransition } from "@/lib/analytics/project-server";
 import type { ProjectVideoProcessingEventProperties } from "@/lib/analytics/project-video-processing";
 import type { RequestPrincipal } from "@/lib/auth/request-principal";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
@@ -89,6 +91,7 @@ export type ProjectVideoProcessingLease = Readonly<{
   youtubeUrl: string;
   attemptId: string;
   ordinal: number;
+  sourceSetRevision: number;
   attemptKind: "new" | "retry";
 }>;
 
@@ -99,6 +102,7 @@ export type PreparedProjectVideoProcessing = Readonly<{
 
 export type ProjectVideoProcessingStartOutcome = Readonly<{
   kind: ProjectVideoProcessingStartKind;
+  sourceSetRevision?: number;
   sourceSet?: ProjectSourceSet;
   lease?: ProjectVideoProcessingLease;
 }>;
@@ -120,6 +124,7 @@ async function refreshedOutcome(
   supabase: SupabaseClient<any, any, any>,
   subject: ProjectSubject,
   kind: ProjectVideoProcessingStartKind,
+  sourceSetRevision: number,
   lease?: ProjectVideoProcessingLease,
 ): Promise<ProjectVideoProcessingStartOutcome> {
   const refreshed = await loadProjectSourceSet(supabase, subject);
@@ -128,12 +133,12 @@ async function refreshedOutcome(
     // even if the convenience reload fails. Otherwise the only processing
     // owner would disappear before scheduling work and the membership would
     // remain stranded until its stale lease expires.
-    if (lease) return { kind, lease };
+    if (lease) return { kind, sourceSetRevision, lease };
     return {
       kind: refreshed.kind === "forbidden" ? "forbidden" : "unavailable",
     };
   }
-  return { kind, sourceSet: refreshed.value, lease };
+  return { kind, sourceSetRevision, sourceSet: refreshed.value, lease };
 }
 
 export async function startProjectVideoProcessing(
@@ -180,12 +185,13 @@ export async function startProjectVideoProcessing(
       youtubeUrl: `https://www.youtube.com/watch?v=${youtubeVideoId}`,
       attemptId: rpc.attemptId,
       ordinal: rpc.ordinal,
+      sourceSetRevision: rpc.revision,
       attemptKind: rpc.outcome === "started" ? "new" : "retry",
     };
-    return refreshedOutcome(supabase, subject, rpc.outcome, lease);
+    return refreshedOutcome(supabase, subject, rpc.outcome, rpc.revision, lease);
   }
 
-  return refreshedOutcome(supabase, subject, rpc.outcome);
+  return refreshedOutcome(supabase, subject, rpc.outcome, rpc.revision);
 }
 
 async function finalizeProcessingLease(
@@ -255,16 +261,19 @@ async function recordFailure(
   );
   if (finalized?.outcome !== "transitioned") return;
 
-  await captureProjectVideoProcessingEvent(
-    principal.userId,
-    "project_video_processing_failed",
-    {
-      status: "failed",
-      ordinal: lease.ordinal,
-      error_class: errorClass,
-      processing_seconds: Math.max(0, (Date.now() - startedAt) / 1000),
-    },
-    principal.smokeProEntitled === true,
+  scheduleAnalyticsAfterResponse(() =>
+    captureProjectVideoProcessingEvent(
+      principal.userId,
+      "project_video_processing_failed",
+      {
+        project_id: subject.projectId,
+        status: "failed",
+        ordinal: lease.ordinal,
+        error_class: errorClass,
+        processing_seconds: Math.max(0, (Date.now() - startedAt) / 1000),
+      },
+      principal.businessAnalyticsSuppressed,
+    ),
   );
 }
 
@@ -272,15 +281,18 @@ async function recordStarted(
   lease: ProjectVideoProcessingLease,
   principal: RequestPrincipal,
 ): Promise<void> {
-  await captureProjectVideoProcessingEvent(
-    principal.userId,
-    "project_video_processing_started",
-    {
-      status: "processing",
-      ordinal: lease.ordinal,
-      attempt_kind: lease.attemptKind,
-    },
-    principal.smokeProEntitled === true,
+  scheduleAnalyticsAfterResponse(() =>
+    captureProjectVideoProcessingEvent(
+      principal.userId,
+      "project_video_processing_started",
+      {
+        project_id: lease.projectId,
+        status: "processing",
+        ordinal: lease.ordinal,
+        attempt_kind: lease.attemptKind,
+      },
+      principal.businessAnalyticsSuppressed,
+    ),
   );
 }
 
@@ -423,6 +435,7 @@ export async function completeProjectVideoProcessing(args: {
     principal.userId,
     "project_video_processing_succeeded",
     {
+      project_id: subject.projectId,
       status: "ready",
       ordinal: lease.ordinal,
       result_origin: snapshot.origin,
@@ -431,13 +444,20 @@ export async function completeProjectVideoProcessing(args: {
       total_seconds:
         snapshot.summary.transcriptionTime + snapshot.summary.summaryTime,
     },
-    principal.smokeProEntitled === true,
+    principal.businessAnalyticsSuppressed,
   );
+  await recordProjectAnalyticsTransition({
+    projectId: subject.projectId,
+    ownerId: principal.userId,
+    trigger: "source_ready",
+    occurredAt: new Date().toISOString(),
+    businessAnalyticsSuppressed: principal.businessAnalyticsSuppressed,
+  });
 }
 
 export async function reconcileStaleProjectVideoProcessing(
   subject: ProjectSubject,
-  syntheticSmokeAccount = false,
+  businessAnalyticsSuppressed = false,
 ): Promise<void> {
   const service = getServiceRoleClient();
   if (!service) return;
@@ -464,12 +484,13 @@ export async function reconcileStaleProjectVideoProcessing(
         subject.ownerId,
         "project_video_processing_failed",
         {
+          project_id: subject.projectId,
           status: "failed",
           ordinal: attempt.ordinal,
           error_class: "interrupted",
           processing_seconds: attempt.processingSeconds,
         },
-        syntheticSmokeAccount,
+        businessAnalyticsSuppressed,
       );
     }
   } catch (error) {

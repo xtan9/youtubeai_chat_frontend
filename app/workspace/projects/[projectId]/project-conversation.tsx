@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { Check, ExternalLink, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
 import { buildAttributedPricingHref } from "@/lib/analytics/subscription-discovery-navigation";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { useProjectGroundedConversation } from "@/lib/hooks/useProjectGroundedConversation";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
 import {
@@ -114,11 +123,19 @@ function SourceManifest({ manifest }: { manifest: ProjectAnswerSourceManifest })
 function renderAnswer(
   content: string,
   manifest: ProjectAnswerSourceManifest,
+  onCitationClick?: (input: {
+    citationOrdinal: number;
+    sourceOrdinal: number;
+    timestampSeconds: number;
+  }) => void,
 ): ReactNode {
+  let citationOrdinal = 0;
   return parseProjectCitations(content, manifest).map((part, index) => {
     if (part.type === "text") {
       return <Fragment key={`text-${index}`}>{part.value}</Fragment>;
     }
+    citationOrdinal += 1;
+    const currentCitationOrdinal = citationOrdinal;
     return (
       <a
         key={`citation-${index}`}
@@ -127,6 +144,13 @@ function renderAnswer(
         rel="noreferrer"
         className="inline-flex items-center gap-1 rounded-md font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
         aria-label={`${part.raw}, open ${part.title} at this timestamp`}
+        onClick={() =>
+          onCitationClick?.({
+            citationOrdinal: currentCitationOrdinal,
+            sourceOrdinal: Number.parseInt(part.sourceId.slice(1), 10),
+            timestampSeconds: part.seconds,
+          })
+        }
       >
         {part.raw}
         <ExternalLink aria-hidden="true" className="size-3" />
@@ -238,6 +262,9 @@ function AssistantAnswer({
   diagnostics,
   evidenceSnapshot,
   mode,
+  projectId,
+  answerId,
+  messageOrdinal,
 }: {
   content: string;
   manifest: ProjectAnswerSourceManifest;
@@ -246,7 +273,29 @@ function AssistantAnswer({
   diagnostics: readonly ProjectCitationDiagnostic[];
   evidenceSnapshot?: ProjectEvidenceSnapshot;
   mode?: ProjectConversationMode;
+  projectId?: string;
+  answerId?: string;
+  messageOrdinal?: number;
 }) {
+  const [feedback, setFeedback] = useState<"helpful" | "not_helpful" | null>(
+    null,
+  );
+  const analyticsIdentity =
+    projectId && answerId && messageOrdinal
+      ? { projectId, answerId, messageOrdinal }
+      : null;
+
+  function submitFeedback(rating: "helpful" | "not_helpful") {
+    if (!analyticsIdentity) return;
+    setFeedback(rating);
+    captureAnalyticsEvent("project_answer_feedback_submitted", {
+      project_id: analyticsIdentity.projectId,
+      answer_id: analyticsIdentity.answerId,
+      message_ordinal: analyticsIdentity.messageOrdinal,
+      rating,
+    });
+  }
+
   return (
     <article className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-raised p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -263,14 +312,65 @@ function AssistantAnswer({
       <CoverageLedger coverage={coverage} />
       <EvidenceSnapshotLedger snapshot={evidenceSnapshot} />
       <p className="whitespace-pre-wrap text-body-md text-text-primary">
-        {renderAnswer(content, manifest)}
+        {renderAnswer(
+          content,
+          manifest,
+          analyticsIdentity
+            ? ({ citationOrdinal, sourceOrdinal, timestampSeconds }) =>
+                captureAnalyticsEvent("project_citation_clicked", {
+                  project_id: analyticsIdentity.projectId,
+                  citation_context: "grounded_answer",
+                  answer_id: analyticsIdentity.answerId,
+                  message_ordinal: analyticsIdentity.messageOrdinal,
+                  citation_ordinal: citationOrdinal,
+                  source_ordinal: sourceOrdinal,
+                  timestamp_seconds: timestampSeconds,
+                })
+            : undefined,
+        )}
       </p>
       <DiagnosticNote diagnostics={diagnostics} />
+      {analyticsIdentity ? (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Answer feedback">
+          <span className="text-caption text-text-muted">Was this grounded answer useful?</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-pressed={feedback === "helpful"}
+            onClick={() => submitFeedback("helpful")}
+          >
+            Useful
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-pressed={feedback === "not_helpful"}
+            onClick={() => submitFeedback("not_helpful")}
+          >
+            Not useful
+          </Button>
+          {feedback ? (
+            <span role="status" className="text-caption text-text-muted">
+              Feedback recorded.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
 
-function ConversationMessage({ message }: { message: ProjectConversationMessage }) {
+function ConversationMessage({
+  message,
+  projectId,
+  messageOrdinal,
+}: {
+  message: ProjectConversationMessage;
+  projectId: string;
+  messageOrdinal?: number;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -289,6 +389,9 @@ function ConversationMessage({ message }: { message: ProjectConversationMessage 
       diagnostics={message.citationDiagnostics}
       evidenceSnapshot={message.evidenceSnapshot}
       mode={message.mode}
+      projectId={projectId}
+      answerId={message.id}
+      messageOrdinal={messageOrdinal}
     />
   );
 }
@@ -308,6 +411,7 @@ export function ProjectConversation({
   );
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const paywallCapturedRef = useRef(false);
   const conversation = useProjectGroundedConversation({
     projectId,
     initialConversation,
@@ -353,6 +457,17 @@ export function ProjectConversation({
     authenticationState: "registered",
     enabled: atCap,
   });
+  useEffect(() => {
+    if (!atCap || paywallCapturedRef.current) return;
+    paywallCapturedRef.current = true;
+    captureAnalyticsEvent("project_paywall_viewed", {
+      project_id: projectId,
+      paywall_kind: "conversation",
+      tier: "free",
+      used: Math.max(5, conversation.conversation.messagesUsed),
+      limit: 5,
+    });
+  }, [atCap, conversation.conversation.messagesUsed, projectId]);
   const hasMessages = conversation.conversation.messages.length > 0;
   const timeline = useMemo(
     () =>
@@ -628,6 +743,8 @@ export function ProjectConversation({
                 <ConversationMessage
                   key={entry.message.id}
                   message={entry.message}
+                  projectId={projectId}
+                  messageOrdinal={entry.message.messageOrdinal}
                 />
               ),
             )}

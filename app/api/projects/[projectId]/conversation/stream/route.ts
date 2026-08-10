@@ -1,3 +1,9 @@
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { captureProjectActivityEvent } from "@/lib/analytics/server";
+import {
+  recordProjectAnalyticsTransition,
+  recordProjectGenerationUsage,
+} from "@/lib/analytics/project-server";
 import { formatSseEvent } from "@/lib/services/llm-client";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { logAppEvent } from "@/lib/observability";
@@ -217,12 +223,46 @@ export async function POST(request: Request, context: RouteContext) {
     conversationId: started.conversationId,
     userMessageId: started.userMessageId,
     attemptToken: started.attemptToken,
+    messageOrdinal: started.messageOrdinal,
     messagesUsed: started.messagesUsed,
     messagesLimit: started.messagesLimit,
     tier: started.tier,
     history: started.history,
     mode: started.mode ?? mode,
   };
+
+  const messageOrdinal = reservation.messageOrdinal;
+  const messageOccurredAt = new Date().toISOString();
+  scheduleAnalyticsAfterResponse(async () => {
+    const transition = recordProjectAnalyticsTransition({
+      projectId: subject.value.projectId,
+      ownerId: researcher.principal.userId,
+      trigger: "message",
+      occurredAt: messageOccurredAt,
+      businessAnalyticsSuppressed:
+        researcher.principal.businessAnalyticsSuppressed,
+    });
+    if (!messageOrdinal) {
+      await transition;
+      return;
+    }
+    await Promise.all([
+      transition,
+      captureProjectActivityEvent(
+        researcher.principal.userId,
+        "project_message_sent",
+        {
+          project_id: subject.value.projectId,
+          message_ordinal: messageOrdinal,
+          message_kind: messageOrdinal === 1 ? "first" : "subsequent",
+          tier: reservation.tier,
+          mode: reservation.mode ?? mode,
+        },
+        researcher.principal.businessAnalyticsSuppressed,
+        `project-message:${subject.value.projectId}:${reservation.userMessageId}`,
+      ),
+    ]);
+  });
 
   let cancellationPromise: ReturnType<typeof cancelWithRetry> | null = null;
   async function cancelWithRetry() {
@@ -359,7 +399,7 @@ export async function POST(request: Request, context: RouteContext) {
                         guidedAbstentionReason(mode, false),
                      ),
              };
-         const result = await executeProjectGroundedAnswerStream({
+        const result = await executeProjectGroundedAnswerStream({
            mode: answerMode,
            conversationMode: mode,
           artifacts,
@@ -368,6 +408,20 @@ export async function POST(request: Request, context: RouteContext) {
           signal: generationController.signal,
           emit: send,
         });
+        if (result.generation) {
+          scheduleAnalyticsAfterResponse(() =>
+            recordProjectGenerationUsage({
+              projectId: subject.value.projectId,
+              ownerId: researcher.principal.userId,
+              operationId: reservation.attemptToken,
+              generationKind: "grounded_answer",
+              usage: result.generation?.usage,
+              durationMs: result.generation?.durationMs ?? 0,
+              businessAnalyticsSuppressed:
+                researcher.principal.businessAnalyticsSuppressed,
+            }),
+          );
+        }
         if (result.outcome === "failed") {
           await cancelReservedQuestion();
           logAppEvent("error", "[project-grounded-answer] stream transaction failed", {

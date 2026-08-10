@@ -15,8 +15,17 @@ const mocks = vi.hoisted(() => ({
   listConversations: vi.fn(),
   loadArtifact: vi.fn(),
   projectView: vi.fn(() => null),
+  scheduleAnalytics: vi.fn(),
+  captureProjectActivity: vi.fn(),
 }));
 
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/analytics/after", () => ({
+  scheduleAnalyticsAfterResponse: mocks.scheduleAnalytics,
+}));
+vi.mock("@/lib/analytics/server", () => ({
+  captureProjectActivityEvent: mocks.captureProjectActivity,
+}));
 vi.mock("@/lib/auth/request-principal", () => ({
   resolveRequestPrincipal: mocks.principal,
 }));
@@ -86,6 +95,7 @@ describe("Project page Artifact composition", () => {
         userId: "90000000-0000-4000-8000-000000000001",
         isAnonymous: false,
         smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
       },
     });
     mocks.createClient.mockResolvedValue({});
@@ -148,6 +158,28 @@ describe("Project page Artifact composition", () => {
     expect(mocks.loadArtifact).toHaveBeenNthCalledWith(2, "creator_brief");
     expect(output.props.initialStudyGuide).toEqual(studyGuide);
     expect(output.props.initialCreatorBrief).toEqual(studyGuide);
+  });
+
+  it("uses the trusted Smoke Account marker when stale processing is reconciled", async () => {
+    mocks.principal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "90000000-0000-4000-8000-000000000001",
+        isAnonymous: false,
+        smokeProEntitled: false,
+        businessAnalyticsSuppressed: true,
+      },
+    });
+
+    await ProjectPage({
+      params: Promise.resolve({ projectId: PROJECT_ID }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(mocks.reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: PROJECT_ID }),
+      true,
+    );
   });
 
   it("loads the owned conversation named by the URL query", async () => {

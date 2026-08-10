@@ -136,7 +136,10 @@ export function ProjectView({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12">
+    <main
+      className="ph-no-capture mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12"
+      data-ph-no-autocapture
+    >
       <Link
         href="/workspace"
         className="inline-flex w-fit items-center gap-2 rounded-md text-body-sm font-medium text-text-secondary outline-none hover:text-text-primary focus-visible:ring-2 focus-visible:ring-state-focus"
@@ -255,7 +258,10 @@ export function ProjectView({
                       Delete Project
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent>
+                  <AlertDialogContent
+                    className="ph-no-capture"
+                    data-ph-no-autocapture
+                  >
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
                       <AlertDialogDescription>

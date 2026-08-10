@@ -1,3 +1,6 @@
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { captureProjectActivityEvent } from "@/lib/analytics/server";
+import { recordProjectAnalyticsTransition } from "@/lib/analytics/project-server";
 import {
   addProjectHistoryVideoSchema,
   reorderProjectVideosSchema,
@@ -61,7 +64,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
   await reconcileStaleProjectVideoProcessing(
     routeContext.subject,
-    routeContext.principal.smokeProEntitled === true,
+    routeContext.principal.businessAnalyticsSuppressed,
   );
 
   const result = await loadProjectSourceSet(
@@ -100,6 +103,39 @@ export async function POST(request: Request, context: RouteContext) {
     parsed.data.videoId,
     parsed.data.expectedRevision,
   );
+  if (result.kind === "added" && result.sourceSet) {
+    const sourceSetRevision = result.sourceSet.revision;
+    const addedVideo = result.sourceSet.videos.find(
+      (video) => video.videoId === parsed.data.videoId,
+    );
+    if (addedVideo) {
+      scheduleAnalyticsAfterResponse(async () => {
+        await Promise.all([
+          captureProjectActivityEvent(
+            routeContext.principal.userId,
+            "project_source_added",
+            {
+              project_id: routeContext.subject.projectId,
+              source_kind: "history",
+              readiness: "ready",
+              source_ordinal: addedVideo.position,
+              source_set_revision: sourceSetRevision,
+            },
+            routeContext.principal.businessAnalyticsSuppressed,
+            `project-source-added:${routeContext.subject.projectId}:${addedVideo.videoId}`,
+          ),
+          recordProjectAnalyticsTransition({
+            projectId: routeContext.subject.projectId,
+            ownerId: routeContext.principal.userId,
+            trigger: "source_ready",
+            occurredAt: addedVideo.statusUpdatedAt,
+            businessAnalyticsSuppressed:
+              routeContext.principal.businessAnalyticsSuppressed,
+          }),
+        ]);
+      });
+    }
+  }
   return sourceSetMutationResponse(result);
 }
 

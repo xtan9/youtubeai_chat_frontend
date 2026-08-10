@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   loadProjectSourceSet: vi.fn(),
   addHistoryVideoToProject: vi.fn(),
   reorderProjectVideos: vi.fn(),
+  reconcileStaleProjectVideoProcessing: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/request-principal", () => ({
@@ -22,6 +23,10 @@ vi.mock("@/lib/projects/project-source-set", () => ({
   loadProjectSourceSet: mocks.loadProjectSourceSet,
   addHistoryVideoToProject: mocks.addHistoryVideoToProject,
   reorderProjectVideos: mocks.reorderProjectVideos,
+}));
+vi.mock("@/lib/projects/project-video-processing", () => ({
+  reconcileStaleProjectVideoProcessing:
+    mocks.reconcileStaleProjectVideoProcessing,
 }));
 
 import { GET, PATCH, POST } from "../route";
@@ -46,7 +51,12 @@ describe("/api/projects/[projectId]/source-set", () => {
     vi.resetAllMocks();
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "owner-1", isAnonymous: false },
+      principal: {
+        userId: "owner-1",
+        isAnonymous: false,
+        smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
+      },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "resolved", value: SUBJECT });
@@ -67,6 +77,34 @@ describe("/api/projects/[projectId]/source-set", () => {
     expect(mocks.loadProjectSourceSet).toHaveBeenCalledWith(
       { fixture: true },
       SUBJECT,
+    );
+    expect(mocks.reconcileStaleProjectVideoProcessing).toHaveBeenCalledWith(
+      SUBJECT,
+      false,
+    );
+  });
+
+  it("suppresses stale-processing analytics for a marked Smoke Account without Pro entitlement", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "owner-1",
+        isAnonymous: false,
+        smokeProEntitled: false,
+        businessAnalyticsSuppressed: true,
+      },
+    });
+    mocks.loadProjectSourceSet.mockResolvedValue({
+      kind: "resolved",
+      value: SOURCE_SET,
+    });
+
+    const response = await GET(new Request("http://test"), CONTEXT);
+
+    expect(response.status).toBe(200);
+    expect(mocks.reconcileStaleProjectVideoProcessing).toHaveBeenCalledWith(
+      SUBJECT,
+      true,
     );
   });
 

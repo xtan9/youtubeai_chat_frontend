@@ -37,7 +37,7 @@ type GenerationError = {
 };
 
 export type ProjectArtifactPanelDefinition = Readonly<{
-  kind: ProjectArtifactKind;
+  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
   slug: "study-guide" | "creator-brief";
   responseKey: "studyGuide" | "creatorBrief";
   title: "Study Guide" | "Creator Brief";
@@ -126,15 +126,37 @@ function ArtifactMarkdown({
     () => buildMarkdown(artifact.content, artifact.sourceManifest),
     [artifact.content, artifact.sourceManifest, buildMarkdown],
   );
-  const allowedCitationLinks = useMemo(
-    () =>
-      new Set(
-        parseProjectCitations(artifact.content, artifact.sourceManifest)
-          .filter((part) => part.type === "citation")
-          .map((part) => JSON.stringify([part.href, part.raw.slice(1, -1)])),
-      ),
+  const citationLinks = useMemo(
+    () => {
+      let citationOrdinal = 0;
+      const links = new Map<
+        string,
+        Array<{
+          citationOrdinal: number;
+          sourceOrdinal: number;
+          timestampSeconds: number;
+        }>
+      >();
+      for (const part of parseProjectCitations(
+        artifact.content,
+        artifact.sourceManifest,
+      )) {
+        if (part.type !== "citation") continue;
+        citationOrdinal += 1;
+        const key = JSON.stringify([part.href, part.raw.slice(1, -1)]);
+        const entries = links.get(key) ?? [];
+        entries.push({
+          citationOrdinal,
+          sourceOrdinal: Number.parseInt(part.sourceId.slice(1), 10),
+          timestampSeconds: part.seconds,
+        });
+        links.set(key, entries);
+      }
+      return links;
+    },
     [artifact.content, artifact.sourceManifest],
   );
+  const renderedOccurrences = new Map<string, number>();
 
   return (
     <article className="ph-no-capture" data-ph-no-autocapture>
@@ -168,12 +190,14 @@ function ArtifactMarkdown({
           ),
           a: ({ href, children }) => {
             const label = String(children);
-            if (
-              !href ||
-              !allowedCitationLinks.has(JSON.stringify([href, label]))
-            ) {
+            const key = JSON.stringify([href, label]);
+            const matchingCitations = href ? citationLinks.get(key) : undefined;
+            if (!href || !matchingCitations) {
               return <span>{children}</span>;
             }
+            const occurrence = renderedOccurrences.get(key) ?? 0;
+            renderedOccurrences.set(key, occurrence + 1);
+            const citation = matchingCitations[occurrence];
             const source = artifact.sourceManifest.sources.find((candidate) =>
               href.includes(candidate.youtubeVideoId),
             );
@@ -184,6 +208,25 @@ function ArtifactMarkdown({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 rounded-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
                 aria-label={`${label}, open ${source?.title ?? "source Video"} at this timestamp`}
+                onClick={() => {
+                  if (
+                    !citation ||
+                    citation.citationOrdinal > 100 ||
+                    (artifact.kind !== "study_guide" &&
+                      artifact.kind !== "creator_brief")
+                  ) {
+                    return;
+                  }
+                  captureAnalyticsEvent("project_citation_clicked", {
+                    project_id: artifact.projectId,
+                    citation_context: "artifact",
+                    artifact_id: artifact.artifactId,
+                    artifact_kind: artifact.kind,
+                    citation_ordinal: citation.citationOrdinal,
+                    source_ordinal: citation.sourceOrdinal,
+                    timestamp_seconds: citation.timestampSeconds,
+                  });
+                }}
               >
                 {children}
                 <ExternalLink aria-hidden="true" className="size-3" />
@@ -288,6 +331,7 @@ export function ProjectArtifactPanel({
     setFeedback(null);
     setError(null);
     captureAnalyticsEvent("project_artifact_generation_requested", {
+      project_id: projectId,
       kind: definition.kind,
       tier: artifactState.tier,
       is_regeneration: current !== null,
@@ -314,6 +358,7 @@ export function ProjectArtifactPanel({
               ? "evidence"
               : "generation";
         captureAnalyticsEvent("project_artifact_generation_blocked", {
+          project_id: projectId,
           kind: definition.kind,
           tier: artifactState.tier,
           failure_category: category,
@@ -323,6 +368,19 @@ export function ProjectArtifactPanel({
           Number.isInteger(body.artifactGenerationsUsed)
         ) {
           onGenerationsUsedChange?.(body.artifactGenerationsUsed);
+        }
+        if (response.status === 402) {
+          captureAnalyticsEvent("project_paywall_viewed", {
+            project_id: projectId,
+            paywall_kind: "artifact",
+            tier: "free",
+            used:
+              typeof body.artifactGenerationsUsed === "number" &&
+              Number.isInteger(body.artifactGenerationsUsed)
+                ? Math.max(1, body.artifactGenerationsUsed)
+                : Math.max(1, generationsUsed),
+            limit: 1,
+          });
         }
         setError({
           message:
@@ -345,6 +403,7 @@ export function ProjectArtifactPanel({
       );
       if (!parsed.success) {
         captureAnalyticsEvent("project_artifact_generation_blocked", {
+          project_id: projectId,
           kind: definition.kind,
           tier: artifactState.tier,
           failure_category: "generation",
@@ -366,6 +425,7 @@ export function ProjectArtifactPanel({
       );
       if (next.current) {
         captureAnalyticsEvent("project_artifact_generation_completed", {
+          project_id: projectId,
           kind: definition.kind,
           tier: next.tier,
           source_set_revision: next.current.sourceSetRevision,
@@ -376,6 +436,7 @@ export function ProjectArtifactPanel({
       }
     } catch {
       captureAnalyticsEvent("project_artifact_generation_blocked", {
+        project_id: projectId,
         kind: definition.kind,
         tier: artifactState.tier,
         failure_category: "network",
@@ -396,6 +457,7 @@ export function ProjectArtifactPanel({
       setFeedback("Markdown copied.");
       setError(null);
       captureAnalyticsEvent("project_artifact_exported", {
+        project_id: projectId,
         kind: definition.kind,
         format: "clipboard",
       });
@@ -419,6 +481,7 @@ export function ProjectArtifactPanel({
     setFeedback("Markdown downloaded.");
     setError(null);
     captureAnalyticsEvent("project_artifact_exported", {
+      project_id: projectId,
       kind: definition.kind,
       format: "markdown",
     });

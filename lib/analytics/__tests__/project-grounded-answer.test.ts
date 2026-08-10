@@ -5,6 +5,7 @@ import {
 } from "../project-grounded-answer";
 
 const SAFE_PROPERTIES = {
+  project_id: "10000000-0000-4000-8000-000000000001",
   classification: "supported" as const,
   source_set_revision: 4,
   total_videos: 4,
@@ -54,7 +55,6 @@ describe("Project Grounded Answer analytics privacy contract", () => {
   );
 
   it.each([
-    { project_id: "10000000-0000-4000-8000-000000000001" },
     { conversation_id: "private" },
     { project_name: "Private research" },
     { project_goal: "Private goal" },
