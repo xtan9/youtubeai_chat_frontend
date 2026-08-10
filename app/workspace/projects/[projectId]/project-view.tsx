@@ -31,9 +31,9 @@ import type {
 import type { Project } from "@/lib/projects/project-subject";
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 import { ProjectConversation } from "./project-conversation";
+import { ProjectArtifacts } from "./project-artifacts";
 import { ProjectSourceSet } from "./project-source-set";
 import { ProjectSearch } from "./project-search";
-import { ProjectStudyGuide } from "./project-study-guide";
 
 type ApiError = {
   message?: string;
@@ -50,6 +50,10 @@ type ProjectViewProps = {
     ProjectArtifactLoadResolution,
     { status: "ready" }
   >;
+  initialCreatorBrief: Extract<
+    ProjectArtifactLoadResolution,
+    { status: "ready" }
+  >;
 };
 
 export function ProjectView({
@@ -59,6 +63,7 @@ export function ProjectView({
   initialConversation,
   initialConversations,
   initialStudyGuide,
+  initialCreatorBrief,
 }: ProjectViewProps) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
@@ -155,11 +160,12 @@ export function ProjectView({
         onSourceSetChange={handleSourceSetChange}
       />
 
-      <ProjectStudyGuide
+      <ProjectArtifacts
         projectId={project.id}
         projectName={project.name}
         currentSourceSetRevision={currentSourceSetRevision}
         initialStudyGuide={initialStudyGuide}
+        initialCreatorBrief={initialCreatorBrief}
       />
 
       <ProjectConversation

@@ -279,12 +279,19 @@ test.afterAll(async () => {
 async function createGroundedFixtureProject(
   context: BrowserContext,
   name: string,
-  sourceCount = 1,
+  options: {
+    readonly sourceCount?: number;
+    readonly goal?: string;
+  } = {},
 ) {
+  const sourceCount = options.sourceCount ?? 1;
+  const goal =
+    options.goal ??
+    "A false Goal claim may guide relevance but is not evidence.";
   const created = await context.request.post(`${appUrl}/api/workspace/projects`, {
     data: {
       name,
-      goal: "A false Goal claim may guide relevance but is not evidence.",
+      goal,
     },
   });
   expect(created.status()).toBe(201);
@@ -616,7 +623,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   const projectId = await createGroundedFixtureProject(
     context,
     "Guided synthesis lab",
-    2,
+    { sourceCount: 2 },
   );
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -1054,6 +1061,180 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
       `${appUrl}/api/projects/${projectId}/artifacts/study-guide`,
     );
     expect(privateGuide.status()).toBe(404);
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test("Creator Brief stays originality-safe across export, Source Set updates, regeneration, and shared Free quota", async ({
+  browser,
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Original Creator Brief",
+    { goal: "Explore local climate adaptation decisions." },
+  );
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: appUrl,
+  });
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByRole("button", { name: "Choose Creator Brief" }).click();
+  const brief = page.getByRole("region", { name: "Creator Brief" });
+  await brief.getByRole("button", { name: "Generate Creator Brief" }).click();
+
+  await expect(brief.getByRole("heading", { name: "Source claims" })).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Proposed ideas" })).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Originality plan" })).toBeVisible();
+  await expect(brief.getByText(/^Gap:/u)).toBeVisible();
+  await expect(brief.getByText(/^Combination:/u)).toBeVisible();
+  await expect(brief.getByText(/^Counterargument:/u)).toBeVisible();
+  await expect(brief.getByText(/^Original angle:/u)).toBeVisible();
+  await expect(brief.getByText(/^Source sequence:/u)).toBeVisible();
+  await expect(brief.getByText(/^Proposed sequence:/u)).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: /S1 @ 00:42.*Alpha evidence/iu }).first(),
+  ).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+  );
+  await expect(
+    brief.getByLabel("Creator Brief provenance", { exact: true }),
+  ).toContainText("Source Set revision 1");
+
+  await page.reload();
+  await expect(brief.getByText(/^Original angle:/u)).toBeVisible();
+  await expect(
+    brief.getByLabel("Creator Brief provenance", { exact: true }),
+  ).toContainText("Source Set revision 1");
+
+  await brief.getByRole("button", { name: "Copy Markdown" }).click();
+  await expect(brief.getByText("Markdown copied.")).toBeVisible();
+  const copiedMarkdown = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedMarkdown).toContain("## Source claims");
+  expect(copiedMarkdown).toContain("## Proposed ideas");
+  expect(copiedMarkdown).toContain("## Originality plan");
+  expect(copiedMarkdown).toContain(
+    "[S1 @ 00:42](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await brief.getByRole("button", { name: "Download Markdown" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(
+    "original-creator-brief-creator-brief.md",
+  );
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  if (!downloadPath) return;
+  const markdown = await readFile(downloadPath, "utf8");
+  expect(markdown).toContain("# Creator Brief");
+  expect(markdown).toContain("- Original angle:");
+  expect(markdown).toContain("- Proposed sequence:");
+  expect(markdown).toContain(
+    "[S1 @ 00:42-00:48](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+  );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    brief.getByLabel("Creator Brief provenance", { exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  await expect(
+    brief.getByRole("button", { name: "Download Markdown" }),
+  ).toBeVisible();
+  await expect(
+    brief.getByRole("button", { name: "Regenerate Creator Brief" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  expect(
+    await brief.evaluate((region) =>
+      [...region.querySelectorAll<HTMLElement>("*")].every((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth <= element.clientWidth + 1 && !nestedVerticalScroll;
+      }),
+    ),
+  ).toBe(true);
+
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await historyDialog.getByLabel("Search History").fill("Beta processing");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await historyDialog
+    .getByRole("button", { name: "Add Beta processing to Source Set" })
+    .click();
+  await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+  await expect(brief.getByText("Update available.", { exact: true })).toBeVisible();
+  await brief.getByRole("button", { name: "Regenerate Creator Brief" }).click();
+  await expect(brief.getByText("Creator Brief updated.")).toBeVisible();
+  await expect(
+    brief.getByLabel("Creator Brief provenance", { exact: true }),
+  ).toContainText("Source Set revision 2");
+  await expect(
+    brief.getByRole("link", { name: /S2 @ 00:42.*Beta processing/iu }).first(),
+  ).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=aaaaaaa0002&t=42s",
+  );
+  await brief.getByText("Earlier provenance (1)").click();
+  await expect(brief.getByLabel("Earlier Creator Brief provenance")).toContainText(
+    "Source Set revision 1",
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+
+  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await expect(
+    brief.getByLabel("Creator Brief provenance", { exact: true }),
+  ).toContainText("Source Set revision 2");
+  await expect(
+    brief.getByRole("link", { name: /S2 @ 00:42.*Beta processing/iu }).first(),
+  ).toBeVisible();
+  await brief.getByText("Earlier provenance (1)").click();
+  await expect(brief.getByLabel("Earlier Creator Brief provenance")).toContainText(
+    "Source Set revision 1",
+  );
+
+  const otherContext = await browser.newContext();
+  try {
+    await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
+    const freeProjectId = await createGroundedFixtureProject(
+      otherContext,
+      "Free Creator Brief",
+      { goal: "Explore local climate adaptation decisions." },
+    );
+    const otherPage = await otherContext.newPage();
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    await otherPage.getByRole("button", { name: "Choose Creator Brief" }).click();
+    const freeBrief = otherPage.getByRole("region", { name: "Creator Brief" });
+    await freeBrief.getByRole("button", { name: "Generate Creator Brief" }).click();
+    await expect(freeBrief.getByText(/^Original angle:/u)).toBeVisible();
+
+    await otherPage.getByRole("button", { name: "Choose Study Guide" }).click();
+    const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
+    await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
+    const quota = freeGuide.getByRole("alert");
+    await expect(quota).toContainText("Free includes 1 Artifact generation total.");
+    await expect(quota.getByRole("link", { name: "View Pro plans" })).toHaveAttribute(
+      "href",
+      "/pricing",
+    );
+
+    const privateBrief = await otherContext.request.get(
+      `${appUrl}/api/projects/${projectId}/artifacts/creator-brief`,
+    );
+    expect(privateBrief.status()).toBe(404);
   } finally {
     await otherContext.close();
   }
@@ -1764,8 +1945,55 @@ async function handleSupabaseRequest(
       "cache-control": "no-cache",
     });
     response.flushHeaders();
-    const responseContent = prompt.includes("durable Markdown Study Guide")
-      ? `# Study Guide
+    const creatorUsesTwoSources = prompt.includes('"sourceId":"S2"');
+    const creatorBriefContent = creatorUsesTwoSources
+      ? `# Creator Brief
+
+## Source claims
+
+- Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
+- Inspiration: Regional interviews conflicting adaptation priorities [S2 @ 00:42].
+
+## Proposed ideas
+
+- Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
+- Combination: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Compare exact evidence with regional interviews for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
+- Original angle: Evidence basis: regional interviews; Goal fit: local climate adaptation; Original move: Map regional interviews into revisable local climate adaptation choices [S2 @ 00:42].
+
+## Originality plan
+
+- Source sequence: evidence > contrast > decision [S1 @ 00:42] [S2 @ 00:42].
+- Proposed sequence: contrast > evidence > framework.
+
+## Video direction
+
+- Proposed beat: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Contrast exact evidence and regional interviews, then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
+      : `# Creator Brief
+
+## Source claims
+
+- Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
+
+## Proposed ideas
+
+- Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
+- Combination: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Pair local climate adaptation choices with exact evidence checks [S1 @ 00:42-00:48].
+- Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
+- Original angle: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Make exact evidence revisable within local climate adaptation choices [S1 @ 00:42].
+
+## Originality plan
+
+- Source sequence: evidence > context > decision [S1 @ 00:42].
+- Proposed sequence: hook > evidence > framework.
+
+## Video direction
+
+- Proposed beat: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Open with exact evidence, then map a decision framework for local climate adaptation [S1 @ 00:42].`;
+    const responseContent = prompt.includes("originality-safe Markdown Creator Brief")
+      ? creatorBriefContent
+      : prompt.includes("durable Markdown Study Guide")
+        ? `# Study Guide
 
 ## Overview
 
@@ -2765,6 +2993,9 @@ async function handleSourceSetRpc(
       });
     }
 
+    const balanced = url.pathname.endsWith(
+      "/search_project_transcript_passages_balanced",
+    );
     const passageFixtures = [
       {
         membership: ready[0],
@@ -2773,8 +3004,10 @@ async function handleSourceSetRpc(
       },
       {
         membership: ready[1] ?? ready[0],
-        text: "气候适应需要准确的本地证据。",
-        language: "zh-Hans",
+        text: balanced
+          ? "Regional field interviews reveal conflicting adaptation priorities."
+          : "气候适应需要准确的本地证据。",
+        language: balanced ? "en" : "zh-Hans",
       },
     ];
     const passages = passageFixtures

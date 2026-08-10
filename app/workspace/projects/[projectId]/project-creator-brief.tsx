@@ -1,38 +1,38 @@
 "use client";
 
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
-import { buildProjectStudyGuideMarkdown } from "@/lib/projects/project-study-guide";
+import { buildProjectCreatorBriefMarkdown } from "@/lib/projects/project-creator-brief";
 import {
   ProjectArtifactPanel,
   type ProjectArtifactPanelDefinition,
 } from "./project-artifact-panel";
 
-type ReadyStudyGuide = Extract<
+type ReadyCreatorBrief = Extract<
   ProjectArtifactLoadResolution,
   { status: "ready" }
 >;
 
-const STUDY_GUIDE_DEFINITION = {
-  kind: "study_guide",
-  slug: "study-guide",
-  responseKey: "studyGuide",
-  title: "Study Guide",
-  shortName: "guide",
-  icon: "book",
+const CREATOR_BRIEF_DEFINITION = {
+  kind: "creator_brief",
+  slug: "creator-brief",
+  responseKey: "creatorBrief",
+  title: "Creator Brief",
+  shortName: "brief",
+  icon: "creator",
   description:
-    "A durable guide built only from ready Transcript passages in this Project’s Evidence Snapshot.",
-  emptyTitle: "Turn your ready sources into a reviewable guide.",
+    "A grounded creative canvas that keeps source claims separate from original directions and never imitates creator expression.",
+  emptyTitle: "Transform grounded inspiration into an original Video direction.",
   emptyDescription:
-    "The guide will organize key ideas and review questions, with every factual line linked back to its Transcript evidence.",
-  filenameSuffix: "study-guide",
-  buildMarkdown: buildProjectStudyGuideMarkdown,
+    "The brief will attribute source claims, then identify gaps, combinations, counterarguments, and original angles for your Project Goal.",
+  filenameSuffix: "creator-brief",
+  buildMarkdown: buildProjectCreatorBriefMarkdown,
 } satisfies ProjectArtifactPanelDefinition;
 
-export function ProjectStudyGuide({
+export function ProjectCreatorBrief({
   projectId,
   projectName,
   currentSourceSetRevision,
-  initialStudyGuide,
+  initialCreatorBrief,
   sharedGenerationsUsed,
   onGenerationsUsedChange,
   onCurrentChange,
@@ -40,18 +40,18 @@ export function ProjectStudyGuide({
   readonly projectId: string;
   readonly projectName: string;
   readonly currentSourceSetRevision?: number;
-  readonly initialStudyGuide: ReadyStudyGuide;
+  readonly initialCreatorBrief: ReadyCreatorBrief;
   readonly sharedGenerationsUsed?: number;
   readonly onGenerationsUsedChange?: (generationsUsed: number) => void;
   readonly onCurrentChange?: (hasCurrent: boolean) => void;
 }) {
   return (
     <ProjectArtifactPanel
-      definition={STUDY_GUIDE_DEFINITION}
+      definition={CREATOR_BRIEF_DEFINITION}
       projectId={projectId}
       projectName={projectName}
       currentSourceSetRevision={currentSourceSetRevision}
-      initialArtifact={initialStudyGuide}
+      initialArtifact={initialCreatorBrief}
       sharedGenerationsUsed={sharedGenerationsUsed}
       onGenerationsUsedChange={onGenerationsUsedChange}
       onCurrentChange={onCurrentChange}
