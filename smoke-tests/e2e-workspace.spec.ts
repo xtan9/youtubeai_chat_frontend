@@ -1300,6 +1300,125 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   }
 });
 
+test("Project Brief persists cited positions across desktop export, regeneration, and mobile reload", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Durable Project Brief",
+  );
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: appUrl,
+  });
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await historyDialog.getByLabel("Search History").fill("Beta processing");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await historyDialog
+    .getByRole("button", { name: "Add Beta processing to Source Set" })
+    .click();
+  await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Choose Project Brief" }).click();
+  const brief = page.getByRole("region", { name: "Project Brief" });
+  await brief.getByRole("button", { name: "Generate Project Brief" }).click();
+
+  await expect(brief.getByRole("heading", { name: "Important findings" })).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Agreements", exact: true })).toBeVisible();
+  await expect(
+    brief.getByRole("heading", { name: "Material disagreements", exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Open questions" })).toBeVisible();
+  await expect(
+    brief.getByText(/Regional field interviews reveal conflicting adaptation priorities/iu).first(),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("No supported cross-source agreement in this Evidence Snapshot."),
+  ).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: /S1 @ 00:42.*Alpha evidence/iu }).first(),
+  ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
+  await expect(
+    brief.getByRole("link", { name: /S2 @ 00:42.*Beta processing/iu }).first(),
+  ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0002&t=42s");
+  await expect(brief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 2");
+
+  await brief.getByRole("button", { name: "Copy Markdown" }).click();
+  await expect(brief.getByText("Markdown copied.")).toBeVisible();
+  const copiedMarkdown = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedMarkdown).toContain("## Material disagreements");
+  expect(copiedMarkdown).toContain(
+    "[S2 @ 00:42](https://www.youtube.com/watch?v=aaaaaaa0002&t=42s)",
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await brief.getByRole("button", { name: "Download Markdown" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(
+    "durable-project-brief-project-brief.md",
+  );
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  if (!downloadPath) return;
+  const markdown = await readFile(downloadPath, "utf8");
+  expect(markdown).toContain("# Project Brief");
+  expect(markdown).toContain("## Open questions");
+  expect(markdown).not.toContain("javascript:");
+
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const updateDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await updateDialog.getByLabel("Search History").fill("Delta context");
+  await updateDialog.getByRole("button", { name: "Search" }).click();
+  await updateDialog
+    .getByRole("button", { name: "Add Delta context to Source Set" })
+    .click();
+  await expect(brief.getByText("Update available.", { exact: true })).toBeVisible();
+  await brief.getByRole("button", { name: "Regenerate Project Brief" }).click();
+  await expect(brief.getByText("Project Brief updated.")).toBeVisible();
+  await expect(brief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 3");
+  await brief.getByText("Earlier provenance (1)").click();
+  await expect(brief.getByLabel("Earlier Project Brief provenance")).toContainText(
+    "Source Set revision 2",
+  );
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileBrief = page.getByRole("region", { name: "Project Brief" });
+  await expect(
+    mobileBrief.getByRole("heading", { name: "Material disagreements" }),
+  ).toBeVisible();
+  await expect(mobileBrief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 3");
+  await expect(mobileBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  await expect(
+    mobileBrief.getByRole("button", { name: "Download Markdown" }),
+  ).toBeVisible();
+  await expect(
+    mobileBrief.getByRole("button", { name: "Regenerate Project Brief" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  expect(
+    await mobileBrief.evaluate((region) =>
+      [...region.querySelectorAll<HTMLElement>("*")].every((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth <= element.clientWidth + 1 && !nestedVerticalScroll;
+      }),
+    ),
+  ).toBe(true);
+});
+
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
   context,
   page,
@@ -2050,9 +2169,28 @@ async function handleSupabaseRequest(
 ## Video direction
 
 - Proposed beat: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Open with exact evidence, then map a decision framework for local climate adaptation [S1 @ 00:42].`;
-    const responseContent = prompt.includes("originality-safe Markdown Creator Brief")
-      ? creatorBriefContent
-      : prompt.includes("durable Markdown Study Guide")
+    const responseContent = prompt.includes("durable Markdown Project Brief")
+      ? `# Project Brief
+
+## Important findings
+
+Climate adaptation depends on exact local evidence [S1 @ 00:42], while regional field interviews reveal conflicting adaptation priorities [S2 @ 00:42].
+
+## Agreements
+
+- No supported cross-source agreement in this Evidence Snapshot.
+
+## Material disagreements
+
+- Position A: Climate adaptation depends on exact local evidence [S1 @ 00:42].
+- Position B: Regional field interviews reveal conflicting adaptation priorities [S2 @ 00:42].
+
+## Open questions
+
+- How should the two positions be reconciled in practice [S1 @ 00:42] [S2 @ 00:42]?`
+      : prompt.includes("originality-safe Markdown Creator Brief")
+        ? creatorBriefContent
+        : prompt.includes("durable Markdown Study Guide")
         ? `# Study Guide
 
 ## Overview

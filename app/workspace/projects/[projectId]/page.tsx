@@ -81,6 +81,7 @@ export default async function ProjectPage({
   let conversationList: Awaited<ReturnType<NonNullable<typeof conversationManagement>["list"]>>;
   let studyGuide: Awaited<ReturnType<typeof artifacts.load>>;
   let creatorBrief: Awaited<ReturnType<typeof artifacts.load>>;
+  let projectBrief: Awaited<ReturnType<typeof artifacts.load>>;
   try {
     await reconcileStaleProjectVideoProcessing(
       subject.value,
@@ -94,6 +95,7 @@ export default async function ProjectPage({
       conversationList,
       studyGuide,
       creatorBrief,
+      projectBrief,
     ] = await Promise.all([
       openResolvedProject(supabase, subject.value),
       loadProjectSourceSet(supabase, subject.value),
@@ -103,6 +105,7 @@ export default async function ProjectPage({
         Promise.resolve({ status: "unavailable" as const }),
       artifacts.load("study_guide"),
       artifacts.load("creator_brief"),
+      artifacts.load("project_brief"),
     ]);
 
     // A valid UUID may still name a missing or foreign thread. Fall back
@@ -137,7 +140,8 @@ export default async function ProjectPage({
     sourceSet.kind !== "resolved" ||
     conversation.status !== "ready" ||
     studyGuide.status !== "ready" ||
-    creatorBrief.status !== "ready"
+    creatorBrief.status !== "ready" ||
+    projectBrief.status !== "ready"
   ) {
     return <ProjectOutcomeState kind="unavailable" />;
   }
@@ -163,6 +167,7 @@ export default async function ProjectPage({
       }
       initialStudyGuide={studyGuide}
       initialCreatorBrief={creatorBrief}
+      initialProjectBrief={projectBrief}
     />
   );
 }

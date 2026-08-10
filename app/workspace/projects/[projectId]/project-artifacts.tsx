@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { BookOpen, Clapperboard } from "lucide-react";
+import { BookOpen, Clapperboard, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
+import { ProjectBrief } from "./project-brief";
 import { ProjectCreatorBrief } from "./project-creator-brief";
 import { ProjectStudyGuide } from "./project-study-guide";
 
@@ -14,7 +15,7 @@ type ReadyArtifact = Extract<
   { status: "ready" }
 >;
 
-type ArtifactChoice = "study_guide" | "creator_brief";
+type ArtifactChoice = "study_guide" | "creator_brief" | "project_brief";
 
 export function ProjectArtifacts({
   projectId,
@@ -22,22 +23,26 @@ export function ProjectArtifacts({
   currentSourceSetRevision,
   initialStudyGuide,
   initialCreatorBrief,
+  initialProjectBrief,
 }: {
   readonly projectId: string;
   readonly projectName: string;
   readonly currentSourceSetRevision: number;
   readonly initialStudyGuide: ReadyArtifact;
   readonly initialCreatorBrief: ReadyArtifact;
+  readonly initialProjectBrief: ReadyArtifact;
 }) {
-  const [selected, setSelected] = useState<ArtifactChoice>(() =>
-    initialStudyGuide.current || !initialCreatorBrief.current
-      ? "study_guide"
-      : "creator_brief",
-  );
+  const [selected, setSelected] = useState<ArtifactChoice>(() => {
+    if (initialStudyGuide.current) return "study_guide";
+    if (initialCreatorBrief.current) return "creator_brief";
+    if (initialProjectBrief.current) return "project_brief";
+    return "study_guide";
+  });
   const [generationsUsed, setGenerationsUsed] = useState(() =>
     Math.max(
       initialStudyGuide.generationsUsed,
       initialCreatorBrief.generationsUsed,
+      initialProjectBrief.generationsUsed,
     ),
   );
   const [hasStudyGuide, setHasStudyGuide] = useState(
@@ -46,12 +51,18 @@ export function ProjectArtifacts({
   const [hasCreatorBrief, setHasCreatorBrief] = useState(
     initialCreatorBrief.current !== null,
   );
+  const [hasProjectBrief, setHasProjectBrief] = useState(
+    initialProjectBrief.current !== null,
+  );
   const handleGenerationsUsedChange = useCallback((next: number) => {
     setGenerationsUsed((current) => Math.max(current, next));
   }, []);
 
   return (
-    <section aria-labelledby="project-artifacts-title" className="flex flex-col gap-4">
+    <section
+      aria-labelledby="project-artifacts-title"
+      className="flex flex-col gap-4"
+    >
       <Card className="border-dashed">
         <CardHeader>
           <div className="flex flex-col gap-2">
@@ -71,7 +82,7 @@ export function ProjectArtifacts({
           <div
             role="group"
             aria-label="Choose Artifact type"
-            className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+            className="grid grid-cols-1 gap-3 sm:grid-cols-3"
           >
             <Button
               type="button"
@@ -105,6 +116,22 @@ export function ProjectArtifacts({
                 ) : null}
               </span>
             </Button>
+            <Button
+              type="button"
+              variant={selected === "project_brief" ? "default" : "outline"}
+              className="h-auto min-h-12 justify-start gap-3 py-3 text-left"
+              aria-pressed={selected === "project_brief"}
+              aria-label="Choose Project Brief"
+              onClick={() => setSelected("project_brief")}
+            >
+              <FileText aria-hidden="true" />
+              <span className="flex flex-1 items-center justify-between gap-2">
+                <span>Project Brief</span>
+                {hasProjectBrief ? (
+                  <Badge variant="secondary">Current</Badge>
+                ) : null}
+              </span>
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -129,6 +156,17 @@ export function ProjectArtifacts({
           sharedGenerationsUsed={generationsUsed}
           onGenerationsUsedChange={handleGenerationsUsedChange}
           onCurrentChange={setHasCreatorBrief}
+        />
+      </div>
+      <div hidden={selected !== "project_brief"}>
+        <ProjectBrief
+          projectId={projectId}
+          projectName={projectName}
+          currentSourceSetRevision={currentSourceSetRevision}
+          initialProjectBrief={initialProjectBrief}
+          sharedGenerationsUsed={generationsUsed}
+          onGenerationsUsedChange={handleGenerationsUsedChange}
+          onCurrentChange={setHasProjectBrief}
         />
       </div>
     </section>

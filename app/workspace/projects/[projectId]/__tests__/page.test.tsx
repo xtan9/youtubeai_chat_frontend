@@ -145,19 +145,22 @@ describe("Project page Artifact composition", () => {
     mocks.reconcile.mockResolvedValue(undefined);
   });
 
-  it("loads both Artifact kinds on the server and supplies them with the Project view", async () => {
+  it("loads all Artifact kinds on the server and supplies them with the Project view", async () => {
     const output = (await ProjectPage({
       params: Promise.resolve({ projectId: PROJECT_ID }),
       searchParams: Promise.resolve({}),
     })) as ReactElement<{
       initialStudyGuide: ProjectArtifactLoadResolution;
       initialCreatorBrief: ProjectArtifactLoadResolution;
+      initialProjectBrief: ProjectArtifactLoadResolution;
     }>;
 
     expect(mocks.loadArtifact).toHaveBeenNthCalledWith(1, "study_guide");
     expect(mocks.loadArtifact).toHaveBeenNthCalledWith(2, "creator_brief");
+    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(3, "project_brief");
     expect(output.props.initialStudyGuide).toEqual(studyGuide);
     expect(output.props.initialCreatorBrief).toEqual(studyGuide);
+    expect(output.props.initialProjectBrief).toEqual(studyGuide);
   });
 
   it("uses the trusted Smoke Account marker when stale processing is reconciled", async () => {

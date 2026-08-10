@@ -10,6 +10,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FileText,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -37,16 +38,16 @@ type GenerationError = {
 };
 
 export type ProjectArtifactPanelDefinition = Readonly<{
-  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
-  slug: "study-guide" | "creator-brief";
-  responseKey: "studyGuide" | "creatorBrief";
-  title: "Study Guide" | "Creator Brief";
+  kind: ProjectArtifactKind;
+  slug: "study-guide" | "creator-brief" | "project-brief";
+  responseKey: "studyGuide" | "creatorBrief" | "projectBrief";
+  title: "Study Guide" | "Creator Brief" | "Project Brief";
   shortName: "guide" | "brief";
-  icon: "book" | "creator";
+  icon: "book" | "creator" | "document";
   description: string;
   emptyTitle: string;
   emptyDescription: string;
-  filenameSuffix: "study-guide" | "creator-brief";
+  filenameSuffix: "study-guide" | "creator-brief" | "project-brief";
   buildMarkdown(
     content: string,
     sourceManifest: ProjectAnswerSourceManifest,
@@ -323,7 +324,12 @@ export function ProjectArtifactPanel({
     [current, definition],
   );
   const titleId = `project-${definition.slug}-title`;
-  const Icon = definition.icon === "book" ? BookOpen : Clapperboard;
+  const Icon =
+    definition.icon === "book"
+      ? BookOpen
+      : definition.icon === "creator"
+        ? Clapperboard
+        : FileText;
 
   async function generate() {
     if (pending) return;

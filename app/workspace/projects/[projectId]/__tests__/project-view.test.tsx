@@ -42,7 +42,7 @@ vi.mock("../project-search", () => ({ ProjectSearch: () => null }));
 import { ProjectView } from "../project-view";
 
 describe("ProjectView shared Source Set state", () => {
-  it("propagates a same-page Source Set mutation to both Artifact kinds without reload", async () => {
+  it("propagates a same-page Source Set mutation to all Artifact kinds without reload", async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(
       <ProjectView
@@ -79,6 +79,15 @@ describe("ProjectView shared Source Set state", () => {
           generationsLimit: 1,
         }}
         initialCreatorBrief={{
+          status: "ready",
+          currentSourceSetRevision: 3,
+          current: null,
+          history: [],
+          tier: "free",
+          generationsUsed: 0,
+          generationsLimit: 1,
+        }}
+        initialProjectBrief={{
           status: "ready",
           currentSourceSetRevision: 3,
           current: null,
