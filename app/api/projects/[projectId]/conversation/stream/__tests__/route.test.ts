@@ -2,20 +2,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const mocks = vi.hoisted(() => {
+const { mocks, afterCallbacks } = vi.hoisted(() => {
   const beginPersistence = vi.fn();
   return {
-    requireRegisteredResearcher: vi.fn(),
-    createClient: vi.fn(),
-    resolveProjectSubject: vi.fn(),
-    checkRateLimit: vi.fn(),
-    start: vi.fn(),
-    cancel: vi.fn(),
-    beginPersistence,
-    search: vi.fn(),
-    streamChatCompletion: vi.fn(),
-    logAppEvent: vi.fn(),
+    afterCallbacks: [] as Array<() => void | Promise<void>>,
+    mocks: {
+      after: vi.fn(),
+      requireRegisteredResearcher: vi.fn(),
+      createClient: vi.fn(),
+      resolveProjectSubject: vi.fn(),
+      checkRateLimit: vi.fn(),
+      start: vi.fn(),
+      cancel: vi.fn(),
+      beginPersistence,
+      search: vi.fn(),
+      streamChatCompletion: vi.fn(),
+      logAppEvent: vi.fn(),
+      captureProjectActivityEvent: vi.fn(),
+      recordProjectAnalyticsTransition: vi.fn(),
+      recordProjectGenerationUsage: vi.fn(),
+    },
   };
+});
+
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return { ...actual, after: mocks.after };
 });
 
 vi.mock("@/lib/projects/registered-researcher", () => ({
@@ -32,6 +44,13 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
 vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
+vi.mock("@/lib/analytics/server", () => ({
+  captureProjectActivityEvent: mocks.captureProjectActivityEvent,
+}));
+vi.mock("@/lib/analytics/project-server", () => ({
+  recordProjectAnalyticsTransition: mocks.recordProjectAnalyticsTransition,
+  recordProjectGenerationUsage: mocks.recordProjectGenerationUsage,
+}));
 
 import { POST } from "../route";
 
@@ -201,6 +220,10 @@ function model(...chunks: string[]) {
 describe("POST /api/projects/[projectId]/conversation/stream", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    afterCallbacks.length = 0;
+    mocks.after.mockImplementation((callback: () => void | Promise<void>) => {
+      afterCallbacks.push(callback);
+    });
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
       principal: { userId: USER_ID, isAnonymous: false },
@@ -300,6 +323,36 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       "When did the launch happen?",
       CONVERSATION_ID,
       "question",
+    );
+  });
+
+  it("uses the durable reservation identity and canonical Project ordinal for trust analytics", async () => {
+    mocks.requireRegisteredResearcher.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: USER_ID,
+        isAnonymous: false,
+        businessAnalyticsSuppressed: false,
+      },
+    });
+    mocks.start.mockResolvedValue({ ...STARTED, messageOrdinal: 47 });
+
+    const response = await POST(request(), CONTEXT);
+    await response.text();
+    for (const callback of afterCallbacks) await callback();
+
+    expect(mocks.captureProjectActivityEvent).toHaveBeenCalledWith(
+      USER_ID,
+      "project_message_sent",
+      {
+        project_id: PROJECT_ID,
+        message_ordinal: 47,
+        message_kind: "subsequent",
+        tier: "free",
+        mode: "question",
+      },
+      false,
+      `project-message:${PROJECT_ID}:${USER_MESSAGE_ID}`,
     );
   });
 

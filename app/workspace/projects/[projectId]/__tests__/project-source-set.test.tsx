@@ -12,6 +12,11 @@ import type {
 } from "@/lib/projects/project-source-set-contract";
 import { ProjectSourceSet } from "../project-source-set";
 
+const analytics = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("@/lib/analytics/client", () => ({
+  captureAnalyticsEvent: analytics.capture,
+}));
+
 const PROJECT_ID = "a0000000-0000-4000-8000-000000000001";
 
 function video(
@@ -62,7 +67,10 @@ function candidatePage(
 }
 
 describe("ProjectSourceSet", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    analytics.capture.mockReset();
+    vi.unstubAllGlobals();
+  });
 
   it("shows processing, ready, failed, and honest unavailable coverage", () => {
     renderWithProviders(
@@ -105,6 +113,22 @@ describe("ProjectSourceSet", () => {
     );
 
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("blocks private History search and Video metadata in its Radix portal", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([])}
+        initialCandidatePage={candidatePage()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add from History" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.classList.contains("ph-no-capture")).toBe(true);
+    expect(dialog.hasAttribute("data-ph-no-autocapture")).toBe(true);
   });
 
   it("explains and enforces the universal five-Video grounding limit", () => {
@@ -255,6 +279,12 @@ describe("ProjectSourceSet", () => {
     );
     expect(await screen.findByText(/Summary allowance is exhausted/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry Source 1" })).toBeTruthy();
+    expect(analytics.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "source_add",
+      error_class: "quota",
+      http_status: 402,
+    });
   });
 
   it("retries a failed membership in place without adding a duplicate", async () => {
@@ -449,5 +479,36 @@ describe("ProjectSourceSet", () => {
     );
     expect(screen.queryAllByRole("alert")).toHaveLength(1);
     expect(screen.getByRole("note")).toBeTruthy();
+    expect(analytics.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "source_add",
+      error_class: "request",
+      http_status: 400,
+    });
+  });
+
+  it("records a bounded source-add network failure without content", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectSourceSet
+        projectId={PROJECT_ID}
+        initialSourceSet={sourceSet([])}
+        initialCandidatePage={candidatePage([])}
+      />,
+    );
+
+    await user.type(
+      screen.getByLabelText("YouTube Video URL"),
+      "https://www.youtube.com/watch?v=aaaaaaa0001",
+    );
+    await user.click(screen.getByRole("button", { name: "Add Video" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(analytics.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "source_add",
+      error_class: "network",
+    });
   });
 });

@@ -8,27 +8,40 @@ export const POSTHOG_CAPTURE_OPTIONS = {
   capture_pageview: "history_change" as const,
   capture_pageleave: true,
   capture_exceptions: true,
+  capture_performance: false,
 };
 
-const PROJECT_SEARCH_NETWORK_PATH = /^\/api\/projects\/[^/]+\/search$/;
+const PRIVATE_PROJECT_NETWORK_PATHS = [
+  /^\/workspace(?:\/|$)/,
+  /^\/api\/projects(?:\/|$)/,
+  /^\/api\/workspace\/projects(?:\/|$)/,
+] as const;
 
 /**
- * Project Search requests and responses contain private research text.
+ * Project API and Workspace RSC requests/responses can contain private research
+ * metadata, source URLs and titles, prompts, answers, Transcript passages, or
+ * Artifact content. Workspace Project traffic also carries names and Goals.
  * Returning null uses PostHog's browser-side replay privacy boundary so the
- * URL, POST body, and exact result payload never leave the device for replay.
+ * URL, request body, and response payload never leave the device for replay.
  */
 export function maskCapturedNetworkRequest(
   request: CapturedNetworkRequest,
 ): CapturedNetworkRequest | null {
   try {
-    const path = new URL(request.name, "https://project-search.invalid").pathname;
-    return PROJECT_SEARCH_NETWORK_PATH.test(path) ? null : request;
+    const path = new URL(request.name, "https://project-privacy.invalid").pathname;
+    return PRIVATE_PROJECT_NETWORK_PATHS.some((pattern) => pattern.test(path))
+      ? null
+      : request;
   } catch {
     return request;
   }
 }
 
 export const POSTHOG_SESSION_RECORDING_OPTIONS = {
+  blockClass: "ph-no-capture",
+  blockSelector: "[data-ph-no-autocapture]",
+  recordBody: false,
+  recordHeaders: false,
   maskCapturedNetworkRequestFn: maskCapturedNetworkRequest,
 };
 

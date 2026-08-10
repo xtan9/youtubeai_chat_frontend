@@ -31,6 +31,10 @@ import {
   isProjectArtifactEventName,
   validateProjectArtifactEvent,
 } from "./project-artifacts";
+import {
+  isProjectActivityEventName,
+  validateProjectActivityEvent,
+} from "./project-activity";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -123,6 +127,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
       if (!validation.success) {
         console.error("[analytics] invalid Project Artifact event", {
           errorId: "ANALYTICS_PROJECT_ARTIFACT_INVALID",
+          event,
+          issueCount: validation.issueCount,
+        });
+        return;
+      }
+      validatedProperties = validation.properties as typeof properties;
+    }
+    if (isProjectActivityEventName(event)) {
+      const validation = validateProjectActivityEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Project activity event", {
+          errorId: "ANALYTICS_PROJECT_ACTIVITY_INVALID",
           event,
           issueCount: validation.issueCount,
         });

@@ -323,6 +323,9 @@ const ProjectConversationContentSchema = z
 
 const ConversationMessageBaseSchema = z.object({
   id: z.uuid(),
+  // Added by the #326 database wrappers. Optional keeps pre-rollout fixtures
+  // readable; trust analytics never infer a substitute from the loaded page.
+  messageOrdinal: z.number().int().min(1).max(1_000_000).optional(),
   inReplyToMessageId: z.uuid().nullable(),
   content: ProjectConversationContentSchema,
   createdAt: z.iso.datetime({ offset: true }),
@@ -550,6 +553,7 @@ export const ProjectQuestionStartDatabaseResultSchema = z.discriminatedUnion(
         userMessageId: z.uuid(),
         attemptToken: z.uuid(),
         completionState: z.enum(["reserved", "completed", "cancelled"]),
+        messageOrdinal: z.number().int().min(1).max(1_000_000).optional(),
         messagesUsed: z.number().int().positive(),
         messagesLimit: z.literal(5).nullable(),
         tier: z.enum(["free", "pro"]),

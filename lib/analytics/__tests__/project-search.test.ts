@@ -5,6 +5,7 @@ import {
 } from "../project-search";
 
 const SAFE_PROPERTIES = {
+  project_id: "a0000000-0000-4000-8000-000000000001",
   source_set_revision: 4,
   outcome: "ready" as const,
   result_count: 3,
@@ -28,7 +29,6 @@ describe("Project Search analytics privacy contract", () => {
   });
 
   it.each([
-    { project_id: "a0000000-0000-4000-8000-000000000001" },
     { project_name: "Private research" },
     { project_goal: "Private goal" },
     { query: "secret search" },

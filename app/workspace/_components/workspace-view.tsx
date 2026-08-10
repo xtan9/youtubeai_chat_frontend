@@ -166,6 +166,19 @@ function CreateProjectDialog({
             governedProjectsUsed(projectLimit.projectsUsed, projectsUsed),
           );
         }
+        captureAnalyticsEvent("project_action_failed", {
+          action_kind: "create",
+          error_class: projectLimit
+            ? "quota"
+            : response.status === 429
+              ? "rate_limit"
+              : response.status >= 500
+                ? "persistence"
+                : "request",
+          ...(response.status >= 400 && response.status <= 599
+            ? { http_status: response.status }
+            : {}),
+        });
         setError({ ...readApiError(payload), projectLimit });
         return;
       }
@@ -174,6 +187,10 @@ function CreateProjectDialog({
       setGoal("");
       setOpen(false);
     } catch {
+      captureAnalyticsEvent("project_action_failed", {
+        action_kind: "create",
+        error_class: "network",
+      });
       setError({
         message: "Couldn’t create the Project. Check your connection and try again.",
         projectLimit: null,
@@ -191,7 +208,7 @@ function CreateProjectDialog({
           Create Project
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="ph-no-capture" data-ph-no-autocapture>
         <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>Create a Project</DialogTitle>
@@ -303,7 +320,10 @@ export function WorkspaceView({ initialWorkspace }: { initialWorkspace: Personal
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12">
+    <main
+      className="ph-no-capture mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12"
+      data-ph-no-autocapture
+    >
       <header className="flex flex-col gap-5 border-b border-border-subtle pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex max-w-3xl flex-col gap-3">
           <div className="flex items-center gap-2 text-body-sm font-medium text-text-muted">

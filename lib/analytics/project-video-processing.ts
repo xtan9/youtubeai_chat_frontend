@@ -21,6 +21,7 @@ export const ProjectVideoProcessingEventSchema = z.discriminatedUnion("event", [
       event: z.literal("project_video_processing_started"),
       properties: z
         .object({
+          project_id: z.string().uuid(),
           status: z.literal("processing"),
           ordinal: OrdinalSchema,
           attempt_kind: z.enum(["new", "retry"]),
@@ -33,6 +34,7 @@ export const ProjectVideoProcessingEventSchema = z.discriminatedUnion("event", [
       event: z.literal("project_video_processing_succeeded"),
       properties: z
         .object({
+          project_id: z.string().uuid(),
           status: z.literal("ready"),
           ordinal: OrdinalSchema,
           result_origin: z.enum(["cache", "generated"]),
@@ -48,6 +50,7 @@ export const ProjectVideoProcessingEventSchema = z.discriminatedUnion("event", [
       event: z.literal("project_video_processing_failed"),
       properties: z
         .object({
+          project_id: z.string().uuid(),
           status: z.literal("failed"),
           ordinal: OrdinalSchema,
           error_class: z.enum(PROJECT_VIDEO_PROCESSING_ERROR_CLASSES),

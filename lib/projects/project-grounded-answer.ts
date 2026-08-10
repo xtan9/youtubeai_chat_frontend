@@ -329,6 +329,7 @@ export function createProjectGroundedAnswerCapability(
               userMessageId: parsed.data.userMessageId,
               attemptToken: parsed.data.attemptToken,
               completionState: parsed.data.completionState,
+              messageOrdinal: parsed.data.messageOrdinal,
               messagesUsed: parsed.data.messagesUsed,
               messagesLimit: parsed.data.messagesLimit,
               tier: parsed.data.tier,

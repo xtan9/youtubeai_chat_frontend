@@ -63,6 +63,9 @@ describe("Workspace Project entitlement presentation", () => {
       />,
     );
 
+    const privacyBoundary = container.querySelector("main");
+    expect(privacyBoundary?.classList.contains("ph-no-capture")).toBe(true);
+    expect(privacyBoundary?.hasAttribute("data-ph-no-autocapture")).toBe(true);
     expect(screen.queryByRole("button", { name: "Create Project" })).toBeNull();
     expect(screen.getByText("1 of 1 Free Project used")).not.toBeNull();
     const upgrade = screen.getByRole("link", {
@@ -115,6 +118,20 @@ describe("Workspace Project entitlement presentation", () => {
       screen.getByText(/unlimited Projects within technical and abuse limits/i),
     ).not.toBeNull();
     expect(screen.queryByRole("link", { name: /upgrade/i })).toBeNull();
+  });
+
+  it("blocks Project-private Create dialog content in its Radix portal", () => {
+    entitlements("pro");
+    render(
+      <WorkspaceView
+        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.classList.contains("ph-no-capture")).toBe(true);
+    expect(dialog.hasAttribute("data-ph-no-autocapture")).toBe(true);
   });
 
   it("fails soft when entitlement presentation is unavailable", () => {

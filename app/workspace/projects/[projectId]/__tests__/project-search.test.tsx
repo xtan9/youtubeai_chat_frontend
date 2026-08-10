@@ -127,6 +127,7 @@ describe("ProjectSearch", () => {
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_search_completed",
       {
+        project_id: PROJECT_ID,
         source_set_revision: 9,
         outcome: "ready",
         result_count: 2,
@@ -311,6 +312,48 @@ describe("ProjectSearch", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Project Search is temporarily unavailable. Try again.",
     );
-    await waitFor(() => expect(analytics.capture).not.toHaveBeenCalled());
+    await waitFor(() =>
+      expect(analytics.capture).toHaveBeenCalledWith(
+        "project_action_failed",
+        {
+          project_id: PROJECT_ID,
+          action_kind: "search",
+          error_class: "processing",
+          http_status: 503,
+        },
+      ),
+    );
   });
+
+  it.each([
+    [401, "authentication"],
+    [403, "authorization"],
+    [429, "rate_limit"],
+    [400, "request"],
+    [503, "processing"],
+  ] as const)(
+    "classifies HTTP %s before strict success-payload parsing",
+    async (status, errorClass) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json({ outcome: "failure", message: "Try again." }, { status }),
+        ),
+      );
+      renderWithProviders(<ProjectSearch projectId={PROJECT_ID} />);
+      await runSearch();
+
+      await waitFor(() =>
+        expect(analytics.capture).toHaveBeenCalledWith(
+          "project_action_failed",
+          {
+            project_id: PROJECT_ID,
+            action_kind: "search",
+            error_class: errorClass,
+            http_status: status,
+          },
+        ),
+      );
+    },
+  );
 });

@@ -156,12 +156,28 @@ describe("ProjectStudyGuide", () => {
         .getAllByRole("link", { name: /S1 @ 00:42.*Launch notes/i })[0]
         ?.getAttribute("href"),
     ).toBe("https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
+    await user.click(
+      screen.getAllByRole("link", { name: /S1 @ 00:42.*Launch notes/i })[0]!,
+    );
+    expect(analytics.capture).toHaveBeenCalledWith(
+      "project_citation_clicked",
+      {
+        project_id: PROJECT_ID,
+        citation_context: "artifact",
+        artifact_id: current.artifactId,
+        artifact_kind: "study_guide",
+        citation_ordinal: 1,
+        source_ordinal: 1,
+        timestamp_seconds: 42,
+      },
+    );
     expect(screen.getByLabelText("Study Guide provenance").textContent).toContain(
       "1 passage",
     );
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_requested",
       {
+        project_id: PROJECT_ID,
         kind: "study_guide",
         tier: "free",
         is_regeneration: false,
@@ -170,6 +186,7 @@ describe("ProjectStudyGuide", () => {
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_completed",
       {
+        project_id: PROJECT_ID,
         kind: "study_guide",
         tier: "free",
         source_set_revision: 3,
@@ -299,11 +316,11 @@ describe("ProjectStudyGuide", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:study-guide");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_exported",
-      { kind: "study_guide", format: "clipboard" },
+      { project_id: PROJECT_ID, kind: "study_guide", format: "clipboard" },
     );
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_exported",
-      { kind: "study_guide", format: "markdown" },
+      { project_id: PROJECT_ID, kind: "study_guide", format: "markdown" },
     );
   });
 
@@ -412,7 +429,12 @@ describe("ProjectStudyGuide", () => {
     ).toBe("/pricing");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_blocked",
-      { kind: "study_guide", tier: "free", failure_category: "quota" },
+      {
+        project_id: PROJECT_ID,
+        kind: "study_guide",
+        tier: "free",
+        failure_category: "quota",
+      },
     );
     expect(await axe(container)).toHaveNoViolations();
   });

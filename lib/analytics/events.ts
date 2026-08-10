@@ -8,6 +8,7 @@ import type { ProjectSearchEventProperties } from "./project-search";
 import type { ProjectVideoProcessingEventProperties } from "./project-video-processing";
 import type { ProjectGroundedAnswerEventProperties } from "./project-grounded-answer";
 import type { ProjectArtifactEventProperties } from "./project-artifacts";
+import type { ProjectActivityEventProperties } from "./project-activity";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -45,6 +46,16 @@ export const ANALYTICS_EVENT_NAMES = [
   "project_artifact_generation_completed",
   "project_artifact_generation_blocked",
   "project_artifact_exported",
+  "project_created",
+  "project_opened",
+  "project_source_added",
+  "project_activated",
+  "project_message_sent",
+  "project_citation_clicked",
+  "project_answer_feedback_submitted",
+  "project_paywall_viewed",
+  "project_action_failed",
+  "project_generation_cost_recorded",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -129,6 +140,16 @@ export interface AnalyticsEventProperties {
   project_artifact_generation_completed: ProjectArtifactEventProperties["project_artifact_generation_completed"];
   project_artifact_generation_blocked: ProjectArtifactEventProperties["project_artifact_generation_blocked"];
   project_artifact_exported: ProjectArtifactEventProperties["project_artifact_exported"];
+  project_created: ProjectActivityEventProperties["project_created"];
+  project_opened: ProjectActivityEventProperties["project_opened"];
+  project_source_added: ProjectActivityEventProperties["project_source_added"];
+  project_activated: ProjectActivityEventProperties["project_activated"];
+  project_message_sent: ProjectActivityEventProperties["project_message_sent"];
+  project_citation_clicked: ProjectActivityEventProperties["project_citation_clicked"];
+  project_answer_feedback_submitted: ProjectActivityEventProperties["project_answer_feedback_submitted"];
+  project_paywall_viewed: ProjectActivityEventProperties["project_paywall_viewed"];
+  project_action_failed: ProjectActivityEventProperties["project_action_failed"];
+  project_generation_cost_recorded: ProjectActivityEventProperties["project_generation_cost_recorded"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;

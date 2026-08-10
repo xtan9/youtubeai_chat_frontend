@@ -3,6 +3,7 @@ import { ProjectConversationModeSchema } from "@/lib/projects/project-grounded-s
 
 const ProjectGroundedAnswerCompletedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     classification: z.enum(["supported", "abstained", "unsupported"]),
     mode: ProjectConversationModeSchema.optional(),
     source_set_revision: z.number().int().nonnegative(),

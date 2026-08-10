@@ -2,6 +2,11 @@ import "server-only";
 
 import { z } from "zod";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import {
+  recordProjectAnalyticsTransition,
+  recordProjectGenerationUsage,
+} from "@/lib/analytics/project-server";
 import { logAppEvent } from "@/lib/observability";
 import {
   projectOutcomeResponse,
@@ -21,7 +26,10 @@ import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evi
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
-import { streamChatCompletion } from "@/lib/services/llm-chat-client";
+import {
+  streamChatCompletion,
+  type ChatTokenUsage,
+} from "@/lib/services/llm-chat-client";
 import { SPARK } from "@/lib/services/models";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { createClient } from "@/lib/supabase/server";
@@ -40,7 +48,7 @@ type InvalidArtifact = {
 };
 
 export type ProjectArtifactRouteDefinition = Readonly<{
-  kind: ProjectArtifactKind;
+  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
   title: string;
   responseKey: string;
   promptVersion: string;
@@ -232,6 +240,8 @@ export function createProjectArtifactRoute(
       generationsUsed: started.generationsUsed,
       generationsLimit: started.generationsLimit,
     };
+    let generationStartedAt: number | null = null;
+    let generationUsage: ChatTokenUsage | undefined;
     let released = false;
     const release = async () => {
       if (released) return;
@@ -300,10 +310,15 @@ export function createProjectArtifactRoute(
         evidenceSnapshot: artifacts.evidenceSnapshot,
       });
       let generated = "";
+      generationStartedAt = Date.now();
       for await (const event of streamChatCompletion({
         messages,
         signal: request.signal,
       })) {
+        if (event.type === "usage") {
+          generationUsage = event.usage;
+          continue;
+        }
         if (event.type !== "delta") continue;
         generated += event.text;
         if (generated.length > MAX_ARTIFACT_LENGTH) {
@@ -355,6 +370,16 @@ export function createProjectArtifactRoute(
       if (loaded.status !== "ready") {
         return projectUnavailableResponse(requestId);
       }
+      scheduleAnalyticsAfterResponse(() =>
+        recordProjectAnalyticsTransition({
+          projectId: subject.value.projectId,
+          ownerId: researcher.principal.userId,
+          trigger: "artifact",
+          occurredAt: loaded.current?.createdAt ?? new Date().toISOString(),
+          businessAnalyticsSuppressed:
+            researcher.principal.businessAnalyticsSuppressed,
+        }),
+      );
       return Response.json(
         { [definition.responseKey]: loaded },
         {
@@ -371,6 +396,22 @@ export function createProjectArtifactRoute(
         requestId,
       });
       return projectUnavailableResponse(requestId);
+    } finally {
+      if (generationStartedAt !== null) {
+        const durationMs = Math.max(0, Date.now() - generationStartedAt);
+        scheduleAnalyticsAfterResponse(() =>
+          recordProjectGenerationUsage({
+            projectId: subject.value.projectId,
+            ownerId: researcher.principal.userId,
+            operationId: reservation.attemptToken,
+            generationKind: definition.kind,
+            usage: generationUsage,
+            durationMs,
+            businessAnalyticsSuppressed:
+              researcher.principal.businessAnalyticsSuppressed,
+          }),
+        );
+      }
     }
   }
 

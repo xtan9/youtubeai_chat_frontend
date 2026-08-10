@@ -1,3 +1,5 @@
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { recordProjectAnalyticsTransition } from "@/lib/analytics/project-server";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
 import {
   projectPassageSearchInputSchema,
@@ -59,8 +61,20 @@ export async function POST(request: Request, context: RouteContext) {
   switch (result.status) {
     case "ready":
     case "no_results":
-    case "not_ready":
+    case "not_ready": {
+      const searchOccurredAt = new Date().toISOString();
+      scheduleAnalyticsAfterResponse(() =>
+        recordProjectAnalyticsTransition({
+          projectId: subject.value.projectId,
+          ownerId: researcher.principal.userId,
+          trigger: "search",
+          occurredAt: searchOccurredAt,
+          businessAnalyticsSuppressed:
+            researcher.principal.businessAnalyticsSuppressed,
+        }),
+      );
       return Response.json({ search: result });
+    }
     case "invalid":
       return Response.json(
         { outcome: "invalid", message: "Search terms are not valid." },

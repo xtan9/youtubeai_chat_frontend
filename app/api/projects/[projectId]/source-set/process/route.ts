@@ -1,4 +1,6 @@
 import { after } from "next/server";
+import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
+import { captureProjectActivityEvent } from "@/lib/analytics/server";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
 import {
   completeProjectVideoProcessing,
@@ -42,6 +44,9 @@ function processingStartResponse(
   const body = {
     outcome: outcome.kind,
     ...(message ? { message } : {}),
+    ...(outcome.sourceSetRevision !== undefined
+      ? { revision: outcome.sourceSetRevision }
+      : {}),
     ...(outcome.sourceSet ? { sourceSet: outcome.sourceSet } : {}),
   };
 
@@ -133,6 +138,27 @@ export async function POST(request: Request, context: RouteContext) {
   );
   if (!started.lease) return processingStartResponse(started);
   const lease = started.lease;
+
+  // Membership is durable at this point. Schedule its governed event before
+  // preparation so every accepted add is represented even if later work
+  // throws. This callback is never awaited by product completion or response.
+  if (started.kind === "started") {
+    scheduleAnalyticsAfterResponse(() =>
+      captureProjectActivityEvent(
+        researcher.principal.userId,
+        "project_source_added",
+        {
+          project_id: subject.projectId,
+          source_kind: "youtube_url",
+          readiness: "processing",
+          source_ordinal: lease.ordinal,
+          source_set_revision: lease.sourceSetRevision,
+        },
+        researcher.principal.businessAnalyticsSuppressed,
+        `project-source-added:${subject.projectId}:${lease.videoId}`,
+      ),
+    );
+  }
 
   let prepared: Awaited<ReturnType<typeof prepareProjectVideoProcessing>>;
   try {

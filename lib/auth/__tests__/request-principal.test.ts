@@ -62,6 +62,7 @@ describe("resolveRequestPrincipal", () => {
         isAnonymous: false,
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
       },
     });
     expect(Object.keys(result)).toEqual(["kind", "principal"]);
@@ -71,6 +72,7 @@ describe("resolveRequestPrincipal", () => {
       "isAnonymous",
       "email",
       "smokeProEntitled",
+      "businessAnalyticsSuppressed",
     ]);
   });
 
@@ -97,6 +99,7 @@ describe("resolveRequestPrincipal", () => {
         isAnonymous: true,
         email: "",
         smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
       },
     });
   });
@@ -120,6 +123,7 @@ describe("resolveRequestPrincipal", () => {
         isAnonymous: false,
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
       },
     });
   });
@@ -145,6 +149,7 @@ describe("resolveRequestPrincipal", () => {
         isAnonymous: false,
         email: null,
         smokeProEntitled: false,
+        businessAnalyticsSuppressed: false,
       },
     });
   });
@@ -172,7 +177,10 @@ describe("resolveRequestPrincipal", () => {
 
     expect(result).toMatchObject({
       kind: "resolved",
-      principal: { smokeProEntitled: true },
+      principal: {
+        smokeProEntitled: true,
+        businessAnalyticsSuppressed: true,
+      },
     });
   });
 

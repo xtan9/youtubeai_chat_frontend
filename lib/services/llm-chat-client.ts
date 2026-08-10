@@ -3,8 +3,15 @@ import type { ChatGatewayMessage } from "@/lib/prompts/chat";
 import { SPARK, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
+export type ChatTokenUsage = Readonly<{
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+}>;
+
 export type ChatLlmEvent =
   | { readonly type: "delta"; readonly text: string }
+  | { readonly type: "usage"; readonly usage: ChatTokenUsage }
   | { readonly type: "done" };
 
 export interface ChatStreamOptions {
@@ -14,6 +21,38 @@ export interface ChatStreamOptions {
 }
 
 const MAX_MALFORMED_WARNINGS = 1;
+const MAX_ACCOUNTED_TOKENS = 1_000_000;
+
+function boundedTokenCount(value: unknown): number | null {
+  return Number.isInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= MAX_ACCOUNTED_TOKENS
+    ? (value as number)
+    : null;
+}
+
+function parseUsage(value: unknown): ChatTokenUsage | null {
+  if (!value || typeof value !== "object") return null;
+  const usage = value as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown } | null;
+  };
+  const inputTokens = boundedTokenCount(usage.prompt_tokens);
+  const outputTokens = boundedTokenCount(usage.completion_tokens);
+  const cachedInputTokens = boundedTokenCount(
+    usage.prompt_tokens_details?.cached_tokens ?? 0,
+  );
+  if (
+    inputTokens === null ||
+    outputTokens === null ||
+    cachedInputTokens === null ||
+    cachedInputTokens > inputTokens
+  ) {
+    return null;
+  }
+  return { inputTokens, cachedInputTokens, outputTokens };
+}
 
 /**
  * Stream a chat-completion from the OpenAI-compatible LLM gateway. Throws
@@ -47,6 +86,7 @@ export async function* streamChatCompletion(
         model,
         messages: options.messages,
         stream: true,
+        stream_options: { include_usage: true },
         temperature: 0.4,
       }),
       signal: options.signal,
@@ -86,7 +126,10 @@ export async function* streamChatCompletion(
         try {
           const evt = JSON.parse(payload) as {
             choices?: Array<{ delta?: { content?: string } }>;
+            usage?: unknown;
           };
+          const usage = parseUsage(evt.usage);
+          if (usage) yield { type: "usage", usage };
           const text = evt.choices?.[0]?.delta?.content;
           if (typeof text === "string" && text.length > 0) {
             yield { type: "delta", text };

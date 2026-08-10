@@ -3,6 +3,7 @@ import { ProjectArtifactKindSchema } from "@/lib/projects/project-artifact-contr
 
 const ProjectArtifactRequestedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     kind: ProjectArtifactKindSchema,
     tier: z.enum(["free", "pro"]),
     is_regeneration: z.boolean(),
@@ -11,6 +12,7 @@ const ProjectArtifactRequestedPropertiesSchema = z
 
 const ProjectArtifactCompletedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     kind: ProjectArtifactKindSchema,
     tier: z.enum(["free", "pro"]),
     source_set_revision: z.number().int().nonnegative(),
@@ -30,6 +32,7 @@ const ProjectArtifactCompletedPropertiesSchema = z
 
 const ProjectArtifactBlockedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     kind: ProjectArtifactKindSchema,
     tier: z.enum(["free", "pro"]),
     failure_category: z.enum([
@@ -43,6 +46,7 @@ const ProjectArtifactBlockedPropertiesSchema = z
 
 const ProjectArtifactExportedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     kind: ProjectArtifactKindSchema,
     format: z.enum(["clipboard", "markdown"]),
   })

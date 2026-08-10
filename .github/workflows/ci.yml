@@ -113,7 +113,14 @@ jobs:
             if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
               psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/legacy_video_identity_before_canonical.sql
             fi
-            psql -v ON_ERROR_STOP=1 -f "$f"
+            if [[ "$(basename "$f")" == "20260809232600_project_message_analytics_ordinals.sql" ]]; then
+              bash supabase/test-fixtures/regression_project_message_ordinal_rollout.sh "$f"
+            else
+              psql -v ON_ERROR_STOP=1 -f "$f"
+            fi
+            if [[ "$(basename "$f")" > "20260809232555" ]]; then
+              psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_analytics_least_privilege.sql
+            fi
             if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
               psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_precanonical_video_identity_guard.sql
             fi
@@ -300,6 +307,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_artifact_concurrency.sql
       - name: Project Creator Brief contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_creator_briefs.sql
+      - name: Project analytics contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_analytics.sql
+      - name: Project analytics concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_analytics_concurrency.sql
       - name: Video identity and cache access contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
       - name: Video identity concurrency - representative legacy
@@ -311,7 +322,14 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
           for f in supabase/migrations/*.sql; do
             echo "::group::Applying $f to fresh database"
-            PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
+            if [[ "$(basename "$f")" == "20260809232600_project_message_analytics_ordinals.sql" ]]; then
+              PGDATABASE=workspace_fresh bash supabase/test-fixtures/regression_project_message_ordinal_rollout.sh "$f"
+            else
+              PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
+            fi
+            if [[ "$(basename "$f")" > "20260809232555" ]]; then
+              PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_project_analytics_least_privilege.sql
+            fi
             if [[ "$(basename "$f")" == "20260809209997_guard_precanonical_video_identity_writes.sql" ]]; then
               PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_precanonical_video_identity_guard.sql
             fi
@@ -342,6 +360,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_study_guides.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_artifact_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_creator_briefs.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_analytics.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_analytics_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_concurrency.sql
       # Reproduces the cache-write upsert that broke translation caching

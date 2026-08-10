@@ -8,6 +8,7 @@ export const PROJECT_SEARCH_OUTCOMES = [
 
 const ProjectSearchCompletedPropertiesSchema = z
   .object({
+    project_id: z.string().uuid(),
     source_set_revision: z.number().int().nonnegative(),
     outcome: z.enum(PROJECT_SEARCH_OUTCOMES),
     result_count: z.number().int().min(0).max(10),

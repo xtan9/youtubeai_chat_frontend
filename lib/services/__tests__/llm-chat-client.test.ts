@@ -41,6 +41,14 @@ describe("streamChatCompletion", () => {
           sse({ choices: [{ delta: { content: "Hel" } }] }),
           sse({ choices: [{ delta: { content: "lo" } }] }),
           sse({ choices: [{ delta: {} }] }),
+          sse({
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 3,
+              prompt_tokens_details: { cached_tokens: 2 },
+            },
+          }),
           "data: [DONE]\n\n",
         ]),
         { status: 200 }
@@ -55,12 +63,17 @@ describe("streamChatCompletion", () => {
     expect(events).toEqual([
       { type: "delta", text: "Hel" },
       { type: "delta", text: "lo" },
+      {
+        type: "usage",
+        usage: { inputTokens: 10, cachedInputTokens: 2, outputTokens: 3 },
+      },
       { type: "done" },
     ]);
     const requestBody = JSON.parse(
       fetchMock.mock.calls[0]?.[1]?.body as string,
-    ) as { model?: string };
+    ) as { model?: string; stream_options?: unknown };
     expect(requestBody.model).toBe("gpt-5.3-codex-spark");
+    expect(requestBody.stream_options).toEqual({ include_usage: true });
   });
 
   it("throws on non-2xx", async () => {

@@ -2,7 +2,10 @@ import "server-only";
 
 import { logAppEvent } from "@/lib/observability";
 import { createClient } from "@/lib/supabase/server";
-import { hasSmokeProEntitlement } from "@/lib/auth/smoke-account";
+import {
+  hasSmokeProEntitlement,
+  isSmokeAccount,
+} from "@/lib/auth/smoke-account";
 
 const REQUEST_PRINCIPAL_UNAVAILABLE = "REQUEST_PRINCIPAL_UNAVAILABLE";
 const MISSING_SESSION_STATUSES = new Set([400, 401, 403]);
@@ -30,6 +33,7 @@ export type RequestPrincipal = Readonly<{
   isAnonymous: boolean;
   email: string | null;
   smokeProEntitled?: boolean;
+  businessAnalyticsSuppressed: boolean;
 }>;
 
 export type RequestPrincipalResult =
@@ -102,6 +106,9 @@ function resolvedPrincipal(
     isAnonymous: user.is_anonymous === true,
     email: typeof user.email === "string" ? user.email : null,
     smokeProEntitled: hasSmokeProEntitlement({
+      app_metadata: user.app_metadata ?? {},
+    }),
+    businessAnalyticsSuppressed: isSmokeAccount({
       app_metadata: user.app_metadata ?? {},
     }),
   };

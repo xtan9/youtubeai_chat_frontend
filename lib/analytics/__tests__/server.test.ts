@@ -12,6 +12,7 @@ vi.mock("posthog-node", () => ({
 
 import { ANALYTICS_SUBJECT_PROPERTY, ANALYTICS_SYNTHETIC_SUBJECT } from "../identity";
 import {
+  captureProjectActivityEventWithStatus,
   captureProjectVideoProcessingEvent,
   captureSubscriptionActivated,
 } from "../server";
@@ -240,12 +241,54 @@ describe("captureSubscriptionActivated", () => {
   });
 });
 
+describe("captureProjectActivityEvent", () => {
+  it("sends the corrected activation at its authoritative timestamp", async () => {
+    const occurredAt = "2026-08-09T19:59:00.123Z";
+
+    await expect(
+      captureProjectActivityEventWithStatus(
+        "c0000000-0000-4000-8000-000000000001",
+        "project_activated",
+        {
+          project_id: "a0000000-0000-4000-8000-000000000001",
+          activation_kind: "search",
+          activation_revision: 2,
+          activation_occurred_at: occurredAt,
+          ready_videos: 2,
+        },
+        false,
+        "project-activation:a0000000-0000-4000-8000-000000000001:2",
+        occurredAt,
+      ),
+    ).resolves.toBe("sent");
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith({
+      distinctId: "c0000000-0000-4000-8000-000000000001",
+      event: "project_activated",
+      properties: {
+        analytics_schema_version: 1,
+        analytics_subject: "human",
+        project_id: "a0000000-0000-4000-8000-000000000001",
+        activation_kind: "search",
+        activation_revision: 2,
+        activation_occurred_at: occurredAt,
+        ready_videos: 2,
+      },
+      timestamp: new Date(occurredAt),
+      uuid: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+    });
+  });
+});
+
 describe("captureProjectVideoProcessingEvent", () => {
   it("captures only the validated governed processing payload", async () => {
     await captureProjectVideoProcessingEvent(
       "user-1",
       "project_video_processing_succeeded",
       {
+        project_id: "a0000000-0000-4000-8000-000000000001",
         status: "ready",
         ordinal: 2,
         result_origin: "generated",
@@ -261,6 +304,7 @@ describe("captureProjectVideoProcessingEvent", () => {
       properties: {
         analytics_schema_version: 1,
         analytics_subject: "human",
+        project_id: "a0000000-0000-4000-8000-000000000001",
         status: "ready",
         ordinal: 2,
         result_origin: "generated",
@@ -299,7 +343,12 @@ describe("captureProjectVideoProcessingEvent", () => {
     await captureProjectVideoProcessingEvent(
       "smoke-user",
       "project_video_processing_started",
-      { status: "processing", ordinal: 1, attempt_kind: "new" },
+      {
+        project_id: "a0000000-0000-4000-8000-000000000001",
+        status: "processing",
+        ordinal: 1,
+        attempt_kind: "new",
+      },
       true,
     );
 

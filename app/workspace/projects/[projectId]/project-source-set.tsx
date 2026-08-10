@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
 import {
   PROJECT_VIDEO_LIMIT,
   type ProjectHistoryCandidate,
@@ -264,6 +266,14 @@ export function ProjectSourceSet({
       const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
+        captureAnalyticsEvent("project_action_failed", {
+          project_id: projectId,
+          action_kind: "source_add",
+          error_class: classifyProjectActionHttpFailure(response.status),
+          ...(response.status >= 400 && response.status <= 599
+            ? { http_status: response.status }
+            : {}),
+        });
         setError(payload.message ?? "Couldn’t process that Video. Try again.");
         setUpgradeUrl(payload.upgradeUrl ?? null);
         await refreshSourceSet();
@@ -280,6 +290,11 @@ export function ProjectSourceSet({
       setYoutubeUrl("");
       if (!payload.sourceSet) await refreshSourceSet();
     } catch {
+      captureAnalyticsEvent("project_action_failed", {
+        project_id: projectId,
+        action_kind: "source_add",
+        error_class: "network",
+      });
       setError("Couldn’t process that Video. Check your connection and try again.");
       await refreshSourceSet();
     } finally {
@@ -358,6 +373,14 @@ export function ProjectSourceSet({
       const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
+        captureAnalyticsEvent("project_action_failed", {
+          project_id: projectId,
+          action_kind: "source_add",
+          error_class: classifyProjectActionHttpFailure(response.status),
+          ...(response.status >= 400 && response.status <= 599
+            ? { http_status: response.status }
+            : {}),
+        });
         setError(payload.message ?? "Couldn’t add that History Video. Try again.");
         setPickerOpen(false);
         return;
@@ -367,6 +390,11 @@ export function ProjectSourceSet({
       setAppliedSearch("");
       setPickerOpen(false);
     } catch {
+      captureAnalyticsEvent("project_action_failed", {
+        project_id: projectId,
+        action_kind: "source_add",
+        error_class: "network",
+      });
       setError("Couldn’t add that History Video. Check your connection and try again.");
       setPickerOpen(false);
     } finally {
@@ -472,7 +500,10 @@ export function ProjectSourceSet({
                   Add from History
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+              <DialogContent
+                className="ph-no-capture max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl"
+                data-ph-no-autocapture
+              >
                 <DialogHeader>
                   <DialogTitle>Add a History Video</DialogTitle>
                   <DialogDescription>

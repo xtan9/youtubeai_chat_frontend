@@ -63,6 +63,13 @@ describe("ProjectConversation", () => {
         },
       ),
     );
+    expect(mocks.capture).toHaveBeenCalledWith("project_paywall_viewed", {
+      project_id: PROJECT_ID,
+      paywall_kind: "conversation",
+      tier: "free",
+      used: 5,
+      limit: 5,
+    });
     fireEvent.click(screen.getByRole("link", { name: "View Pro plans" }));
     expect(mocks.capture).toHaveBeenCalledWith(
       "subscription_discovery_clicked",
@@ -280,7 +287,9 @@ describe("ProjectConversation", () => {
         projectId={PROJECT_ID}
         initialConversation={conversation({
           conversationId: "40000000-0000-4000-8000-000000000001",
-          messagesUsed: 1,
+          // Project-wide usage includes other threads and incomplete turns;
+          // trust analytics must use the durable turn identity instead.
+          messagesUsed: 26,
           messages: [
             {
               id: USER_MESSAGE_ID,
@@ -299,6 +308,7 @@ describe("ProjectConversation", () => {
               id: "50000000-0000-4000-8000-000000000001",
               inReplyToMessageId: USER_MESSAGE_ID,
               role: "assistant",
+              messageOrdinal: 7,
               content: `The launch spans [S1 @ 00:42-00:58]. Unknown [S9 @ 00:10]. ${astralMalformed}`,
               createdAt: "2026-08-09T12:00:01.000Z",
               answerClassification: "supported",
@@ -331,13 +341,33 @@ describe("ProjectConversation", () => {
     expect(screen.getByText("Passages selected")).toBeTruthy();
     expect(screen.getByText("Pending source")).toBeTruthy();
     expect(screen.getByText("Processing")).toBeTruthy();
-    expect(
-      screen
-        .getByRole("link", {
-          name: /\[S1 @ 00:42-00:58\].*open Launch notes/i,
-        })
-        .getAttribute("href"),
-    ).toBe("https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
+    const citation = screen.getByRole("link", {
+      name: /\[S1 @ 00:42-00:58\].*open Launch notes/i,
+    });
+    expect(citation.getAttribute("href")).toBe(
+      "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+    );
+    fireEvent.click(citation);
+    expect(mocks.capture).toHaveBeenCalledWith("project_citation_clicked", {
+      project_id: PROJECT_ID,
+      citation_context: "grounded_answer",
+      answer_id: "50000000-0000-4000-8000-000000000001",
+      message_ordinal: 7,
+      citation_ordinal: 1,
+      source_ordinal: 1,
+      timestamp_seconds: 42,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Useful" }));
+    expect(screen.getByText("Feedback recorded.")).toBeTruthy();
+    expect(mocks.capture).toHaveBeenCalledWith(
+      "project_answer_feedback_submitted",
+      {
+        project_id: PROJECT_ID,
+        answer_id: "50000000-0000-4000-8000-000000000001",
+        message_ordinal: 7,
+        rating: "helpful",
+      },
+    );
     expect(screen.queryByRole("link", { name: /\[S9 @ 00:10\]/ })).toBeNull();
     expect(container.textContent).toContain(astralMalformed);
     expect(screen.queryByRole("link", { name: /S9 at 00:10/ })).toBeNull();
