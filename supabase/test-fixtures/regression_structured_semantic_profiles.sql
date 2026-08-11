@@ -376,6 +376,34 @@ begin
   if candidate.candidate_video_id is not null then
     raise exception 'retired semantic profile model remained retrievable';
   end if;
+
+  select public.activate_semantic_profile_model(
+    'gpt-5.3-codex-spark', 'semantic-profile-v1',
+    'semantic-profile-prompt-v1', repeat('a', 64), 'review-2026-08-11-349'
+  ) into activation;
+  if activation ->> 'outcome' <> 'active' then
+    raise exception 'semantic profile reactivation failed: %', activation;
+  end if;
+  set local role postgres;
+  update catalog_private.semantic_profile_evaluations
+  set status = 'revoked'
+  where evaluation_fingerprint = repeat('a', 64);
+  set local role service_role;
+  select public.request_semantic_profile_generation(
+    '31000000-0000-4000-8000-000000000001'
+  ) into pre_activation_request;
+  if pre_activation_request ->> 'outcome' <> 'skipped'
+    or pre_activation_request ->> 'reason' <> 'model_inactive'
+  then
+    raise exception 'revoked evaluation still admitted profile work: %', pre_activation_request;
+  end if;
+  select * into candidate
+  from public.retrieve_semantic_profile_candidates(
+    '31000000-0000-4000-8000-000000000001', 12
+  ) limit 1;
+  if candidate.candidate_video_id is not null then
+    raise exception 'revoked evaluation remained retrievable';
+  end if;
 end;
 $$;
 

@@ -32,6 +32,20 @@ create table catalog_private.semantic_profile_evaluations (
       'retry_dead_letter_behavior',
       'representative_source_coverage'
     ]
+    and jsonb_typeof(metrics -> 'schema_validity_rate') = 'number'
+    and (metrics ->> 'schema_validity_rate')::numeric between 0 and 1
+    and jsonb_typeof(metrics -> 'multilingual_concept_normalization') = 'number'
+    and (metrics ->> 'multilingual_concept_normalization')::numeric between 0 and 1
+    and jsonb_typeof(metrics -> 'useful_neighbor_recall') = 'number'
+    and (metrics ->> 'useful_neighbor_recall')::numeric between 0 and 1
+    and jsonb_typeof(metrics -> 'false_neighbor_rejection') = 'number'
+    and (metrics ->> 'false_neighbor_rejection')::numeric between 0 and 1
+    and jsonb_typeof(metrics -> 'latency_ms_p95') = 'number'
+    and (metrics ->> 'latency_ms_p95')::numeric >= 0
+    and jsonb_typeof(metrics -> 'token_cost_totals') = 'object'
+    and jsonb_typeof(metrics -> 'retry_dead_letter_behavior') in ('string', 'object')
+    and jsonb_typeof(metrics -> 'representative_source_coverage') = 'number'
+    and (metrics ->> 'representative_source_coverage')::numeric between 0 and 1
   ),
   status text not null check (status in ('passed', 'revoked')),
   evaluated_at timestamptz not null,
@@ -148,6 +162,19 @@ as $$
   select exists (
     select 1
     from catalog_private.semantic_profile_model_registry as registry
+    join catalog_private.semantic_profile_evaluations as evaluation
+      on evaluation.evaluation_fingerprint = registry.evaluation_fingerprint
+     and evaluation.model_identifier = registry.model_identifier
+     and evaluation.profile_schema_version = registry.profile_schema_version
+     and evaluation.prompt_version = registry.prompt_version
+     and evaluation.status = 'passed'
+    join catalog_private.semantic_profile_human_approvals as approval
+      on approval.approval_ref = registry.human_approval_ref
+     and approval.evaluation_fingerprint = registry.evaluation_fingerprint
+     and approval.model_identifier = registry.model_identifier
+     and approval.profile_schema_version = registry.profile_schema_version
+     and approval.prompt_version = registry.prompt_version
+     and approval.decision = 'approved'
     where registry.model_identifier = btrim(p_model_identifier)
       and registry.profile_schema_version = p_profile_schema_version
       and registry.prompt_version = p_prompt_version
@@ -198,6 +225,8 @@ begin
   ) then
     return jsonb_build_object('outcome', 'rejected', 'reason', 'evaluation_or_approval_missing');
   end if;
+
+  perform pg_advisory_xact_lock(hashtext('semantic-profile-activation'));
 
   update catalog_private.semantic_profile_model_registry
   set status = 'retired', retired_at = clock_timestamp()
@@ -266,6 +295,7 @@ as $$
 declare
   retired_count integer;
 begin
+  perform pg_advisory_xact_lock(hashtext('semantic-profile-activation'));
   update catalog_private.semantic_profile_model_registry
   set status = 'retired', retired_at = clock_timestamp()
   where model_identifier = btrim(p_model_identifier)
@@ -298,13 +328,29 @@ declare
   enqueued_message_id bigint;
   existing_request record;
 begin
-  select model_identifier, profile_schema_version, prompt_version,
-         evaluation_fingerprint
+  perform pg_advisory_xact_lock(hashtext('semantic-profile-activation'));
+  select semantic_profile_model_registry.model_identifier,
+         semantic_profile_model_registry.profile_schema_version,
+         semantic_profile_model_registry.prompt_version,
+         semantic_profile_model_registry.evaluation_fingerprint
   into active_registry
   from catalog_private.semantic_profile_model_registry
-  where status = 'active'
-    and profile_schema_version = 'semantic-profile-v1'
-    and prompt_version = 'semantic-profile-prompt-v1'
+  join catalog_private.semantic_profile_evaluations as evaluation
+    on evaluation.evaluation_fingerprint = semantic_profile_model_registry.evaluation_fingerprint
+   and evaluation.model_identifier = semantic_profile_model_registry.model_identifier
+   and evaluation.profile_schema_version = semantic_profile_model_registry.profile_schema_version
+   and evaluation.prompt_version = semantic_profile_model_registry.prompt_version
+   and evaluation.status = 'passed'
+  join catalog_private.semantic_profile_human_approvals as approval
+    on approval.approval_ref = semantic_profile_model_registry.human_approval_ref
+   and approval.evaluation_fingerprint = semantic_profile_model_registry.evaluation_fingerprint
+   and approval.model_identifier = semantic_profile_model_registry.model_identifier
+   and approval.profile_schema_version = semantic_profile_model_registry.profile_schema_version
+   and approval.prompt_version = semantic_profile_model_registry.prompt_version
+   and approval.decision = 'approved'
+  where semantic_profile_model_registry.status = 'active'
+    and semantic_profile_model_registry.profile_schema_version = 'semantic-profile-v1'
+    and semantic_profile_model_registry.prompt_version = 'semantic-profile-prompt-v1'
   limit 1;
   if active_registry.model_identifier is null then
     return jsonb_build_object('outcome', 'skipped', 'reason', 'model_inactive');
@@ -766,12 +812,27 @@ security definer
 set search_path = ''
 as $$
   with active_model as (
-    select model_identifier, profile_schema_version, prompt_version,
-           evaluation_fingerprint
+    select semantic_profile_model_registry.model_identifier,
+           semantic_profile_model_registry.profile_schema_version,
+           semantic_profile_model_registry.prompt_version,
+           semantic_profile_model_registry.evaluation_fingerprint
     from catalog_private.semantic_profile_model_registry
-    where status = 'active'
-      and profile_schema_version = 'semantic-profile-v1'
-      and prompt_version = 'semantic-profile-prompt-v1'
+    join catalog_private.semantic_profile_evaluations as evaluation
+      on evaluation.evaluation_fingerprint = semantic_profile_model_registry.evaluation_fingerprint
+     and evaluation.model_identifier = semantic_profile_model_registry.model_identifier
+     and evaluation.profile_schema_version = semantic_profile_model_registry.profile_schema_version
+     and evaluation.prompt_version = semantic_profile_model_registry.prompt_version
+     and evaluation.status = 'passed'
+    join catalog_private.semantic_profile_human_approvals as approval
+      on approval.approval_ref = semantic_profile_model_registry.human_approval_ref
+     and approval.evaluation_fingerprint = semantic_profile_model_registry.evaluation_fingerprint
+     and approval.model_identifier = semantic_profile_model_registry.model_identifier
+     and approval.profile_schema_version = semantic_profile_model_registry.profile_schema_version
+     and approval.prompt_version = semantic_profile_model_registry.prompt_version
+     and approval.decision = 'approved'
+    where semantic_profile_model_registry.status = 'active'
+      and semantic_profile_model_registry.profile_schema_version = 'semantic-profile-v1'
+      and semantic_profile_model_registry.prompt_version = 'semantic-profile-prompt-v1'
     limit 1
   ),
   source_profile as (
