@@ -37,7 +37,10 @@ import {
   admitRegisteredFreeHeroDemoChatMessage,
   type RegisteredFreeHeroDemoAdmissionResult,
 } from "@/lib/services/registered-free-hero-demo";
-import { validateAnonymousTrialChatResult } from "@/lib/services/anonymous-trial-chat-result";
+import {
+  MAX_ANONYMOUS_TRIAL_RESULT_CHARS,
+  validateAnonymousTrialChatResult,
+} from "@/lib/services/anonymous-trial-chat-result";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -591,6 +594,25 @@ export async function POST(request: Request) {
         }
       };
 
+      const rejectInvalidAnonymousAnswer = () => {
+        logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
+          errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+          userId,
+          videoId,
+          requestId,
+        });
+        // The admitted model call is still part of the retained thread:
+        // keep the learner's question for a safe retry, but never persist
+        // or expose the rejected assistant payload.
+        persistUserOnly("CHAT_ANONYMOUS_ANSWER_INVALID_PERSIST_FAILED");
+        sendEvent({
+          type: "error",
+          message:
+            "We couldn't validate that answer against the selected video. Try another question.",
+          errorCode: "anonymous_trial_invalid_answer",
+        });
+      };
+
       try {
         if (registeredFreeHeroDemoAdmission) {
           sendEvent({
@@ -630,6 +652,14 @@ export async function POST(request: Request) {
           })) {
             if (request.signal.aborted) break;
             if (evt.type === "delta") {
+              if (
+                anonymousTrialEnabled &&
+                assistantBuffer.length + evt.text.length >
+                  MAX_ANONYMOUS_TRIAL_RESULT_CHARS
+              ) {
+                rejectInvalidAnonymousAnswer();
+                return;
+              }
               assistantBuffer += evt.text;
               if (!anonymousTrialEnabled) {
                 sendEvent({ type: "delta", text: evt.text });
@@ -679,18 +709,7 @@ export async function POST(request: Request) {
             anonymousTrialAvailableCitations,
           );
           if (validated.outcome === "rejected") {
-            logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
-              errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
-              userId,
-              videoId,
-              requestId,
-            });
-            sendEvent({
-              type: "error",
-              message:
-                "We couldn't validate that answer against the selected video. Try another question.",
-              errorCode: "anonymous_trial_invalid_answer",
-            });
+            rejectInvalidAnonymousAnswer();
             return;
           }
           assistantBuffer = validated.text;

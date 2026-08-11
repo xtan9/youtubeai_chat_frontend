@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateAnonymousTrialChatResult } from "../anonymous-trial-chat-result";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 
 const AVAILABLE = new Set(["[00:00]", "[00:01]", "[01:02:03]"]);
 
@@ -22,18 +23,49 @@ describe("Anonymous Trial chat result validation", () => {
     });
   });
 
-  it("accepts a concise governed refusal without requiring a citation", () => {
+  it.each([
+    ["en", "The selected video does not contain enough evidence to answer that question."],
+    ["es", "El video seleccionado no contiene evidencia suficiente para responder esa pregunta."],
+    ["zh", "所选视频没有足够的证据来回答该问题。"],
+  ])("derives a concise governed %s refusal without model-authored prose", (language, text) => {
     expect(
       validate({
         kind: "refusal",
         reason: "video_does_not_support_answer",
-        message: "The selected video does not support an answer to that question.",
+        language,
       }),
     ).toEqual({
       outcome: "accepted",
       kind: "refusal",
-      text: "The selected video does not support an answer to that question.",
+      text,
     });
+  });
+
+  it("rejects answer-shaped or general-purpose model prose disguised as a refusal", () => {
+    expect(
+      validate({
+        kind: "refusal",
+        reason: "video_does_not_support_answer",
+        language: "en",
+        message: "Paris won the World Cup.",
+      }),
+    ).toEqual({ outcome: "rejected" });
+  });
+
+  it("derives bounded server-owned refusal text for every supported language code", () => {
+    for (const language of SUPPORTED_LANGUAGE_CODES) {
+      const result = validate({
+        kind: "refusal",
+        reason: "video_does_not_support_answer",
+        language,
+      });
+      expect(result).toMatchObject({ outcome: "accepted", kind: "refusal" });
+      if (result.outcome === "accepted") {
+        expect(result.text.length).toBeGreaterThan(0);
+        expect(result.text.length).toBeLessThanOrEqual(500);
+        expect(result.text).not.toMatch(/[\[\]]/u);
+      }
+    }
   });
 
   it.each([
@@ -103,7 +135,7 @@ describe("Anonymous Trial chat result validation", () => {
       validate({
         kind: "refusal",
         reason: "video_does_not_support_answer",
-        message: "Unsupported.",
+        language: "en",
         answer: "general knowledge",
       }),
     ).toEqual({ outcome: "rejected" });
@@ -112,11 +144,12 @@ describe("Anonymous Trial chat result validation", () => {
     ).toEqual({ outcome: "rejected" });
   });
 
-  it("rejects a refusal that smuggles a citation or answer-shaped bracketed content", () => {
+  it("rejects a refusal that smuggles model-authored content", () => {
     expect(
       validate({
         kind: "refusal",
         reason: "video_does_not_support_answer",
+        language: "en",
         message: "The answer is elsewhere [00:00].",
       }),
     ).toEqual({ outcome: "rejected" });

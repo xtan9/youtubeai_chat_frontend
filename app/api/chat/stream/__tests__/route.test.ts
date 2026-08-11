@@ -3,6 +3,7 @@ import type {
   VideoChatSubject,
   VideoGroundingResolution,
 } from "@/lib/services/video-chat-subject";
+import { MAX_ANONYMOUS_TRIAL_RESULT_CHARS } from "@/lib/services/anonymous-trial-chat-result";
 
 const { mocks, afterPassthrough } = vi.hoisted(() => {
   const afterPassthrough = (fn: () => unknown) => fn();
@@ -477,7 +478,7 @@ describe("POST /api/chat/stream", () => {
       };
       yield {
         type: "delta" as const,
-        text: '"message":"The selected video does not support that answer."}',
+        text: '"language":"en"}',
       };
       yield { type: "done" as const };
     });
@@ -492,7 +493,7 @@ describe("POST /api/chat/stream", () => {
     const events = (await readSse(response.body!)).join("");
 
     expect(events).toContain(
-      '"type":"delta","text":"The selected video does not support that answer."',
+      '"type":"delta","text":"The selected video does not contain enough evidence to answer that question."',
     );
     expect(events).toContain('"type":"done"');
     expect(events).not.toContain('"kind":"refusal"');
@@ -502,8 +503,45 @@ describe("POST /api/chat/stream", () => {
       userId: "anonymous-trial-user",
       thread: heroDemoSubject().subject.retainedThread,
       userMessage: "Who won the World Cup?",
-      assistantMessage: "The selected video does not support that answer.",
+      assistantMessage:
+        "The selected video does not contain enough evidence to answer that question.",
     });
+  });
+
+  it("rejects answer-shaped prose disguised as an Anonymous Trial refusal without leaking or persisting it", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield {
+        type: "delta" as const,
+        text: JSON.stringify({
+          kind: "refusal",
+          reason: "video_does_not_support_answer",
+          language: "en",
+          message: "Paris won the World Cup.",
+        }),
+      };
+      yield { type: "done" as const };
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({
+        youtube_url: HERO_IDENTITY.canonicalUrl,
+        message: "Who won the World Cup?",
+      }),
+    );
+    const events = (await readSse(response.body!)).join("");
+
+    expect(events).toContain('"errorCode":"anonymous_trial_invalid_answer"');
+    expect(events).not.toContain('"type":"delta"');
+    expect(events).not.toContain("Paris won the World Cup");
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
 
   it("rejects an enabled Anonymous Trial on a retained Video before Grounding or admission", async () => {
@@ -686,6 +724,53 @@ describe("POST /api/chat/stream", () => {
     expect(events).not.toContain('"type":"delta"');
     expect(events).not.toContain("Leaked fabrication");
     expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledTimes(1);
+    expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "anonymous-trial-user",
+      heroDemoSubject().subject.retainedThread,
+      "What does the speaker recommend?",
+    );
+  });
+
+  it("stops consuming fragmented Anonymous Trial output as soon as the buffer bound is exceeded", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    let providerClosed = false;
+    let consumedAfterOverflow = false;
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      try {
+        yield {
+          type: "delta" as const,
+          text: "x".repeat(MAX_ANONYMOUS_TRIAL_RESULT_CHARS - 1),
+        };
+        yield { type: "delta" as const, text: "overflow" };
+        consumedAfterOverflow = true;
+        yield { type: "delta" as const, text: "must-not-be-consumed" };
+      } finally {
+        providerClosed = true;
+      }
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({
+        youtube_url: HERO_IDENTITY.canonicalUrl,
+        message: "What does the speaker recommend?",
+      }),
+    );
+    const events = (await readSse(response.body!)).join("");
+
+    expect(providerClosed).toBe(true);
+    expect(consumedAfterOverflow).toBe(false);
+    expect(events).toContain('"errorCode":"anonymous_trial_invalid_answer"');
+    expect(events).not.toContain('"type":"delta"');
+    expect(events).not.toContain("must-not-be-consumed");
+    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
 

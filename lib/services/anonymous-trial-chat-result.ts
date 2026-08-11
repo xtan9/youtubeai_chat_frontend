@@ -1,6 +1,10 @@
 import { z } from "zod";
+import {
+  SUPPORTED_LANGUAGE_CODES,
+  type SupportedLanguageCode,
+} from "@/lib/constants/languages";
 
-const MAX_BUFFERED_RESULT_CHARS = 12_000;
+export const MAX_ANONYMOUS_TRIAL_RESULT_CHARS = 12_000;
 // `formatTimestamp` emits `[m:ss]` for sub-hour transcript segments and
 // `[hh:mm:ss]` for hour-plus segments. Keep the generated-result grammar
 // aligned with those immutable server-owned labels; membership in the
@@ -23,9 +27,30 @@ const RefusalSchema = z
   .object({
     kind: z.literal("refusal"),
     reason: z.literal("video_does_not_support_answer"),
-    message: z.string().trim().min(1).max(500),
+    language: z.enum(SUPPORTED_LANGUAGE_CODES),
   })
   .strict();
+
+const REFUSAL_TEXT: Readonly<Record<SupportedLanguageCode, string>> = {
+  en: "The selected video does not contain enough evidence to answer that question.",
+  es: "El video seleccionado no contiene evidencia suficiente para responder esa pregunta.",
+  pt: "O vídeo selecionado não contém evidências suficientes para responder a essa pergunta.",
+  it: "Il video selezionato non contiene prove sufficienti per rispondere a questa domanda.",
+  fr: "La vidéo sélectionnée ne contient pas suffisamment de preuves pour répondre à cette question.",
+  de: "Das ausgewählte Video enthält nicht genügend Belege, um diese Frage zu beantworten.",
+  id: "Video yang dipilih tidak memuat bukti yang cukup untuk menjawab pertanyaan tersebut.",
+  zh: "所选视频没有足够的证据来回答该问题。",
+  "zh-TW": "所選影片沒有足夠的證據來回答該問題。",
+  ja: "選択した動画には、その質問に答えるための十分な根拠がありません。",
+  ko: "선택한 동영상에는 해당 질문에 답할 충분한 근거가 없습니다.",
+  ar: "لا يحتوي الفيديو المحدد على أدلة كافية للإجابة عن هذا السؤال.",
+  hi: "चुने गए वीडियो में उस प्रश्न का उत्तर देने के लिए पर्याप्त साक्ष्य नहीं हैं।",
+  bn: "নির্বাচিত ভিডিওটিতে ওই প্রশ্নের উত্তর দেওয়ার জন্য যথেষ্ট প্রমাণ নেই।",
+  ru: "В выбранном видео недостаточно доказательств, чтобы ответить на этот вопрос.",
+  vi: "Video đã chọn không có đủ bằng chứng để trả lời câu hỏi đó.",
+  tr: "Seçilen videoda bu soruyu yanıtlamak için yeterli kanıt yok.",
+  th: "วิดีโอที่เลือกไม่มีหลักฐานเพียงพอที่จะตอบคำถามนั้น",
+};
 
 const AnonymousTrialChatResultSchema = z.discriminatedUnion("kind", [
   GroundedAnswerSchema,
@@ -51,7 +76,7 @@ export function validateAnonymousTrialChatResult(
 ): AnonymousTrialValidatedResult {
   if (
     rawResult.length === 0 ||
-    rawResult.length > MAX_BUFFERED_RESULT_CHARS
+    rawResult.length > MAX_ANONYMOUS_TRIAL_RESULT_CHARS
   ) {
     return { outcome: "rejected" };
   }
@@ -67,32 +92,30 @@ export function validateAnonymousTrialChatResult(
   if (!parsed.success) return { outcome: "rejected" };
 
   if (parsed.data.kind === "refusal") {
-    if (parsed.data.message.includes("[") || parsed.data.message.includes("]")) {
-      return { outcome: "rejected" };
-    }
     return {
       outcome: "accepted",
       kind: "refusal",
-      text: parsed.data.message,
+      text: REFUSAL_TEXT[parsed.data.language],
     };
   }
 
-  const uniqueCitations = new Set(parsed.data.citations);
-  if (uniqueCitations.size !== parsed.data.citations.length) {
+  const { answer, citations } = parsed.data;
+  const uniqueCitations = new Set(citations);
+  if (uniqueCitations.size !== citations.length) {
     return { outcome: "rejected" };
   }
-  if (parsed.data.citations.some((citation) => !availableCitations.has(citation))) {
+  if (citations.some((citation) => !availableCitations.has(citation))) {
     return { outcome: "rejected" };
   }
 
-  const answerCitations = parsed.data.answer.match(BRACKETED_TOKEN) ?? [];
-  const textWithoutBracketedTokens = parsed.data.answer.replace(BRACKETED_TOKEN, "");
+  const answerCitations = answer.match(BRACKETED_TOKEN) ?? [];
+  const textWithoutBracketedTokens = answer.replace(BRACKETED_TOKEN, "");
   if (
     textWithoutBracketedTokens.includes("[") ||
     textWithoutBracketedTokens.includes("]") ||
-    answerCitations.length !== parsed.data.citations.length ||
+    answerCitations.length !== citations.length ||
     answerCitations.some(
-      (citation, index) => citation !== parsed.data.citations[index],
+      (citation, index) => citation !== citations[index],
     )
   ) {
     return { outcome: "rejected" };
@@ -101,6 +124,6 @@ export function validateAnonymousTrialChatResult(
   return {
     outcome: "accepted",
     kind: "grounded_answer",
-    text: parsed.data.answer,
+    text: answer,
   };
 }

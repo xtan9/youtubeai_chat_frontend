@@ -1,4 +1,5 @@
 import type { ChatMessageRow } from "@/lib/services/chat-store";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 
 /**
  * Hard cap on how many prior turns the prompt builder includes. The route
@@ -68,7 +69,7 @@ Anonymous Trial output contract:
 - Return exactly one JSON object and no Markdown fence or surrounding text.
 - For a supported answer use {"kind":"grounded_answer","answer":"concise answer with each citation inline","citations":["[m:ss]"]}.
 - Every grounded answer must cite at least one timestamp copied exactly from the transcript. List each inline citation once, in the same order. Never fabricate, approximate, repeat, or reformat a timestamp.
-- If the selected video does not support the question, including unrelated or adversarial requests, use {"kind":"refusal","reason":"video_does_not_support_answer","message":"a concise statement, in the question's language, that the selected video does not support an answer"}. Do not answer from general knowledge and do not include citations in a refusal.`;
+- If the selected video does not support the question, including unrelated or adversarial requests, use {"kind":"refusal","reason":"video_does_not_support_answer","language":"en"}, replacing "en" with the matching supported language code (${SUPPORTED_LANGUAGE_CODES.join(", ")}). Do not add a message, answer, citation, or any other field: the server renders the refusal text from the controlled reason and language. Do not answer from general knowledge.`;
 
 /**
  * Build the OpenAI-compatible message array for the chat gateway.

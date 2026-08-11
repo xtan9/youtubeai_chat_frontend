@@ -58,6 +58,9 @@ describe("buildChatMessages", () => {
     const primer = anonymous[0]?.content;
     expect(primer).toContain('"kind":"grounded_answer"');
     expect(primer).toContain('"kind":"refusal"');
+    expect(primer).toContain('"language":"en"');
+    expect(primer).not.toContain('"message":"a concise statement');
+    expect(primer).toMatch(/server renders the refusal text/u);
     expect(primer).toMatch(/unrelated or adversarial/u);
     expect(primer).toMatch(/Do not answer from general knowledge/u);
 
