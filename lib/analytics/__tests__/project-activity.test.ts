@@ -120,4 +120,29 @@ describe("Project activity analytics privacy contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts content-free Project Brief citation and generation telemetry", () => {
+    expect(
+      validateProjectActivityEvent("project_citation_clicked", {
+        project_id: PROJECT_ID,
+        citation_context: "artifact",
+        artifact_id: "c0000000-0000-4000-8000-000000000001",
+        artifact_kind: "project_brief",
+        citation_ordinal: 1,
+        source_ordinal: 1,
+        timestamp_seconds: 42,
+      }).success,
+    ).toBe(true);
+    expect(
+      validateProjectActivityEvent("project_generation_cost_recorded", {
+        project_id: PROJECT_ID,
+        generation_kind: "project_brief",
+        model_id: "gpt-5.3-codex-spark",
+        provider_kind: "cliproxyapi",
+        cost_status: "unavailable",
+        error_class: "usage_unavailable",
+        duration_ms: 200,
+      }).success,
+    ).toBe(true);
+  });
 });

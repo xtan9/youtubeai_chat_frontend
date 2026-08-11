@@ -141,7 +141,12 @@ describe("ProjectBrief", () => {
     expect(screen.getByLabelText("Project Brief provenance").textContent).toContain("1 passage");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_requested",
-      { kind: "project_brief", tier: "free", is_regeneration: false },
+      {
+        kind: "project_brief",
+        tier: "free",
+        is_regeneration: false,
+        project_id: PROJECT_ID,
+      },
     );
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -209,7 +214,7 @@ describe("ProjectBrief", () => {
     expect(filename).toBe("launch-research-notes-project-brief.md");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_exported",
-      { kind: "project_brief", format: "markdown" },
+      { kind: "project_brief", format: "markdown", project_id: PROJECT_ID },
     );
   });
 
@@ -231,7 +236,12 @@ describe("ProjectBrief", () => {
     expect(within(alert).getByRole("link", { name: "View Pro plans" }).getAttribute("href")).toBe("/pricing");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_blocked",
-      { kind: "project_brief", tier: "free", failure_category: "quota" },
+      {
+        kind: "project_brief",
+        tier: "free",
+        failure_category: "quota",
+        project_id: PROJECT_ID,
+      },
     );
   });
 

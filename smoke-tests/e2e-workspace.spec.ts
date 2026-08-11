@@ -156,6 +156,10 @@ type FixtureArtifact = {
     model: string;
     promptVersion: string;
     generatedAt: string;
+    normalizationAudit?: {
+      version: string;
+      recordSetHash: string;
+    };
   };
   createdAt: string;
   supersededAt: string | null;
@@ -2602,6 +2606,10 @@ async function handleSourceSetRpc(
       model?: string;
       promptVersion?: string;
       generatedAt?: string;
+      normalizationAudit?: {
+        version?: string;
+        recordSetHash?: string;
+      };
     };
   };
   const projectId = body.p_project_id;
@@ -2681,6 +2689,11 @@ async function handleSourceSetRpc(
       !metadata?.model ||
       !metadata.promptVersion ||
       !metadata.generatedAt ||
+      (body.p_kind === "project_brief" &&
+        (!metadata.normalizationAudit?.version ||
+          !/^[a-f0-9]{64}$/u.test(
+            metadata.normalizationAudit.recordSetHash ?? "",
+          ))) ||
       !body.p_kind
     ) {
       return sendJson(response, 200, { outcome: "invalid" });
@@ -2711,6 +2724,14 @@ async function handleSourceSetRpc(
         model: metadata.model,
         promptVersion: metadata.promptVersion,
         generatedAt: metadata.generatedAt,
+        ...(metadata.normalizationAudit
+          ? {
+              normalizationAudit: {
+                version: metadata.normalizationAudit.version ?? "",
+                recordSetHash: metadata.normalizationAudit.recordSetHash ?? "",
+              },
+            }
+          : {}),
       },
       createdAt,
       supersededAt: null,

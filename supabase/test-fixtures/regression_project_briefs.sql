@@ -97,107 +97,6 @@ $$;
 
 reset role;
 set local role authenticated;
-
-do $$
-declare
-  project_id uuid := 'a8700000-0000-4000-8000-000000000007';
-  video_id uuid := '47000000-0000-4000-8000-000000000007';
-  passage_id text := video_id::text || ':1:0:56';
-  manifest jsonb;
-  snapshot jsonb;
-  result jsonb;
-begin
-  manifest := jsonb_build_object(
-    'projectId', project_id,
-    'sourceSetRevision', 2,
-    'sources', jsonb_build_array(jsonb_build_object(
-      'sourceId', 'S1',
-      'videoId', video_id,
-      'youtubeVideoId', 'ggggggg0007',
-      'title', 'Launch evidence',
-      'channelName', 'Research channel',
-      'passages', jsonb_build_array(jsonb_build_object(
-        'passageId', passage_id,
-        'startSeconds', 42,
-        'endSeconds', 58
-      ))
-    ))
-  );
-  snapshot := jsonb_build_object(
-    'projectId', project_id,
-    'sourceSetRevision', 2,
-    'passages', jsonb_build_array(jsonb_build_object(
-      'passageId', passage_id,
-      'videoId', video_id,
-      'youtubeVideoId', 'ggggggg0007',
-      'title', 'Launch evidence',
-      'channelName', 'Research channel',
-      'text', 'The launch should happen in April because the team is ready.',
-      'segmentOrdinal', 1,
-      'excerptStartCharacter', 0,
-      'excerptEndCharacter', 56,
-      'startSeconds', 42,
-      'endSeconds', 58,
-      'language', 'en',
-      'truncatedStart', false,
-      'truncatedEnd', false
-    ))
-  );
-
-  result := public.complete_project_artifact_generation(
-    '87000000-0000-4000-8000-000000000007',
-    project_id,
-    current_setting('issue325.project_brief_regeneration_attempt_id')::uuid,
-    '60000000-0000-4000-8000-000000000010',
-    'project_brief',
-    E'# Project Brief\n\n> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.\n\n## Important findings\n\n- The launch should happen in April [S1 @ 00:42].\n\n## Agreements\n\n- No model-identified cross-source agreement in this Evidence Snapshot.\n\n## Material disagreements\n\n- No model-identified material disagreement in this Evidence Snapshot.\n\n## Open questions\n\n- No model-identified open question in this Evidence Snapshot.',
-    2,
-    manifest,
-    '{"totalVideos":1,"readyVideos":1,"evidenceVideos":1,"unavailableVideos":[],"passagesExamined":1,"evidencePassages":1}'::jsonb,
-    snapshot,
-    '[]'::jsonb,
-    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v3","generatedAt":"2026-08-09T20:05:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'::jsonb
-  );
-  if result ->> 'outcome' <> 'completed' then
-    raise exception 'REGRESSION: Pro Project Brief regeneration failed: %', result;
-  end if;
-end;
-$$;
-
-reset role;
-set local role authenticated;
-select pg_catalog.set_config(
-  'request.jwt.claim.sub',
-  '87000000-0000-4000-8000-000000000007',
-  true
-);
-select pg_catalog.set_config(
-  'request.jwt.claims',
-  '{"sub":"87000000-0000-4000-8000-000000000007","app_metadata":{}}',
-  true
-);
-
-do $$
-declare
-  loaded jsonb;
-begin
-  loaded := public.load_project_artifact(
-    'a8700000-0000-4000-8000-000000000007', 'project_brief'
-  );
-  if loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
-      <> 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-    or loaded #>> '{history,0,generation,normalizationAudit,recordSetHash}'
-      <> 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-    or loaded #>> '{history,0,generation,normalizationAudit,version}'
-      <> 'project-brief-normalization-v2'
-  then
-    raise exception 'REGRESSION: normalization audit did not survive current/history reload: %', loaded;
-  end if;
-end;
-$$;
-
-reset role;
-set local role authenticated;
 select pg_catalog.set_config(
   'request.jwt.claim.sub',
   '88000000-0000-4000-8000-000000000008',
@@ -312,6 +211,28 @@ begin
   then
     raise exception 'REGRESSION: service Project Brief completion failed: %', result;
   end if;
+
+  result := public.record_project_generation_usage(
+    project_id,
+    '87000000-0000-4000-8000-000000000007',
+    '5c000000-0000-4000-8000-00000000000c',
+    'project_brief',
+    'gpt-5.3-codex-spark',
+    'cliproxyapi',
+    'unavailable',
+    null,
+    null,
+    null,
+    null,
+    1200,
+    null,
+    null,
+    null,
+    'usage_unavailable'
+  );
+  if result <> '{"outcome":"inserted"}'::jsonb then
+    raise exception 'REGRESSION: Project Brief usage accounting rejected governed kind: %', result;
+  end if;
 end;
 $$;
 
@@ -353,7 +274,7 @@ begin
       <> 'project-brief-normalization-v2'
     or loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
       <> 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-    or loaded #> '{current,generation,normalizationAudit}'
+    or (loaded #> '{current,generation,normalizationAudit}')
       - 'version' - 'recordSetHash' <> '{}'::jsonb
     or loaded ->> 'generationsUsed' <> '1'
   then
@@ -369,6 +290,148 @@ begin
     or result ->> 'generationsUsed' <> '1'
   then
     raise exception 'REGRESSION: Project Brief did not consume shared Free quota: %', result;
+  end if;
+end;
+$$;
+
+reset role;
+insert into public.user_subscriptions (user_id, stripe_customer_id, tier, status)
+values (
+  '87000000-0000-4000-8000-000000000007',
+  'cus_project_brief_pro',
+  'pro',
+  'active'
+);
+
+set local role authenticated;
+select pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '87000000-0000-4000-8000-000000000007',
+  true
+);
+select pg_catalog.set_config(
+  'request.jwt.claims',
+  '{"sub":"87000000-0000-4000-8000-000000000007","app_metadata":{}}',
+  true
+);
+
+do $$
+declare
+  result jsonb;
+begin
+  result := public.reserve_project_artifact_generation(
+    'a8700000-0000-4000-8000-000000000007',
+    'project_brief',
+    '60000000-0000-4000-8000-000000000010'
+  );
+  if result ->> 'outcome' <> 'started' or result ->> 'tier' <> 'pro' then
+    raise exception 'REGRESSION: Pro Project Brief regeneration reservation failed: %', result;
+  end if;
+  perform pg_catalog.set_config(
+    'issue325.project_brief_regeneration_attempt_id',
+    result ->> 'attemptId',
+    true
+  );
+end;
+$$;
+
+reset role;
+set local role service_role;
+
+do $$
+declare
+  project_id uuid := 'a8700000-0000-4000-8000-000000000007';
+  video_id uuid := '47000000-0000-4000-8000-000000000007';
+  passage_id text := video_id::text || ':1:0:56';
+  manifest jsonb;
+  snapshot jsonb;
+  result jsonb;
+begin
+  manifest := jsonb_build_object(
+    'projectId', project_id,
+    'sourceSetRevision', 2,
+    'sources', jsonb_build_array(jsonb_build_object(
+      'sourceId', 'S1',
+      'videoId', video_id,
+      'youtubeVideoId', 'ggggggg0007',
+      'title', 'Launch evidence',
+      'channelName', 'Research channel',
+      'passages', jsonb_build_array(jsonb_build_object(
+        'passageId', passage_id,
+        'startSeconds', 42,
+        'endSeconds', 58
+      ))
+    ))
+  );
+  snapshot := jsonb_build_object(
+    'projectId', project_id,
+    'sourceSetRevision', 2,
+    'passages', jsonb_build_array(jsonb_build_object(
+      'passageId', passage_id,
+      'videoId', video_id,
+      'youtubeVideoId', 'ggggggg0007',
+      'title', 'Launch evidence',
+      'channelName', 'Research channel',
+      'text', 'The launch should happen in April because the team is ready.',
+      'segmentOrdinal', 1,
+      'excerptStartCharacter', 0,
+      'excerptEndCharacter', 56,
+      'startSeconds', 42,
+      'endSeconds', 58,
+      'language', 'en',
+      'truncatedStart', false,
+      'truncatedEnd', false
+    ))
+  );
+
+  result := public.complete_project_artifact_generation(
+    '87000000-0000-4000-8000-000000000007',
+    project_id,
+    current_setting('issue325.project_brief_regeneration_attempt_id')::uuid,
+    '60000000-0000-4000-8000-000000000010',
+    'project_brief',
+    E'# Project Brief\n\n> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.\n\n## Important findings\n\n- The launch should happen in April [S1 @ 00:42].\n\n## Agreements\n\n- No model-identified cross-source agreement in this Evidence Snapshot.\n\n## Material disagreements\n\n- No model-identified material disagreement in this Evidence Snapshot.\n\n## Open questions\n\n- No model-identified open question in this Evidence Snapshot.',
+    2,
+    manifest,
+    '{"totalVideos":1,"readyVideos":1,"evidenceVideos":1,"unavailableVideos":[],"passagesExamined":1,"evidencePassages":1}'::jsonb,
+    snapshot,
+    '[]'::jsonb,
+    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v3","generatedAt":"2026-08-09T20:05:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'::jsonb
+  );
+  if result ->> 'outcome' <> 'completed' then
+    raise exception 'REGRESSION: Pro Project Brief regeneration failed: %', result;
+  end if;
+end;
+$$;
+
+reset role;
+set local role authenticated;
+select pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '87000000-0000-4000-8000-000000000007',
+  true
+);
+select pg_catalog.set_config(
+  'request.jwt.claims',
+  '{"sub":"87000000-0000-4000-8000-000000000007","app_metadata":{}}',
+  true
+);
+
+do $$
+declare
+  loaded jsonb;
+begin
+  loaded := public.load_project_artifact(
+    'a8700000-0000-4000-8000-000000000007', 'project_brief'
+  );
+  if loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
+      <> 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    or loaded #>> '{history,0,generation,normalizationAudit,recordSetHash}'
+      <> 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    or loaded #>> '{history,0,generation,normalizationAudit,version}'
+      <> 'project-brief-normalization-v2'
+  then
+    raise exception 'REGRESSION: normalization audit did not survive current/history reload: %', loaded;
   end if;
 end;
 $$;

@@ -22,7 +22,7 @@ const ProjectCitationPropertiesSchema = z.discriminatedUnion(
     CitationBasePropertiesSchema.extend({
       citation_context: z.literal("artifact"),
       artifact_id: z.string().uuid(),
-      artifact_kind: z.enum(["study_guide", "creator_brief"]),
+      artifact_kind: z.enum(["study_guide", "creator_brief", "project_brief"]),
     }).strict(),
   ],
 );
@@ -59,6 +59,7 @@ const MeasuredGenerationCostPropertiesSchema = z
       "grounded_answer",
       "study_guide",
       "creator_brief",
+      "project_brief",
     ]),
     model_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
     provider_kind: z.literal("cliproxyapi"),
@@ -89,6 +90,7 @@ const UnavailableGenerationCostPropertiesSchema = z
       "grounded_answer",
       "study_guide",
       "creator_brief",
+      "project_brief",
     ]),
     model_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
     provider_kind: z.literal("cliproxyapi"),

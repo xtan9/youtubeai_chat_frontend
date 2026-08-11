@@ -26,7 +26,7 @@ const normalization: ProjectBriefNormalization = {
       recordId: "R2",
       sourceId: "S2",
       citation: "[S2 @ 00:18]",
-      clause: "El lanzamiento no debe ocurrir en abril",
+      clause: "The launch should not happen in April",
       clauseHash: "2".repeat(64),
       interpretation: { issueKey: "launch-timing", relation: "opposes", resolution: "settled" },
     },
@@ -42,7 +42,7 @@ const normalization: ProjectBriefNormalization = {
       recordId: "R4",
       sourceId: "S2",
       citation: "[S2 @ 00:31]",
-      clause: "Las pruebas transparentes generan confianza",
+      clause: "Transparent testing builds trust",
       clauseHash: "4".repeat(64),
       interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" },
     },
@@ -79,6 +79,8 @@ describe("Project Brief governed record selection", () => {
     expect(messages[0].content).toContain('"recordId":"R1"');
     expect(messages[0].content).toContain("PROJECT_GOAL_GUIDANCE_NOT_EVIDENCE");
     expect(messages[0].content).toContain("Output record IDs only");
+    expect(messages[0].content).toContain("server-verifiable proposition");
+    expect(messages[0].content).toContain("explicitly unresolved source wording");
     expect(messages[0].content).not.toContain("candidateId");
   });
 
@@ -94,17 +96,17 @@ describe("Project Brief governed record selection", () => {
 ## Important findings
 
 - The launch should happen in April [S1 @ 00:12].
-- El lanzamiento no debe ocurrir en abril [S2 @ 00:18].
+- The launch should not happen in April [S2 @ 00:18].
 
 ## Agreements
 
 - Interpretation — possible agreement A: Transparent testing builds trust [S1 @ 00:24].
-- Interpretation — possible agreement B: Las pruebas transparentes generan confianza [S2 @ 00:31].
+- Interpretation — possible agreement B: Transparent testing builds trust [S2 @ 00:31].
 
 ## Material disagreements
 
 - Interpretation — possible disagreement position A: The launch should happen in April [S1 @ 00:12].
-- Interpretation — possible disagreement position B: El lanzamiento no debe ocurrir en abril [S2 @ 00:18].
+- Interpretation — possible disagreement position B: The launch should not happen in April [S2 @ 00:18].
 
 ## Open questions
 
@@ -162,6 +164,100 @@ describe("Project Brief governed record selection", () => {
       reason: "collapsed_disagreement",
     });
   });
+
+  it.each([
+    [
+      "unrelated clauses relabeled as a disagreement",
+      {
+        ...normalization,
+        records: normalization.records.map((record) =>
+          record.recordId === "R4"
+            ? {
+                ...record,
+                interpretation: {
+                  issueKey: "launch-timing",
+                  relation: "opposes" as const,
+                  resolution: "settled" as const,
+                },
+              }
+            : record,
+        ),
+      },
+      {
+        importantFindingRecordIds: ["R1", "R4"],
+        agreementRecordIdPairs: [],
+        disagreementRecordIdPairs: [["R1", "R4"]],
+        openQuestionRecordIds: ["R5"],
+      },
+      "collapsed_disagreement",
+    ],
+    [
+      "opposite clauses relabeled as an agreement",
+      {
+        ...normalization,
+        records: normalization.records.map((record) =>
+          record.recordId === "R2"
+            ? {
+                ...record,
+                interpretation: {
+                  issueKey: "launch-timing",
+                  relation: "supports" as const,
+                  resolution: "settled" as const,
+                },
+              }
+            : record,
+        ),
+      },
+      {
+        importantFindingRecordIds: ["R1", "R2"],
+        agreementRecordIdPairs: [["R1", "R2"]],
+        disagreementRecordIdPairs: [],
+        openQuestionRecordIds: ["R5"],
+      },
+      "false_consensus",
+    ],
+    [
+      "a settled statement relabeled as an open question",
+      {
+        ...normalization,
+        records: normalization.records.map((record) => {
+          if (record.recordId === "R1") {
+            return {
+              ...record,
+              interpretation: {
+                ...record.interpretation,
+                resolution: "unresolved" as const,
+              },
+            };
+          }
+          if (record.recordId === "R5") {
+            return {
+              ...record,
+              interpretation: {
+                ...record.interpretation,
+                resolution: "settled" as const,
+              },
+            };
+          }
+          return record;
+        }),
+      },
+      {
+        importantFindingRecordIds: ["R1", "R2"],
+        agreementRecordIdPairs: [["R3", "R4"]],
+        disagreementRecordIdPairs: [],
+        openQuestionRecordIds: ["R1"],
+      },
+      "settled_open_question",
+    ],
+  ])(
+    "fails closed when model semantics present %s",
+    (_label, adversarialNormalization, plan, reason) => {
+      expect(
+        validateProjectBrief(JSON.stringify(plan), adversarialNormalization),
+      ).toMatchObject({ status: "invalid", reason });
+    },
+  );
 
   it("derives unresolved and sentinel eligibility only from normalized records", () => {
     const settledAsQuestion = JSON.stringify({

@@ -43,36 +43,14 @@ const ATTEMPT_TOKEN = "60000000-0000-4000-8000-000000000001";
 const ARTIFACT_ID = "70000000-0000-4000-8000-000000000001";
 const CONTEXT = { params: Promise.resolve({ projectId: PROJECT_ID }) };
 
-const CONTENT = `# Project Brief
-
-> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
-
-## Important findings
-
-- The launch should happen in April [S1 @ 00:12].
-
-## Agreements
-
-- Agreement A: {"issue":"launch-trust","relation":"states","clause":"Transparent testing helps people trust the launch"} [S1 @ 00:24].
-- Agreement B: {"issue":"launch-trust","relation":"states","clause":"Transparent testing builds trust before a public launch"} [S2 @ 00:31].
-
-## Material disagreements
-
-- Position A: {"issue":"launch-timing","relation":"supports","clause":"The launch should happen in April"} [S1 @ 00:12].
-- Position B: {"issue":"launch-timing","relation":"opposes","clause":"The launch should wait until June"} [S2 @ 00:18].
-
-## Open questions
-
-- No model-identified open question in this Evidence Snapshot.`;
-
 const NORMALIZATION = JSON.stringify({
   records: [
     { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "The launch should happen in April", interpretation: { issueKey: "launch-timing", relation: "supports", resolution: "settled" } },
     { candidateId: "C2", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "the team is ready", interpretation: { issueKey: "team-readiness", relation: "states", resolution: "settled" } },
-    { candidateId: "C3", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "The launch should wait until June", interpretation: { issueKey: "launch-timing", relation: "opposes", resolution: "settled" } },
+    { candidateId: "C3", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "The launch should not happen in April", interpretation: { issueKey: "launch-timing", relation: "opposes", resolution: "settled" } },
     { candidateId: "C4", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "testing is incomplete", interpretation: { issueKey: "testing-readiness", relation: "states", resolution: "settled" } },
     { candidateId: "C5", sourceId: "S1", citation: "[S1 @ 00:24]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-    { candidateId: "C6", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing builds trust before a public launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
+    { candidateId: "C6", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
   ],
 });
 
@@ -94,12 +72,12 @@ const RENDERED_CONTENT = `# Project Brief
 ## Agreements
 
 - Interpretation — possible agreement A: Transparent testing helps people trust the launch [S1 @ 00:24].
-- Interpretation — possible agreement B: Transparent testing builds trust before a public launch [S2 @ 00:31].
+- Interpretation — possible agreement B: Transparent testing helps people trust the launch [S2 @ 00:31].
 
 ## Material disagreements
 
 - Interpretation — possible disagreement position A: The launch should happen in April [S1 @ 00:12].
-- Interpretation — possible disagreement position B: The launch should wait until June [S2 @ 00:18].
+- Interpretation — possible disagreement position B: The launch should not happen in April [S2 @ 00:18].
 
 ## Open questions
 
@@ -139,15 +117,15 @@ const PASSAGES = [
     truncatedEnd: false,
   },
   {
-    passageId: `${VIDEO_TWO_ID}:1:0:64`,
+    passageId: `${VIDEO_TWO_ID}:1:0:68`,
     videoId: VIDEO_TWO_ID,
     youtubeVideoId: "bbbbbbb0002",
     title: "Launch counterpoint",
     channelName: "Evidence lab",
-    text: "The launch should wait until June because testing is incomplete.",
+    text: "The launch should not happen in April because testing is incomplete.",
     segmentOrdinal: 1,
     excerptStartCharacter: 0,
-    excerptEndCharacter: 64,
+    excerptEndCharacter: 68,
     startSeconds: 18,
     endSeconds: 23,
     language: "en",
@@ -155,15 +133,15 @@ const PASSAGES = [
     truncatedEnd: false,
   },
   {
-    passageId: `${VIDEO_TWO_ID}:2:0:56`,
+    passageId: `${VIDEO_TWO_ID}:2:0:50`,
     videoId: VIDEO_TWO_ID,
     youtubeVideoId: "bbbbbbb0002",
     title: "Launch counterpoint",
     channelName: "Evidence lab",
-    text: "Transparent testing builds trust before a public launch.",
+    text: "Transparent testing helps people trust the launch.",
     segmentOrdinal: 2,
     excerptStartCharacter: 0,
-    excerptEndCharacter: 56,
+    excerptEndCharacter: 50,
     startSeconds: 31,
     endSeconds: 36,
     language: "en",
@@ -210,7 +188,7 @@ const LOADED = {
     artifactId: ARTIFACT_ID,
     projectId: PROJECT_ID,
     kind: "project_brief" as const,
-    content: CONTENT,
+    content: RENDERED_CONTENT,
     sourceSetRevision: 3,
     sourceManifest: SOURCE_MANIFEST,
     sourceCoverage: {
@@ -501,7 +479,7 @@ describe("Project Brief API", () => {
       generationsLimit: 1,
     });
     mocks.fail.mockResolvedValue({ status: "failed" });
-    model(CONTENT.replaceAll("S2", "S9"));
+    model(PLAN.replace('"R1"', '"R99"'));
     const malformed = await POST(
       request("POST", { attemptToken: ATTEMPT_TOKEN }),
       CONTEXT,
@@ -601,7 +579,7 @@ describe("Project Brief API", () => {
     expect(mocks.fail).toHaveBeenCalledOnce();
   });
 
-  it("persists a Spanish-only opposing clause under the controlled proposition contract", async () => {
+  it("keeps a cross-language opposing clause as a distinct cited finding when the server cannot adjudicate the proposition", async () => {
     const affirmativeText = "Climate adaptation depends on exact local evidence.";
     const affirmativeLength = Array.from(affirmativeText).length;
     const affirmativePassage = {
@@ -634,7 +612,7 @@ describe("Project Brief API", () => {
     const multilingualNormalization = JSON.stringify({
       records: [
         { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:24]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-        { candidateId: "C2", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing builds trust before a public launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
+        { candidateId: "C2", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
         { candidateId: "C3", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "Climate adaptation depends on exact local evidence", interpretation: { issueKey: "climate-evidence", relation: "supports", resolution: "settled" } },
         { candidateId: "C4", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "La adaptación climática no debe depender solo de evidencia local exacta", interpretation: { issueKey: "climate-evidence", relation: "opposes", resolution: "settled" } },
         { candidateId: "C5", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "debe priorizar comparaciones regionales", interpretation: { issueKey: "regional-comparison", relation: "states", resolution: "settled" } },
@@ -643,7 +621,7 @@ describe("Project Brief API", () => {
     const multilingualPlan = JSON.stringify({
       importantFindingRecordIds: ["R3", "R4"],
       agreementRecordIdPairs: [["R1", "R2"]],
-      disagreementRecordIdPairs: [["R3", "R4"]],
+      disagreementRecordIdPairs: [],
       openQuestionRecordIds: [],
     });
     model(multilingualPlan, multilingualNormalization);
@@ -654,11 +632,16 @@ describe("Project Brief API", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining(
-        "Interpretation — possible disagreement position B: La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
-      ),
-    }));
+    const persistedContent = mocks.complete.mock.calls[0][0].content as string;
+    expect(persistedContent).toContain(
+      "- Climate adaptation depends on exact local evidence [S1 @ 00:12].",
+    );
+    expect(persistedContent).toContain(
+      "- La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
+    );
+    expect(persistedContent).toContain(
+      "No model-identified material disagreement in this Evidence Snapshot.",
+    );
     expect(mocks.fail).not.toHaveBeenCalled();
   });
 

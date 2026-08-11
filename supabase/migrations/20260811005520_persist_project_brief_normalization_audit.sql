@@ -1,3 +1,15 @@
+alter table public.project_generation_usage
+  drop constraint project_generation_usage_kind_valid;
+alter table public.project_generation_usage
+  add constraint project_generation_usage_kind_valid check (
+    generation_kind in (
+      'grounded_answer',
+      'study_guide',
+      'creator_brief',
+      'project_brief'
+    )
+  );
+
 create or replace function public.complete_project_artifact_generation(
   p_owner_id uuid,
   p_project_id uuid,
@@ -102,7 +114,8 @@ begin
       and (
         coalesce(jsonb_typeof(p_generation_metadata -> 'normalizationAudit'), 'null')
           <> 'object'
-        or p_generation_metadata -> 'normalizationAudit' - 'version' - 'recordSetHash'
+        or (p_generation_metadata -> 'normalizationAudit')
+          - 'version' - 'recordSetHash'
           <> '{}'::jsonb
         or jsonb_typeof(p_generation_metadata #> '{normalizationAudit,version}')
           <> 'string'

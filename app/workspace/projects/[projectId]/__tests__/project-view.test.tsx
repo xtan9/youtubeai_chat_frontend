@@ -152,6 +152,15 @@ describe("ProjectView shared Source Set state", () => {
           generationsUsed: 0,
           generationsLimit: 1,
         }}
+        initialProjectBrief={{
+          status: "ready",
+          currentSourceSetRevision: 3,
+          current: null,
+          history: [],
+          tier: "free",
+          generationsUsed: 0,
+          generationsLimit: 1,
+        }}
       />,
     );
 
