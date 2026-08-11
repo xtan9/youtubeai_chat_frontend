@@ -27,6 +27,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       checkRateLimit: vi.fn(),
       checkSummaryEntitlement: vi.fn(),
       nominateCatalogVideoForAdmission: vi.fn(),
+      runCatalogAdmissionWorker: vi.fn(),
       after: vi.fn(afterPassthrough),
       signAnonId: vi.fn(),
       verifyAnonId: vi.fn(),
@@ -81,6 +82,10 @@ vi.mock("@/lib/catalog/catalog-admission", () => ({
     mocks.nominateCatalogVideoForAdmission,
 }));
 
+vi.mock("@/lib/catalog/catalog-admission-worker", () => ({
+  runCatalogAdmissionWorker: mocks.runCatalogAdmissionWorker,
+}));
+
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined }),
 }));
@@ -100,6 +105,7 @@ vi.mock("@/lib/services/model-routing", async () => {
 });
 
 import { POST } from "../route";
+import { runServerSummaryRun } from "@/lib/summary-run/server-summary-run";
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 const DEFAULT_SEGMENTS = [
@@ -118,6 +124,7 @@ function resolvedPrincipal(
       isAnonymous,
       email: isAnonymous ? "" : "user@example.com",
       smokeProEntitled,
+      businessAnalyticsSuppressed: false,
     },
   };
 }
@@ -233,6 +240,12 @@ describe("POST /api/summarize/stream", () => {
     mocks.writeCachedSummary.mockResolvedValue(undefined);
     mocks.nominateCatalogVideoForAdmission.mockResolvedValue({
       outcome: "enqueued",
+    });
+    mocks.runCatalogAdmissionWorker.mockResolvedValue({
+      claimed: 1,
+      completed: 1,
+      retried: 0,
+      exhausted: 0,
     });
     mocks.after.mockImplementation(afterPassthrough);
     mocks.signAnonId.mockImplementation((id: string) => `${id}.sig`);
@@ -549,8 +562,62 @@ describe("POST /api/summarize/stream", () => {
           signal: expect.any(AbortSignal),
           isCancelled: expect.any(Function),
         });
+        expect(mocks.runCatalogAdmissionWorker).toHaveBeenCalledOnce();
       },
     );
+
+    it("does not spend worker capacity when the nomination was not newly enqueued", async () => {
+      mocks.getCachedSummary.mockResolvedValue(cachedSummary());
+      mocks.nominateCatalogVideoForAdmission.mockResolvedValue({
+        outcome: "already_enqueued",
+      });
+
+      const events = await readEvents(
+        await POST(makeRequest({ youtube_url: VALID_URL })),
+      );
+
+      expect(events.at(-1)?.type).toBe("summary");
+      expect(mocks.runCatalogAdmissionWorker).not.toHaveBeenCalled();
+    });
+
+    it("does not add worker latency to a required-persistence Summary run", async () => {
+      const response = await runServerSummaryRun(
+        makeRequest({ youtube_url: VALID_URL }),
+        {
+          persistence: "required",
+          principal: resolvedPrincipal("project-worker").principal,
+        },
+      );
+
+      const events = await readEvents(response);
+
+      expect(events.at(-1)?.type).toBe("summary");
+      expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledOnce();
+      expect(mocks.runCatalogAdmissionWorker).not.toHaveBeenCalled();
+    });
+
+    it("keeps an opportunistic worker failure out of the successful Summary stream", async () => {
+      mocks.runCatalogAdmissionWorker.mockRejectedValue(
+        new Error("worker unavailable"),
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const events = await readEvents(
+        await POST(makeRequest({ youtube_url: VALID_URL })),
+      );
+
+      expect(events.filter((event) => event.type === "summary")).toHaveLength(1);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith(
+          "[summarize/stream] Catalog Admission drain failed (fail-soft)",
+          expect.objectContaining({
+            errorId: "CATALOG_ADMISSION_DRAIN_FAILED",
+            stage: "catalog_admission",
+          }),
+        );
+      });
+    });
 
     it("does not nominate when a cached Summary request is cancelled before completion", async () => {
       const controller = new AbortController();
@@ -1154,9 +1221,13 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.after).toHaveBeenCalledTimes(1);
       expect(captured).toHaveLength(1);
       expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      expect(mocks.nominateCatalogVideoForAdmission).not.toHaveBeenCalled();
+      expect(mocks.runCatalogAdmissionWorker).not.toHaveBeenCalled();
 
       await captured[0]();
       expect(mocks.writeCachedSummary).toHaveBeenCalledTimes(1);
+      expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledTimes(1);
+      expect(mocks.runCatalogAdmissionWorker).toHaveBeenCalledTimes(1);
     });
 
     it("contains cache-write rejection inside the deferred callback", async () => {
