@@ -56,6 +56,10 @@ _Avoid_: Project Search, Video Chat
 The exact bounded Transcript Passages and Source Set revision used for one Grounded Answer.
 _Avoid_: Full Transcript, Summary, Project Goal
 
+**Evidence Relationship**:
+The evidence-relative result of one Evidence Finding: Supported, Qualified, Conflicts, or Unresolved. It describes what the admissible evidence retrieved as of a stated date establishes about one claim, not whether a Video or person is truthful or trustworthy.
+_Avoid_: Verdict, truth label, factuality rating
+
 **Summary**:
 A concise, structured account of a Video that remains faithful to its Transcript.
 _Avoid_: Abstract, recap
