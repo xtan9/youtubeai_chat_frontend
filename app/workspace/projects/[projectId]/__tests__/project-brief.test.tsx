@@ -70,7 +70,7 @@ function artifact(
     citationDiagnostics: [],
     generationMetadata: {
       model: "gpt-5.3-codex-spark",
-      promptVersion: "project-brief-v3",
+      promptVersion: "project-brief-v4",
       generatedAt: `2026-08-0${revision}T18:00:00.000Z`,
       normalizationAudit: {
         version: "project-brief-normalization-v2",

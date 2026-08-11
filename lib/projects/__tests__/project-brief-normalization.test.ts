@@ -178,4 +178,32 @@ describe("Project Brief evidence normalization", () => {
       ).resolves.toMatchObject({ status: "invalid" });
     }
   });
+
+  it("accepts formatted schema-valid JSON and derives the same canonical audit hash", async () => {
+    const artifacts = evidence();
+    const pretty = JSON.stringify(JSON.parse(NORMALIZED), null, 2);
+
+    const [compactResult, prettyResult] = await Promise.all([
+      validateProjectBriefNormalization(
+        NORMALIZED,
+        artifacts.sourceManifest,
+        artifacts.evidenceSnapshot,
+      ),
+      validateProjectBriefNormalization(
+        `\n  ${pretty}\n`,
+        artifacts.sourceManifest,
+        artifacts.evidenceSnapshot,
+      ),
+    ]);
+
+    expect(compactResult.status).toBe("valid");
+    expect(prettyResult.status).toBe("valid");
+    if (compactResult.status !== "valid" || prettyResult.status !== "valid") {
+      throw new Error("expected both normalizations to be valid");
+    }
+    expect(prettyResult.normalization).toEqual(compactResult.normalization);
+    expect(projectBriefNormalizationAudit(prettyResult.normalization)).toEqual(
+      projectBriefNormalizationAudit(compactResult.normalization),
+    );
+  });
 });

@@ -131,7 +131,7 @@ function generatedProjectBrief(): Extract<
       content: PROJECT_BRIEF_CONTENT,
       generationMetadata: {
         ...creator.current.generationMetadata,
-        promptVersion: "project-brief-v3",
+        promptVersion: "project-brief-v4",
         normalizationAudit: {
           version: "project-brief-normalization-v2",
           recordSetHash: "b".repeat(64),

@@ -184,7 +184,7 @@ begin
     '{"totalVideos":1,"readyVideos":1,"evidenceVideos":1,"unavailableVideos":[],"passagesExamined":1,"evidencePassages":1}'::jsonb,
     snapshot,
     '[]'::jsonb,
-    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v3","generatedAt":"2026-08-09T20:00:00.000Z"}'::jsonb
+    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v4","generatedAt":"2026-08-09T20:00:00.000Z"}'::jsonb
   );
   if result <> '{"outcome":"invalid"}'::jsonb then
     raise exception 'REGRESSION: Project Brief completion accepted missing normalization audit: %', result;
@@ -202,7 +202,7 @@ begin
     '{"totalVideos":1,"readyVideos":1,"evidenceVideos":1,"unavailableVideos":[],"passagesExamined":1,"evidencePassages":1}'::jsonb,
     snapshot,
     '[]'::jsonb,
-    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v3","generatedAt":"2026-08-09T20:00:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'::jsonb
+    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v4","generatedAt":"2026-08-09T20:00:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'::jsonb
   );
   if result ->> 'outcome' <> 'completed'
     or result #>> '{artifact,kind}' <> 'project_brief'
@@ -269,7 +269,7 @@ begin
     or loaded #>> '{current,evidenceSnapshot,sourceSetRevision}' <> '1'
     or loaded #>> '{current,evidenceSnapshot,passages,0,text}'
       <> 'The launch should happen in April because the team is ready.'
-    or loaded #>> '{current,generation,promptVersion}' <> 'project-brief-v3'
+    or loaded #>> '{current,generation,promptVersion}' <> 'project-brief-v4'
     or loaded #>> '{current,generation,normalizationAudit,version}'
       <> 'project-brief-normalization-v2'
     or loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
@@ -396,7 +396,7 @@ begin
     '{"totalVideos":1,"readyVideos":1,"evidenceVideos":1,"unavailableVideos":[],"passagesExamined":1,"evidencePassages":1}'::jsonb,
     snapshot,
     '[]'::jsonb,
-    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v3","generatedAt":"2026-08-09T20:05:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'::jsonb
+    '{"model":"gpt-5.3-codex-spark","promptVersion":"project-brief-v4","generatedAt":"2026-08-09T20:05:00.000Z","normalizationAudit":{"version":"project-brief-normalization-v2","recordSetHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}'::jsonb
   );
   if result ->> 'outcome' <> 'completed' then
     raise exception 'REGRESSION: Pro Project Brief regeneration failed: %', result;
@@ -424,7 +424,9 @@ begin
   loaded := public.load_project_artifact(
     'a8700000-0000-4000-8000-000000000007', 'project_brief'
   );
-  if loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
+  if loaded #>> '{current,generation,promptVersion}' <> 'project-brief-v4'
+    or loaded #>> '{history,0,generation,promptVersion}' <> 'project-brief-v4'
+    or loaded #>> '{current,generation,normalizationAudit,recordSetHash}'
       <> 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     or loaded #>> '{history,0,generation,normalizationAudit,recordSetHash}'
       <> 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

@@ -7,7 +7,7 @@ const route = createProjectArtifactRoute({
   kind: "project_brief",
   title: "Project Brief",
   responseKey: "projectBrief",
-  promptVersion: "project-brief-v3",
+  promptVersion: "project-brief-v4",
   logScope: "project-brief",
   errorPrefix: "PROJECT_BRIEF",
   balanceSources: true,
