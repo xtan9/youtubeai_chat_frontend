@@ -105,6 +105,25 @@ select public.request_catalog_nomination(
   clock_timestamp() + interval '24 hours', 'trace-unsafe-provider'
 );
 
+-- SQL three-valued logic must not let incomplete provider evidence reach the
+-- shared queue. The service boundary also rejects non-opaque trace content so
+-- queue payloads cannot acquire a URL or other request content through a
+-- nominally governed field.
+select public.request_catalog_nomination(
+  'fffffff0348', 'Incomplete title', 'channel-null', 'Incomplete channel', null,
+  'en', 60::double precision, '2025-01-02T03:04:05Z', 'public', null,
+  'none', false, 'youtube_data_api_v3_videos_list', clock_timestamp(),
+  clock_timestamp() + interval '24 hours', 'trace-null-evidence-348'
+);
+
+select public.request_catalog_nomination(
+  'ggggggg0348', 'Unsafe trace title', 'channel-trace', 'Unsafe trace channel',
+  null, 'en', 60::double precision, '2025-01-02T03:04:05Z', 'public', true,
+  'none', false, 'youtube_data_api_v3_videos_list', clock_timestamp(),
+  clock_timestamp() + interval '24 hours',
+  'https://www.youtube.com/watch?v=ggggggg0348'
+);
+
 reset role;
 
 do $$
@@ -121,7 +140,8 @@ begin
 
   if nomination_count <> 1 or message_count <> 1
     or exists (
-      select 1 from public.videos where youtube_video_id = 'eeeeeee0348'
+      select 1 from public.videos
+      where youtube_video_id in ('eeeeeee0348', 'fffffff0348', 'ggggggg0348')
     )
   then
     raise exception 'REGRESSION: Nomination/enqueue is not idempotent: %, %',

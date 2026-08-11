@@ -218,18 +218,26 @@ declare
   queue_message_id bigint;
   idempotency_key text;
 begin
-  if p_youtube_video_id !~ '^[A-Za-z0-9_-]{11}$'
+  if p_youtube_video_id is null
+    or p_youtube_video_id !~ '^[A-Za-z0-9_-]{11}$'
     or nullif(btrim(p_title), '') is null
     or nullif(btrim(p_channel_id), '') is null
     or nullif(btrim(p_channel_name), '') is null
+    or p_duration_seconds is null
     or p_duration_seconds < 0
-    or p_privacy_status <> 'public'
-    or not p_embeddable
-    or p_live_status <> 'none'
-    or p_age_restricted
-    or p_provider_path <> 'youtube_data_api_v3_videos_list'
+    or p_published_at is null
+    or p_privacy_status is distinct from 'public'
+    or p_embeddable is distinct from true
+    or p_live_status is distinct from 'none'
+    or p_age_restricted is distinct from false
+    or p_provider_path is distinct from 'youtube_data_api_v3_videos_list'
+    or p_provider_verified_at is null
     or p_provider_verified_at > clock_timestamp() + interval '5 minutes'
+    or p_evidence_expires_at is null
+    or p_evidence_expires_at <= p_provider_verified_at
     or p_evidence_expires_at <= clock_timestamp()
+    or p_trace_id is null
+    or p_trace_id !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$'
   then
     return jsonb_build_object('outcome', 'skipped', 'reason', 'ineligible');
   end if;
