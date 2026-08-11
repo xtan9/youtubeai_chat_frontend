@@ -213,12 +213,7 @@ function ArtifactMarkdown({
                 className="inline-flex items-center gap-1 rounded-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
                 aria-label={`${label}, open ${source?.title ?? "source Video"} at this timestamp`}
                 onClick={() => {
-                  if (
-                    !citation ||
-                    citation.citationOrdinal > 100 ||
-                    (artifact.kind !== "study_guide" &&
-                      artifact.kind !== "creator_brief")
-                  ) {
+                  if (!citation || citation.citationOrdinal > 100) {
                     return;
                   }
                   captureAnalyticsEvent("project_citation_clicked", {

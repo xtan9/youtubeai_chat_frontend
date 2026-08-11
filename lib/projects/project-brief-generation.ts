@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import { streamChatCompletion } from "@/lib/services/llm-chat-client";
+import {
+  streamChatCompletion,
+  type ChatTokenUsage,
+} from "@/lib/services/llm-chat-client";
 import {
   buildProjectBriefMessages,
   validateProjectBrief,
@@ -21,9 +24,14 @@ const MAX_NORMALIZATION_LENGTH = 100_000;
 async function generateNormalization(
   messages: readonly ChatGatewayMessage[],
   signal: AbortSignal,
+  onUsage: (usage: ChatTokenUsage) => void,
 ) {
   let generated = "";
   for await (const event of streamChatCompletion({ messages, signal })) {
+    if (event.type === "usage") {
+      onUsage(event.usage);
+      continue;
+    }
     if (event.type !== "delta") continue;
     generated += event.text;
     if (generated.length > MAX_NORMALIZATION_LENGTH) {
@@ -39,6 +47,7 @@ export async function prepareProjectBriefGeneration(args: {
   readonly sourceManifest: ProjectAnswerSourceManifest;
   readonly evidenceSnapshot: ProjectEvidenceSnapshot;
   readonly signal: AbortSignal;
+  readonly onUsage: (usage: ChatTokenUsage) => void;
 }) {
   const normalizationMessages = buildProjectBriefNormalizationMessages({
     sourceManifest: args.sourceManifest,
@@ -47,6 +56,7 @@ export async function prepareProjectBriefGeneration(args: {
   const rawNormalization = await generateNormalization(
     normalizationMessages,
     args.signal,
+    args.onUsage,
   );
   const validated = await validateProjectBriefNormalization(
     rawNormalization,

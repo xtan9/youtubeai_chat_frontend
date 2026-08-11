@@ -2223,28 +2223,12 @@ async function handleSupabaseRequest(
             : [],
         ),
       )[0];
-      const disagreement = records.flatMap((left, index) =>
-        records.slice(index + 1).flatMap((right) =>
-          left.sourceId !== right.sourceId &&
-          left.interpretation.issueKey === right.interpretation.issueKey &&
-          new Set([
-            left.interpretation.relation,
-            right.interpretation.relation,
-          ]).size === 2 &&
-          [left.interpretation.relation, right.interpretation.relation].includes(
-            "supports",
-          ) &&
-          [left.interpretation.relation, right.interpretation.relation].includes(
-            "opposes",
-          )
-            ? [[left.recordId, right.recordId] as const]
-            : [],
-        ),
-      )[0];
       projectBriefResponse = JSON.stringify({
         importantFindingRecordIds: [...firstBySource.values()],
         agreementRecordIdPairs: agreement ? [agreement] : [],
-        disagreementRecordIdPairs: disagreement ? [disagreement] : [],
+        // The English and Spanish clauses are topically related, but the
+        // server cannot prove they reduce to one proposition across languages.
+        disagreementRecordIdPairs: [],
         openQuestionRecordIds: records
           .filter(
             (record) => record.interpretation.resolution === "unresolved",

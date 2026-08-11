@@ -2,19 +2,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const mocks = vi.hoisted(() => ({
-  requireRegisteredResearcher: vi.fn(),
-  createClient: vi.fn(),
-  resolveProjectSubject: vi.fn(),
-  checkRateLimit: vi.fn(),
-  streamChatCompletion: vi.fn(),
-  load: vi.fn(),
-  reserve: vi.fn(),
-  complete: vi.fn(),
-  fail: vi.fn(),
-  search: vi.fn(),
-  logAppEvent: vi.fn(),
+const { mocks, afterCallbacks } = vi.hoisted(() => ({
+  afterCallbacks: [] as Array<() => void | Promise<void>>,
+  mocks: {
+    after: vi.fn(),
+    requireRegisteredResearcher: vi.fn(),
+    createClient: vi.fn(),
+    resolveProjectSubject: vi.fn(),
+    checkRateLimit: vi.fn(),
+    streamChatCompletion: vi.fn(),
+    load: vi.fn(),
+    reserve: vi.fn(),
+    complete: vi.fn(),
+    fail: vi.fn(),
+    search: vi.fn(),
+    logAppEvent: vi.fn(),
+    recordProjectAnalyticsTransition: vi.fn(),
+    recordProjectGenerationUsage: vi.fn(),
+  },
 }));
+
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return { ...actual, after: mocks.after };
+});
 
 vi.mock("@/lib/projects/registered-researcher", () => ({
   requireRegisteredResearcher: mocks.requireRegisteredResearcher,
@@ -30,6 +41,10 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
 vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
+vi.mock("@/lib/analytics/project-server", () => ({
+  recordProjectAnalyticsTransition: mocks.recordProjectAnalyticsTransition,
+  recordProjectGenerationUsage: mocks.recordProjectGenerationUsage,
+}));
 
 import { GET, POST } from "../route";
 
@@ -273,6 +288,10 @@ function modelSequence(...contents: readonly string[]) {
 describe("Project Brief API", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    afterCallbacks.length = 0;
+    mocks.after.mockImplementation((callback: () => void | Promise<void>) => {
+      afterCallbacks.push(callback);
+    });
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
       principal: { userId: USER_ID, isAnonymous: false },
@@ -542,6 +561,100 @@ describe("Project Brief API", () => {
     expect(finalPrompt).toContain("Compare launch timing");
     expect(mocks.complete).toHaveBeenCalledOnce();
     expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  it("records one aggregate usage event and total duration for normalization plus selection", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+    mocks.requireRegisteredResearcher.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: USER_ID,
+        isAnonymous: false,
+        businessAnalyticsSuppressed: false,
+      },
+    });
+    let call = 0;
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      if (call++ === 0) {
+        vi.advanceTimersByTime(40);
+        yield { type: "delta", text: NORMALIZATION };
+        yield {
+          type: "usage",
+          usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 },
+        };
+      } else {
+        vi.advanceTimersByTime(30);
+        yield { type: "delta", text: PLAN };
+        yield {
+          type: "usage",
+          usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 },
+        };
+      }
+      yield { type: "done" };
+    });
+
+    const response = await POST(
+      request("POST", { attemptToken: ATTEMPT_TOKEN }),
+      CONTEXT,
+    );
+    expect(response.status).toBe(201);
+    for (const callback of afterCallbacks) await callback();
+
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      ownerId: USER_ID,
+      operationId: ATTEMPT_TOKEN,
+      generationKind: "project_brief",
+      usage: { inputTokens: 160, cachedInputTokens: 25, outputTokens: 25 },
+      durationMs: 70,
+      businessAnalyticsSuppressed: false,
+    });
+    vi.useRealTimers();
+  });
+
+  it("records consumed normalization usage when malformed normalization releases the reservation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+    mocks.requireRegisteredResearcher.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: USER_ID,
+        isAnonymous: false,
+        businessAnalyticsSuppressed: false,
+      },
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      vi.advanceTimersByTime(40);
+      yield { type: "delta", text: "not-json" };
+      yield {
+        type: "usage",
+        usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 3 },
+      };
+      yield { type: "done" };
+    });
+
+    const response = await POST(
+      request("POST", { attemptToken: ATTEMPT_TOKEN }),
+      CONTEXT,
+    );
+    expect(response.status).toBe(503);
+    expect(mocks.fail).toHaveBeenCalledOnce();
+    expect(mocks.complete).not.toHaveBeenCalled();
+    for (const callback of afterCallbacks) await callback();
+
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      ownerId: USER_ID,
+      operationId: ATTEMPT_TOKEN,
+      generationKind: "project_brief",
+      usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 3 },
+      durationMs: 40,
+      businessAnalyticsSuppressed: false,
+    });
+    vi.useRealTimers();
   });
 
   it.each([

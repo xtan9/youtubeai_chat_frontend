@@ -149,19 +149,19 @@ describe("Project Brief governed record selection", () => {
 
     expect(validateProjectBrief(falseAgreement, normalization)).toMatchObject({
       status: "invalid",
-      reason: "false_consensus",
+      reason: "invalid_agreement_interpretation",
     });
     expect(validateProjectBrief(falseConflict, normalization)).toMatchObject({
       status: "invalid",
-      reason: "collapsed_disagreement",
+      reason: "invalid_disagreement_interpretation",
     });
     expect(validateProjectBrief(hiddenAgreement, normalization)).toMatchObject({
       status: "invalid",
-      reason: "false_consensus",
+      reason: "invalid_agreement_interpretation",
     });
     expect(validateProjectBrief(hiddenConflict, normalization)).toMatchObject({
       status: "invalid",
-      reason: "collapsed_disagreement",
+      reason: "invalid_disagreement_interpretation",
     });
   });
 
@@ -189,7 +189,7 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [["R1", "R4"]],
         openQuestionRecordIds: ["R5"],
       },
-      "collapsed_disagreement",
+      "invalid_disagreement_interpretation",
     ],
     [
       "opposite clauses relabeled as an agreement",
@@ -214,7 +214,7 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [],
         openQuestionRecordIds: ["R5"],
       },
-      "false_consensus",
+      "invalid_agreement_interpretation",
     ],
     [
       "a settled statement relabeled as an open question",
@@ -248,7 +248,7 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [],
         openQuestionRecordIds: ["R1"],
       },
-      "settled_open_question",
+      "invalid_open_question_interpretation",
     ],
   ])(
     "fails closed when model semantics present %s",
@@ -271,11 +271,11 @@ describe("Project Brief governed record selection", () => {
 
     expect(validateProjectBrief(settledAsQuestion, normalization)).toMatchObject({
       status: "invalid",
-      reason: "settled_open_question",
+      reason: "invalid_open_question_interpretation",
     });
     expect(validateProjectBrief(hiddenQuestion, normalization)).toMatchObject({
       status: "invalid",
-      reason: "settled_open_question",
+      reason: "invalid_open_question_interpretation",
     });
   });
 

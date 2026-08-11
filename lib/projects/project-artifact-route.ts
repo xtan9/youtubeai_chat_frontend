@@ -94,6 +94,7 @@ type PreparedProjectArtifactRouteDefinition = Readonly<{
     readonly sourceManifest: ProjectAnswerSourceManifest;
     readonly evidenceSnapshot: ProjectEvidenceSnapshot;
     readonly signal: AbortSignal;
+    readonly onUsage: (usage: ChatTokenUsage) => void;
   }): Promise<ProjectArtifactGeneration>;
 }>;
 
@@ -104,6 +105,18 @@ const MAX_ARTIFACT_LENGTH = 100_000;
 const GenerationRequestSchema = z
   .object({ attemptToken: z.uuid().optional() })
   .strict();
+
+function accumulateChatTokenUsage(
+  current: ChatTokenUsage | undefined,
+  next: ChatTokenUsage,
+): ChatTokenUsage {
+  return {
+    inputTokens: (current?.inputTokens ?? 0) + next.inputTokens,
+    cachedInputTokens:
+      (current?.cachedInputTokens ?? 0) + next.cachedInputTokens,
+    outputTokens: (current?.outputTokens ?? 0) + next.outputTokens,
+  };
+}
 
 function jsonError(
   status: number,
@@ -332,6 +345,7 @@ export function createProjectArtifactRoute(
         );
       }
 
+      generationStartedAt = Date.now();
       const generation = definition.prepareGeneration
         ? await definition.prepareGeneration({
             projectName: subject.value.name,
@@ -339,6 +353,12 @@ export function createProjectArtifactRoute(
             sourceManifest: artifacts.sourceManifest,
             evidenceSnapshot: artifacts.evidenceSnapshot,
             signal: request.signal,
+            onUsage: (usage) => {
+              generationUsage = accumulateChatTokenUsage(
+                generationUsage,
+                usage,
+              );
+            },
           })
         : {
             messages: definition.buildMessages({
@@ -356,13 +376,15 @@ export function createProjectArtifactRoute(
               ),
           };
       let generated = "";
-      generationStartedAt = Date.now();
       for await (const event of streamChatCompletion({
         messages: generation.messages,
         signal: request.signal,
       })) {
         if (event.type === "usage") {
-          generationUsage = event.usage;
+          generationUsage = accumulateChatTokenUsage(
+            generationUsage,
+            event.usage,
+          );
           continue;
         }
         if (event.type !== "delta") continue;

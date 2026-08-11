@@ -136,8 +136,25 @@ describe("ProjectBrief", () => {
     expect(screen.getByRole("heading", { name: "Open questions" })).toBeTruthy();
     expect(screen.getByText(/Only exact source-language clauses/)).toBeTruthy();
     expect(screen.getAllByText(/Interpretation/).length).toBeGreaterThan(1);
-    expect(screen.getAllByRole("link", { name: /S1 @ 00:42.*Launch notes/i })[0]?.getAttribute("href"))
-      .toBe("https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
+    const citationLink = screen.getAllByRole("link", {
+      name: /S1 @ 00:42.*Launch notes/i,
+    })[0]!;
+    expect(citationLink.getAttribute("href")).toBe(
+      "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s",
+    );
+    await user.click(citationLink);
+    expect(analytics.capture).toHaveBeenCalledWith(
+      "project_citation_clicked",
+      {
+        project_id: PROJECT_ID,
+        citation_context: "artifact",
+        artifact_id: current.artifactId,
+        artifact_kind: "project_brief",
+        citation_ordinal: 1,
+        source_ordinal: 1,
+        timestamp_seconds: 42,
+      },
+    );
     expect(screen.getByLabelText("Project Brief provenance").textContent).toContain("1 passage");
     expect(analytics.capture).toHaveBeenCalledWith(
       "project_artifact_generation_requested",

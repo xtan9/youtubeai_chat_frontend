@@ -42,9 +42,9 @@ export type ProjectBriefValidation =
         | "invalid_structure"
         | "unknown_record"
         | "duplicate_record"
-        | "false_consensus"
-        | "collapsed_disagreement"
-        | "settled_open_question"
+        | "invalid_agreement_interpretation"
+        | "invalid_disagreement_interpretation"
+        | "invalid_open_question_interpretation"
         | "missing_material_source";
     }>;
 
@@ -305,7 +305,7 @@ export function validateProjectBrief(
     agreementPairs.some(([left, right]) => !isAgreement(left, right)) ||
     (agreementPairs.length === 0 && eligibleAgreement)
   ) {
-    return { status: "invalid", reason: "false_consensus" };
+    return { status: "invalid", reason: "invalid_agreement_interpretation" };
   }
   const eligibleDisagreement = hasEligiblePair(
     normalization.records,
@@ -315,7 +315,7 @@ export function validateProjectBrief(
     disagreementPairs.some(([left, right]) => !isDisagreement(left, right)) ||
     (disagreementPairs.length === 0 && eligibleDisagreement)
   ) {
-    return { status: "invalid", reason: "collapsed_disagreement" };
+    return { status: "invalid", reason: "invalid_disagreement_interpretation" };
   }
   const openQuestionRecords = plan.openQuestionRecordIds.map(
     (recordId) => recordsById.get(recordId)!,
@@ -327,7 +327,7 @@ export function validateProjectBrief(
     openQuestionRecords.some((record) => !isOpenQuestion(record)) ||
     (openQuestionRecords.length === 0 && hasUnresolved)
   ) {
-    return { status: "invalid", reason: "settled_open_question" };
+    return { status: "invalid", reason: "invalid_open_question_interpretation" };
   }
 
   const selectedSources = new Set(
