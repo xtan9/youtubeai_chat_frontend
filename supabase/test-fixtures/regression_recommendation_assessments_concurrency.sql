@@ -736,6 +736,27 @@ begin
 end;
 $review_concurrency$;
 
+do $quality_policy_setup$
+declare
+  rollout_result jsonb;
+begin
+  -- Complete this state transition in its own transaction so its quality
+  -- advisory lock is released before the concurrent policy/quality race.
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'shadow', false, null,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'updated'
+    or rollout_result ->> 'effectiveState' <> 'shadow'
+  then
+    raise exception 'quality policy race could not enter shadow: %', rollout_result;
+  end if;
+end;
+$quality_policy_setup$;
+
 do $quality_policy_race$
 declare
   connection_string text := format(
@@ -750,10 +771,14 @@ declare
   current_input_fingerprint text;
   rollout_result jsonb;
 begin
-  -- A quality report holds the shared advisory lock while computing metrics
-  -- and its input fingerprint; policy DML waits in its quality-lock trigger.
+  -- A quality report holds the shared advisory lock and policy FOR SHARE row
+  -- lock while computing metrics and its input fingerprint.
   perform extensions.dblink_connect(quality_connection, connection_string);
   perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_exec(quality_connection, 'begin');
   select result into quality_result
   from extensions.dblink(
@@ -776,6 +801,10 @@ begin
   -- The owner update must wait for the report transaction. This proves a
   -- threshold cannot change between metric eligibility and fingerprinting.
   perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(
+    policy_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_send_query(
     policy_connection,
     $query$
@@ -793,7 +822,6 @@ begin
   perform extensions.dblink_disconnect(quality_connection);
   perform result
   from extensions.dblink_get_result(policy_connection) as result(result text);
-  perform extensions.dblink_exec(policy_connection, 'commit');
   perform extensions.dblink_disconnect(policy_connection);
 
   select catalog_private.recommendation_quality_input_fingerprint(
@@ -830,25 +858,21 @@ declare
     'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
     current_database(), current_user
   );
-  lock_connection text := 'recommendation_policy_inverse_lock';
   policy_connection text := 'recommendation_policy_inverse_update';
   quality_connection text := 'recommendation_policy_inverse_quality';
   quality_result jsonb;
 begin
-  -- Hold the quality lock first, then start the policy UPDATE (which takes
-  -- its tuple lock before the row trigger waits on that advisory lock), and
-  -- finally start quality computation. Neither waiter may form a cycle.
-  perform extensions.dblink_connect(lock_connection, connection_string);
-  perform extensions.dblink_exec(lock_connection, 'begin');
-  perform result
-  from extensions.dblink(
-    lock_connection,
-    $$select pg_advisory_xact_lock(hashtext('recommendation-quality'))$$
-  ) as result(result text);
-
+  -- Take the policy row lock first, then start quality computation. Quality
+  -- takes the shared advisory lock before its FOR SHARE policy read and must
+  -- wait for this transaction; the updater never waits on that advisory lock,
+  -- so this inverse order cannot deadlock.
   perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(
+    policy_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_exec(policy_connection, 'begin');
-  perform extensions.dblink_send_query(
+  perform extensions.dblink_exec(
     policy_connection,
     $query$
       update catalog_private.recommendation_review_policies
@@ -856,13 +880,13 @@ begin
       where review_policy_version = 'recommendation-review-policy-v1'
     $query$
   );
-  perform pg_sleep(0.2);
-  if extensions.dblink_is_busy(policy_connection) <> 1 then
-    raise exception 'inverse-order policy update did not wait for quality lock';
-  end if;
 
   perform extensions.dblink_connect(quality_connection, connection_string);
   perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_send_query(
     quality_connection,
     $$select public.compute_recommendation_quality_report(
@@ -871,14 +895,10 @@ begin
   );
   perform pg_sleep(0.2);
   if extensions.dblink_is_busy(quality_connection) <> 1 then
-    raise exception 'inverse-order quality computation did not wait for quality lock';
+    raise exception 'inverse-order quality computation did not wait for policy row lock';
   end if;
 
-  perform extensions.dblink_exec(lock_connection, 'commit');
-  perform extensions.dblink_disconnect(lock_connection);
-
-  perform result
-  from extensions.dblink_get_result(policy_connection) as result(result text);
+  perform extensions.dblink_exec(policy_connection, 'commit');
   perform extensions.dblink_disconnect(policy_connection);
 
   select result into quality_result
@@ -941,6 +961,10 @@ begin
   -- report can only describe the pre-publication current Set.
   perform extensions.dblink_connect(quality_connection, connection_string);
   perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_exec(quality_connection, 'begin');
   select result into quality_result
   from extensions.dblink(
@@ -962,6 +986,10 @@ begin
 
   perform extensions.dblink_connect(publish_connection, connection_string);
   perform extensions.dblink_exec(publish_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    publish_connection,
+    'set statement_timeout = ''5s'''
+  );
   perform extensions.dblink_exec(publish_connection, 'begin');
   perform extensions.dblink_send_query(
     publish_connection,
@@ -994,6 +1022,8 @@ begin
   then
     raise exception 'quality race Set publication failed: %', published_result;
   end if;
+  perform result
+  from extensions.dblink_get_result(publish_connection) as result(result jsonb);
   perform extensions.dblink_exec(publish_connection, 'commit');
   perform extensions.dblink_disconnect(publish_connection);
 

@@ -23,14 +23,15 @@ declare
   read_rows text;
 begin
   -- Keep policy thresholds in the same transaction snapshot as the Set and
-  -- Review inputs. The policy DML trigger waits on this lock while a quality
-  -- report is being computed or fingerprinted.
+  -- Review inputs. The policy row is locked below for the duration of the
+  -- quality report/fingerprint transaction.
   perform pg_advisory_xact_lock(hashtext('recommendation-quality'));
 
   select policy.* into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active';
+    and policy.status = 'active'
+  for share;
 
   if policy_row.review_policy_version is null then
     return null;
@@ -464,13 +465,6 @@ create trigger recommendations_quality_lock_trg
 before insert or update or delete on catalog_private.recommendations
 for each row execute function catalog_private.lock_recommendation_quality_inputs();
 
--- Review policy thresholds are quality inputs too. Keep owner/admin edits
--- behind the same transaction lock so metrics and their fingerprint cannot
--- observe different threshold versions.
-create trigger recommendation_review_policies_quality_lock_trg
-before insert or update or delete on catalog_private.recommendation_review_policies
-for each row execute function catalog_private.lock_recommendation_quality_inputs();
-
 create or replace function catalog_private.assert_recommendation_admin(
   p_admin_id uuid,
   p_admin_email text
@@ -876,7 +870,8 @@ begin
   into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active';
+    and policy.status = 'active'
+  for share;
 
   if policy_row.review_policy_version is null then
     return jsonb_build_object(
