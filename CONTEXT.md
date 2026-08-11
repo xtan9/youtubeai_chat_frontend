@@ -76,6 +76,10 @@ _Avoid_: Appeal vote, Report lookup
 An authorized, human-reviewed workflow concerning an exact Evidence Report or Finding Version. A material correction publishes a new validated Evidence Report Version rather than editing the original.
 _Avoid_: External Intake, in-place correction
 
+**Evidence Gate Packet**:
+One immutable, versioned body of reproducible decision evidence for a named Evidence Check action, cohort, system, policy, and observation window. Passing makes that action eligible for authorized owner review; it never changes rollout or entitlement automatically.
+_Avoid_: Launch score, automatic rollout authorization
+
 **Summary**:
 A concise, structured account of a Video that remains faithful to its Transcript.
 _Avoid_: Abstract, recap
