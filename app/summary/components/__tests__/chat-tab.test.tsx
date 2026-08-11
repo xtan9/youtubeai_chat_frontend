@@ -854,6 +854,45 @@ describe("ChatTab", () => {
     },
   );
 
+  it("captures a content-private registration selection from Anonymous Trial exhaustion", async () => {
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 0 },
+        subscriptionPresentation: { state: "anonymous" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({ onMessages: () => jsonResponse({ messages: [] }) }),
+    );
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    const createAccount = await screen.findByRole("link", {
+      name: /create account/i,
+    });
+    fireEvent.click(createAccount);
+    expect(captureAnalyticsEvent).toHaveBeenCalledWith(
+      "anonymous_trial_registration_selected",
+      { source_surface: "hero_demo" },
+    );
+  });
+
   it("shows an accessible validation failure without presenting partial Anonymous Trial output", async () => {
     (useUser as unknown as Mock).mockReturnValue({
       user: fakeSession("anon-token", true).user,

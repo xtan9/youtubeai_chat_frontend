@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getContextualLimitAction } from "@/lib/analytics/subscription-discovery-navigation";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
+import { captureAnalyticsEvent } from "@/lib/analytics/client";
 
 type Variant =
   | "free-cap"
@@ -41,6 +42,14 @@ export function ChatCapBanner({
     variant === "anonymous-trial-unavailable";
   const isAnonymousTrialStatus = variant.startsWith("anonymous-trial-");
   const isLiveStatus = isAnonymousTrialStatus || variant === "free-cap";
+  const captureAction = () => {
+    captureClick();
+    if (isAnonymousTrialStatus) {
+      captureAnalyticsEvent("anonymous_trial_registration_selected", {
+        source_surface: "hero_demo",
+      });
+    }
+  };
 
   return (
     <div
@@ -63,7 +72,7 @@ export function ChatCapBanner({
     >
       <p className="text-body-md text-text-primary">{COPY[variant]}</p>
       <Button asChild size="sm" className="mt-2">
-        <Link href={action.href} onClick={captureClick}>
+        <Link href={action.href} onClick={captureAction}>
           {variant.startsWith("anonymous-trial-")
             ? "Create Account"
             : action.label}

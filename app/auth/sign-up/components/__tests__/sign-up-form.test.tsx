@@ -142,6 +142,10 @@ describe("SignUpForm analytics", () => {
     expect(emailRedirect.searchParams.get("next")).toBe("/?demo=Hrbq66XqtCo");
     expect(mocks.signUp).not.toHaveBeenCalled();
     expect(mocks.push).toHaveBeenCalledWith("/auth/sign-up-success");
+    expect(mocks.capture).toHaveBeenCalledWith("anonymous_trial_converted", {
+      source_surface: "hero_demo",
+      registration_method: "email",
+    });
   });
 
   it("links Google to the existing anonymous user instead of replacing its identity", async () => {

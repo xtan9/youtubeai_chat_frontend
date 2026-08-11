@@ -82,6 +82,12 @@ export function SignUpForm({
           email_confirmation_required: !immediateSession,
           source_surface: "sign_up_form",
         });
+        if (preservesAnonymousIdentity && data.user?.is_anonymous === false) {
+          captureAnalyticsEvent("anonymous_trial_converted", {
+            source_surface: "hero_demo",
+            registration_method: "email",
+          });
+        }
       }
       router.push(
         !preservesAnonymousIdentity && immediateSession

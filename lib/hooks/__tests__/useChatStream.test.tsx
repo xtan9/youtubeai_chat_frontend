@@ -431,6 +431,13 @@ describe("useChatStream", () => {
         ?.anonymousTrial,
     )
       .toEqual({ state: "available", remainingMessages: 4 });
+    expect(analyticsMocks.capture).toHaveBeenCalledWith(
+      "anonymous_trial_message_admitted",
+      {
+        source_surface: "hero_demo",
+        remaining_allowance: "two_to_four",
+      },
+    );
   });
 
   it("retains a validated stateless Anonymous Trial completion when no canonical turn exists", async () => {
@@ -659,6 +666,10 @@ describe("useChatStream", () => {
     expect(result.current.anonymousTrialRemaining).toBe(0);
     expect(result.current.upgradeError?.errorCode).toBe(
       "anonymous_trial_exhausted",
+    );
+    expect(analyticsMocks.capture).toHaveBeenCalledWith(
+      "anonymous_trial_exhausted",
+      { source_surface: "hero_demo" },
     );
   });
 
