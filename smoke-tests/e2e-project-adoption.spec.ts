@@ -403,6 +403,7 @@ function authUser(id: string, email: string) {
     is_anonymous: false,
     app_metadata: {
       provider: "email",
+      project_beta_access: id === OWNER_ID ? "internal" : "invited",
       ...(id === SMOKE_ID ? { is_smoke_account: true } : {}),
     },
     user_metadata: {},
