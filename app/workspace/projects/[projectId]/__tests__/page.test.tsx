@@ -96,6 +96,7 @@ describe("Project page Artifact composition", () => {
         isAnonymous: false,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "invited",
       },
     });
     mocks.createClient.mockResolvedValue({});
@@ -171,6 +172,7 @@ describe("Project page Artifact composition", () => {
         isAnonymous: false,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: true,
+        projectAvailability: "internal",
       },
     });
 

@@ -226,7 +226,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     });
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
+      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({
@@ -333,6 +333,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
         userId: USER_ID,
         isAnonymous: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "invited",
       },
     });
     mocks.start.mockResolvedValue({ ...STARTED, messageOrdinal: 47 });

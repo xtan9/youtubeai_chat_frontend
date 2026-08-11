@@ -5,13 +5,23 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 export function ProjectOutcomeState({
   kind,
 }: {
-  kind: "anonymous" | "invalid" | "missing" | "unavailable";
+  kind:
+    | "anonymous"
+    | "beta_unavailable"
+    | "invalid"
+    | "missing"
+    | "unavailable";
 }) {
   const content = {
     anonymous: {
       title: "Create an account for Projects",
       message:
         "Register free to create one private, durable Project and keep your research ready to resume.",
+    },
+    beta_unavailable: {
+      title: "Projects are in invited beta",
+      message:
+        "This account does not have Project access yet. Your existing YouTube summaries and chats are unchanged.",
     },
     invalid: {
       title: "That Project link isn’t valid",

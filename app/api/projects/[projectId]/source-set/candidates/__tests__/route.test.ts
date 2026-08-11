@@ -36,7 +36,7 @@ describe("GET /api/projects/[projectId]/source-set/candidates", () => {
     vi.resetAllMocks();
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "owner-1", isAnonymous: false },
+      principal: { userId: "owner-1", isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "resolved", value: SUBJECT });
@@ -73,7 +73,7 @@ describe("GET /api/projects/[projectId]/source-set/candidates", () => {
   it("does not expose another Researcher's processed History candidates", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "attacker-2", isAnonymous: false },
+      principal: { userId: "attacker-2", isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "missing" });
 

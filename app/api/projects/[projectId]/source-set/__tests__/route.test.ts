@@ -56,6 +56,7 @@ describe("/api/projects/[projectId]/source-set", () => {
         isAnonymous: false,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "invited",
       },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
@@ -92,6 +93,7 @@ describe("/api/projects/[projectId]/source-set", () => {
         isAnonymous: false,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: true,
+        projectAvailability: "internal",
       },
     });
     mocks.loadProjectSourceSet.mockResolvedValue({
@@ -202,7 +204,7 @@ describe("/api/projects/[projectId]/source-set", () => {
   it("rejects attacker POST and PATCH without revision or membership leakage", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "attacker-2", isAnonymous: false },
+      principal: { userId: "attacker-2", isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "missing" });
 
