@@ -348,6 +348,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs.sql
       - name: Recommendation Candidate pair concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs_concurrency.sql
+      - name: Recommendation Assessment contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments.sql
+      - name: Recommendation Assessment concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments_concurrency.sql
       - name: Anonymous Trial core ledger and concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_core.sql
       - name: Registered Free Hero Demo ledger and concurrency - representative legacy
@@ -421,6 +425,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_structured_semantic_profiles_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_core.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_registered_free_hero_demo_ledger.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_hero_demo_conversations.sql
