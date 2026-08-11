@@ -105,6 +105,7 @@ export function useChatStream({
     } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const chatStartedVideoKeysRef = useRef(new Set<string>());
+  const anonymousTrialStartedRef = useRef(false);
 
   const registeredFreeHeroDemoRemaining =
     youtubeUrl && registeredFreeHeroDemoAdmission?.youtubeUrl === youtubeUrl
@@ -167,6 +168,17 @@ export function useChatStream({
           "Setting up your session… please try again in a moment."
         );
         return;
+      }
+
+      if (
+        sourceSurface === "hero_demo" &&
+        resolvedSession?.user?.is_anonymous === true &&
+        !anonymousTrialStartedRef.current
+      ) {
+        captureAnalyticsEvent("anonymous_trial_started", {
+          source_surface: "hero_demo",
+        });
+        anonymousTrialStartedRef.current = true;
       }
 
       try {
@@ -304,6 +316,11 @@ export function useChatStream({
                   evt.remainingMessages,
                 ),
               });
+              if (evt.remainingMessages === 0) {
+                captureAnalyticsEvent("anonymous_trial_exhausted", {
+                  source_surface: "hero_demo",
+                });
+              }
               queryClient.setQueryData<EntitlementsData>(
                 entitlementsQueryKey(
                   sourceSurface === "hero_demo" ? youtubeUrl : null,

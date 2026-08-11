@@ -45,6 +45,12 @@ test("keeps the Anonymous Trial rollout probe manual, bounded, and two-phase", (
     "      - name: Run bounded Anonymous Trial rollout probe",
     "\n      - uses: actions/upload-artifact@v6",
   );
+  assert.match(browserJob, /SUPABASE_URL:\s*\$\{\{\s*secrets\.SUPABASE_URL\s*\}\}/);
+  assert.match(
+    browserJob,
+    /SUPABASE_SECRET_KEY:\s*\$\{\{\s*secrets\.SUPABASE_SECRET_KEY\s*\}\}/,
+    "the bounded probe must mark and clean a trusted synthetic identity",
+  );
 
   assert.match(
     anonymousTrialStep,

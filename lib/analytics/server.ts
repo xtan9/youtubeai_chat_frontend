@@ -22,11 +22,58 @@ import {
   type ProjectActivityEventName,
   type ProjectActivityEventProperties,
 } from "./project-activity";
+import { validateAnonymousTrialEvent } from "./anonymous-trial";
 
 const POSTHOG_HOST = "https://us.i.posthog.com";
 
 export type SubscriptionActivationCaptureStatus = "sent" | "skipped" | "failed";
 export type ProjectActivityCaptureStatus = "sent" | "skipped" | "failed";
+
+export async function captureAnonymousTrialConversion(
+  distinctId: string,
+  registrationMethod: "email" | "google",
+  identity: Pick<User, "app_metadata"> & Partial<Pick<User, "user_metadata">>,
+): Promise<ProjectActivityCaptureStatus> {
+  if (isSmokeAccount(identity)) return "skipped";
+  const properties = {
+    source_surface: "hero_demo" as const,
+    registration_method: registrationMethod,
+  };
+  if (
+    !validateAnonymousTrialEvent("anonymous_trial_converted", properties)
+      .success
+  ) {
+    return "skipped";
+  }
+  const projectToken = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
+  if (process.env.NODE_ENV !== "production" || !projectToken) return "skipped";
+  const client = new PostHog(projectToken, {
+    host: POSTHOG_HOST,
+    flushAt: 1,
+    flushInterval: 0,
+  });
+  try {
+    await client.captureImmediate({
+      distinctId,
+      event: "anonymous_trial_converted",
+      properties: {
+        analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
+        [ANALYTICS_SUBJECT_PROPERTY]: ANALYTICS_HUMAN_SUBJECT,
+        ...properties,
+      },
+    });
+    return "sent";
+  } catch (err) {
+    console.error("[analytics] server capture failed", {
+      errorId: "ANALYTICS_SERVER_CAPTURE_FAILED",
+      event: "anonymous_trial_converted",
+      err,
+    });
+    return "failed";
+  } finally {
+    await client.shutdown().catch(() => undefined);
+  }
+}
 
 type SubscriptionActivationCaptureOptions = {
   /** Stable, non-identifying outbox marker used as the PostHog event UUID. */

@@ -30,6 +30,20 @@ describe("Anonymous Trial analytics contract", () => {
     ).toBe(false);
   });
 
+  it("accepts a content-private first-attempt event and rejects prompt data", () => {
+    expect(
+      validateAnonymousTrialEvent("anonymous_trial_started", {
+        source_surface: "hero_demo",
+      }).success,
+    ).toBe(true);
+    expect(
+      validateAnonymousTrialEvent("anonymous_trial_started", {
+        source_surface: "hero_demo",
+        prompt: "private question",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects content and identifiers from conversion analytics", () => {
     expect(
       validateAnonymousTrialEvent("anonymous_trial_converted", {
@@ -38,5 +52,11 @@ describe("Anonymous Trial analytics contract", () => {
         user_id: "private-user",
       }).success,
     ).toBe(false);
+    expect(
+      validateAnonymousTrialEvent("anonymous_trial_converted", {
+        source_surface: "hero_demo",
+        registration_method: "google",
+      }).success,
+    ).toBe(true);
   });
 });

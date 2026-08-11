@@ -35,7 +35,8 @@ export function PostHogUserIdentifier() {
       return;
     }
 
-    if (user.is_anonymous) {
+    const smoke = isSmokeAccount(user);
+    if (user.is_anonymous && !smoke) {
       if (previousIdentity) posthog.reset();
       posthog.unregister(ANALYTICS_SUBJECT_PROPERTY);
       posthog.opt_in_capturing({ captureEventName: false });
@@ -44,7 +45,6 @@ export function PostHogUserIdentifier() {
       return;
     }
 
-    const smoke = isSmokeAccount(user);
     if (
       previousIdentity &&
       (previousIdentity.id !== user.id ||
@@ -57,7 +57,7 @@ export function PostHogUserIdentifier() {
       // Identify before opting out so anonymous events captured earlier in
       // this browser profile are merged into the durable synthetic person.
       posthog.identify(user.id, {
-        account_type: "registered",
+        account_type: user.is_anonymous ? "anonymous" : "registered",
         ...SMOKE_ACCOUNT_ANALYTICS_PROPERTIES,
       });
       posthog.register(SMOKE_ACCOUNT_ANALYTICS_PROPERTIES);

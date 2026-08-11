@@ -36,8 +36,13 @@ through a manual `production-smoke` workflow dispatch:
 
 1. Deploy with the feature enabled and kill switch `false`.
 2. Dispatch with `anonymous_trial_smoke_phase=admitted`. The probe creates a
-   fresh anonymous session and asks exactly one fixed question against the
-   default canonical Demo. A `200` validated answer is required.
+   fresh anonymous session, immediately marks it in trusted Auth app metadata
+   as a synthetic Smoke identity, and asks exactly one fixed question against
+   the default canonical Demo. The pre-mark bootstrap cannot reach PostHog,
+   synthetic business capture remains suppressed after reload, and the
+   bounded identity is deleted when the probe ends. A `200` is insufficient:
+   the rendered result must contain a clickable Timestamp Citation and must
+   contain no refusal, `anonymous_trial_invalid_answer`, or error UI.
 3. Immediately set `ANONYMOUS_TRIAL_KILL_SWITCH=true` in the production
    environment and deploy that configuration. Do not ask another admitted
    question while waiting.

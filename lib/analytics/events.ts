@@ -57,6 +57,7 @@ export const ANALYTICS_EVENT_NAMES = [
   "project_paywall_viewed",
   "project_action_failed",
   "project_generation_cost_recorded",
+  "anonymous_trial_started",
   "anonymous_trial_message_admitted",
   "anonymous_trial_exhausted",
   "anonymous_trial_registration_selected",
@@ -155,6 +156,7 @@ export interface AnalyticsEventProperties {
   project_paywall_viewed: ProjectActivityEventProperties["project_paywall_viewed"];
   project_action_failed: ProjectActivityEventProperties["project_action_failed"];
   project_generation_cost_recorded: ProjectActivityEventProperties["project_generation_cost_recorded"];
+  anonymous_trial_started: AnonymousTrialEventProperties["anonymous_trial_started"];
   anonymous_trial_message_admitted: AnonymousTrialEventProperties["anonymous_trial_message_admitted"];
   anonymous_trial_exhausted: AnonymousTrialEventProperties["anonymous_trial_exhausted"];
   anonymous_trial_registration_selected: AnonymousTrialEventProperties["anonymous_trial_registration_selected"];

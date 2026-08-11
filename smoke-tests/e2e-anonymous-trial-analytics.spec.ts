@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { expect, test, type Route } from "@playwright/test";
+import { anonymousSessionFromCookies } from "./anonymous-trial-production-probe";
 
 const DIST_DIR = ".next-anonymous-trial-analytics-e2e";
 const captures: unknown[] = [];
@@ -88,6 +89,10 @@ test("captures the content-private admission, exhaustion, registration, and conv
 
   let registered = false;
   let streamRequests = 0;
+  const histories = new Map<string, Array<Record<string, string>>>([
+    ["Hrbq66XqtCo", []],
+    ["nm1TxQj9IsQ", []],
+  ]);
   await context.route("**/auth/v1/signup*", (route) =>
     fulfillJson(route, anonymousSession()),
   );
@@ -101,9 +106,15 @@ test("captures the content-private admission, exhaustion, registration, and conv
       registered ? registeredUser() : anonymousSession().user,
     );
   });
-  await context.route("**/api/chat/messages?*", (route) =>
-    fulfillJson(route, { messages: [] }),
-  );
+  await context.route("**/api/chat/messages?*", (route) => {
+    const youtubeUrl = new URL(route.request().url()).searchParams.get("youtube_url");
+    const videoId = youtubeUrl
+      ? new URL(youtubeUrl).searchParams.get("v")
+      : null;
+    return fulfillJson(route, {
+      messages: videoId ? histories.get(videoId) ?? [] : [],
+    });
+  });
   await context.route("**/api/me/entitlements*", (route) =>
     fulfillJson(route, {
       tier: registered ? "free" : "anon",
@@ -122,14 +133,28 @@ test("captures the content-private admission, exhaustion, registration, and conv
             subscriptionPresentation: { state: "free" },
           }
         : {
-            anonymousTrial: { state: "available", remainingMessages: 2 },
+            anonymousTrial: {
+              state: "available",
+              remainingMessages: Math.max(0, 5 - streamRequests),
+            },
             subscriptionPresentation: { state: "anonymous" },
           }),
     }),
   );
   await context.route("**/api/chat/stream", (route) => {
     streamRequests += 1;
-    if (streamRequests === 1) {
+    if (streamRequests <= 5) {
+      const body = route.request().postDataJSON() as {
+        youtube_url: string;
+        message: string;
+      };
+      const videoId = new URL(body.youtube_url).searchParams.get("v")!;
+      const answer = `Grounded answer ${streamRequests} [0:42]`;
+      const history = histories.get(videoId)!;
+      history.push(
+        browserMessage(`379${streamRequests}01`, "user", body.message),
+        browserMessage(`379${streamRequests}02`, "assistant", answer),
+      );
       return route.fulfill({
         status: 200,
         contentType: "text/event-stream",
@@ -137,9 +162,9 @@ test("captures the content-private admission, exhaustion, registration, and conv
           `data: ${JSON.stringify({
             type: "anonymous_trial_admitted",
             reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
-            remainingMessages: 1,
+            remainingMessages: 5 - streamRequests,
           })}\n\n`,
-          `data: ${JSON.stringify({ type: "delta", text: "Grounded answer" })}\n\n`,
+          `data: ${JSON.stringify({ type: "delta", text: answer })}\n\n`,
           `data: ${JSON.stringify({ type: "done" })}\n\n`,
         ].join(""),
       });
@@ -161,14 +186,57 @@ test("captures the content-private admission, exhaustion, registration, and conv
   await waitForAuthCookie(context);
   const input = page.getByLabel("Chat message");
   await expect(input).toBeVisible({ timeout: 30_000 });
-  await input.fill("What is the main argument?");
-  await page.getByLabel("Send message").click();
-  await expect(page.getByText("Grounded answer")).toBeVisible();
+  const send = async (question: string, answerNumber: number) => {
+    await input.fill(question);
+    await page.getByLabel("Send message").click();
+    await expect(page.getByText(`Grounded answer ${answerNumber}`)).toBeVisible();
+  };
+  await send("Alpha question one", 1);
+  await expect(
+    page.getByRole("button", { name: "Seek video to [0:42]" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: /could not|couldn't|temporarily unavailable/i }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/anonymous_trial_invalid_answer/i)).toHaveCount(0);
+  await expect(page.getByText("4 Anonymous Trial messages remaining")).toBeVisible();
+  await send("Alpha question two", 2);
+  await expect(page.getByText("3 Anonymous Trial messages remaining")).toBeVisible();
 
-  await input.fill("What else does the Video support?");
-  await page.getByLabel("Send message").click();
+  await page.getByRole("button", { name: /Master Your Sleep/i }).click();
+  await expect(page.getByText("Alpha question one")).toHaveCount(0);
+  await send("Beta question one", 3);
+  await expect(page.getByText("2 Anonymous Trial messages remaining")).toBeVisible();
+
+  await page.getByRole("button", { name: /Jensen Huang.*moat persist/i }).click();
+  await expect(page.getByText("Alpha question one")).toBeVisible();
+  await expect(page.getByText("Beta question one")).toHaveCount(0);
+  await send("Alpha question three", 4);
+  await expect(page.getByText("1 Anonymous Trial message remaining")).toBeVisible();
+  await send("Alpha question four", 5);
+
   const createAccount = page.getByRole("link", { name: "Create Account" });
   await expect(createAccount).toBeVisible();
+  const { access_token: anonymousAccessToken } =
+    await anonymousSessionFromCookies(context);
+  const sixth = await page.evaluate(async (accessToken) => {
+    const response = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        youtube_url: "https://www.youtube.com/watch?v=nm1TxQj9IsQ",
+        message: "Sixth question",
+      }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, anonymousAccessToken);
+  expect(sixth).toMatchObject({
+    status: 402,
+    body: { errorCode: "anonymous_trial_exhausted", remainingMessages: 0 },
+  });
   await createAccount.click();
 
   await page.getByLabel("Email").fill("registered@example.com");
@@ -179,14 +247,18 @@ test("captures the content-private admission, exhaustion, registration, and conv
 
   await expect
     .poll(() => captures.length, { timeout: 15_000 })
-    .toBeGreaterThanOrEqual(4);
+    .toBeGreaterThanOrEqual(10);
   expect(captures).toEqual(
     expect.arrayContaining([
+      {
+        event: "anonymous_trial_started",
+        properties: { source_surface: "hero_demo" },
+      },
       {
         event: "anonymous_trial_message_admitted",
         properties: {
           source_surface: "hero_demo",
-          remaining_allowance: "one",
+          remaining_allowance: "two_to_four",
         },
       },
       {
@@ -207,7 +279,7 @@ test("captures the content-private admission, exhaustion, registration, and conv
     ]),
   );
   expect(JSON.stringify(captures)).not.toMatch(
-    /main argument|registered@example|74000000|user_id|prompt|content/i,
+    /Alpha question|Beta question|Sixth question|registered@example|74000000|user_id|prompt|content/i,
   );
 });
 
@@ -272,6 +344,78 @@ test("the kill switch denies without consuming or leaking output", async ({
   });
   await expect(page.getByText(/used all 5 Anonymous Trial messages/i)).toHaveCount(0);
   await expect(page.getByText(/Grounded answer|partial model output/i)).toHaveCount(0);
+});
+
+test("a trusted anonymous production probe is suppressed from business analytics", async ({
+  context,
+  page,
+}) => {
+  const suppressed: boolean[] = [];
+  const syntheticCaptures: unknown[] = [];
+  await context.exposeBinding(
+    "__recordProbeSuppression",
+    (_source, detail: boolean) => suppressed.push(detail),
+  );
+  expect(
+    captures.filter(
+      (capture) =>
+        (capture as { event?: string }).event === "anonymous_trial_started",
+    ),
+  ).toHaveLength(1);
+  await context.exposeBinding(
+    "__recordProbeCapture",
+    (_source, detail: unknown) => syntheticCaptures.push(detail),
+  );
+  await context.addInitScript(() => {
+    window.addEventListener("project-analytics-suppression-e2e", (event) => {
+      void (window as never as {
+        __recordProbeSuppression: (detail: boolean) => Promise<void>;
+      }).__recordProbeSuppression((event as CustomEvent<boolean>).detail);
+    });
+    window.addEventListener("project-analytics-capture-e2e", (event) => {
+      void (window as never as {
+        __recordProbeCapture: (detail: unknown) => Promise<void>;
+      }).__recordProbeCapture((event as CustomEvent).detail);
+    });
+  });
+  const session = anonymousSession();
+  (session.user.app_metadata as Record<string, unknown>).is_smoke_account = true;
+  await context.route("**/auth/v1/signup*", (route) => fulfillJson(route, session));
+  await context.route("**/auth/v1/user*", (route) => fulfillJson(route, session.user));
+  await context.route("**/api/chat/messages?*", (route) =>
+    fulfillJson(route, { messages: [] }),
+  );
+  await context.route("**/api/me/entitlements*", (route) =>
+    fulfillJson(route, {
+      tier: "anon",
+      caps: { summariesUsed: 0, summariesLimit: 1, projectsUsed: 0, projectsLimit: 0 },
+      anonymousTrial: { state: "available", remainingMessages: 5 },
+      subscriptionPresentation: { state: "anonymous" },
+    }),
+  );
+  await context.route("**/api/chat/stream", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        `data: ${JSON.stringify({
+          type: "anonymous_trial_admitted",
+          reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+          remainingMessages: 4,
+        })}\n\n`,
+        `data: ${JSON.stringify({ type: "delta", text: "Synthetic answer [0:42]" })}\n\n`,
+        `data: ${JSON.stringify({ type: "done" })}\n\n`,
+      ].join(""),
+    }),
+  );
+
+  await page.goto(appUrl + "/");
+  await expect.poll(() => suppressed.includes(true)).toBe(true);
+  syntheticCaptures.length = 0;
+  await page.getByLabel("Chat message").fill("Synthetic probe question");
+  await page.getByLabel("Send message").click();
+  await expect(page.getByText("Synthetic answer")).toBeVisible();
+  expect(syntheticCaptures).toEqual([]);
 });
 
 test("Pro chat remains unlimited without trial or upgrade controls", async ({
@@ -402,6 +546,19 @@ function registeredUser() {
 
 function registeredSession() {
   return { ...anonymousSession(), user: registeredUser() };
+}
+
+function browserMessage(
+  suffix: string,
+  role: "user" | "assistant",
+  content: string,
+) {
+  return {
+    id: `37900000-0000-4000-8000-${suffix.padStart(12, "0")}`,
+    role,
+    content,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 async function waitForAuthCookie(

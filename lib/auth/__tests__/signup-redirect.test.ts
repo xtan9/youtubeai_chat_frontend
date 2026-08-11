@@ -69,4 +69,13 @@ describe("buildAuthCallbackUrl", () => {
     expect(url.pathname).toBe("/auth/callback");
     expect(url.searchParams.get("next")).toBe("/pricing?intent=upgrade");
   });
+
+  it("carries only a governed anonymous conversion method", () => {
+    const google = new URL(
+      buildAuthCallbackUrl("https://www.youtubeai.chat", "/", "google"),
+    );
+    expect(google.searchParams.get("anonymous_trial_conversion")).toBe(
+      "google",
+    );
+  });
 });

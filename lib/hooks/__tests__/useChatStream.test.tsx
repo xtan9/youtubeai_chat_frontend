@@ -438,6 +438,10 @@ describe("useChatStream", () => {
         remaining_allowance: "two_to_four",
       },
     );
+    expect(analyticsMocks.capture).toHaveBeenCalledWith(
+      "anonymous_trial_started",
+      { source_surface: "hero_demo" },
+    );
   });
 
   it("retains a validated stateless Anonymous Trial completion when no canonical turn exists", async () => {
@@ -716,6 +720,55 @@ describe("useChatStream", () => {
         ?.anonymousTrial,
     )
       .toEqual({ state: "unavailable" });
+    expect(analyticsMocks.capture).toHaveBeenCalledWith(
+      "anonymous_trial_started",
+      { source_surface: "hero_demo" },
+    );
+  });
+
+  it("captures Anonymous Hero Demo start once across success and later denial", async () => {
+    setAnonFallback("anon-token");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "anonymous_trial_admitted",
+            reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+            remainingMessages: 4,
+          },
+          { type: "delta", text: "Grounded [0:01]" },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponseForHook(
+          {
+            errorCode: "anonymous_trial_exhausted",
+            tier: "anon",
+            upgradeUrl: "/auth/sign-up",
+            remainingMessages: 0,
+            message: "Anonymous Trial exhausted",
+          },
+          402,
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(freshQueryClient()) },
+    );
+
+    await act(async () => result.current.send("first valid attempt"));
+    await act(async () => result.current.send("second valid attempt"));
+
+    expect(
+      analyticsMocks.capture.mock.calls.filter(
+        ([event]) => event === "anonymous_trial_started",
+      ),
+    ).toEqual([
+      ["anonymous_trial_started", { source_surface: "hero_demo" }],
+    ]);
   });
 
   it("captures chat_started only once per video across A to B to A navigation", async () => {

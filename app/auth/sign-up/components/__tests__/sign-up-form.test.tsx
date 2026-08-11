@@ -140,6 +140,9 @@ describe("SignUpForm analytics", () => {
     const emailRedirect = new URL(options.emailRedirectTo);
     expect(emailRedirect.pathname).toBe("/auth/callback");
     expect(emailRedirect.searchParams.get("next")).toBe("/?demo=Hrbq66XqtCo");
+    expect(emailRedirect.searchParams.get("anonymous_trial_conversion")).toBe(
+      "email",
+    );
     expect(mocks.signUp).not.toHaveBeenCalled();
     expect(mocks.push).toHaveBeenCalledWith("/auth/sign-up-success");
     expect(mocks.capture).toHaveBeenCalledWith("anonymous_trial_converted", {
@@ -164,6 +167,9 @@ describe("SignUpForm analytics", () => {
     const oauthRedirect = new URL(request.options.redirectTo);
     expect(oauthRedirect.pathname).toBe("/auth/callback");
     expect(oauthRedirect.searchParams.get("next")).toBe("/?demo=Hrbq66XqtCo");
+    expect(oauthRedirect.searchParams.get("anonymous_trial_conversion")).toBe(
+      "google",
+    );
     expect(mocks.signInWithOAuth).not.toHaveBeenCalled();
   });
 

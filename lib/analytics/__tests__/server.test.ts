@@ -12,10 +12,43 @@ vi.mock("posthog-node", () => ({
 
 import { ANALYTICS_SUBJECT_PROPERTY, ANALYTICS_SYNTHETIC_SUBJECT } from "../identity";
 import {
+  captureAnonymousTrialConversion,
   captureProjectActivityEventWithStatus,
   captureProjectVideoProcessingEvent,
   captureSubscriptionActivated,
 } from "../server";
+
+describe("captureAnonymousTrialConversion", () => {
+  it("captures a governed server-confirmed conversion without private content", async () => {
+    await expect(
+      captureAnonymousTrialConversion(
+        "user-1",
+        "google",
+        { app_metadata: { provider: "google" } },
+      ),
+    ).resolves.toBe("sent");
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith({
+      distinctId: "user-1",
+      event: "anonymous_trial_converted",
+      properties: {
+        analytics_schema_version: 1,
+        analytics_subject: "human",
+        source_surface: "hero_demo",
+        registration_method: "google",
+      },
+    });
+  });
+
+  it("suppresses a converted production-probe identity", async () => {
+    await expect(
+      captureAnonymousTrialConversion("smoke-user", "email", {
+        app_metadata: { is_smoke_account: true },
+      }),
+    ).resolves.toBe("skipped");
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+  });
+});
 
 beforeEach(() => {
   mocks.captureImmediate.mockReset().mockResolvedValue(undefined);

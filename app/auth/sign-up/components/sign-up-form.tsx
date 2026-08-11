@@ -54,13 +54,17 @@ export function SignUpForm({
 
     try {
       const next = getSafeAuthRedirect(window.location.href);
-      const emailRedirectTo = buildAuthCallbackUrl(window.location.origin, next);
       const currentUser = await supabase.auth.getUser();
       if (currentUser.error && !isMissingAuthSession(currentUser.error)) {
         throw currentUser.error;
       }
 
       const preservesAnonymousIdentity = currentUser.data.user?.is_anonymous === true;
+      const emailRedirectTo = buildAuthCallbackUrl(
+        window.location.origin,
+        next,
+        preservesAnonymousIdentity ? "email" : undefined,
+      );
       const { data, error } = preservesAnonymousIdentity
         ? await supabase.auth.updateUser(
             { email, password },
@@ -117,6 +121,7 @@ export function SignUpForm({
           redirectTo: buildAuthCallbackUrl(
             window.location.origin,
             getSafeAuthRedirect(window.location.href),
+            currentUser.data.user?.is_anonymous ? "google" : undefined,
           ),
         },
       } as const;
