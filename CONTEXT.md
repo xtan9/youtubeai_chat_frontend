@@ -136,6 +136,18 @@ _Avoid_: AI answer, generated answer
 A reference from a Grounded Answer or Transcript to a specific source Video and moment in that Video.
 _Avoid_: Link, footnote
 
+**Evidence Check**:
+A Learner-requested asynchronous assessment of material, checkable claims in one Video against external evidence, with Findings tied to the relevant Timestamp Citations. It reports what governed evidence can and cannot establish without judging a speaker, author, or channel as trustworthy.
+_Avoid_: Author trust score, channel credibility score, legitimacy score
+
+**Evidence Finding**:
+One complete, validated claim-level record containing the original context, Evidence Relationship, governed evidence and citations, as-of date, limitations, and server-owned `confidence: unavailable`.
+_Avoid_: Verdict, truth label, fact score
+
+**Evidence Eligibility**:
+The deterministic, versioned preflight decision that an Evidence Check may run for a Video under the current policy, Transcript, topic, rights, and evidence constraints.
+_Avoid_: Safe Video, trustworthy Video, approved content
+
 **History**:
 A Learner's retained record of previously processed Videos.
 _Avoid_: Library, project
