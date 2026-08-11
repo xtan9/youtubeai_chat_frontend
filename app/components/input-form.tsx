@@ -80,7 +80,7 @@ export function InputForm({ variant = "default" }: InputFormProps) {
               <div
                 className={
                   isCompact
-                    ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 pe-2"
+                    ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 pe-6"
                     : "flex flex-col gap-3 md:flex-row"
                 }
               >
