@@ -576,7 +576,7 @@ declare
   ];
   connection_name text;
   current_set_id uuid;
-  reviewer_id uuid := '39000000-0000-4000-8000-0000000000f1'::uuid;
+  v_reviewer_id uuid := '39000000-0000-4000-8000-0000000000f1'::uuid;
   review_result jsonb;
   review_results jsonb[] := array[]::jsonb[];
   ready_result jsonb;
@@ -608,7 +608,7 @@ begin
             true, true, true, true, true, null
           )
         $query$,
-        current_set_id, reviewer_id
+        current_set_id, v_reviewer_id
       )
     );
   end loop;
@@ -629,7 +629,7 @@ begin
   from catalog_private.recommendation_reviews as review
   where review.recommendation_set_id = current_set_id
     and review.recommendation_ordinal = 1
-    and review.reviewer_id = reviewer_id;
+    and review.reviewer_id = v_reviewer_id;
   if review_count <> 1
     or (select count(*) from unnest(review_results) where value ->> 'outcome' = 'stored') <> 1
   then
