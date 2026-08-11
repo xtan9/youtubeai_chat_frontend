@@ -97,11 +97,6 @@ export function ChatTab({
     !stream.draft &&
     !stream.streaming;
 
-  // Determine the chat cap banner variant based on the 402 error code.
-  const chatCapBannerVariant =
-    stream.upgradeError?.errorCode === "anon_chat_blocked"
-      ? "anon-blocked"
-      : "free-cap";
   const chatReturnTo =
     analyticsSurface === "hero_demo"
       ? "/"
@@ -114,6 +109,33 @@ export function ChatTab({
     (m) => m.role === "user",
   ).length;
   const FREE_CHAT_LIMIT = 5;
+  const anonymousTrialEligible =
+    analyticsSurface === "hero_demo" && ent?.tier === "anon";
+  const anonymousTrial = anonymousTrialEligible
+    ? ent.anonymousTrial
+    : undefined;
+  const anonymousTrialRemaining = anonymousTrialEligible
+    ? stream.anonymousTrialRemaining ??
+      (anonymousTrial?.state === "available"
+        ? anonymousTrial.remainingMessages
+        : null)
+    : null;
+  const anonymousTrialUnavailable =
+    anonymousTrialEligible &&
+    (stream.anonymousTrialUnavailable || anonymousTrial?.state === "unavailable");
+  const anonymousTrialExhausted =
+    anonymousTrialEligible &&
+    (stream.upgradeError?.errorCode === "anonymous_trial_exhausted" ||
+      anonymousTrialRemaining === 0);
+  const visibleUpgradeError =
+    stream.upgradeError?.errorCode === "anonymous_trial_exhausted" &&
+    !anonymousTrialEligible
+      ? null
+      : stream.upgradeError;
+  const chatCapBannerVariant =
+    visibleUpgradeError?.errorCode === "anon_chat_blocked"
+      ? "anon-blocked"
+      : "free-cap";
 
   return (
     <div
@@ -178,7 +200,17 @@ export function ChatTab({
       )}
 
       <div className="border-t border-border-subtle p-3">
-        {stream.upgradeError ? (
+        {anonymousTrialUnavailable ? (
+          <ChatCapBanner
+            variant="anonymous-trial-unavailable"
+            returnTo={chatReturnTo}
+          />
+        ) : anonymousTrialExhausted ? (
+          <ChatCapBanner
+            variant="anonymous-trial-exhausted"
+            returnTo={chatReturnTo}
+          />
+        ) : visibleUpgradeError ? (
           <ChatCapBanner
             variant={chatCapBannerVariant}
             returnTo={chatReturnTo}
@@ -192,7 +224,18 @@ export function ChatTab({
               onStop={stream.abort}
               streaming={stream.streaming}
               disabled={!youtubeUrl || clearPending}
+              maxLength={anonymousTrialRemaining !== null ? 500 : undefined}
             />
+            {anonymousTrialRemaining !== null && (
+              <p
+                className="mt-2 text-center text-caption text-text-muted"
+                aria-live="polite"
+              >
+                {anonymousTrialRemaining} Anonymous Trial{" "}
+                {anonymousTrialRemaining === 1 ? "message" : "messages"}{" "}
+                remaining
+              </p>
+            )}
             {ent?.tier === "free" && (
               <ChatCapCounter
                 used={userMessageCount}

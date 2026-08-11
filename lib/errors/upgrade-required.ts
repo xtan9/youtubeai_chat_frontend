@@ -9,7 +9,8 @@ export class UpgradeRequiredError extends Error {
     | "free_quota_exceeded"
     | "anon_quota_exceeded"
     | "free_chat_exceeded"
-    | "anon_chat_blocked";
+    | "anon_chat_blocked"
+    | "anonymous_trial_exhausted";
   readonly tier: "free" | "anon";
   readonly upgradeUrl: string;
 

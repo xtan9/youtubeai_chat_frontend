@@ -13,6 +13,7 @@ interface ChatInputProps {
   readonly streaming: boolean;
   readonly disabled?: boolean;
   readonly placeholder?: string;
+  readonly maxLength?: number;
 }
 
 /**
@@ -28,6 +29,7 @@ export function ChatInput({
   streaming,
   disabled = false,
   placeholder = "Ask a question about this video…",
+  maxLength,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -60,6 +62,7 @@ export function ChatInput({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
+        maxLength={maxLength}
         className="flex-1 resize-none border-0 bg-transparent p-2 text-body-md focus-visible:ring-0 focus-visible:ring-offset-0"
         aria-label="Chat message"
       />

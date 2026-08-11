@@ -24,6 +24,12 @@ import {
 } from "@/lib/services/video-chat-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
+import {
+  markAnonymousTrialChatMessageStarted,
+  refundAnonymousTrialChatMessage,
+  reserveAnonymousTrialChatMessage,
+  type AnonymousTrialReservationResult,
+} from "@/lib/services/anonymous-trial";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -185,7 +191,9 @@ export async function POST(request: Request) {
   // Never spend upstream tokens for anonymous users. The former hero-demo
   // exception was an unmetered public relay: callers could rotate anonymous
   // sessions and repeatedly invoke the LLM without owning the gateway key.
-  if (isAnonymous) {
+  const anonymousTrialEnabled =
+    isAnonymous && process.env.ANONYMOUS_TRIAL_ENABLED?.trim() === "true";
+  if (isAnonymous && !anonymousTrialEnabled) {
     return new Response(
       JSON.stringify({
         message: "Sign up to chat about videos.",
@@ -204,13 +212,22 @@ export async function POST(request: Request) {
     );
   }
 
+  if (anonymousTrialEnabled && message.length > 500) {
+    return jsonError(
+      400,
+      "Anonymous Trial messages must be 500 characters or fewer.",
+      requestId,
+      "ANONYMOUS_TRIAL_MESSAGE_TOO_LONG",
+    );
+  }
+
   // Every authenticated request consumes the same per-user rate limit.
   // Entitlement and retention are selected by the resolved subject because
   // stateless subjects have no database-backed targets.
   //
   // The subject resolver is the only source boundary for Grounding; this
   // route never assembles evidence from cache or static source helpers.
-  const rateLimit = await checkRateLimit(userId, false);
+  const rateLimit = await checkRateLimit(userId, isAnonymous);
   if (rateLimit.reason === "fail_open") {
     logAppEvent("error", "[chat/stream] rate-limit bypassed (fail-open)", {
       errorId: "RATE_LIMIT_FAIL_OPEN_REQUEST",
@@ -260,6 +277,24 @@ export async function POST(request: Request) {
   }
 
   const { subject } = resolution;
+  if (anonymousTrialEnabled && subject.source !== "hero_demo") {
+    return new Response(
+      JSON.stringify({
+        message: "Sign up to chat about videos.",
+        errorCode: "anon_chat_blocked",
+        tier: "anon",
+        upgradeUrl: "/auth/sign-up",
+      }),
+      {
+        status: 402,
+        headers: {
+          "Content-Type": "application/json",
+          [REQUEST_ID_HEADER]: requestId,
+          "X-Error-ID": "CHAT_ANON_SUBJECT_BLOCKED",
+        },
+      },
+    );
+  }
   const groundingOutcome = await loadSubjectGrounding(subject);
   if (groundingOutcome.status === "not_ready") {
     return jsonError(
@@ -373,6 +408,51 @@ export async function POST(request: Request) {
     cacheStablePrefix,
   });
 
+  let anonymousReservation: Extract<
+    AnonymousTrialReservationResult,
+    { outcome: "admitted" }
+  > | null = null;
+  if (anonymousTrialEnabled) {
+    const reservation = await reserveAnonymousTrialChatMessage({ userId });
+    if (reservation.outcome === "exhausted") {
+      return new Response(
+        JSON.stringify({
+          message: "You've used all 5 Anonymous Trial messages.",
+          errorCode: "anonymous_trial_exhausted",
+          tier: "anon",
+          remainingMessages: 0,
+          upgradeUrl: "/auth/sign-up",
+        }),
+        {
+          status: 402,
+          headers: {
+            "Content-Type": "application/json",
+            [REQUEST_ID_HEADER]: requestId,
+            "X-Error-ID": "ANONYMOUS_TRIAL_EXHAUSTED",
+          },
+        },
+      );
+    }
+    if (reservation.outcome === "unavailable") {
+      return new Response(
+        JSON.stringify({
+          message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
+          errorCode: "anonymous_trial_unavailable",
+          upgradeUrl: "/auth/sign-up",
+        }),
+        {
+          status: 503,
+          headers: {
+            "Content-Type": "application/json",
+            [REQUEST_ID_HEADER]: requestId,
+            "X-Error-ID": "ANONYMOUS_TRIAL_UNAVAILABLE",
+          },
+        },
+      );
+    }
+    anonymousReservation = reservation;
+  }
+
   // Stream-side state. `closed` flips on natural end or consumer cancel so
   // in-flight enqueues stop, while `assistantBuffer` holds the durable answer.
   // `userMessagePersisted` prevents duplicate user-only writes on abort races.
@@ -441,10 +521,34 @@ export async function POST(request: Request) {
       };
 
       try {
+        if (anonymousReservation) {
+          const started = await markAnonymousTrialChatMessageStarted({
+            userId,
+            reservationId: anonymousReservation.reservationId,
+          });
+          if (started.outcome !== "started" && started.outcome !== "already_started") {
+            await refundAnonymousTrialChatMessage({
+              userId,
+              reservationId: anonymousReservation.reservationId,
+            });
+            sendEvent({
+              type: "error",
+              message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
+              errorCode: "anonymous_trial_unavailable",
+            });
+            return;
+          }
+          sendEvent({
+            type: "anonymous_trial_admitted",
+            reservationId: anonymousReservation.reservationId,
+            remainingMessages: started.remainingMessages,
+          });
+        }
         try {
           for await (const evt of streamChatCompletion({
             messages,
             signal: request.signal,
+            ...(anonymousTrialEnabled ? { maxOutputTokens: 600 } : {}),
           })) {
             if (request.signal.aborted) break;
             if (evt.type === "delta") {

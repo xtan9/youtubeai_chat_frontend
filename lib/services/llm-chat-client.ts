@@ -18,6 +18,7 @@ export interface ChatStreamOptions {
   readonly messages: readonly ChatGatewayMessage[];
   readonly signal?: AbortSignal;
   readonly model?: KnownModel | (string & {});
+  readonly maxOutputTokens?: number;
 }
 
 const MAX_MALFORMED_WARNINGS = 1;
@@ -88,6 +89,9 @@ export async function* streamChatCompletion(
         stream: true,
         stream_options: { include_usage: true },
         temperature: 0.4,
+        ...(options.maxOutputTokens === undefined
+          ? {}
+          : { max_tokens: options.maxOutputTokens }),
       }),
       signal: options.signal,
     }
