@@ -1,4 +1,5 @@
 -- Admit independently verified public Videos into the server-owned Catalog.
+-- This post-tip version keeps Supabase migration history unambiguous.
 -- Shared resources live in an unexposed schema; public RPCs are thin
 -- SECURITY INVOKER bridges executable only by service_role.
 
