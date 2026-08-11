@@ -122,6 +122,20 @@ describe("GET /api/continue-learning", () => {
     expect(mocks.recordContinueLearningReadyReads).not.toHaveBeenCalled();
   });
 
+  it("returns an opaque pending state without exposing preparation internals", async () => {
+    vi.stubEnv("CONTINUE_LEARNING_READER_ENABLED", "true");
+    mocks.readContinueLearningRecommendations.mockResolvedValue({
+      outcome: "pending",
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request(`?youtube_url=${encodeURIComponent(VALID_URL)}`),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ outcome: "pending" });
+  });
+
   it("keeps pilot unavailable without a cohort contract", async () => {
     vi.stubEnv("CONTINUE_LEARNING_READER_ENABLED", "true");
     mocks.readContinueLearningRecommendations.mockResolvedValue({

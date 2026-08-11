@@ -5,6 +5,7 @@ const BASE_URL = (
 ).replace(/\/$/, "");
 
 const VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+const NEXT_VIDEO_URL = "https://www.youtube.com/watch?v=9bZkp7q19f0";
 
 type TranscriptScenario = {
   readonly source: "auto_captions" | "whisper";
@@ -165,6 +166,7 @@ async function mockSuccessfulJourney(
     readonly cached?: boolean;
     readonly responseDelayMs?: number;
     readonly transcriptMode?: TranscriptWireMode;
+    readonly acceptedVideoUrls?: readonly string[];
   } = {},
 ) {
   let chatCompleted = false;
@@ -176,10 +178,14 @@ async function mockSuccessfulJourney(
     expect(request.headers().authorization).toBe(
       "Bearer contract-smoke-access-token"
     );
-    expect(request.postDataJSON()).toMatchObject({
-      youtube_url: VIDEO_URL,
-      include_transcript: true,
-    });
+    const requestBody = request.postDataJSON() as {
+      youtube_url?: string;
+      include_transcript?: boolean;
+    };
+    expect(requestBody.include_transcript).toBe(true);
+    expect(options.acceptedVideoUrls ?? [VIDEO_URL]).toContain(
+      requestBody.youtube_url,
+    );
     if (options.responseDelayMs) {
       await new Promise((resolve) =>
         setTimeout(resolve, options.responseDelayMs),
@@ -391,6 +397,53 @@ test("caption success flows from URL to Transcript, Summary, and Video Chat", as
   await expect(
     page.getByRole("button", { name: "Seek video to [0:45]" })
   ).toBeVisible();
+});
+
+test("opt-in Summary seam polls Continue Learning and enters Summarize Next", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.CONTINUE_LEARNING_READER_ENABLED?.trim().toLowerCase() !==
+      "true",
+    "Set CONTINUE_LEARNING_READER_ENABLED=true to exercise the dormant learner seam.",
+  );
+
+  await mockSuccessfulJourney(page, CAPTION_SUCCESS, {
+    acceptedVideoUrls: [VIDEO_URL, NEXT_VIDEO_URL],
+  });
+  await page.route("**/api/continue-learning*", (route) =>
+    fulfillJson(route, {
+      outcome: "ready",
+      setVersionToken: "cl1s.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      items: [
+        {
+          token: "cl1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          ordinal: 1,
+          canonicalUrl: NEXT_VIDEO_URL,
+          title: "A next lesson",
+          channelName: "Teaching Channel",
+          thumbnailUrl: "https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg",
+          relationship: "deeper_explanation",
+          explanation: "Builds on the source concept.",
+        },
+      ],
+    }),
+  );
+  await submitVideoUrl(page);
+
+  const section = page.getByTestId("continue-learning-section");
+  await expect(section).toBeVisible();
+  await expect(section.getByRole("listitem")).toContainText("A next lesson");
+  const next = section.getByRole("link", { name: /summarize next/i });
+  await expect(next).toHaveAttribute(
+    "href",
+    `/summary?url=${encodeURIComponent(NEXT_VIDEO_URL)}`,
+  );
+  await Promise.all([
+    page.waitForURL(/\/summary\?url=/),
+    next.click(),
+  ]);
+  await expect(page.getByTestId("summary-results")).toBeVisible();
 });
 
 test("mobile Summary workspace keeps Video first and navigates three sticky tabs", async ({

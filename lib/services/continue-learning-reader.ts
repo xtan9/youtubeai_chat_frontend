@@ -22,7 +22,16 @@ const ReaderItemSchema = z.object({
   explanation: z.string().min(1).max(500),
 });
 
+// The private RPC currently fails closed when no current Set exists; it has
+// no preparation ledger to distinguish that from an in-flight build. Keep the
+// opaque branch ready for the upstream status contract without inventing a job
+// or Set identifier at this boundary.
 const ReaderPayloadSchema = z.union([
+  z
+    .object({
+      outcome: z.literal("pending"),
+    })
+    .strict(),
   z.object({
     outcome: z.literal("ready"),
     effectiveState: z.literal("on"),

@@ -32,10 +32,12 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
+  continueLearningEnabled?: boolean;
 }
 
 export function YouTubeSummarizerApp({
   initialUrl,
+  continueLearningEnabled = false,
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -179,6 +181,8 @@ export function YouTubeSummarizerApp({
           browserLanguage={browserLanguage}
           onSelectLanguage={handleLanguageSelect}
           languageDisabled={false}
+          sourceUrl={url}
+          continueLearningEnabled={continueLearningEnabled}
         />
       )}
     </>

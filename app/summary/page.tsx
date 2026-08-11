@@ -111,7 +111,13 @@ export default async function SummaryPage({
           </p>
         </section>
       )}
-      <YouTubeSummarizerApp initialUrl={params.url} />
+      <YouTubeSummarizerApp
+        initialUrl={params.url}
+        continueLearningEnabled={
+          process.env.CONTINUE_LEARNING_READER_ENABLED?.trim().toLowerCase() ===
+          "true"
+        }
+      />
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { LanguagePicker } from "./language-picker";
 import { buildSummaryMarkdownComponents } from "./summary-markdown-renderer";
+import { ContinueLearningSection } from "./continue-learning";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -24,6 +25,8 @@ interface SummaryContentProps {
   browserLanguage?: SupportedLanguageCode;
   onSelectLanguage?: (code: SupportedLanguageCode) => void;
   languageDisabled?: boolean;
+  sourceUrl?: string;
+  continueLearningEnabled?: boolean;
 }
 
 export function SummaryContent({
@@ -35,6 +38,8 @@ export function SummaryContent({
   browserLanguage,
   onSelectLanguage,
   languageDisabled,
+  sourceUrl,
+  continueLearningEnabled = false,
 }: SummaryContentProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -154,6 +159,12 @@ export function SummaryContent({
 
           {/* Summary Stats */}
           <SummaryStats summary={summary} />
+          {sourceUrl && continueLearningEnabled ? (
+            <ContinueLearningSection
+              sourceUrl={sourceUrl}
+              enabled={continueLearningEnabled}
+            />
+          ) : null}
         </div>
       </div>
     </div>
