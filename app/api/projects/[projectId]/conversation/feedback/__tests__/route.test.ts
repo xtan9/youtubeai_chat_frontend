@@ -197,7 +197,11 @@ describe("POST /api/projects/[projectId]/conversation/feedback", () => {
   it("passes Smoke suppression through the trusted server boundary", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { ...PRINCIPAL, businessAnalyticsSuppressed: true },
+      principal: {
+        ...PRINCIPAL,
+        businessAnalyticsSuppressed: true,
+        projectAvailability: "internal",
+      },
     });
 
     await POST(request(), CONTEXT);

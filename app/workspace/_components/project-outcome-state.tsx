@@ -17,23 +17,31 @@ export function ProjectOutcomeState({
       title: "Create an account for Projects",
       message:
         "Register free to create one private, durable Project and keep your research ready to resume.",
+      action: {
+        href: "/auth/sign-up?redirect_to=%2Fworkspace",
+        label: "Create free account",
+      },
     },
     beta_unavailable: {
       title: "Projects are in invited beta",
       message:
         "This account does not have Project access yet. Your existing YouTube summaries and chats are unchanged.",
+      action: { href: "/dashboard", label: "Back to Dashboard" },
     },
     invalid: {
       title: "That Project link isn’t valid",
       message: "Open a Project from your Workspace instead.",
+      action: { href: "/workspace", label: "Back to Workspace" },
     },
     missing: {
       title: "Project not found",
       message: "It may have been deleted, or it may not belong to this account.",
+      action: { href: "/workspace", label: "Back to Workspace" },
     },
     unavailable: {
       title: "Projects are temporarily unavailable",
       message: "Refresh the page in a moment. Your saved Projects are unchanged.",
+      action: { href: "/workspace", label: "Back to Workspace" },
     },
   }[kind];
 
@@ -50,15 +58,7 @@ export function ProjectOutcomeState({
             {content.message}
           </p>
           <Button asChild>
-            <Link
-              href={
-                kind === "anonymous"
-                  ? "/auth/sign-up?redirect_to=%2Fworkspace"
-                  : "/workspace"
-              }
-            >
-              {kind === "anonymous" ? "Create free account" : "Back to Workspace"}
-            </Link>
+            <Link href={content.action.href}>{content.action.label}</Link>
           </Button>
         </CardContent>
       </Card>

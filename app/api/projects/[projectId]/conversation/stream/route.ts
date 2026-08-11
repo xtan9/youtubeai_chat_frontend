@@ -37,6 +37,10 @@ type RouteContext = { params: Promise<{ projectId: string }> };
 
 const GENERIC_ERROR =
   "Something went wrong answering your Project question. Please try again.";
+const RETRIEVAL_ERROR =
+  "Transcript retrieval is temporarily unavailable. Your question was saved and your Project is unchanged. Try again.";
+
+class ProjectRetrievalUnavailableError extends Error {}
 
 type GuidedAbstentionReason = Parameters<
   typeof buildProjectSynthesisAbstention
@@ -337,7 +341,9 @@ export async function POST(request: Request, context: RouteContext) {
           search.status === "invalid" ||
           search.status === "unavailable"
         ) {
-          throw new Error("Project passage retrieval was unavailable.");
+          throw new ProjectRetrievalUnavailableError(
+            "Project passage retrieval was unavailable.",
+          );
         }
 
         const artifacts = buildProjectAnswerArtifacts({
@@ -454,7 +460,13 @@ export async function POST(request: Request, context: RouteContext) {
             errorName: error instanceof Error ? error.name : typeof error,
             requestId,
           });
-          send({ type: "error", message: GENERIC_ERROR });
+          send({
+            type: "error",
+            message:
+              error instanceof ProjectRetrievalUnavailableError
+                ? RETRIEVAL_ERROR
+                : GENERIC_ERROR,
+          });
         }
       } finally {
         if (generationController.signal.aborted && !persistenceStarted) {

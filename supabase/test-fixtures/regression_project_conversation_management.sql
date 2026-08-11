@@ -33,7 +33,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"96000000-0000-4000-8000-000000000006","app_metadata":{}}',
+  '{"sub":"96000000-0000-4000-8000-000000000006","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 

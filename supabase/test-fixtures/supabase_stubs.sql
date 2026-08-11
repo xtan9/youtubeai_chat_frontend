@@ -8,6 +8,10 @@ CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+    -- SQL fixtures represent internal test Researchers unless a security
+    -- contract supplies an explicit unavailable/invited claim.
+    raw_app_meta_data JSONB NOT NULL DEFAULT
+      '{"project_beta_access":"internal"}'::JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
@@ -23,7 +27,12 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS JSONB
 LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
         NULLIF(current_setting('request.jwt.claims', TRUE), '')::JSONB,
-        '{}'::JSONB
+        jsonb_build_object(
+          'sub', nullif(current_setting('request.jwt.claim.sub', TRUE), ''),
+          'app_metadata', jsonb_build_object(
+            'project_beta_access', 'internal'
+          )
+        )
     )
 $$;
 

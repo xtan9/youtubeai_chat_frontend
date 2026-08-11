@@ -1264,7 +1264,11 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
         type: "question_reserved",
         userMessageId: USER_MESSAGE_ID,
       });
-      expect(streamed.at(-1)).toMatchObject({ type: "error" });
+      expect(streamed.at(-1)).toEqual({
+        type: "error",
+        message:
+          "Transcript retrieval is temporarily unavailable. Your question was saved and your Project is unchanged. Try again.",
+      });
       expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
       expect(mocks.cancel).toHaveBeenCalledWith(
         expect.objectContaining({
