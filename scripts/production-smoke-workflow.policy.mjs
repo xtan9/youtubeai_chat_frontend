@@ -31,6 +31,35 @@ test("keeps hourly API checks while limiting browser smoke to daily or manual ru
   );
 });
 
+test("keeps the Anonymous Trial rollout probe manual, bounded, and two-phase", () => {
+  assert.match(workflow, /anonymous_trial_smoke_phase:/);
+  assert.match(workflow, /options:\s*\n\s*- skip\s*\n\s*- admitted\s*\n\s*- killed/);
+
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+  const anonymousTrialStep = sectionBetween(
+    browserJob,
+    "      - name: Run bounded Anonymous Trial rollout probe",
+    "\n      - uses: actions/upload-artifact@v6",
+  );
+
+  assert.match(
+    anonymousTrialStep,
+    /if:\s*\$\{\{\s*!cancelled\(\)\s*&&\s*github\.event_name\s*==\s*'workflow_dispatch'\s*&&\s*inputs\.anonymous_trial_smoke_phase\s*!=\s*'skip'\s*\}\}/,
+  );
+  assert.match(
+    anonymousTrialStep,
+    /ANONYMOUS_TRIAL_PRODUCTION_SMOKE_PHASE:\s*\$\{\{\s*inputs\.anonymous_trial_smoke_phase\s*\}\}/,
+  );
+  assert.match(
+    anonymousTrialStep,
+    /playwright test\s+smoke-tests\/e2e-anonymous-trial-production\.spec\.ts\s+--grep "@anonymous-trial-production"\s+--workers=1\s+--retries=0/,
+  );
+});
+
 test("isolates live Summary checks with a bounded retry budget", () => {
   const browserJob = sectionBetween(
     workflow,

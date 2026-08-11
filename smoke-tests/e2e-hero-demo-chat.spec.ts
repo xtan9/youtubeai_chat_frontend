@@ -434,6 +434,50 @@ test.describe("Hero demo chat", () => {
     await expect(page.getByText(/20 messages|network hash|203\.0\.113/u)).toHaveCount(0);
   });
 
+  test("the Anonymous Trial kill switch denies without consuming or leaking output", async ({
+    page,
+  }) => {
+    await page.route("**/api/me/entitlements*", (route) =>
+      fulfillJson(route, {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 4 },
+        subscriptionPresentation: { state: "anonymous" },
+      }),
+    );
+    await page.route("**/api/chat/stream", (route) =>
+      fulfillJson(
+        route,
+        {
+          message:
+            "Anonymous chat is temporarily unavailable. Create an account to continue.",
+          errorCode: "anonymous_trial_unavailable",
+          remainingMessages: 4,
+          upgradeUrl: "/auth/sign-up",
+        },
+        503,
+      ),
+    );
+
+    await page.goto(BASE_URL + "/");
+    const input = page.getByLabel("Chat message");
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    await input.fill("What does the selected Video support?");
+    await page.getByLabel("Send message").click();
+
+    await expect(page.getByRole("alert")).toContainText(
+      "Anonymous chat is temporarily unavailable",
+    );
+    await expect(page.getByText("4 Anonymous Trial messages remaining")).toBeVisible();
+    await expect(input).toBeVisible();
+    await expect(page.getByText(/Grounded answer|partial model output/i)).toHaveCount(0);
+  });
+
   test("Registered Free reconciles and reloads the authoritative per-demo allowance", async ({
     page,
   }) => {
@@ -530,6 +574,51 @@ test.describe("Hero demo chat", () => {
     expect(actionBox).not.toBeNull();
     expect(actionBox!.x).toBeGreaterThanOrEqual(0);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
+  });
+
+  test("Pro chat remains unlimited and does not show trial or upgrade controls", async ({
+    page,
+  }) => {
+    await page.route("**/auth/v1/signup*", (route) =>
+      fulfillJson(route, registeredSession()),
+    );
+    await page.route("**/api/me/entitlements*", (route) =>
+      fulfillJson(route, {
+        tier: "pro",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: -1,
+          projectsUsed: 1,
+          projectsLimit: -1,
+        },
+        subscriptionPresentation: {
+          state: "active_pro",
+          plan: "monthly",
+          renewsAt: "2026-09-01T00:00:00.000Z",
+        },
+      }),
+    );
+    await page.route("**/api/chat/stream", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: [
+          `data: ${JSON.stringify({ type: "delta", text: "Pro grounded answer" })}\n\n`,
+          `data: ${JSON.stringify({ type: "done" })}\n\n`,
+        ].join(""),
+      }),
+    );
+
+    await page.goto(BASE_URL + "/");
+    const input = page.getByLabel("Chat message");
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Anonymous Trial messages remaining/i)).toHaveCount(0);
+    await expect(page.getByText(/free messages used|5\/5 free chat messages/i)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /create account|upgrade to pro/i })).toHaveCount(0);
+
+    await input.fill("What is the main argument?");
+    await page.getByLabel("Send message").click();
+    await expect(page.getByText("Pro grounded answer")).toBeVisible();
   });
 });
 
