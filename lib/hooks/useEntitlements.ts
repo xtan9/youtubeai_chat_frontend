@@ -26,6 +26,9 @@ export type EntitlementsData = {
     cancel_at_period_end?: boolean | null;
   } | null;
   subscriptionPresentation: ResolvedSubscriptionPresentation;
+  anonymousTrial?:
+    | { state: "available"; remainingMessages: number }
+    | { state: "unavailable" };
 };
 
 async function fetchEntitlements(): Promise<EntitlementsData> {

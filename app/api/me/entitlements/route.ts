@@ -8,6 +8,7 @@ import {
   resolveRegisteredSubscription,
 } from "@/lib/services/entitlements";
 import { ANON_COOKIE_NAME, verifyAnonId } from "@/lib/services/anon-cookie";
+import { getAnonymousTrialChatAllowance } from "@/lib/services/anonymous-trial";
 
 function jsonError(status: number, message: string) {
   return new Response(JSON.stringify({ message }), {
@@ -48,7 +49,12 @@ async function readAnonymousSummaryUsage(userId?: string): Promise<number> {
   return data?.count ?? 0;
 }
 
-function anonymousResponse(summariesUsed: number) {
+function anonymousResponse(
+  summariesUsed: number,
+  anonymousTrial?:
+    | { state: "available"; remainingMessages: number }
+    | { state: "unavailable" },
+) {
   return Response.json({
     tier: "anon",
     caps: {
@@ -58,6 +64,7 @@ function anonymousResponse(summariesUsed: number) {
       projectsLimit: ANON_LIMITS.projects,
     },
     subscriptionPresentation: { state: "anonymous" },
+    ...(anonymousTrial ? { anonymousTrial } : {}),
   });
 }
 
@@ -126,7 +133,23 @@ export async function GET() {
   // Supabase anonymous users have a user ID but use the same cookie-keyed
   // lifetime allowance and presentation as visitors without a Supabase user.
   if (isAnonymous) {
-    return anonymousResponse(await readAnonymousSummaryUsage(userId));
+    const [summariesUsed, trialAllowance] = await Promise.all([
+      readAnonymousSummaryUsage(userId),
+      process.env.ANONYMOUS_TRIAL_ENABLED === "true"
+        ? getAnonymousTrialChatAllowance({ userId })
+        : Promise.resolve(null),
+    ]);
+    return anonymousResponse(
+      summariesUsed,
+      trialAllowance?.outcome === "available"
+        ? {
+            state: "available",
+            remainingMessages: trialAllowance.remainingMessages,
+          }
+        : trialAllowance
+          ? { state: "unavailable" }
+          : undefined,
+    );
   }
 
   const subscriptionResult = await resolveRegisteredSubscription(

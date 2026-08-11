@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fromWorkspace: vi.fn(),
   fromProjects: vi.fn(),
   getServiceRoleClient: vi.fn(),
+  getAnonymousTrialChatAllowance: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -36,6 +37,10 @@ vi.mock("@/lib/services/entitlements", () => ({
 
 vi.mock("@/lib/supabase/service-role", () => ({
   getServiceRoleClient: () => mocks.getServiceRoleClient(),
+}));
+
+vi.mock("@/lib/services/anonymous-trial", () => ({
+  getAnonymousTrialChatAllowance: mocks.getAnonymousTrialChatAllowance,
 }));
 
 function resolved(
@@ -105,9 +110,17 @@ beforeEach(() => {
       throw new Error(`unexpected from(${table})`);
     },
   });
+  mocks.getAnonymousTrialChatAllowance.mockResolvedValue({
+    outcome: "available",
+    remainingMessages: 5,
+  });
+  vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "false");
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe("GET /api/me/entitlements", () => {
   it("returns an explicit anonymous presentation when not signed in", async () => {
@@ -406,6 +419,70 @@ describe("GET /api/me/entitlements", () => {
       subscriptionPresentation: { state: "anonymous" },
     });
     expect(mocks.resolveRegisteredSubscription).not.toHaveBeenCalled();
+  });
+
+  it("returns the authoritative Anonymous Trial allowance for an enabled Supabase anonymous user", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "anon-supabase-1",
+        isAnonymous: true,
+        email: "",
+      },
+    });
+    mocks.getAnonymousTrialChatAllowance.mockResolvedValue({
+      outcome: "available",
+      remainingMessages: 3,
+    });
+
+    const { GET } = await import("../route");
+    const body = await (await GET()).json();
+
+    expect(mocks.getAnonymousTrialChatAllowance).toHaveBeenCalledWith({
+      userId: "anon-supabase-1",
+    });
+    expect(body.anonymousTrial).toEqual({
+      state: "available",
+      remainingMessages: 3,
+    });
+  });
+
+  it("fails closed when the enabled Anonymous Trial allowance is unavailable", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "anon-supabase-1",
+        isAnonymous: true,
+        email: "",
+      },
+    });
+    mocks.getAnonymousTrialChatAllowance.mockResolvedValue({
+      outcome: "unavailable",
+    });
+
+    const { GET } = await import("../route");
+    const body = await (await GET()).json();
+
+    expect(body.anonymousTrial).toEqual({ state: "unavailable" });
+  });
+
+  it("does not read the Anonymous Trial allowance while the switch is disabled", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "anon-supabase-1",
+        isAnonymous: true,
+        email: "",
+      },
+    });
+
+    const { GET } = await import("../route");
+    const body = await (await GET()).json();
+
+    expect(body.anonymousTrial).toBeUndefined();
+    expect(mocks.getAnonymousTrialChatAllowance).not.toHaveBeenCalled();
   });
 
   it("does not read anonymous usage for a tampered cookie", async () => {

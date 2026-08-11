@@ -23,6 +23,7 @@ import {
   sseResponse,
 } from "@/tests-utils/chat-test-helpers";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
+import type { EntitlementsData } from "../useEntitlements";
 
 const analyticsMocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -57,6 +58,13 @@ vi.mock("@/lib/supabase/client", () => ({
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 const SECOND_VALID_URL = "https://www.youtube.com/watch?v=9bZkp7q19f0";
+
+function jsonResponseForHook(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 afterEach(() => {
   cleanup();
@@ -375,6 +383,119 @@ describe("useChatStream", () => {
       account_type: "anonymous",
       source_surface: "summary",
     });
+  });
+
+  it("reconciles authoritative Anonymous Trial admission into hook and shared entitlement state", async () => {
+    setAnonFallback("anon-token");
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "anonymous_trial_admitted",
+          reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+          remainingMessages: 4,
+        },
+        { type: "delta", text: "Grounded answer" },
+        { type: "done" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = freshQueryClient();
+    client.setQueryData<EntitlementsData>(["entitlements"], {
+      tier: "anon",
+      caps: {
+        summariesUsed: 0,
+        summariesLimit: 1,
+        projectsUsed: 0,
+        projectsLimit: 0,
+      },
+      anonymousTrial: { state: "available", remainingMessages: 5 },
+      subscriptionPresentation: { state: "anonymous" },
+    });
+
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.send("What is the main idea?");
+    });
+
+    expect(result.current.anonymousTrialRemaining).toBe(4);
+    expect(client.getQueryData<EntitlementsData>(["entitlements"])?.anonymousTrial)
+      .toEqual({ state: "available", remainingMessages: 4 });
+  });
+
+  it("reconciles authoritative Anonymous Trial exhaustion from a 402", async () => {
+    setAnonFallback("anon-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponseForHook(
+          {
+            errorCode: "anonymous_trial_exhausted",
+            tier: "anon",
+            upgradeUrl: "/auth/sign-up",
+            remainingMessages: 0,
+            message: "Anonymous Trial exhausted",
+          },
+          402,
+        ),
+      ),
+    );
+    const client = freshQueryClient();
+    const { result } = renderHook(() => useChatStream({ youtubeUrl: VALID_URL }), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.send("one more");
+    });
+
+    expect(result.current.anonymousTrialRemaining).toBe(0);
+    expect(result.current.upgradeError?.errorCode).toBe(
+      "anonymous_trial_exhausted",
+    );
+  });
+
+  it("fails closed when the Anonymous Trial boundary becomes unavailable", async () => {
+    setAnonFallback("anon-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponseForHook(
+          {
+            errorCode: "anonymous_trial_unavailable",
+            message: "Anonymous chat is temporarily unavailable.",
+          },
+          503,
+        ),
+      ),
+    );
+    const client = freshQueryClient();
+    client.setQueryData<EntitlementsData>(["entitlements"], {
+      tier: "anon",
+      caps: {
+        summariesUsed: 0,
+        summariesLimit: 1,
+        projectsUsed: 0,
+        projectsLimit: 0,
+      },
+      anonymousTrial: { state: "available", remainingMessages: 5 },
+      subscriptionPresentation: { state: "anonymous" },
+    });
+    const { result } = renderHook(() => useChatStream({ youtubeUrl: VALID_URL }), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.send("try");
+    });
+
+    expect(result.current.anonymousTrialUnavailable).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(client.getQueryData<EntitlementsData>(["entitlements"])?.anonymousTrial)
+      .toEqual({ state: "unavailable" });
   });
 
   it("captures chat_started only once per video across A to B to A navigation", async () => {

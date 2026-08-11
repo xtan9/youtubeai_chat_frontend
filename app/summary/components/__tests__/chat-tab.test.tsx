@@ -143,6 +143,20 @@ beforeEach(() => {
   vi.mocked(createClient).mockReturnValue(
     { auth: supabaseAuthMock } as unknown as ReturnType<typeof createClient>,
   );
+  vi.mocked(useEntitlements).mockReturnValue({
+    data: {
+      tier: "free",
+      caps: {
+        summariesUsed: 0,
+        summariesLimit: 10,
+        projectsUsed: 0,
+        projectsLimit: 3,
+      },
+      subscriptionPresentation: { state: "free" },
+    },
+    isLoading: false,
+    error: null,
+  } as unknown as ReturnType<typeof useEntitlements>);
 });
 
 afterEach(() => {
@@ -656,6 +670,243 @@ describe("ChatTab", () => {
     expect(href.searchParams.get("redirect_to")).toBe(
       "/summary?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ",
     );
+  });
+
+  it("shows the authoritative five-message Anonymous Trial allowance accessibly before first use", async () => {
+    (useUser as unknown as Mock).mockReturnValue({
+      user: fakeSession("anon-token", true).user,
+      session: fakeSession("anon-token", true),
+      isLoading: false,
+      error: null,
+    });
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 5 },
+        subscriptionPresentation: { state: "anonymous" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("5 Anonymous Trial messages remaining")).toBeTruthy(),
+    );
+    expect(
+      (screen.getByLabelText(/chat message/i) as HTMLTextAreaElement).maxLength,
+    ).toBe(500);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("reconciles the Anonymous Trial counter from the server admission event, not visible history", async () => {
+    (useUser as unknown as Mock).mockReturnValue({
+      user: fakeSession("anon-token", true).user,
+      session: fakeSession("anon-token", true),
+      isLoading: false,
+      error: null,
+    });
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 5 },
+        subscriptionPresentation: { state: "anonymous" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    const fetchMock = makeRouter({
+      onMessages: () => jsonResponse({ messages: [] }),
+      onStream: () =>
+        sseResponse([
+          {
+            type: "anonymous_trial_admitted",
+            reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+            remainingMessages: 4,
+          },
+          { type: "delta", text: "Grounded answer" },
+          { type: "done" },
+        ]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("5 Anonymous Trial messages remaining")).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText(/chat message/i), {
+      target: { value: "What is the main idea?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("4 Anonymous Trial messages remaining")).toBeTruthy(),
+    );
+    expect(screen.queryByText(/1 of 5 free messages used/i)).toBeNull();
+  });
+
+  it.each([
+    [
+      "exhausted",
+      { state: "available" as const, remainingMessages: 0 },
+      /used all 5 anonymous trial messages/i,
+      "status",
+    ],
+    [
+      "fail-closed",
+      { state: "unavailable" as const },
+      /anonymous chat is temporarily unavailable/i,
+      "alert",
+    ],
+  ])(
+    "replaces the composer with a Create Account action for the %s Anonymous Trial state",
+    async (_label, anonymousTrial, expectedCopy, expectedRole) => {
+      vi.mocked(useEntitlements).mockReturnValue({
+        data: {
+          tier: "anon",
+          caps: {
+            summariesUsed: 0,
+            summariesLimit: 1,
+            projectsUsed: 0,
+            projectsLimit: 0,
+          },
+          anonymousTrial,
+          subscriptionPresentation: { state: "anonymous" },
+        },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useEntitlements>);
+      vi.stubGlobal(
+        "fetch",
+        makeRouter({ onMessages: () => jsonResponse({ messages: [] }) }),
+      );
+
+      renderWithChatProviders(
+        <ChatTab
+          youtubeUrl={VALID_URL}
+          active={true}
+          analyticsSurface="hero_demo"
+        />,
+      );
+
+      await waitFor(() => expect(screen.getByText(expectedCopy)).toBeTruthy());
+      expect(screen.getByRole(expectedRole as "alert" | "status")).toBeTruthy();
+      expect(screen.queryByLabelText(/chat message/i)).toBeNull();
+      expect(
+        screen.getByRole("link", { name: /create account/i }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("clears stale Anonymous Trial stream state after registration or upgrade", async () => {
+    (useUser as unknown as Mock).mockReturnValue({
+      user: fakeSession("anon-token", true).user,
+      session: fakeSession("anon-token", true),
+      isLoading: false,
+      error: null,
+    });
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 5 },
+        subscriptionPresentation: { state: "anonymous" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({
+        onMessages: () => jsonResponse({ messages: [] }),
+        onStream: () =>
+          sseResponse([
+            {
+              type: "error",
+              message: "Anonymous chat is temporarily unavailable.",
+              errorCode: "anonymous_trial_unavailable",
+            },
+          ]),
+      }),
+    );
+
+    const view = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    fireEvent.change(await screen.findByLabelText(/chat message/i), {
+      target: { value: "What is the main idea?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/anonymous chat is temporarily unavailable/i),
+      ).toBeTruthy(),
+    );
+
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "pro",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: -1,
+          projectsUsed: 0,
+          projectsLimit: -1,
+        },
+        subscriptionPresentation: { state: "active_pro" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    view.rerender(
+      <ChatTab
+        youtubeUrl={VALID_URL}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/chat message/i)).toBeTruthy());
+    expect(screen.queryByText(/anonymous trial messages remaining/i)).toBeNull();
+    expect(screen.queryByText(/anonymous chat is temporarily unavailable/i)).toBeNull();
+    expect(screen.getByLabelText(/chat message/i).getAttribute("maxlength")).toBeNull();
   });
 
   it("renders ChatCapCounter at 4/5 messages for free tier", async () => {

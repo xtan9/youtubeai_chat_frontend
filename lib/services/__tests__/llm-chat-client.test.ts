@@ -76,6 +76,45 @@ describe("streamChatCompletion", () => {
     expect(requestBody.stream_options).toEqual({ include_usage: true });
   });
 
+  it("sends the Anonymous Trial output ceiling in the real provider body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(mkSseStream(["data: [DONE]\n\n"]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { streamChatCompletion } = await loadFresh();
+
+    for await (const _ of streamChatCompletion({
+      messages: [{ role: "user", content: "hi" }],
+      maxOutputTokens: 600,
+    })) {
+      void _;
+    }
+
+    const requestBody = JSON.parse(
+      fetchMock.mock.calls[0]?.[1]?.body as string,
+    ) as Record<string, unknown>;
+    expect(requestBody.max_tokens).toBe(600);
+  });
+
+  it("keeps the registered provider body default unchanged", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(mkSseStream(["data: [DONE]\n\n"]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { streamChatCompletion } = await loadFresh();
+
+    for await (const _ of streamChatCompletion({
+      messages: [{ role: "user", content: "hi" }],
+    })) {
+      void _;
+    }
+
+    const requestBody = JSON.parse(
+      fetchMock.mock.calls[0]?.[1]?.body as string,
+    ) as Record<string, unknown>;
+    expect(requestBody).not.toHaveProperty("max_tokens");
+  });
+
   it("throws on non-2xx", async () => {
     vi.stubGlobal(
       "fetch",

@@ -13,6 +13,7 @@ import {
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent } from "@/lib/observability";
+import type { EntitlementsData } from "./useEntitlements";
 
 interface UseChatStreamArgs {
   readonly youtubeUrl: string | null;
@@ -28,9 +29,13 @@ export interface ChatStreamApi {
   /** Set when the server returned 402 Payment Required. Consumers can
    *  inspect `upgradeError.errorCode` to pick the right paywall surface. */
   readonly upgradeError: UpgradeRequiredError | null;
+  readonly anonymousTrialRemaining: number | null;
+  readonly anonymousTrialUnavailable: boolean;
 }
 
 const MAX_PARSE_WARNINGS_PER_STREAM = 3;
+
+class AnonymousTrialUnavailableError extends Error {}
 
 function parseSseLine(
   line: string,
@@ -85,6 +90,8 @@ export function useChatStream({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<UpgradeRequiredError | null>(null);
+  const [anonymousTrialRemaining, setAnonymousTrialRemaining] = useState<number | null>(null);
+  const [anonymousTrialUnavailable, setAnonymousTrialUnavailable] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const chatStartedVideoKeysRef = useRef(new Set<string>());
 
@@ -103,6 +110,7 @@ export function useChatStream({
       const requestId = resolveRequestId(undefined);
       setError(null);
       setUpgradeError(null);
+      setAnonymousTrialUnavailable(false);
       setStreaming(true);
       setDraft({ user: message, assistant: "" });
 
@@ -162,13 +170,14 @@ export function useChatStream({
               tier?: string;
               upgradeUrl?: string;
               message?: string;
+              remainingMessages?: number;
             } = {};
             try {
               body = (await response.json()) as typeof body;
             } catch {
               // non-JSON error body
             }
-            throw new UpgradeRequiredError({
+            const upgrade = new UpgradeRequiredError({
               errorCode:
                 (body.errorCode as UpgradeRequiredError["errorCode"]) ??
                 "free_chat_exceeded",
@@ -176,6 +185,42 @@ export function useChatStream({
               upgradeUrl: body.upgradeUrl ?? "/pricing",
               message: body.message ?? "Upgrade required",
             });
+            if (
+              upgrade.errorCode === "anonymous_trial_exhausted" &&
+              body.remainingMessages === 0
+            ) {
+              setAnonymousTrialRemaining(0);
+              queryClient.setQueryData<EntitlementsData>(
+                ["entitlements"],
+                (current) => current
+                  ? {
+                      ...current,
+                      anonymousTrial: { state: "available", remainingMessages: 0 },
+                    }
+                  : current,
+              );
+            }
+            throw upgrade;
+          }
+          if (response.status === 503) {
+            let body: { errorCode?: string; message?: string } = {};
+            try {
+              body = (await response.json()) as typeof body;
+            } catch {
+              // non-JSON error body
+            }
+            if (body.errorCode === "anonymous_trial_unavailable") {
+              setAnonymousTrialUnavailable(true);
+              queryClient.setQueryData<EntitlementsData>(
+                ["entitlements"],
+                (current) => current
+                  ? { ...current, anonymousTrial: { state: "unavailable" } }
+                  : current,
+              );
+              throw new AnonymousTrialUnavailableError(
+                body.message ?? "Anonymous chat is temporarily unavailable.",
+              );
+            }
           }
           let serverMessage = "Could not send message.";
           try {
@@ -206,11 +251,35 @@ export function useChatStream({
           for (const line of lines) {
             const evt = parseSseLine(line, warnState);
             if (!evt) continue;
-            if (evt.type === "delta") {
+            if (evt.type === "anonymous_trial_admitted") {
+              setAnonymousTrialRemaining(evt.remainingMessages);
+              queryClient.setQueryData<EntitlementsData>(
+                ["entitlements"],
+                (current) => current
+                  ? {
+                      ...current,
+                      anonymousTrial: {
+                        state: "available",
+                        remainingMessages: evt.remainingMessages,
+                      },
+                    }
+                  : current,
+              );
+            } else if (evt.type === "delta") {
               receivedAny = true;
               assistantText += evt.text;
               setDraft({ user: message, assistant: assistantText });
             } else if (evt.type === "error") {
+              if (evt.errorCode === "anonymous_trial_unavailable") {
+                setAnonymousTrialUnavailable(true);
+                queryClient.setQueryData<EntitlementsData>(
+                  ["entitlements"],
+                  (current) => current
+                    ? { ...current, anonymousTrial: { state: "unavailable" } }
+                    : current,
+                );
+                throw new AnonymousTrialUnavailableError(evt.message);
+              }
               throw new Error(evt.message);
             } else {
               // done
@@ -237,7 +306,9 @@ export function useChatStream({
           (err instanceof DOMException && err.name === "AbortError") ||
           controller.signal.aborted;
         if (!aborted) {
-          if (err instanceof UpgradeRequiredError) {
+          if (err instanceof AnonymousTrialUnavailableError) {
+            // The caller renders a fail-closed registration action.
+          } else if (err instanceof UpgradeRequiredError) {
             setUpgradeError(err);
           } else {
             const msg =
@@ -261,5 +332,14 @@ export function useChatStream({
     [youtubeUrl, sourceSurface, session, queryClient]
   );
 
-  return { send, abort, streaming, draft, error, upgradeError };
+  return {
+    send,
+    abort,
+    streaming,
+    draft,
+    error,
+    upgradeError,
+    anonymousTrialRemaining,
+    anonymousTrialUnavailable,
+  };
 }

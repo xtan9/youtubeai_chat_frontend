@@ -18,6 +18,9 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       appendChatTurn: vi.fn(),
       appendChatUserMessage: vi.fn(),
       streamChatCompletion: vi.fn(),
+      reserveAnonymousTrialChatMessage: vi.fn(),
+      markAnonymousTrialChatMessageStarted: vi.fn(),
+      refundAnonymousTrialChatMessage: vi.fn(),
       after: vi.fn(afterPassthrough),
     },
   };
@@ -54,6 +57,13 @@ vi.mock("@/lib/services/chat-store", () => ({
 
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
+}));
+
+vi.mock("@/lib/services/anonymous-trial", () => ({
+  reserveAnonymousTrialChatMessage: mocks.reserveAnonymousTrialChatMessage,
+  markAnonymousTrialChatMessageStarted:
+    mocks.markAnonymousTrialChatMessageStarted,
+  refundAnonymousTrialChatMessage: mocks.refundAnonymousTrialChatMessage,
 }));
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
@@ -230,6 +240,19 @@ describe("POST /api/chat/stream", () => {
     mocks.listChatMessages.mockResolvedValue([]);
     mocks.appendChatTurn.mockResolvedValue(undefined);
     mocks.appendChatUserMessage.mockResolvedValue(undefined);
+    mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "admitted",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+      remainingMessages: 4,
+    });
+    mocks.markAnonymousTrialChatMessageStarted.mockResolvedValue({
+      outcome: "started",
+      remainingMessages: 4,
+    });
+    mocks.refundAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "refunded",
+      remainingMessages: 5,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -254,6 +277,22 @@ describe("POST /api/chat/stream", () => {
     const { POST } = await import("../route");
     const res = await POST(makeRequest({ youtube_url: "x", message: "" }));
     expect(res.status).toBe(400);
+  });
+
+  it("rejects client-supplied Grounding and model fields", async () => {
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({
+        youtube_url: VALID_URL,
+        message: "hi",
+        transcript: "client transcript",
+        summary: "client summary",
+        model: "client-model",
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(mocks.resolveRequestPrincipal).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
   it("rejects a body whose YouTube URL cannot resolve to a Video identity", async () => {
@@ -316,6 +355,192 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("admits an enabled Anonymous Trial on a Hero Demo before bounded LLM work", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "Grounded answer" };
+      yield { type: "done" as const };
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({
+        youtube_url: HERO_IDENTITY.canonicalUrl,
+        message: "What does the speaker recommend?",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.reserveAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+    });
+    expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+    });
+    expect(
+      mocks.markAnonymousTrialChatMessageStarted.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.streamChatCompletion.mock.invocationCallOrder[0]);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ maxOutputTokens: 600 }),
+    );
+    expect((await readSse(response.body!)).join("")).toContain(
+      '"type":"anonymous_trial_admitted","reservationId":"018f3f4e-8454-7e8b-a98d-f319b5c32291","remainingMessages":4',
+    );
+  });
+
+  it("rejects an enabled Anonymous Trial on a retained Video before Grounding or admission", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(databaseSubject());
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({ youtube_url: VALID_URL, message: "hi" }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(response.headers.get("X-Error-ID")).toBe("CHAT_ANON_SUBJECT_BLOCKED");
+    expect(mocks.loadGrounding).not.toHaveBeenCalled();
+    expect(mocks.reserveAnonymousTrialChatMessage).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("rejects an Anonymous Trial message over 500 characters before subject or admission work", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({
+        youtube_url: HERO_IDENTITY.canonicalUrl,
+        message: "x".repeat(501),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("X-Error-ID")).toBe(
+      "ANONYMOUS_TRIAL_MESSAGE_TOO_LONG",
+    );
+    expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
+    expect(mocks.reserveAnonymousTrialChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns authoritative exhaustion without starting LLM work", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "exhausted",
+      remainingMessages: 0,
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        errorCode: "anonymous_trial_exhausted",
+        remainingMessages: 0,
+      }),
+    );
+    expect(mocks.markAnonymousTrialChatMessageStarted).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the Anonymous Trial ledger is unavailable", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "unavailable",
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("X-Error-ID")).toBe(
+      "ANONYMOUS_TRIAL_UNAVAILABLE",
+    );
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        errorCode: "anonymous_trial_unavailable",
+        upgradeUrl: "/auth/sign-up",
+      }),
+    );
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before LLM work when start and immediate refund are unavailable", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.markAnonymousTrialChatMessageStarted.mockResolvedValue({
+      outcome: "unavailable",
+    });
+    mocks.refundAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "unavailable",
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+    );
+    const events = (await readSse(response.body!)).join("");
+
+    expect(events).toContain('"type":"error"');
+    expect(events).toContain('"errorCode":"anonymous_trial_unavailable"');
+    expect(mocks.refundAnonymousTrialChatMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("does not refund admitted usage after LLM work starts and fails", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      throw new Error("gateway failed after admission");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+    );
+    const events = (await readSse(response.body!)).join("");
+
+    expect(events).toContain('"type":"anonymous_trial_admitted"');
+    expect(events).toContain('"type":"error"');
+    expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
 
   it("streams stateless subject Grounding without entitlement or retention", async () => {

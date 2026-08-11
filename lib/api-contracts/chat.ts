@@ -10,7 +10,7 @@ import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
 export const ChatStreamRequestSchema = z.object({
   youtube_url: YouTubeUrlSchema,
   message: z.string().min(1).max(4000),
-});
+}).strict();
 export type ChatStreamRequest = z.infer<typeof ChatStreamRequestSchema>;
 
 export const ChatMessagesQuerySchema = z.object({
@@ -52,13 +52,21 @@ export const ChatSseDoneSchema = z.object({
   type: z.literal("done"),
 });
 
+export const ChatSseAnonymousTrialAdmittedSchema = z.object({
+  type: z.literal("anonymous_trial_admitted"),
+  reservationId: z.string().uuid(),
+  remainingMessages: z.number().int().min(0).max(5),
+});
+
 export const ChatSseErrorSchema = z.object({
   type: z.literal("error"),
   message: z.string(),
+  errorCode: z.literal("anonymous_trial_unavailable").optional(),
 });
 
 export const ChatSseEventSchema = z.discriminatedUnion("type", [
   ChatSseDeltaSchema,
+  ChatSseAnonymousTrialAdmittedSchema,
   ChatSseDoneSchema,
   ChatSseErrorSchema,
 ]);
