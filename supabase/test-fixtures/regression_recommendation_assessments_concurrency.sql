@@ -750,8 +750,8 @@ declare
   current_input_fingerprint text;
   rollout_result jsonb;
 begin
-  -- A quality report holds the shared advisory lock and a FOR SHARE lock on
-  -- the policy row while computing metrics and its input fingerprint.
+  -- A quality report holds the shared advisory lock while computing metrics
+  -- and its input fingerprint; policy DML waits in its quality-lock trigger.
   perform extensions.dblink_connect(quality_connection, connection_string);
   perform extensions.dblink_exec(quality_connection, 'set role service_role');
   perform extensions.dblink_exec(quality_connection, 'begin');
