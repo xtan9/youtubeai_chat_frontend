@@ -6,6 +6,7 @@ export const PROJECT_READINESS_FIXTURE_IDS = [
   "source_coverage",
   "transcript_truncation",
   "retrieval",
+  "five_source_retrieval",
   "multilingual_project",
   "long_project",
   "disagreement_abstention",
@@ -18,6 +19,17 @@ export const PROJECT_READINESS_FIXTURE_IDS = [
   "artifact_generation_atomic_cap",
   "video_processing_reliability",
 ] as const;
+
+export const PROJECT_READINESS_FIXTURE_CATALOG_VERSION = 2 as const;
+
+export const PROJECT_READINESS_RETRIEVAL_FIXTURE_IDS = [
+  "source_coverage",
+  "transcript_truncation",
+  "retrieval",
+  "five_source_retrieval",
+  "multilingual_project",
+  "long_project",
+] as const satisfies readonly (typeof PROJECT_READINESS_FIXTURE_IDS)[number][];
 
 const CountSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const ProjectReadinessFixtureResultSchema = z
@@ -49,6 +61,8 @@ const ProjectReadinessInputSchema = z
         citationMeasuredAnswers: CountSchema,
         groundedAnswers: CountSchema,
         coverageIntegrityAnswers: CountSchema,
+        retrievalMaterialReadySources: CountSchema,
+        retrievalRepresentedSources: CountSchema,
         processingSucceeded: CountSchema,
         processingFailed: CountSchema,
         measuredGenerations: CountSchema,
@@ -57,6 +71,15 @@ const ProjectReadinessInputSchema = z
         costUsdMicros: CountSchema,
         eligibleActivatedProjects: CountSchema,
         returnedProjects: CountSchema,
+      })
+      .strict(),
+    provenance: z
+      .object({
+        fixtureCatalogVersion: z.literal(
+          PROJECT_READINESS_FIXTURE_CATALOG_VERSION,
+        ),
+        repositoryRevision: z.string().regex(/^[0-9a-f]{40}$/u),
+        repositoryTreeState: z.literal("clean"),
       })
       .strict(),
     policy: z
@@ -80,6 +103,11 @@ const ProjectReadinessInputSchema = z
       [observations.resolvedCitations, observations.citationCandidates, "resolvedCitations"],
       [observations.citationMeasuredAnswers, observations.groundedAnswers, "citationMeasuredAnswers"],
       [observations.coverageIntegrityAnswers, observations.groundedAnswers, "coverageIntegrityAnswers"],
+      [
+        observations.retrievalRepresentedSources,
+        observations.retrievalMaterialReadySources,
+        "retrievalRepresentedSources",
+      ],
       [observations.measuredGenerations, observations.generationEvents, "measuredGenerations"],
       [observations.returnedProjects, observations.eligibleActivatedProjects, "returnedProjects"],
     ] as const) {
@@ -127,6 +155,14 @@ export function buildProjectReadinessReport(input: ProjectReadinessInput) {
       ? passedGate(id)
       : failedGate(id, fixture.failureClass ?? "fixture_failed");
   });
+  const retrievalFixtureGates = fixtureGates.filter((gate) =>
+    (PROJECT_READINESS_RETRIEVAL_FIXTURE_IDS as readonly string[]).includes(
+      gate.id,
+    ),
+  );
+  const retrievalFixturesPassed = retrievalFixtureGates.filter(
+    (gate) => gate.status === "passed",
+  ).length;
   const observations = {
     citationResolutionPct: percentage(
       input.observations.resolvedCitations,
@@ -135,6 +171,20 @@ export function buildProjectReadinessReport(input: ProjectReadinessInput) {
     sourceCoverageIntegrityPct: percentage(
       input.observations.coverageIntegrityAnswers,
       input.observations.groundedAnswers,
+    ),
+    retrievalRepresentedSources:
+      input.observations.retrievalRepresentedSources,
+    retrievalMaterialReadySources:
+      input.observations.retrievalMaterialReadySources,
+    retrievalRepresentationPct: percentage(
+      input.observations.retrievalRepresentedSources,
+      input.observations.retrievalMaterialReadySources,
+    ),
+    retrievalFixturesPassed,
+    retrievalFixturesRequired: PROJECT_READINESS_RETRIEVAL_FIXTURE_IDS.length,
+    retrievalFixturePassRatePct: percentage(
+      retrievalFixturesPassed,
+      PROJECT_READINESS_RETRIEVAL_FIXTURE_IDS.length,
     ),
     processingFailurePct: percentage(
       input.observations.processingFailed,
@@ -179,6 +229,19 @@ export function buildProjectReadinessReport(input: ProjectReadinessInput) {
             ? "observation_missing"
             : "source_coverage_integrity",
         ),
+    input.observations.retrievalMaterialReadySources > 0 &&
+    input.observations.retrievalRepresentedSources ===
+      input.observations.retrievalMaterialReadySources
+      ? passedGate("retrieval_source_representation")
+      : failedGate(
+          "retrieval_source_representation",
+          input.observations.retrievalMaterialReadySources === 0
+            ? "observation_missing"
+            : "silent_source_exclusion",
+        ),
+    retrievalFixturesPassed === PROJECT_READINESS_RETRIEVAL_FIXTURE_IDS.length
+      ? passedGate("retrieval_fixture_integrity")
+      : failedGate("retrieval_fixture_integrity", "retrieval_fixture_failed"),
     input.policy.maxProcessingFailurePct !== null &&
     input.observations.processingSucceeded + input.observations.processingFailed > 0 &&
     observations.processingFailurePct <= input.policy.maxProcessingFailurePct
@@ -221,6 +284,7 @@ export function buildProjectReadinessReport(input: ProjectReadinessInput) {
     schemaVersion: 1 as const,
     generatedAt: input.generatedAt,
     window: input.window,
+    provenance: input.provenance,
     decision: failures.length === 0
       ? "eligible_for_ga_review" as const
       : "controlled_beta" as const,

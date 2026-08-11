@@ -2,11 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PROJECT_READINESS_FIXTURE_IDS } from "../project-readiness";
 import {
+  PROJECT_READINESS_FIXTURE_CATALOG_VERSION,
   PROJECT_READINESS_FIXTURE_COMMANDS,
   runProjectReadinessFixtures,
 } from "../project-readiness-fixtures";
 
 describe("runProjectReadinessFixtures", () => {
+  it("publishes an immutable version for the exact executable fixture catalog", () => {
+    expect(PROJECT_READINESS_FIXTURE_CATALOG_VERSION).toBe(2);
+    expect(PROJECT_READINESS_FIXTURE_COMMANDS.every(({ timeoutMs }) => timeoutMs > 0)).toBe(
+      true,
+    );
+  });
+
   it("binds every required gate to at least one explicit executable seam", () => {
     for (const gateId of PROJECT_READINESS_FIXTURE_IDS) {
       expect(
@@ -59,6 +67,19 @@ describe("runProjectReadinessFixtures", () => {
       id: "artifact_generation_atomic_cap",
       passed: false,
       failureClass: "artifact_db_unavailable",
+    });
+  });
+
+  it("classifies a child deadline separately from an unavailable executable", async () => {
+    const results = await runProjectReadinessFixtures(async (command) => ({
+      exitCode: command.id === "passage_search_db" ? 1 : 0,
+      timedOut: command.id === "passage_search_db",
+    }));
+
+    expect(results.find(({ id }) => id === "five_source_retrieval")).toEqual({
+      id: "five_source_retrieval",
+      passed: false,
+      failureClass: "passage_search_db_timeout",
     });
   });
 });

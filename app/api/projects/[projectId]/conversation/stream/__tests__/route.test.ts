@@ -217,6 +217,54 @@ function model(...chunks: string[]) {
   });
 }
 
+function assessmentEnvelope(input?: {
+  readonly firstWeight?: number;
+  readonly secondWeight?: number;
+  readonly firstCandidateRelation?: "supports" | "opposes";
+  readonly secondCandidateRelation?: "supports" | "opposes";
+  readonly winnerPositionId?: "april" | "may";
+  readonly firstExactQuote?: string;
+}) {
+  return `ASSESSMENT_EVIDENCE ${JSON.stringify({
+    evidence: [
+      {
+        positionId: "april",
+        sourceId: "S1",
+        issueKey: "launch_timing",
+        relation: "supports",
+        citation: "[S1 @ 00:42]",
+        exactQuote: input?.firstExactQuote ?? PASSAGE.text,
+        supportWeight: input?.firstWeight ?? 2,
+      },
+      {
+        positionId: "may",
+        sourceId: "S2",
+        issueKey: "launch_timing",
+        relation: "opposes",
+        citation: "[S2 @ 00:44]",
+        exactQuote: PASSAGE_TWO.text,
+        supportWeight: input?.secondWeight ?? 1,
+      },
+    ],
+    candidate: {
+      kind: "assessment",
+      positions: [
+        {
+          positionId: "april",
+          relation: input?.firstCandidateRelation ?? "supports",
+          citation: "[S1 @ 00:42]",
+        },
+        {
+          positionId: "may",
+          relation: input?.secondCandidateRelation ?? "opposes",
+          citation: "[S2 @ 00:44]",
+        },
+      ],
+      winnerPositionId: input?.winnerPositionId ?? "april",
+    },
+  })}`;
+}
+
 describe("POST /api/projects/[projectId]/conversation/stream", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -414,7 +462,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
   it("keeps Project Assessment source claims, criteria, and confidence on the grounded path", async () => {
     mocks.search.mockResolvedValue(BALANCED_SEARCH);
     model(
-      "SUPPORTED\nProject Assessment\n\nCompeting positions\nThe launch-in-April position is supported by the available passage [S1 @ 00:42]. The May position depends on local testing [S2 @ 00:44].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:44].\n\nConfidence: medium",
+      `SUPPORTED\n${assessmentEnvelope()}\nProject Assessment\n\nCompeting positions\nThe launch-in-April position is supported by the available passage [S1 @ 00:42]. The May position depends on local testing [S2 @ 00:44].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:44].\n\nConfidence: medium`,
     );
     const response = await POST(
       request(
@@ -451,6 +499,46 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(prompt).toContain("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT");
     expect(prompt).toContain("directness and relevance");
     expect(prompt).toContain("not externally verified truth");
+  });
+
+  it.each([
+    ["averaged consensus", { secondCandidateRelation: "supports" as const }],
+    [
+      "inverted positions",
+      {
+        firstCandidateRelation: "opposes" as const,
+        secondCandidateRelation: "supports" as const,
+      },
+    ],
+    ["unsupported winner", { winnerPositionId: "may" as const }],
+    ["winner under equal evidence", { firstWeight: 1, secondWeight: 1 }],
+    ["fabricated evidence passage", { firstExactQuote: "A passage not in the Snapshot." }],
+  ])("abstains from a relation-invalid Assessment: %s", async (_label, override) => {
+    mocks.search.mockResolvedValue(BALANCED_SEARCH);
+    model(
+      `SUPPORTED\n${assessmentEnvelope(override)}\nProject Assessment\n\nCompeting positions\nApril and May are represented [S1 @ 00:42] [S2 @ 00:44].\n\nCriteria\nThe model selects April [S1 @ 00:42] [S2 @ 00:44].\n\nConfidence: medium`,
+    );
+
+    const streamed = await events(
+      await POST(
+        request(
+          "Which launch timing is better supported?",
+          undefined,
+          undefined,
+          "project_assessment",
+        ),
+        CONTEXT,
+      ),
+    );
+
+    expect(streamed).toContainEqual({
+      type: "answer_start",
+      classification: "abstained",
+      mode: "project_assessment",
+    });
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(
+      expect.objectContaining({ classification: "abstained" }),
+    );
   });
 
   it("abstains deterministically instead of persisting malformed Project Assessment prose", async () => {
@@ -554,7 +642,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
   it("emits a fragmented Project Assessment only after every position is cited", async () => {
     mocks.search.mockResolvedValue(BALANCED_SEARCH);
     model(
-      "SUPPORTED\nProject Assessment\n\nCompeting positions\nApril is supported [S1 @ 00:42]. ",
+      `SUPPORTED\n${assessmentEnvelope()}\nProject Assessment\n\nCompeting positions\nApril is supported [S1 @ 00:42]. `,
       "五月方案应等待本地测试完成 [S2 @ 00:44].\n\nCriteria\nDirectness and corroboration support both positions [S1 @ 00:42].\n\nConfidence: low",
     );
     const streamed = await events(
@@ -589,6 +677,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     };
     expect(completion.assistantContent).toContain("[S1 @ 00:42]");
     expect(completion.assistantContent).toContain("[S2 @ 00:44]");
+    expect(completion.assistantContent).not.toContain("ASSESSMENT_EVIDENCE");
     expect(
       completion.artifacts.sourceManifest.sources.map(
         (source) => source.sourceId,

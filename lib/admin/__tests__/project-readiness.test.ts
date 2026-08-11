@@ -11,6 +11,7 @@ const REQUIRED_FIXTURE_IDS = [
   "source_coverage",
   "transcript_truncation",
   "retrieval",
+  "five_source_retrieval",
   "multilingual_project",
   "long_project",
   "disagreement_abstention",
@@ -30,6 +31,8 @@ const observations = {
   citationMeasuredAnswers: 10,
   groundedAnswers: 10,
   coverageIntegrityAnswers: 10,
+  retrievalMaterialReadySources: 20,
+  retrievalRepresentedSources: 20,
   processingSucceeded: 19,
   processingFailed: 1,
   measuredGenerations: 8,
@@ -44,6 +47,12 @@ const policy = {
   maxProcessingFailurePct: 10,
   maxCostPerActivatedProjectUsdMicros: 25_000,
 };
+
+const provenance = {
+  fixtureCatalogVersion: 2,
+  repositoryRevision: "0123456789abcdef0123456789abcdef01234567",
+  repositoryTreeState: "clean",
+} as const;
 
 describe("buildProjectReadinessReport", () => {
   it("fails closed at the report boundary for malformed, duplicate, or contradictory evidence", () => {
@@ -62,6 +71,7 @@ describe("buildProjectReadinessReport", () => {
           maxProcessingFailurePct: 101,
           maxCostPerActivatedProjectUsdMicros: -1,
         },
+        provenance,
         fixtureResults: [
           { id: "citation_identity", passed: true },
           { id: "citation_identity", passed: true },
@@ -80,6 +90,7 @@ describe("buildProjectReadinessReport", () => {
         },
         observations,
         policy,
+        provenance,
         fixtureResults: [{ id: "looks_reassuring", passed: true }],
       }),
     ).toThrow(/invalid Project readiness input/i);
@@ -94,6 +105,7 @@ describe("buildProjectReadinessReport", () => {
       },
       observations,
       policy,
+      provenance,
       fixtureResults: [
         { id: "citation_identity", passed: false, failureClass: "wrong_video" },
       ],
@@ -132,12 +144,22 @@ describe("buildProjectReadinessReport", () => {
       },
       observations,
       policy,
+      provenance,
       fixtureResults: REQUIRED_FIXTURE_IDS.map((id) => ({ id, passed: true })),
     });
 
     expect(report.decision).toBe("eligible_for_ga_review");
     expect(report.failures).toEqual([]);
     expect(report.observations.fixturePassRatePct).toBe(100);
+    expect(report.observations).toMatchObject({
+      retrievalRepresentedSources: 20,
+      retrievalMaterialReadySources: 20,
+      retrievalRepresentationPct: 100,
+      retrievalFixturesPassed: 6,
+      retrievalFixturesRequired: 6,
+      retrievalFixturePassRatePct: 100,
+    });
+    expect(report.provenance).toEqual(provenance);
     expect(report.gates.every((gate) => gate.status === "passed")).toBe(true);
     expect(report.retention.targetPct).toBeNull();
   });
@@ -154,6 +176,7 @@ describe("buildProjectReadinessReport", () => {
         maxProcessingFailurePct: null,
         maxCostPerActivatedProjectUsdMicros: null,
       },
+      provenance,
       fixtureResults: REQUIRED_FIXTURE_IDS.map((id) => ({ id, passed: true })),
     });
 
@@ -176,6 +199,7 @@ describe("buildProjectReadinessReport", () => {
       },
       observations: { ...observations, citationMeasuredAnswers: 1 },
       policy,
+      provenance,
       fixtureResults: REQUIRED_FIXTURE_IDS.map((id) => ({ id, passed: true })),
     });
 
@@ -184,5 +208,30 @@ describe("buildProjectReadinessReport", () => {
       gate: "citation_resolution",
       failureClass: "citation_measurement_incomplete",
     });
+  });
+
+  it("keeps rollout controlled when even one material ready source is absent from retrieval", () => {
+    const report = buildProjectReadinessReport({
+      generatedAt: "2026-08-11T06:00:00.000Z",
+      window: {
+        start: "2026-07-12T06:00:00.000Z",
+        end: "2026-08-11T06:00:00.000Z",
+      },
+      observations: {
+        ...observations,
+        retrievalMaterialReadySources: 5,
+        retrievalRepresentedSources: 4,
+      },
+      policy,
+      provenance,
+      fixtureResults: REQUIRED_FIXTURE_IDS.map((id) => ({ id, passed: true })),
+    });
+
+    expect(report.decision).toBe("controlled_beta");
+    expect(report.failures).toContainEqual({
+      gate: "retrieval_source_representation",
+      failureClass: "silent_source_exclusion",
+    });
+    expect(report.observations.retrievalRepresentationPct).toBe(80);
   });
 });

@@ -32,7 +32,8 @@ from public.workspaces
 cross join (values
   ('d1000000-0000-4000-8000-000000000001'::uuid, 'Mixed coverage'),
   ('d1000000-0000-4000-8000-000000000002'::uuid, 'Fully ready'),
-  ('d1000000-0000-4000-8000-000000000003'::uuid, 'No ready evidence')
+  ('d1000000-0000-4000-8000-000000000003'::uuid, 'No ready evidence'),
+  ('d1000000-0000-4000-8000-000000000005'::uuid, 'Five material sources')
 ) as fixture(project_id, project_name)
 where workspaces.owner_id = '71000000-0000-4000-8000-000000000001';
 
@@ -96,6 +97,46 @@ values
     'ggggggg1007',
     'Negative timing readiness evidence',
     'Evidence Boundary Lab',
+    'en'
+  ),
+  (
+    '88000000-0000-4000-8000-000000000008',
+    'https://www.youtube.com/watch?v=matrlsrc001',
+    'matrlsrc001',
+    'Material source one',
+    'Readiness Lab',
+    'en'
+  ),
+  (
+    '89000000-0000-4000-8000-000000000009',
+    'https://www.youtube.com/watch?v=matrlsrc002',
+    'matrlsrc002',
+    'Material source two',
+    'Readiness Lab',
+    'en'
+  ),
+  (
+    '8a000000-0000-4000-8000-00000000000a',
+    'https://www.youtube.com/watch?v=matrlsrc003',
+    'matrlsrc003',
+    'Material source three',
+    'Readiness Lab',
+    'en'
+  ),
+  (
+    '8b000000-0000-4000-8000-00000000000b',
+    'https://www.youtube.com/watch?v=matrlsrc004',
+    'matrlsrc004',
+    'Material source four',
+    'Readiness Lab',
+    'en'
+  ),
+  (
+    '8c000000-0000-4000-8000-00000000000c',
+    'https://www.youtube.com/watch?v=matrlsrc005',
+    'matrlsrc005',
+    'Material source five',
+    'Readiness Lab',
     'en'
   );
 
@@ -224,6 +265,36 @@ values
     'manual_captions',
     'en',
     '[{"text":"negative timing must never become a passage","start":-4,"duration":3},{"text":"huge numeric timestamp","start":1e1000,"duration":4},{"text":"non-finite timestamp","start":"NaN","duration":"Infinity"}]'::jsonb
+  ),
+  (
+    '88000000-0000-4000-8000-000000000008',
+    'manual_captions',
+    'en',
+    '[{"text":"Unrelated introduction one.","start":0,"duration":3},{"text":"Material launch evidence position one.","start":30,"duration":4}]'::jsonb
+  ),
+  (
+    '89000000-0000-4000-8000-000000000009',
+    'manual_captions',
+    'en',
+    '[{"text":"Unrelated introduction two.","start":0,"duration":3},{"text":"Material launch evidence position two.","start":60,"duration":4}]'::jsonb
+  ),
+  (
+    '8a000000-0000-4000-8000-00000000000a',
+    'manual_captions',
+    'en',
+    '[{"text":"Unrelated introduction three.","start":0,"duration":3},{"text":"Material launch evidence position three.","start":90,"duration":4}]'::jsonb
+  ),
+  (
+    '8b000000-0000-4000-8000-00000000000b',
+    'manual_captions',
+    'en',
+    '[{"text":"Unrelated introduction four.","start":0,"duration":3},{"text":"Material launch evidence position four.","start":120,"duration":4}]'::jsonb
+  ),
+  (
+    '8c000000-0000-4000-8000-00000000000c',
+    'manual_captions',
+    'en',
+    '[{"text":"Unrelated introduction five.","start":0,"duration":3},{"text":"Material launch evidence position five.","start":150,"duration":4}]'::jsonb
   );
 
 insert into public.summaries (
@@ -256,13 +327,19 @@ values
     'Negative timing readiness summary',
     'manual_captions',
     null
-  );
+  ),
+  ('88000000-0000-4000-8000-000000000008', 'Material one', 'manual_captions', null),
+  ('89000000-0000-4000-8000-000000000009', 'Material two', 'manual_captions', null),
+  ('8a000000-0000-4000-8000-00000000000a', 'Material three', 'manual_captions', null),
+  ('8b000000-0000-4000-8000-00000000000b', 'Material four', 'manual_captions', null),
+  ('8c000000-0000-4000-8000-00000000000c', 'Material five', 'manual_captions', null);
 
 insert into public.project_source_sets (project_id, revision)
 values
   ('d1000000-0000-4000-8000-000000000001', 11),
   ('d1000000-0000-4000-8000-000000000002', 5),
   ('d1000000-0000-4000-8000-000000000003', 2),
+  ('d1000000-0000-4000-8000-000000000005', 1),
   ('d2000000-0000-4000-8000-000000000004', 1);
 
 insert into public.project_videos (
@@ -283,6 +360,11 @@ values
   ('d1000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000002', 2, 'ready', null, null),
   ('d1000000-0000-4000-8000-000000000003', '83000000-0000-4000-8000-000000000003', 1, 'processing', null, '91000000-0000-4000-8000-000000000002'),
   ('d1000000-0000-4000-8000-000000000003', '84000000-0000-4000-8000-000000000004', 2, 'failed', 'transcript_failed', null),
+  ('d1000000-0000-4000-8000-000000000005', '88000000-0000-4000-8000-000000000008', 1, 'ready', null, null),
+  ('d1000000-0000-4000-8000-000000000005', '89000000-0000-4000-8000-000000000009', 2, 'ready', null, null),
+  ('d1000000-0000-4000-8000-000000000005', '8a000000-0000-4000-8000-00000000000a', 3, 'ready', null, null),
+  ('d1000000-0000-4000-8000-000000000005', '8b000000-0000-4000-8000-00000000000b', 4, 'ready', null, null),
+  ('d1000000-0000-4000-8000-000000000005', '8c000000-0000-4000-8000-00000000000c', 5, 'ready', null, null),
   ('d2000000-0000-4000-8000-000000000004', '85000000-0000-4000-8000-000000000005', 1, 'ready', null, null);
 
 do $$
@@ -462,6 +544,38 @@ begin
   );
   raw_long_text := '  ' || repeat('x', 650) || ' '
     || decomposed_query || ' evidence ' || repeat('y', 650);
+
+  result := public.search_project_transcript_passages_balanced(
+    'd1000000-0000-4000-8000-000000000005',
+    'material launch',
+    8
+  );
+
+  if result ->> 'outcome' <> 'ready'
+    or (result #>> '{coverage,totalVideos}')::integer <> 5
+    or (result #>> '{coverage,readyVideos}')::integer <> 5
+    or pg_catalog.jsonb_array_length(result -> 'passages') <> 5
+    or (
+      select pg_catalog.array_agg(
+        passage.item ->> 'videoId'
+        order by passage.item ->> 'videoId'
+      )
+      from pg_catalog.jsonb_array_elements(result -> 'passages') as passage(item)
+    ) is distinct from array[
+      '88000000-0000-4000-8000-000000000008',
+      '89000000-0000-4000-8000-000000000009',
+      '8a000000-0000-4000-8000-00000000000a',
+      '8b000000-0000-4000-8000-00000000000b',
+      '8c000000-0000-4000-8000-00000000000c'
+    ]::text[]
+    or exists (
+      select 1
+      from pg_catalog.jsonb_array_elements(result -> 'passages') as passage(item)
+      where passage.item ->> 'text' not like 'Material launch%'
+    )
+  then
+    raise exception 'REGRESSION: balanced five-source material retrieval drifted: %', result;
+  end if;
 
   result := public.search_project_transcript_passages(
     'd1000000-0000-4000-8000-000000000001',

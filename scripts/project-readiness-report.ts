@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { z } from "zod";
 
 import {
@@ -8,10 +7,16 @@ import {
   type ProjectAdoptionQueryResult,
 } from "../lib/analytics/project-adoption-query";
 import {
+  PROJECT_READINESS_FIXTURE_CATALOG_VERSION,
   runProjectReadinessFixtures,
   type ProjectReadinessFixtureCommand,
 } from "../lib/admin/project-readiness-fixtures";
 import { buildProjectReadinessReport } from "../lib/admin/project-readiness";
+import { runBoundedCommand } from "../lib/admin/project-readiness-command";
+import {
+  buildDisposableReadinessPsqlEnvironment,
+  resolveDisposableReadinessDatabase,
+} from "../lib/admin/project-readiness-database";
 
 const PostHogResultSchema = z
   .object({
@@ -23,6 +28,7 @@ const PostHogResultSchema = z
 async function main() {
   const generatedAt = new Date();
   const query = buildProjectAdoptionQuery({ windowDays: 30, now: generatedAt });
+  const repositoryRevision = await loadCleanRepositoryRevision();
   const fixtureResults = await runProjectReadinessFixtures(runFixtureCommand);
   const observations = await loadProductionObservations(query).catch((error) => {
     process.stderr.write(
@@ -33,6 +39,11 @@ async function main() {
   const report = buildProjectReadinessReport({
     generatedAt: generatedAt.toISOString(),
     window: query.window,
+    provenance: {
+      fixtureCatalogVersion: PROJECT_READINESS_FIXTURE_CATALOG_VERSION,
+      repositoryRevision,
+      repositoryTreeState: "clean",
+    },
     observations,
     policy: {
       maxProcessingFailurePct: readOptionalPolicyNumber(
@@ -66,6 +77,8 @@ async function loadProductionObservations(
     citationMeasuredAnswers: metrics.citationMeasuredAnswers,
     groundedAnswers: metrics.groundedAnswers,
     coverageIntegrityAnswers: metrics.coverageIntegrityAnswers,
+    retrievalMaterialReadySources: metrics.groundedReadyVideos,
+    retrievalRepresentedSources: metrics.groundedUsedVideos,
     processingSucceeded: metrics.processingSucceeded,
     processingFailed: metrics.processingFailed,
     measuredGenerations: metrics.measuredGenerations,
@@ -104,26 +117,53 @@ async function executePostHogQuery(
 }
 
 async function runFixtureCommand(command: ProjectReadinessFixtureCommand) {
-  if (
-    command.executable === "psql" &&
-    process.env.PROJECT_READINESS_ALLOW_DATABASE_FIXTURES !== "true"
-  ) {
-    throw new Error("DatabaseFixtureSafetyConfirmationMissing");
-  }
   process.stderr.write(`Running Project readiness fixture group: ${command.id}\n`);
-  return new Promise<{ exitCode: number }>((resolve, reject) => {
-    const executable = command.executable === "node" ? process.execPath : command.executable;
-    const child = spawn(executable, [...command.args], {
-      cwd: process.cwd(),
-      env: process.env,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    child.stdout.on("data", (chunk: Buffer) => process.stderr.write(chunk));
-    child.stderr.on("data", (chunk: Buffer) => process.stderr.write(chunk));
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ exitCode: code ?? 1 }));
+  let childEnvironment = process.env;
+  if (command.executable === "psql") {
+    const target = resolveDisposableReadinessDatabase(process.env);
+    childEnvironment = buildDisposableReadinessPsqlEnvironment(
+      process.env,
+      target,
+    );
+  }
+  return runBoundedCommand({
+    executable: command.executable === "node" ? process.execPath : command.executable,
+    args: command.args,
+    timeoutMs: command.timeoutMs,
+    cwd: process.cwd(),
+    env: childEnvironment,
+    onStdout: (chunk) => process.stderr.write(chunk),
+    onStderr: (chunk) => process.stderr.write(chunk),
   });
+}
+
+async function loadCleanRepositoryRevision() {
+  const result = await runBoundedCommand({
+    executable: "git",
+    args: ["rev-parse", "HEAD"],
+    timeoutMs: 5_000,
+    cwd: process.cwd(),
+    env: process.env,
+    captureStdout: true,
+    onStderr: (chunk) => process.stderr.write(chunk),
+  });
+  const revision = result.stdout?.trim() ?? "";
+  if (result.exitCode !== 0 || result.timedOut || !/^[0-9a-f]{40}$/u.test(revision)) {
+    throw new Error("RepositoryRevisionUnavailable");
+  }
+  const status = await runBoundedCommand({
+    executable: "git",
+    args: ["status", "--porcelain=v1", "--untracked-files=normal"],
+    timeoutMs: 5_000,
+    cwd: process.cwd(),
+    env: process.env,
+    captureStdout: true,
+    onStderr: (chunk) => process.stderr.write(chunk),
+  });
+  if (status.exitCode !== 0 || status.timedOut || status.stdout?.trim()) {
+    throw new Error("RepositoryTreeNotClean");
+  }
+  return revision;
 }
 
 function readOptionalPolicyNumber(name: string, maximum: number) {
@@ -142,6 +182,8 @@ function emptyObservations() {
     citationMeasuredAnswers: 0,
     groundedAnswers: 0,
     coverageIntegrityAnswers: 0,
+    retrievalMaterialReadySources: 0,
+    retrievalRepresentedSources: 0,
     processingSucceeded: 0,
     processingFailed: 0,
     measuredGenerations: 0,

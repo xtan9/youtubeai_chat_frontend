@@ -87,6 +87,40 @@ function model(...chunks: string[]) {
   });
 }
 
+function assessmentEnvelope() {
+  const [april, june] = conflictingViewpointPassages();
+  return `ASSESSMENT_EVIDENCE ${JSON.stringify({
+    evidence: [
+      {
+        positionId: "april",
+        sourceId: "S1",
+        issueKey: "launch_timing",
+        relation: "supports",
+        citation: "[S1 @ 00:12]",
+        exactQuote: april?.text,
+        supportWeight: 2,
+      },
+      {
+        positionId: "june",
+        sourceId: "S2",
+        issueKey: "launch_timing",
+        relation: "opposes",
+        citation: "[S2 @ 00:18]",
+        exactQuote: june?.text,
+        supportWeight: 1,
+      },
+    ],
+    candidate: {
+      kind: "assessment",
+      positions: [
+        { positionId: "april", relation: "supports", citation: "[S1 @ 00:12]" },
+        { positionId: "june", relation: "opposes", citation: "[S2 @ 00:18]" },
+      ],
+      winnerPositionId: "april",
+    },
+  })}`;
+}
+
 function completed(classification: ProjectAnswerClassification) {
   return {
     outcome: "completed" as const,
@@ -209,7 +243,7 @@ describe("Project Grounded Answer stream transaction", () => {
   it("persists a structured Assessment that cites every selected source", async () => {
     const content =
       "Project Assessment\nCompeting positions\nApril is supported [S1 @ 00:12].\nJune is supported [S2 @ 00:18].\nCriteria\nThe passages conflict [S1 @ 00:12] [S2 @ 00:18].\nConfidence: medium";
-    model(`SUPPORTED\n${content}`);
+    model(`SUPPORTED\n${assessmentEnvelope()}\n${content}`);
 
     await executeProjectGroundedAnswerStream({
       mode: {

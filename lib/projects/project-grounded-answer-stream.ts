@@ -19,6 +19,7 @@ import {
   validateProjectSynthesisResponse,
   type ProjectConversationMode,
 } from "./project-grounded-synthesis";
+import { consumeProjectAssessmentEvidence } from "./project-assessment-contract";
 
 const MAX_CLASSIFICATION_LINE_LENGTH = 32;
 const SAFE_ABSTENTION =
@@ -281,6 +282,18 @@ export async function executeProjectGroundedAnswerStream(
     } else {
       const conversationMode =
         input.conversationMode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
+      if (conversationMode === "project_assessment") {
+        const assessment = consumeProjectAssessmentEvidence(
+          assistantBuffer,
+          input.artifacts,
+        );
+        if (!assessment.valid) {
+          classification = "abstained";
+          assistantBuffer = input.mode.abstentionContent ?? SAFE_ABSTENTION;
+        } else {
+          assistantBuffer = assessment.visibleContent;
+        }
+      }
       const synthesis = validateProjectSynthesisResponse(
         conversationMode,
         assistantBuffer,
