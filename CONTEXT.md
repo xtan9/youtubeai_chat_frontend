@@ -60,6 +60,18 @@ _Avoid_: Full Transcript, Summary, Project Goal
 The evidence-relative result of one Evidence Finding: Supported, Qualified, Conflicts, or Unresolved. It describes what the admissible evidence retrieved as of a stated date establishes about one claim, not whether a Video or person is truthful or trustworthy.
 _Avoid_: Verdict, truth label, factuality rating
 
+**Evidence Item**:
+One exact, bounded passage from one identified state of an external resource, admitted for one versioned material-claim representation under a governed source policy. It carries its source identity, origin, scope, rights, and change policy; a link alone is not an Evidence Item.
+_Avoid_: Source link, trusted website, search result
+
+**Evidence Origin Group**:
+The underlying record, study, dataset, event, press release, wire report, or expert from which one or more Evidence Items derive. Multiple reports from one origin count once when evaluating source independence.
+_Avoid_: Domain, publisher score, citation count
+
+**Evidence Set**:
+The complete governed collection of Evidence Items and material supporting, qualifying, and contrary positions evaluated for one versioned material-claim representation. It is sufficient only when the source policy passes every required claim element, authority, independence, scope, rights, and conflict rule.
+_Avoid_: Source list, search results, evidence score
+
 **Evidence Check Run**:
 One mutable, asynchronous attempt with frozen inputs and exactly one terminal outcome. It never exposes partial or invalid Findings.
 _Avoid_: Report draft, retry attempt
