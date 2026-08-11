@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import { generateSemanticProfile } from "./semantic-profile";
+import { SPARK } from "@/lib/services/models";
 
 const ClaimedWorkSchema = z
   .object({
@@ -32,6 +33,7 @@ const BASE_RETRY_DELAY_SECONDS = 30;
 const BUDGET_RETRY_DELAY_SECONDS = 900;
 const ESTIMATED_MICRO_USD_PER_PROFILE = 5_000;
 const GENERATION_TIMEOUT_MS = 35_000;
+const GENERATOR_MODEL = process.env.LLM_MODEL?.trim() || SPARK;
 
 export async function runSemanticProfileWorker(): Promise<WorkerResult> {
   const supabase = getServiceRoleClient();
@@ -95,17 +97,19 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
     const budget = await supabase.rpc("begin_semantic_profile_generation", {
       p_request_id: work.request_id,
       p_estimated_micro_usd: ESTIMATED_MICRO_USD_PER_PROFILE,
+      p_generator_model: GENERATOR_MODEL,
     });
     if (budget.error) {
       await fail(raw, "worker_error");
       continue;
     }
-    if (
+    const budgetOutcome =
       budget.data &&
       typeof budget.data === "object" &&
-      "outcome" in budget.data &&
-      budget.data.outcome === "budget_exhausted"
-    ) {
+      "outcome" in budget.data
+        ? budget.data.outcome
+        : null;
+    if (budgetOutcome === "budget_exhausted" || budgetOutcome === "model_inactive") {
       const release = await supabase.rpc("defer_semantic_profile_work", {
         p_msg_id: work.msg_id,
         p_request_id: work.request_id,
@@ -119,12 +123,6 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
       deferred += 1;
       continue;
     }
-    const budgetOutcome =
-      budget.data &&
-      typeof budget.data === "object" &&
-      "outcome" in budget.data
-        ? budget.data.outcome
-        : null;
     if (budgetOutcome !== "started") {
       if (
         budgetOutcome !== "obsolete" &&
@@ -170,8 +168,7 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
         p_counterpoint_concept_keys: profile.counterpointConceptKeys,
         p_difficulty: profile.difficulty,
         p_generator_model:
-          process.env.LLM_MODEL?.trim() ||
-          "gpt-5.3-codex-spark",
+          GENERATOR_MODEL,
         p_prompt_version: "semantic-profile-prompt-v1",
       });
       if (completion.error) {

@@ -25,6 +25,16 @@ configuration is reused. No provider-specific OpenAI embedding credential is
 required. The Gateway call remains server-only, bounded by timeout and durable
 processing budget, and its output is validated before persistence.
 
+The model activation registry is private and empty by default. Generation and
+retrieval require an exact active model/schema/prompt tuple whose record binds
+to a passed Gateway evaluation ledger entry and a matching named human
+approval. The evaluation metrics and approval identity are written by a
+privileged operator path; the service role can activate only existing records.
+Durable requests carry the activation fingerprint/model/prompt, so switching
+or retiring a tuple cannot execute stale work. Retirement is a fail-closed
+kill switch; a benchmark or environment variable cannot activate a model on
+its own.
+
 ## Consequences
 
 This removes pgvector, embedding-model selection, and the paid small-vs-large
