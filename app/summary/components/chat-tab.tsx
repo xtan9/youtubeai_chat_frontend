@@ -70,7 +70,9 @@ export function ChatTab({
     youtubeUrl,
     active && suggestionsOverride === undefined,
   );
-  const { data: ent } = useEntitlements();
+  const { data: ent } = useEntitlements(
+    analyticsSurface === "hero_demo" ? youtubeUrl : null,
+  );
 
   const handleSend = () => {
     const text = draftInput.trim();
@@ -127,6 +129,21 @@ export function ChatTab({
     anonymousTrialEligible &&
     (stream.upgradeError?.errorCode === "anonymous_trial_exhausted" ||
       anonymousTrialRemaining === 0);
+  const registeredFreeHeroDemoEligible =
+    analyticsSurface === "hero_demo" && ent?.tier === "free";
+  const registeredFreeHeroDemoRemaining = registeredFreeHeroDemoEligible
+    ? stream.registeredFreeHeroDemoRemaining ??
+      (ent.registeredFreeHeroDemoChat?.state === "available"
+        ? ent.registeredFreeHeroDemoChat.remainingMessages
+        : null)
+    : null;
+  const registeredFreeHeroDemoExhausted =
+    registeredFreeHeroDemoEligible &&
+    (registeredFreeHeroDemoRemaining === 0 ||
+      stream.upgradeError?.errorCode === "free_chat_exceeded");
+  const registeredFreeHeroDemoUnavailable =
+    registeredFreeHeroDemoEligible &&
+    ent.registeredFreeHeroDemoChat?.state === "unavailable";
   const visibleUpgradeError =
     stream.upgradeError?.errorCode === "anonymous_trial_exhausted" &&
     !anonymousTrialEligible
@@ -200,7 +217,14 @@ export function ChatTab({
       )}
 
       <div className="border-t border-border-subtle p-3">
-        {anonymousTrialUnavailable ? (
+        {registeredFreeHeroDemoUnavailable ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-accent-danger bg-surface-raised p-4 text-center text-body-sm text-accent-danger"
+          >
+            Free demo chat is temporarily unavailable. Please try again later.
+          </div>
+        ) : anonymousTrialUnavailable ? (
           <ChatCapBanner
             variant="anonymous-trial-unavailable"
             returnTo={chatReturnTo}
@@ -210,6 +234,8 @@ export function ChatTab({
             variant="anonymous-trial-exhausted"
             returnTo={chatReturnTo}
           />
+        ) : registeredFreeHeroDemoExhausted ? (
+          <ChatCapBanner variant="free-cap" returnTo={chatReturnTo} />
         ) : visibleUpgradeError ? (
           <ChatCapBanner
             variant={chatCapBannerVariant}
@@ -238,7 +264,11 @@ export function ChatTab({
             )}
             {ent?.tier === "free" && (
               <ChatCapCounter
-                used={userMessageCount}
+                used={
+                  registeredFreeHeroDemoRemaining === null
+                    ? userMessageCount
+                    : FREE_CHAT_LIMIT - registeredFreeHeroDemoRemaining
+                }
                 limit={FREE_CHAT_LIMIT}
               />
             )}

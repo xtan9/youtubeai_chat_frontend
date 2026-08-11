@@ -12,6 +12,8 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       resolveRequestPrincipal: vi.fn(),
       checkRateLimit: vi.fn(),
       checkChatEntitlement: vi.fn(),
+      resolveRegisteredSubscription: vi.fn(),
+      admitRegisteredFreeHeroDemoChatMessage: vi.fn(),
       resolveVideoChatSubject: vi.fn(),
       loadGrounding: vi.fn(),
       listChatMessages: vi.fn(),
@@ -41,8 +43,14 @@ vi.mock("@/lib/services/rate-limit", () => ({
 
 vi.mock("@/lib/services/entitlements", () => ({
   checkChatEntitlement: mocks.checkChatEntitlement,
+  resolveRegisteredSubscription: mocks.resolveRegisteredSubscription,
   FREE_LIMITS: { chatMessagesPerVideo: 5, summariesPerMonth: 10, historyItems: 10 },
   ANON_LIMITS: { summariesLifetime: 1 },
+}));
+
+vi.mock("@/lib/services/registered-free-hero-demo", () => ({
+  admitRegisteredFreeHeroDemoChatMessage:
+    mocks.admitRegisteredFreeHeroDemoChatMessage,
 }));
 
 vi.mock("@/lib/services/video-chat-subject", () => ({
@@ -234,6 +242,17 @@ describe("POST /api/chat/stream", () => {
     });
     mocks.checkChatEntitlement.mockResolvedValue({
       tier: "free", allowed: true, remaining: 5, reason: "within_limit",
+    });
+    mocks.resolveRegisteredSubscription.mockResolvedValue({
+      kind: "resolved",
+      tier: "free",
+      stripeSubscriptionId: null,
+      subscription: null,
+      presentation: { state: "registered_free" },
+    });
+    mocks.admitRegisteredFreeHeroDemoChatMessage.mockResolvedValue({
+      outcome: "admitted",
+      remainingMessages: 4,
     });
     mocks.resolveVideoChatSubject.mockResolvedValue(databaseSubject());
     mocks.loadGrounding.mockResolvedValue(readyGrounding());
@@ -691,18 +710,8 @@ describe("POST /api/chat/stream", () => {
     );
   });
 
-  it("skips entitlement when a ready subject has no entitlement target", async () => {
-    // Belt-and-braces: even if some future change accidentally calls
-    // checkChatEntitlement for demos, this asserts the demo response
-    // doesn't 402 on it. The not.toHaveBeenCalled assertion above
-    // pins the actual contract; this pins the consequence.
+  it("atomically admits Registered Free Hero Demo chat and exposes authoritative remaining allowance", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.checkChatEntitlement.mockResolvedValue({
-      tier: "free",
-      allowed: false,
-      remaining: 0,
-      reason: "exceeded",
-    });
     mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
@@ -713,9 +722,108 @@ describe("POST /api/chat/stream", () => {
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
     const res = await POST(makeRequest({ youtube_url: HERO_URL, message: "hi" }));
     expect(res.status).toBe(200);
-    await readSse(res.body!);
+    const events = (await readSse(res.body!)).join("");
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
+    expect(mocks.admitRegisteredFreeHeroDemoChatMessage).toHaveBeenCalledWith({
+      userId: "demo-user",
+      youtubeVideoId: "Hrbq66XqtCo",
+    });
+    expect(events).toContain(
+      '"type":"registered_free_hero_demo_admitted","remainingMessages":4',
+    );
   });
+
+  it("returns the normal plan upgrade outcome when a Registered Free Hero Demo allowance is exhausted", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.admitRegisteredFreeHeroDemoChatMessage.mockResolvedValue({
+      outcome: "exhausted",
+      remainingMessages: 0,
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "sixth" }),
+    );
+
+    expect(res.status).toBe(402);
+    await expect(res.json()).resolves.toEqual(
+      expect.objectContaining({
+        errorCode: "free_chat_exceeded",
+        tier: "free",
+        remainingMessages: 0,
+        upgradeUrl: "/pricing",
+      }),
+    );
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("keeps Pro Hero Demo chat unlimited without touching the Free ledger", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("pro-demo-user", false, true),
+    );
+    mocks.resolveRegisteredSubscription.mockResolvedValue({
+      kind: "resolved",
+      tier: "pro",
+      stripeSubscriptionId: null,
+      subscription: null,
+      presentation: { state: "active_pro", plan: null, renewsAt: null },
+    });
+    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "unlimited" };
+      yield { type: "done" as const };
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "sixth" }),
+    );
+    expect(res.status).toBe(200);
+    await readSse(res.body!);
+    expect(mocks.admitRegisteredFreeHeroDemoChatMessage).not.toHaveBeenCalled();
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "subscription",
+      () =>
+        mocks.resolveRegisteredSubscription.mockResolvedValue({
+          kind: "unavailable",
+        }),
+      "REGISTERED_FREE_HERO_DEMO_SUBSCRIPTION_UNAVAILABLE",
+    ],
+    [
+      "allowance",
+      () =>
+        mocks.admitRegisteredFreeHeroDemoChatMessage.mockResolvedValue({
+          outcome: "unavailable",
+        }),
+      "REGISTERED_FREE_HERO_DEMO_ALLOWANCE_UNAVAILABLE",
+    ],
+  ])(
+    "fails closed before LLM work when the Registered Free Hero Demo %s boundary is unavailable",
+    async (_label, arrange, expectedErrorId) => {
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("free-demo-user"),
+      );
+      mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+      mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+      arrange();
+
+      const { POST } = await import("../route");
+      const res = await POST(
+        makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+      );
+
+      expect(res.status).toBe(503);
+      expect(res.headers.get("X-Error-ID")).toBe(expectedErrorId);
+      expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    },
+  );
 
   it("still 402s anonymous users on non-allowlisted videos even with the allowlist active", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(

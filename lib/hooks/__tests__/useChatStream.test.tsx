@@ -23,7 +23,10 @@ import {
   sseResponse,
 } from "@/tests-utils/chat-test-helpers";
 import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
-import type { EntitlementsData } from "../useEntitlements";
+import {
+  entitlementsQueryKey,
+  type EntitlementsData,
+} from "../useEntitlements";
 
 const analyticsMocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -400,7 +403,7 @@ describe("useChatStream", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = freshQueryClient();
-    client.setQueryData<EntitlementsData>(["entitlements"], {
+    client.setQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL), {
       tier: "anon",
       caps: {
         summariesUsed: 0,
@@ -422,8 +425,96 @@ describe("useChatStream", () => {
     });
 
     expect(result.current.anonymousTrialRemaining).toBe(4);
-    expect(client.getQueryData<EntitlementsData>(["entitlements"])?.anonymousTrial)
+    expect(
+      client.getQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL))
+        ?.anonymousTrial,
+    )
       .toEqual({ state: "available", remainingMessages: 4 });
+  });
+
+  it("reconciles Registered Free Hero Demo admission and resets local state when the demo changes", async () => {
+    setLiveSession();
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "registered_free_hero_demo_admitted",
+          remainingMessages: 2,
+        },
+        { type: "delta", text: "Grounded answer" },
+        { type: "done" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = freshQueryClient();
+    client.setQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL), {
+      tier: "free",
+      caps: {
+        summariesUsed: 0,
+        summariesLimit: 10,
+        projectsUsed: 0,
+        projectsLimit: 1,
+      },
+      registeredFreeHeroDemoChat: {
+        state: "available",
+        remainingMessages: 3,
+      },
+      subscriptionPresentation: { state: "free" },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ youtubeUrl }) =>
+        useChatStream({ youtubeUrl, sourceSurface: "hero_demo" }),
+      {
+        initialProps: { youtubeUrl: VALID_URL },
+        wrapper: wrapper(client),
+      },
+    );
+    await act(async () => {
+      await result.current.send("What is the main idea?");
+    });
+
+    expect(result.current.registeredFreeHeroDemoRemaining).toBe(2);
+    expect(
+      client.getQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL))
+        ?.registeredFreeHeroDemoChat,
+    ).toEqual({ state: "available", remainingMessages: 2 });
+
+    rerender({ youtubeUrl: SECOND_VALID_URL });
+    await waitFor(() =>
+      expect(result.current.registeredFreeHeroDemoRemaining).toBeNull(),
+    );
+  });
+
+  it("reconciles Registered Free Hero Demo exhaustion from the stable 402 outcome", async () => {
+    setLiveSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponseForHook(
+          {
+            errorCode: "free_chat_exceeded",
+            tier: "free",
+            upgradeUrl: "/pricing",
+            remainingMessages: 0,
+            message: "Free Hero Demo allowance exhausted",
+          },
+          402,
+        ),
+      ),
+    );
+    const client = freshQueryClient();
+    const { result } = renderHook(
+      () =>
+        useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.send("sixth");
+    });
+
+    expect(result.current.registeredFreeHeroDemoRemaining).toBe(0);
+    expect(result.current.upgradeError?.errorCode).toBe("free_chat_exceeded");
   });
 
   it("reconciles authoritative Anonymous Trial exhaustion from a 402", async () => {
@@ -473,7 +564,7 @@ describe("useChatStream", () => {
       ),
     );
     const client = freshQueryClient();
-    client.setQueryData<EntitlementsData>(["entitlements"], {
+    client.setQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL), {
       tier: "anon",
       caps: {
         summariesUsed: 0,
@@ -484,9 +575,11 @@ describe("useChatStream", () => {
       anonymousTrial: { state: "available", remainingMessages: 5 },
       subscriptionPresentation: { state: "anonymous" },
     });
-    const { result } = renderHook(() => useChatStream({ youtubeUrl: VALID_URL }), {
-      wrapper: wrapper(client),
-    });
+    const { result } = renderHook(
+      () =>
+        useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(client) },
+    );
 
     await act(async () => {
       await result.current.send("try");
@@ -494,7 +587,10 @@ describe("useChatStream", () => {
 
     expect(result.current.anonymousTrialUnavailable).toBe(true);
     expect(result.current.error).toBeNull();
-    expect(client.getQueryData<EntitlementsData>(["entitlements"])?.anonymousTrial)
+    expect(
+      client.getQueryData<EntitlementsData>(entitlementsQueryKey(VALID_URL))
+        ?.anonymousTrial,
+    )
       .toEqual({ state: "unavailable" });
   });
 

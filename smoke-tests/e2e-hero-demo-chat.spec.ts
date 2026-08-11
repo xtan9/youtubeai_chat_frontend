@@ -4,7 +4,7 @@ import { test, expect, type Route } from "@playwright/test";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 
-test.describe("Hero demo chat (anonymous)", () => {
+test.describe("Hero demo chat", () => {
   test.beforeEach(async ({ context, page }) => {
     await context.clearCookies();
     await page.route("**/auth/v1/signup*", (route) =>
@@ -64,7 +64,7 @@ test.describe("Hero demo chat (anonymous)", () => {
     page,
     context,
   }) => {
-    await page.route("**/api/me/entitlements", async (route) => {
+    await page.route("**/api/me/entitlements*", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -129,7 +129,7 @@ test.describe("Hero demo chat (anonymous)", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.route("**/api/me/entitlements", async (route) => {
+    await page.route("**/api/me/entitlements*", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -170,6 +170,104 @@ test.describe("Hero demo chat (anonymous)", () => {
     expect(actionBox!.x).toBeGreaterThanOrEqual(0);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
   });
+
+  test("Registered Free reconciles and reloads the authoritative per-demo allowance", async ({
+    page,
+  }) => {
+    await page.route("**/auth/v1/signup*", (route) =>
+      fulfillJson(route, registeredSession()),
+    );
+    let remainingMessages = 2;
+    await page.route("**/api/me/entitlements*", async (route) => {
+      await fulfillJson(route, {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: {
+          state: "available",
+          remainingMessages,
+        },
+        subscriptionPresentation: { state: "free" },
+      });
+    });
+    await page.route("**/api/chat/stream", async (route) => {
+      remainingMessages = 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: [
+          `data: ${JSON.stringify({
+            type: "registered_free_hero_demo_admitted",
+            remainingMessages,
+          })}\n\n`,
+          `data: ${JSON.stringify({ type: "delta", text: "Grounded answer" })}\n\n`,
+          `data: ${JSON.stringify({ type: "done" })}\n\n`,
+        ].join(""),
+      });
+    });
+
+    await page.goto(BASE_URL + "/");
+    await expect(page.getByText("3 of 5 free messages used")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByLabel("Chat message").fill("What is the main argument?");
+    await page.getByLabel("Send message").click();
+    await expect(page.getByText("4 of 5 free messages used")).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByText("4 of 5 free messages used")).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
+  test("Registered Free exhaustion exposes the plan upgrade accessibly on mobile", async ({
+    page,
+  }) => {
+    await page.route("**/auth/v1/signup*", (route) =>
+      fulfillJson(route, registeredSession()),
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/me/entitlements*", async (route) => {
+      await fulfillJson(route, {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: {
+          state: "available",
+          remainingMessages: 0,
+        },
+        subscriptionPresentation: { state: "free" },
+      });
+    });
+
+    await page.goto(BASE_URL + "/");
+    const status = page.getByRole("status");
+    await expect(status).toContainText("5/5 free chat messages", {
+      timeout: 30_000,
+    });
+    await expect(page.getByLabel("Chat message")).toHaveCount(0);
+    const upgrade = page.getByRole("link", { name: /upgrade to pro/i });
+    await expect(upgrade).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    const actionBox = await upgrade.boundingBox();
+    expect(actionBox).not.toBeNull();
+    expect(actionBox!.x).toBeGreaterThanOrEqual(0);
+    expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
+  });
 });
 
 function fulfillJson(route: Route, body: unknown, status = 200) {
@@ -200,6 +298,19 @@ function anonymousSession() {
       created_at: new Date(now * 1000).toISOString(),
       updated_at: new Date(now * 1000).toISOString(),
       is_anonymous: true,
+    },
+  };
+}
+
+function registeredSession() {
+  const session = anonymousSession();
+  return {
+    ...session,
+    user: {
+      ...session.user,
+      email: "registered-free@example.com",
+      app_metadata: { provider: "email", providers: ["email"] },
+      is_anonymous: false,
     },
   };
 }

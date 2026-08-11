@@ -9,6 +9,10 @@ import {
 } from "@/lib/services/entitlements";
 import { ANON_COOKIE_NAME, verifyAnonId } from "@/lib/services/anon-cookie";
 import { getAnonymousTrialChatAllowance } from "@/lib/services/anonymous-trial";
+import { getRegisteredFreeHeroDemoChatAllowance } from "@/lib/services/registered-free-hero-demo";
+import { isHeroDemoVideoId } from "@/lib/constants/hero-demo-ids";
+import { YouTubeUrlSchema } from "@/lib/services/transcription-contract";
+import { normalizeYouTubeVideoId } from "@/lib/services/youtube-url";
 
 function jsonError(status: number, message: string) {
   return new Response(JSON.stringify({ message }), {
@@ -112,7 +116,7 @@ async function readProjectUsage(
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const principalResult = await resolveRequestPrincipal({
     source: "entitlements",
   });
@@ -161,6 +165,15 @@ export async function GET() {
   }
 
   const { tier, subscription, presentation } = subscriptionResult;
+  const requestedHeroDemoUrl = new URL(request.url).searchParams.get(
+    "hero_demo_youtube_url",
+  );
+  const parsedHeroDemoUrl = requestedHeroDemoUrl
+    ? YouTubeUrlSchema.safeParse(requestedHeroDemoUrl)
+    : null;
+  const requestedHeroDemoVideoId = parsedHeroDemoUrl?.success
+    ? normalizeYouTubeVideoId(parsedHeroDemoUrl.data)
+    : null;
   const supabase = getServiceRoleClient();
   const projectsUsed = supabase
     ? await readProjectUsage(supabase, userId)
@@ -225,6 +238,14 @@ export async function GET() {
     });
   }
 
+  const heroDemoAllowance =
+    requestedHeroDemoVideoId && isHeroDemoVideoId(requestedHeroDemoVideoId)
+      ? await getRegisteredFreeHeroDemoChatAllowance({
+          userId,
+          youtubeVideoId: requestedHeroDemoVideoId,
+        })
+      : null;
+
   return Response.json({
     tier,
     caps: {
@@ -236,5 +257,16 @@ export async function GET() {
       projectsLimit: FREE_LIMITS.projects,
     },
     subscriptionPresentation: presentation,
+    ...(heroDemoAllowance
+      ? {
+          registeredFreeHeroDemoChat:
+            heroDemoAllowance.outcome === "available"
+              ? {
+                  state: "available" as const,
+                  remainingMessages: heroDemoAllowance.remainingMessages,
+                }
+              : { state: "unavailable" as const },
+        }
+      : {}),
   });
 }

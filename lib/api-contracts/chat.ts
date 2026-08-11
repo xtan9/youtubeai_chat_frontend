@@ -58,6 +58,11 @@ export const ChatSseAnonymousTrialAdmittedSchema = z.object({
   remainingMessages: z.number().int().min(0).max(5),
 });
 
+export const ChatSseRegisteredFreeHeroDemoAdmittedSchema = z.object({
+  type: z.literal("registered_free_hero_demo_admitted"),
+  remainingMessages: z.number().int().min(0).max(4),
+});
+
 export const ChatSseErrorSchema = z.object({
   type: z.literal("error"),
   message: z.string(),
@@ -67,6 +72,7 @@ export const ChatSseErrorSchema = z.object({
 export const ChatSseEventSchema = z.discriminatedUnion("type", [
   ChatSseDeltaSchema,
   ChatSseAnonymousTrialAdmittedSchema,
+  ChatSseRegisteredFreeHeroDemoAdmittedSchema,
   ChatSseDoneSchema,
   ChatSseErrorSchema,
 ]);

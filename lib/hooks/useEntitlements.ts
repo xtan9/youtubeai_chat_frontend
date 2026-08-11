@@ -29,10 +29,24 @@ export type EntitlementsData = {
   anonymousTrial?:
     | { state: "available"; remainingMessages: number }
     | { state: "unavailable" };
+  registeredFreeHeroDemoChat?:
+    | { state: "available"; remainingMessages: number }
+    | { state: "unavailable" };
 };
 
-async function fetchEntitlements(): Promise<EntitlementsData> {
-  const res = await fetch("/api/me/entitlements", { cache: "no-store" });
+export function entitlementsQueryKey(heroDemoYoutubeUrl?: string | null) {
+  return heroDemoYoutubeUrl
+    ? (["entitlements", "hero_demo", heroDemoYoutubeUrl] as const)
+    : (["entitlements"] as const);
+}
+
+async function fetchEntitlements(
+  heroDemoYoutubeUrl?: string | null,
+): Promise<EntitlementsData> {
+  const query = heroDemoYoutubeUrl
+    ? `?hero_demo_youtube_url=${encodeURIComponent(heroDemoYoutubeUrl)}`
+    : "";
+  const res = await fetch(`/api/me/entitlements${query}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`entitlements ${res.status}`);
   return (await res.json()) as EntitlementsData;
 }
@@ -47,10 +61,10 @@ async function fetchEntitlements(): Promise<EntitlementsData> {
  * Invalidate via `queryClient.invalidateQueries({ queryKey: ["entitlements"] })`
  * after a mutation that changes tier or caps (e.g. /billing/success → tier=pro).
  */
-export function useEntitlements() {
+export function useEntitlements(heroDemoYoutubeUrl?: string | null) {
   const query = useQuery({
-    queryKey: ["entitlements"],
-    queryFn: fetchEntitlements,
+    queryKey: entitlementsQueryKey(heroDemoYoutubeUrl),
+    queryFn: () => fetchEntitlements(heroDemoYoutubeUrl),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
