@@ -11,7 +11,10 @@ vi.mock("@/lib/supabase/service-role", () => ({
   getServiceRoleClient: mocks.getServiceRoleClient,
 }));
 
-import { runCatalogAdmissionWorker } from "../catalog-admission-worker";
+import {
+  runCatalogAdmissionMaintenance,
+  runCatalogAdmissionWorker,
+} from "../catalog-admission-worker";
 
 const WORK = {
   msg_id: 41,
@@ -72,6 +75,39 @@ describe("runCatalogAdmissionWorker", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("schedules a bounded stale-evidence refresh before draining admission work", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "schedule_catalog_admission_refresh") {
+        return { data: { scheduled: 1 }, error: null };
+      }
+      if (name === "claim_catalog_admission_work") {
+        return { data: [], error: null };
+      }
+      return { data: { outcome: "ok" }, error: null };
+    });
+
+    await expect(runCatalogAdmissionMaintenance()).resolves.toEqual({
+      scheduled: 1,
+      claimed: 0,
+      completed: 0,
+      retried: 0,
+      exhausted: 0,
+    });
+    expect(mocks.rpc).toHaveBeenNthCalledWith(
+      1,
+      "schedule_catalog_admission_refresh",
+      { p_batch_size: 4 },
+    );
+    expect(mocks.rpc).toHaveBeenNthCalledWith(
+      2,
+      "claim_catalog_admission_work",
+      {
+        p_batch_size: 4,
+        p_visibility_timeout_seconds: 120,
+      },
+    );
   });
 
   it("claims a bounded lease, refreshes through the provider, and commits normalized evidence", async () => {

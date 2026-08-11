@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mocks } = vi.hoisted(() => ({
-  mocks: { runCatalogAdmissionWorker: vi.fn() },
+  mocks: { runCatalogAdmissionMaintenance: vi.fn() },
 }));
 
 vi.mock("@/lib/catalog/catalog-admission-worker", () => ({
-  runCatalogAdmissionWorker: mocks.runCatalogAdmissionWorker,
+  runCatalogAdmissionMaintenance: mocks.runCatalogAdmissionMaintenance,
 }));
 
 import { GET } from "../route";
@@ -20,9 +20,10 @@ function request(token?: string) {
 describe("GET /api/internal/catalog-admission", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
-    mocks.runCatalogAdmissionWorker.mockReset();
+    mocks.runCatalogAdmissionMaintenance.mockReset();
     vi.stubEnv("CRON_SECRET", "worker-secret");
-    mocks.runCatalogAdmissionWorker.mockResolvedValue({
+    mocks.runCatalogAdmissionMaintenance.mockResolvedValue({
+      scheduled: 1,
       claimed: 1,
       completed: 1,
       retried: 0,
@@ -33,25 +34,26 @@ describe("GET /api/internal/catalog-admission", () => {
   it("rejects a browser request without worker authentication", async () => {
     const response = await GET(request());
     expect(response.status).toBe(401);
-    expect(mocks.runCatalogAdmissionWorker).not.toHaveBeenCalled();
+    expect(mocks.runCatalogAdmissionMaintenance).not.toHaveBeenCalled();
   });
 
   it("fails closed when worker authentication is not configured", async () => {
     vi.stubEnv("CRON_SECRET", "");
     const response = await GET(request("anything"));
     expect(response.status).toBe(503);
-    expect(mocks.runCatalogAdmissionWorker).not.toHaveBeenCalled();
+    expect(mocks.runCatalogAdmissionMaintenance).not.toHaveBeenCalled();
   });
 
   it("runs one bounded worker batch for the authenticated scheduler", async () => {
     const response = await GET(request("worker-secret"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      scheduled: 1,
       claimed: 1,
       completed: 1,
       retried: 0,
       exhausted: 0,
     });
-    expect(mocks.runCatalogAdmissionWorker).toHaveBeenCalledOnce();
+    expect(mocks.runCatalogAdmissionMaintenance).toHaveBeenCalledOnce();
   });
 });

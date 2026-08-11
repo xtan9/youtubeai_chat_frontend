@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { runCatalogAdmissionWorker } from "@/lib/catalog/catalog-admission-worker";
+import { runCatalogAdmissionMaintenance } from "@/lib/catalog/catalog-admission-worker";
 
 export const maxDuration = 60;
 
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    return Response.json(await runCatalogAdmissionWorker());
+    return Response.json(await runCatalogAdmissionMaintenance());
   } catch {
     return Response.json({ message: "Worker failed" }, { status: 500 });
   }
