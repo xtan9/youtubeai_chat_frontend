@@ -55,6 +55,7 @@ const PRINCIPAL = {
   isAnonymous: false,
   email: "owner@example.com",
   businessAnalyticsSuppressed: false,
+  projectAvailability: "invited" as const,
 };
 const LEASE = {
   projectId: PROJECT_ID,

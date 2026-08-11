@@ -16,6 +16,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { ProjectOutcomeState } from "../../_components/project-outcome-state";
 import { ProjectView } from "./project-view";
+import { hasProjectAvailability } from "@/lib/projects/project-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,9 @@ export default async function ProjectPage({
   }
   if (principalResult.kind === "missing" || principalResult.principal.isAnonymous) {
     redirect("/auth/login?next=/workspace");
+  }
+  if (!hasProjectAvailability(principalResult.principal.projectAvailability)) {
+    return <ProjectOutcomeState kind="beta_unavailable" />;
   }
 
   const { projectId } = await params;

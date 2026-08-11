@@ -22,7 +22,12 @@ import { GET, POST } from "../route";
 
 const PRINCIPAL = {
   kind: "resolved" as const,
-  principal: { userId: "user-1", isAnonymous: false, email: "r@example.test" },
+  principal: {
+    userId: "user-1",
+    isAnonymous: false,
+    email: "r@example.test",
+    projectAvailability: "invited" as const,
+  },
 };
 const PROJECT = {
   id: "a0000000-0000-4000-8000-000000000001",
@@ -165,5 +170,28 @@ describe("/api/workspace/projects", () => {
     const response = await GET();
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ outcome: "unavailable" });
+  });
+
+  it("keeps uninvited registered Researchers outside the beta before database access", async () => {
+    mocks.resolveRequestPrincipal.mockResolvedValue({
+      kind: "resolved",
+      principal: {
+        userId: "registered-1",
+        isAnonymous: false,
+        email: "registered@example.test",
+        projectAvailability: "unavailable",
+      },
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      outcome: "unavailable",
+      errorCode: "project_beta_unavailable",
+      message: "Projects are available to invited beta Researchers only.",
+    });
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.listWorkspaceProjects).not.toHaveBeenCalled();
   });
 });

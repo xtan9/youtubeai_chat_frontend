@@ -51,7 +51,7 @@ describe("POST /api/projects/[projectId]/search", () => {
     vi.resetAllMocks();
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "owner-1", isAnonymous: false },
+      principal: { userId: "owner-1", isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({

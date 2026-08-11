@@ -63,6 +63,7 @@ describe("resolveRequestPrincipal", () => {
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "unavailable",
       },
     });
     expect(Object.keys(result)).toEqual(["kind", "principal"]);
@@ -73,6 +74,7 @@ describe("resolveRequestPrincipal", () => {
       "email",
       "smokeProEntitled",
       "businessAnalyticsSuppressed",
+      "projectAvailability",
     ]);
   });
 
@@ -100,6 +102,7 @@ describe("resolveRequestPrincipal", () => {
         email: "",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "unavailable",
       },
     });
   });
@@ -124,6 +127,7 @@ describe("resolveRequestPrincipal", () => {
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "unavailable",
       },
     });
   });
@@ -150,6 +154,7 @@ describe("resolveRequestPrincipal", () => {
         email: null,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "unavailable",
       },
     });
   });
@@ -180,7 +185,29 @@ describe("resolveRequestPrincipal", () => {
       principal: {
         smokeProEntitled: true,
         businessAnalyticsSuppressed: true,
+        projectAvailability: "internal",
       },
+    });
+  });
+
+  it("accepts only trusted Project beta metadata", async () => {
+    configureClient();
+    mockGetUser.mockResolvedValue({
+      data: {
+        user: {
+          ...registeredUser,
+          app_metadata: { project_beta_access: "invited" },
+          user_metadata: { project_beta_access: "internal" },
+        },
+      },
+      error: null,
+    });
+
+    await expect(
+      resolveRequestPrincipal({ source: "workspace_projects" }),
+    ).resolves.toMatchObject({
+      kind: "resolved",
+      principal: { projectAvailability: "invited" },
     });
   });
 

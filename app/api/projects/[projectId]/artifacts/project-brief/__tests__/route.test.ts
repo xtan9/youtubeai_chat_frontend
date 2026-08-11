@@ -294,7 +294,7 @@ describe("Project Brief API", () => {
     });
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
+      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({
@@ -400,7 +400,7 @@ describe("Project Brief API", () => {
 
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
+      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.resolveProjectSubject.mockResolvedValueOnce({ kind: "forbidden" });
     expect(
@@ -600,6 +600,7 @@ describe("Project Brief API", () => {
         userId: USER_ID,
         isAnonymous: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "invited",
       },
     });
     let call = 0;
@@ -655,6 +656,7 @@ describe("Project Brief API", () => {
         userId: USER_ID,
         isAnonymous: false,
         businessAnalyticsSuppressed: false,
+        projectAvailability: "invited",
       },
     });
     mocks.streamChatCompletion.mockImplementation(async function* () {

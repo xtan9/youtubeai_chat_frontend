@@ -5,13 +5,23 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 export function ProjectOutcomeState({
   kind,
 }: {
-  kind: "anonymous" | "invalid" | "missing" | "unavailable";
+  kind:
+    | "anonymous"
+    | "beta_unavailable"
+    | "invalid"
+    | "missing"
+    | "unavailable";
 }) {
   const content = {
     anonymous: {
       title: "Create an account for Projects",
       message:
         "Register free to create one private, durable Project and keep your research ready to resume.",
+    },
+    beta_unavailable: {
+      title: "Projects are in invited beta",
+      message:
+        "This account does not have Project access yet. Your existing YouTube summaries and chats are unchanged.",
     },
     invalid: {
       title: "That Project link isn’t valid",
@@ -28,7 +38,7 @@ export function ProjectOutcomeState({
   }[kind];
 
   return (
-    <main className="mx-auto flex w-full max-w-page justify-center px-4 py-12 sm:px-6">
+    <div className="mx-auto flex w-full max-w-page justify-center px-4 py-12 sm:px-6">
       <Card className="w-full max-w-prose">
         <CardHeader>
           <h1 className="text-h4 font-semibold text-text-primary">
@@ -52,6 +62,6 @@ export function ProjectOutcomeState({
           </Button>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }

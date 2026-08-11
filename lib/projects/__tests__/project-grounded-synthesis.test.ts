@@ -18,8 +18,40 @@ import {
   passage,
   repeatedThemePassages,
 } from "./project-grounded-test-fixtures";
+import {
+  PROJECT_QUESTION_MAX_LENGTH,
+  ProjectGroundedQuestionRequestSchema,
+  projectGroundedQuestionCodePointLength,
+} from "../project-grounded-answer-contract";
 
 describe("Project guided synthesis contract", () => {
+  it("keeps every built-in prompt inside the localized composer contract", () => {
+    for (const action of PROJECT_GUIDED_ACTIONS) {
+      expect(projectGroundedQuestionCodePointLength(action.question)).toBeLessThanOrEqual(
+        PROJECT_QUESTION_MAX_LENGTH,
+      );
+      expect(
+        ProjectGroundedQuestionRequestSchema.safeParse({
+          questionId: "00000000-0000-4000-8000-000000000327",
+          question: action.question,
+          mode: action.mode,
+        }).success,
+      ).toBe(true);
+    }
+
+    const localizedQuestion = `${"证据🌍".repeat(50)}${"证据".repeat(25)}`;
+    expect(localizedQuestion.length).toBeGreaterThan(PROJECT_QUESTION_MAX_LENGTH);
+    expect(projectGroundedQuestionCodePointLength(localizedQuestion)).toBe(
+      PROJECT_QUESTION_MAX_LENGTH,
+    );
+    expect(
+      ProjectGroundedQuestionRequestSchema.safeParse({
+        questionId: "00000000-0000-4000-8000-000000000327",
+        question: localizedQuestion,
+      }).success,
+    ).toBe(true);
+  });
+
   it("exposes accessible compare and common-theme actions with editable questions", () => {
     expect(ProjectConversationModeSchema.parse("compare_viewpoints")).toBe(
       "compare_viewpoints",

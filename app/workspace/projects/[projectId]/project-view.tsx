@@ -141,7 +141,7 @@ export function ProjectView({
   }
 
   return (
-    <main
+    <div
       className="ph-no-capture mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12"
       data-ph-no-autocapture
     >
@@ -314,6 +314,6 @@ export function ProjectView({
           </Card>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }

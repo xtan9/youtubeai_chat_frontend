@@ -37,7 +37,7 @@ describe("/api/projects/[projectId]/conversations", () => {
     vi.resetAllMocks();
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
+      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({

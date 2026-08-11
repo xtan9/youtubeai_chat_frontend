@@ -38,10 +38,12 @@ const {
         id: "u1",
         is_anonymous: false,
         email: "test@example.com",
+        app_metadata: { project_beta_access: "invited" },
       } as {
         id: string;
         is_anonymous: boolean;
         email?: string;
+        app_metadata?: Record<string, unknown>;
       } | null,
       session: { access_token: "tok" } as { access_token: string } | null,
       isLoading: false,
@@ -114,6 +116,7 @@ beforeEach(() => {
       id: "u1",
       is_anonymous: false,
       email: "test@example.com",
+      app_metadata: { project_beta_access: "invited" },
     },
     session: { access_token: "tok" },
     isLoading: false,
@@ -146,6 +149,27 @@ describe("Header navigation", () => {
 
     expect(screen.queryByRole("link", { name: "Blog" })).toBeNull();
     expect(screen.queryByRole("link", { name: "FAQ" })).toBeNull();
+  });
+
+  it("keeps Projects out of navigation for registered Researchers outside the beta", () => {
+    userState.value = {
+      ...userState.value,
+      user: {
+        id: "uninvited-1",
+        is_anonymous: false,
+        email: "uninvited@example.com",
+        app_metadata: {},
+      },
+    };
+    const qc = freshQueryClient();
+    render(<Header />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.queryByRole("link", { name: "Workspace" })).toBeNull();
+    openDropdown(screen.getByRole("button", { name: /user menu/i }));
+    expect(screen.queryByRole("menuitem", { name: "Workspace" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Account" })).not.toBeNull();
   });
 });
 

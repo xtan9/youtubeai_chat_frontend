@@ -14,6 +14,7 @@ import { inspectProjectCitations } from "../lib/projects/project-grounded-citati
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
+const UNAVAILABLE_ID = "30000000-0000-4000-8000-000000000003";
 const OWNER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000001";
 const OTHER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000002";
 const FIXTURE_SERVICE_ROLE_KEY = "fixture-service-role-key";
@@ -493,6 +494,338 @@ async function expectProjectQuestionComposerReady(page: Page) {
   await expect(page.getByRole("button", { name: "Ask Project" })).toBeEnabled();
   await question.clear();
 }
+
+test("invited Free Researcher completes the controlled Project beta journey @invited-beta-critical", async ({
+  browser,
+  page,
+}) => {
+  const unavailableContext = await browser.newContext();
+  try {
+    await addSessionCookie(
+      unavailableContext,
+      UNAVAILABLE_ID,
+      "unavailable@example.test",
+    );
+    const unavailablePage = await unavailableContext.newPage();
+    await unavailablePage.goto(`${appUrl}/workspace`);
+    await expect(
+      unavailablePage.getByRole("heading", {
+        name: "Projects are in invited beta",
+      }),
+    ).toBeVisible();
+    await expect(
+      unavailablePage.getByRole("link", { name: "Workspace", exact: true }),
+    ).toHaveCount(0);
+    const unavailableApi = await unavailableContext.request.get(
+      `${appUrl}/api/workspace/projects`,
+    );
+    expect(unavailableApi.status()).toBe(403);
+    expect(await unavailableApi.json()).toMatchObject({
+      errorCode: "project_beta_unavailable",
+    });
+  } finally {
+    await unavailableContext.close();
+  }
+
+  await page.route("**/auth/v1/token?grant_type=password", async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "beta-candidate@example.test",
+      password: "fixture-password",
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": appUrl,
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify(
+        fixtureAuthSession(OTHER_ID, "beta-candidate@example.test"),
+      ),
+    });
+  });
+  await page.route("**/auth/v1/signup**", async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "beta-candidate@example.test",
+      password: "fixture-password",
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": appUrl,
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        user: authUser(OTHER_ID, "beta-candidate@example.test"),
+        session: null,
+      }),
+    });
+  });
+
+  await page.goto(`${appUrl}/workspace`);
+  await page.getByRole("link", { name: "Create free account" }).press("Enter");
+  await expect(page).toHaveURL(/\/auth\/sign-up\?redirect_to=%2Fworkspace$/u);
+  await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
+  await page.getByLabel("Email").fill("beta-candidate@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("fixture-password");
+  await page.getByLabel("Repeat Password").fill("fixture-password");
+  await page.getByRole("button", { name: "Sign up" }).press("Enter");
+  await expect(page).toHaveURL(/\/auth\/sign-up-success$/u);
+  await expect(
+    page.getByRole("heading", { name: "Thank you for signing up!" }),
+  ).toBeVisible();
+  await page.goto(`${appUrl}/auth/login`);
+  await expect(page).toHaveURL(/\/auth\/login$/u);
+  await expect(page.getByRole("heading", { name: "Login" })).toBeVisible();
+  await page.getByLabel("Email").fill("beta-candidate@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("fixture-password");
+  await Promise.all([
+    page.waitForURL(/\/dashboard$/u),
+    page.getByRole("button", { name: "Login" }).click(),
+  ]);
+  await expect(page.getByRole("button", { name: "User menu" })).toBeVisible();
+
+  await page.goto(`${appUrl}/workspace`);
+  await expect(
+    page.getByRole("link", { name: "Workspace", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create Project" }).press("Enter");
+  await page.getByLabel("Project name").fill("Invited multilingual beta");
+  await page
+    .getByLabel("Project Goal (optional)")
+    .fill("Explore local climate adaptation decisions.");
+  await page.getByRole("button", { name: "Create Project" }).last().click();
+  await page
+    .getByRole("link", { name: "Open Invited multilingual beta" })
+    .click();
+
+  async function addFixtureVideo(title: string) {
+    await page.getByRole("button", { name: "Add from History" }).press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Add a History Video" });
+    await dialog.getByLabel("Search History").fill(title);
+    await dialog.getByRole("button", { name: "Search" }).click();
+    const add = dialog.getByRole("button", {
+      name: `Add ${title} to Source Set`,
+    });
+    await expect(add).toBeVisible();
+    await add.press("Enter");
+    await expect(page.getByText(`Added ${title}.`, { exact: true })).toBeVisible();
+  }
+
+  await addFixtureVideo("Alpha evidence");
+  await addFixtureVideo("Delta context");
+  await expect(
+    page.getByRole("status", { name: "2 of 5 Project Videos" }),
+  ).toBeVisible();
+
+  await page
+    .getByLabel("Search exact Transcript passages")
+    .fill("climate adaptation");
+  await page.getByRole("button", { name: "Search Transcripts" }).press("Enter");
+  await expect(page.getByTestId("project-search-passage")).toHaveText([
+    /Climate adaptation depends on exact local evidence/u,
+    /气候适应需要准确的本地证据/u,
+  ]);
+  const multilingualTimestamp = page.getByRole("link", {
+    name: "Open Delta context at [0:42]",
+  });
+  await page.context().route("https://www.youtube.com/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<title>Video fixture</title>",
+    }),
+  );
+  const [timestampPage] = await Promise.all([
+    page.waitForEvent("popup"),
+    multilingualTimestamp.press("Enter"),
+  ]);
+  await expect(timestampPage).toHaveURL(
+    "https://www.youtube.com/watch?v=aaaaaaa0004&t=42s",
+  );
+  await timestampPage.close();
+
+  await page.getByRole("button", { name: "Project Assessment" }).press("Enter");
+  await expect(page.getByLabel("Ask the Project")).toHaveValue(
+    /Which position is better supported/u,
+  );
+  const askProject = page.getByRole("button", { name: "Ask Project" });
+  await expect(askProject).toBeEnabled();
+  await askProject.click();
+  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  gatewayGate.release();
+  const groundedAssessment = page.locator("article").filter({
+    has: page.getByLabel("Answer source manifest"),
+  });
+  await expect(
+    groundedAssessment.getByText("Project Assessment", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    groundedAssessment
+      .getByRole("link", { name: /S1 @ 00:42.*Alpha evidence/iu })
+      .first(),
+  ).toBeVisible();
+  await expect(
+    groundedAssessment
+      .getByRole("link", { name: /S2 @ 00:42.*Delta context/iu })
+      .first(),
+  ).toBeVisible();
+  const sourceCoverage = groundedAssessment.getByLabel("Source Coverage");
+  await expect(
+    sourceCoverage.getByText("Project Videos", { exact: true }).locator(".."),
+  ).toContainText("2");
+  await expect(
+    sourceCoverage.getByText("Used", { exact: true }).locator(".."),
+  ).toContainText("2");
+  await expect(
+    page.getByRole("status", { name: "1 of 5 free Project messages used" }),
+  ).toBeVisible();
+
+  const newConversation = page.getByRole("button", { name: "New conversation" });
+  await expect(newConversation).toBeEnabled();
+  await newConversation.press("Enter");
+  await page.getByRole("button", { name: "Rename New conversation" }).click();
+  await page
+    .getByRole("textbox", { name: "Conversation name" })
+    .fill("Artifact choices");
+  await page.getByRole("button", { name: "Save conversation name" }).click();
+  await expect(
+    page.getByRole("button", { name: /Project Conversation 2 messages/iu }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Artifact choices 0 messages/iu }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Choose Creator Brief" }).press("Enter");
+  const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
+  const creatorResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/artifacts/creator-brief") &&
+      response.request().method() === "POST",
+  );
+  await creatorBrief
+    .getByRole("button", { name: "Generate Creator Brief" })
+    .click();
+  const creatorResponse = await creatorResponsePromise;
+  expect(creatorResponse.status()).toBe(201);
+  await expect(
+    creatorBrief.getByRole("heading", { name: "Source claims" }),
+  ).toBeVisible();
+  await expect(
+    creatorBrief
+      .getByRole("link", { name: /S2 @ 00:42.*Delta context/iu })
+      .first(),
+  ).toBeVisible();
+  await creatorBrief
+    .getByRole("button", { name: "Regenerate Creator Brief" })
+    .click();
+  await expect(creatorBrief.getByRole("alert")).toContainText(
+    "Free includes 1 Artifact generation total.",
+  );
+  await expect(
+    creatorBrief.getByRole("link", { name: "View Pro plans" }),
+  ).toHaveAttribute("href", "/pricing");
+
+  const projectGoal = page.getByLabel("Project Goal (optional)");
+  await projectGoal.fill(
+    "Compare local and regional climate adaptation evidence.",
+  );
+  await page.getByRole("button", { name: "Save changes" }).press("Enter");
+  await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
+  await expect(creatorBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  const mainLandmark = page.getByRole("main");
+  await expect(mainLandmark).toHaveCount(1);
+  expect(
+    await mainLandmark.evaluate((main) =>
+      [...main.querySelectorAll<HTMLElement>("*")].every((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth <= element.clientWidth + 1 && !nestedVerticalScroll;
+      }),
+    ),
+  ).toBe(true);
+
+  await page.getByRole("link", { name: "Back to Workspace" }).click();
+  await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
+  await page
+    .getByRole("link", { name: "Open Invited multilingual beta" })
+    .click();
+  await page.getByRole("button", { name: /Artifact choices 0 messages/iu }).click();
+  gatewayOutcome = "failure";
+  await page
+    .getByLabel("Ask the Project")
+    .fill("What remains safe after a retrieval failure?");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(
+    page.getByText(/Something went wrong answering your Project question/iu),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByText("What remains safe after a retrieval failure?", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Choose Creator Brief" }).click();
+  await expect(
+    page.getByRole("region", { name: "Creator Brief" }),
+  ).toContainText("Source claims");
+  await expect(page.getByText("Alpha evidence", { exact: true })).toBeVisible();
+  await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
+
+  gatewayOutcome = "success";
+  for (const [messagesUsed, question] of [
+    [3, "What evidence supports the local decision?"],
+    [4, "How does the regional position differ?"],
+    [5, "What is the strongest bounded conclusion?"],
+  ] as const) {
+    await page.getByLabel("Ask the Project").fill(question);
+    await page.getByRole("button", { name: "Ask Project" }).click();
+    await expect(
+      page.getByRole("status", {
+        name: `${messagesUsed} of 5 free Project messages used`,
+      }),
+    ).toBeVisible();
+  }
+  await expect(
+    page.getByText("You’ve used 5/5 free messages in this Project."),
+  ).toBeVisible();
+  await expect(page.getByLabel("Ask the Project")).toHaveCount(0);
+
+  const projectId = new URL(page.url()).pathname.split("/").at(-1);
+  expect(projectId).toMatch(/^[0-9a-f-]{36}$/u);
+  const sixthAttempt = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/projects/${id}/conversation/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        questionId: crypto.randomUUID(),
+        question: "Can a sixth Free Project message be admitted?",
+        mode: "question",
+      }),
+    });
+    return {
+      status: response.status,
+      body: (await response.json()) as { errorCode?: string },
+    };
+  }, projectId!);
+  expect(sixthAttempt).toEqual({
+    status: 402,
+    body: expect.objectContaining({ errorCode: "free_chat_exceeded" }),
+  });
+  await expect(
+    page.getByRole("status", { name: "5 of 5 free Project messages used" }),
+  ).toBeVisible();
+});
 
 test("database-backed Pro Researcher completes a private responsive Project lifecycle", async ({
   browser,
@@ -2473,20 +2806,25 @@ async function handleSupabaseRequest(
           .map((record) => record.recordId),
       });
     }
+    const creatorSecondSourceEvidence = prompt.includes(
+      "气候适应需要准确的本地证据",
+    )
+      ? "气候适应需要准确的本地证据"
+      : "no evidencia comparaciones";
     const creatorBriefContent = creatorUsesTwoSources
       ? `# Creator Brief
 
 ## Source claims
 
 - Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
-- Inspiration: no evidencia comparaciones [S2 @ 00:42].
+- Inspiration: ${creatorSecondSourceEvidence} [S2 @ 00:42].
 
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Compare exact evidence with comparaciones regionales for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Compare exact evidence with ${creatorSecondSourceEvidence} for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
-- Original angle: Evidence basis: comparaciones regionales; Goal fit: local climate adaptation; Original move: Map comparaciones regionales into revisable local climate adaptation choices [S2 @ 00:42].
+- Original angle: Evidence basis: ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Map ${creatorSecondSourceEvidence} into revisable local climate adaptation choices [S2 @ 00:42].
 
 ## Originality plan
 
@@ -2495,7 +2833,7 @@ async function handleSupabaseRequest(
 
 ## Video direction
 
-- Proposed beat: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Contrast exact evidence and comparaciones regionales then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
+- Proposed beat: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Contrast exact evidence and ${creatorSecondSourceEvidence} then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
       : `# Creator Brief
 
 ## Source claims
@@ -4063,6 +4401,15 @@ function seedCanonicalHistory() {
       video_id: videoId,
       accessed_at: new Date(Date.UTC(2026, 7, 8, 12, 0, 10 - ordinal)).toISOString(),
     });
+    if (ordinal <= 4) {
+      historyRows.push({
+        user_id: OTHER_ID,
+        video_id: videoId,
+        accessed_at: new Date(
+          Date.UTC(2026, 7, 8, 12, 0, 20 - ordinal),
+        ).toISOString(),
+      });
+    }
     processedVideoIds.add(videoId);
   });
 
@@ -4197,6 +4544,8 @@ function isServiceRoleRequest(request: IncomingMessage): boolean {
 }
 
 function authUser(id: string, email: string) {
+  const projectBetaAccess =
+    id === OWNER_ID ? "internal" : id === OTHER_ID ? "invited" : undefined;
   return {
     id,
     aud: "authenticated",
@@ -4206,7 +4555,12 @@ function authUser(id: string, email: string) {
     created_at: "2026-01-01T00:00:00.000Z",
     last_sign_in_at: "2026-08-01T00:00:00.000Z",
     is_anonymous: false,
-    app_metadata: { provider: "email" },
+    app_metadata: {
+      provider: "email",
+      ...(projectBetaAccess
+        ? { project_beta_access: projectBetaAccess }
+        : {}),
+    },
     user_metadata: {},
     identities: [{ provider: "email" }],
   };
@@ -4231,6 +4585,12 @@ async function addSessionCookie(
 }
 
 function sessionCookieValue(userId: string, email: string): string {
+  return `base64-${Buffer.from(
+    JSON.stringify(fixtureAuthSession(userId, email)),
+  ).toString("base64url")}`;
+}
+
+function fixtureAuthSession(userId: string, email: string) {
   const expiresAt = Math.floor(Date.now() / 1_000) + 60 * 60;
   const accessToken = [
     encodeBase64Url({ alg: "HS256", typ: "JWT" }),
@@ -4243,7 +4603,7 @@ function sessionCookieValue(userId: string, email: string): string {
     }),
     "fixture-signature",
   ].join(".");
-  const session = {
+  return {
     access_token: accessToken,
     refresh_token: "fixture-refresh-token",
     expires_at: expiresAt,
@@ -4251,7 +4611,6 @@ function sessionCookieValue(userId: string, email: string): string {
     token_type: "bearer",
     user: authUser(userId, email),
   };
-  return `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 }
 
 function encodeBase64Url(value: object): string {

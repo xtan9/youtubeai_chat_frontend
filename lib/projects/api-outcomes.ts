@@ -47,6 +47,17 @@ export function projectRegistrationRequiredResponse(): Response {
   );
 }
 
+export function projectBetaUnavailableResponse(): Response {
+  return Response.json(
+    {
+      outcome: "unavailable",
+      errorCode: "project_beta_unavailable",
+      message: "Projects are available to invited beta Researchers only.",
+    },
+    { status: 403 },
+  );
+}
+
 export function projectUnavailableResponse(requestId: string): Response {
   return Response.json(
     {

@@ -54,7 +54,7 @@ export const PROJECT_GUIDED_ACTIONS: readonly ProjectGuidedAction[] = [
     description:
       "Identify missing perspectives, useful combinations, counterarguments, and questions grounded in the Project.",
     question:
-      "Find gaps, missing perspectives, useful combinations, counterarguments, and unexplored angles across the Project Videos. Separate source-supported observations from proposed questions or creative opportunities, and cite every supported claim.",
+      "Find gaps, missing perspectives, counterarguments, and unexplored angles across the Project Videos. Separate supported observations from proposed questions, and cite every supported claim.",
   },
   {
     mode: "project_assessment",
@@ -62,7 +62,7 @@ export const PROJECT_GUIDED_ACTIONS: readonly ProjectGuidedAction[] = [
     description:
       "Weigh competing positions with explicit criteria and calibrated confidence inside this Project.",
     question:
-      "Which position is better supported by the Project Videos? Give a clearly labelled Project Assessment, explain the criteria used to weigh the evidence, cite each material competing position, state calibrated confidence, and abstain if the Project evidence cannot resolve it.",
+      "Which position is better supported? Give a Project Assessment with explicit criteria, cite each material position, state calibrated confidence, and abstain when this Project cannot resolve it.",
   },
 ] as const;
 

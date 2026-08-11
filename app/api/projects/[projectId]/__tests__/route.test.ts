@@ -38,7 +38,12 @@ describe("/api/projects/[projectId]", () => {
     vi.resetAllMocks();
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "user-1", isAnonymous: false, email: "r@example.test" },
+      principal: {
+        userId: "user-1",
+        isAnonymous: false,
+        email: "r@example.test",
+        projectAvailability: "invited",
+      },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
   });
