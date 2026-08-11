@@ -15,17 +15,43 @@ where recommendation_set_id in (
     )
   )
 );
-delete from catalog_private.recommendation_reviews
-where recommendation_set_id in (
-  select id from catalog_private.recommendation_sets
-  where source_profile_id in (
-    select id from catalog_private.semantic_profile_versions
-    where video_id in (
-      '39000000-0000-4000-8000-000000000001',
-      '39000000-0000-4000-8000-000000000002'
-    )
-  )
-);
+-- Review rows are immutable in production. This fixture is deliberately
+-- non-transactional, so disable only that immutable trigger while removing
+-- its own rows; all setup and race statements run with every trigger enabled.
+do $cleanup_fixture_reviews$
+begin
+  alter table catalog_private.recommendation_reviews
+    disable trigger recommendation_reviews_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_reviews
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_reviews
+      enable trigger recommendation_reviews_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_reviews
+    enable trigger recommendation_reviews_immutable_trg;
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgrelid = 'catalog_private.recommendation_reviews'::regclass
+      and tgname = 'recommendation_reviews_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable review trigger';
+  end if;
+end;
+$cleanup_fixture_reviews$;
 delete from auth.users
 where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 delete from catalog_private.recommendations
@@ -1088,17 +1114,42 @@ where recommendation_set_id in (
     )
   )
 );
-delete from catalog_private.recommendation_reviews
-where recommendation_set_id in (
-  select id from catalog_private.recommendation_sets
-  where source_profile_id in (
-    select id from catalog_private.semantic_profile_versions
-    where video_id in (
-      '39000000-0000-4000-8000-000000000001',
-      '39000000-0000-4000-8000-000000000002'
-    )
-  )
-);
+-- Keep the immutable-review trigger enabled for every test operation; only
+-- teardown of this fixture's own rows temporarily disables that trigger.
+do $cleanup_fixture_reviews_final$
+begin
+  alter table catalog_private.recommendation_reviews
+    disable trigger recommendation_reviews_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_reviews
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_reviews
+      enable trigger recommendation_reviews_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_reviews
+    enable trigger recommendation_reviews_immutable_trg;
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgrelid = 'catalog_private.recommendation_reviews'::regclass
+      and tgname = 'recommendation_reviews_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable review trigger';
+  end if;
+end;
+$cleanup_fixture_reviews_final$;
 delete from auth.users
 where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 
