@@ -213,8 +213,8 @@ A short learner-facing account of the Continuation Relationship between a Recomm
 _Avoid_: Score, model rationale
 
 **Semantic Profile**:
-A versioned, language-independent representation of a Video's subject and meaning used to compare it with other Videos. A Video has one active profile per semantic model version, which may begin with discovery metadata and become richer when the Video gains a Summary.
-_Avoid_: Embedding, search document
+A versioned, language-independent representation of a Video's subject and meaning used to compare it with other Videos. The first implementation is a strict server-validated JSON profile produced asynchronously by the existing LLM Gateway and stored with one active profile per Video and profile schema version; deterministic Postgres concept overlap retrieves candidates. A future vector or hybrid representation requires a new versioned decision.
+_Avoid_: Embedding, search document, hidden similarity score
 
 **Recommendation Evidence**:
 The Semantic Profile and evidence level that meet the relationship-specific threshold for a Recommendation and its Explanation.

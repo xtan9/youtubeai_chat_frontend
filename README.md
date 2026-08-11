@@ -33,6 +33,9 @@ Copy `.env.example` to `.env.local` and fill in:
 | `VPS_CAPTIONS_TIMEOUT_MS` | server only, optional | VPS captions timeout in milliseconds; values are bounded to a positive 60s maximum |
 | `LLM_GATEWAY_URL` | server only | OpenAI-compatible endpoint (e.g. `https://llm.betterr.me/v1`) |
 | `LLM_GATEWAY_API_KEY` | server only | Bearer token for the gateway |
+Semantic Profiles use the existing server-only LLM Gateway for validated JSON
+generation. The first implementation does not require `OPENAI_API_KEY`, an
+embedding provider, pgvector, or a learner-request model call.
 | `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 
