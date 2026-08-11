@@ -399,6 +399,7 @@ describe("resolveRequestPrincipal", () => {
       "chat_messages",
       "chat_suggestions",
       "continue_learning_reader",
+      "continue_learning_feedback",
       "entitlements",
       "billing_checkout",
       "billing_portal",

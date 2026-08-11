@@ -356,6 +356,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_review_rollout.sql
       - name: Continue Learning reader contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_reader.sql
+      - name: Continue Learning feedback contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_feedback.sql
+      - name: Continue Learning feedback concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_feedback_concurrency.sql
       - name: Discovery Budget and Observation contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_discovery_budget_observations.sql
       - name: Discovery Budget and Observation concurrency - representative legacy
@@ -439,6 +443,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_shadow_recommendation_sets.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_review_rollout.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_reader.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_feedback.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_continue_learning_feedback_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_discovery_budget_observations.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_discovery_budget_observations_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments_concurrency.sql
