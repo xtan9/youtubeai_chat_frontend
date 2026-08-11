@@ -78,7 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        # Production uses Supabase Queues (PGMQ); keep the upgrade replay on
+        # Postgres 15 while exercising the real extension instead of a stub.
+        image: ghcr.io/pgmq/pg15-pgmq:v1.10.0
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -317,6 +319,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
       - name: Video identity concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_concurrency.sql
+      - name: Catalog Admission contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission.sql
+      - name: Catalog Admission concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission_concurrency.sql
       - name: Workspace and Project contract - fresh migration replay
         run: |
           set -eo pipefail
@@ -367,6 +373,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_analytics_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_access.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission_concurrency.sql
       # Reproduces the cache-write upsert that broke translation caching
       # in prod (verified 2026-04-25). Specifically guards against a
       # UNIQUE that conflicts when two summaries differ only by

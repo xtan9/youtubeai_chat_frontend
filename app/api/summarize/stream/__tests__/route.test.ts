@@ -26,6 +26,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       classifyContent: vi.fn(),
       checkRateLimit: vi.fn(),
       checkSummaryEntitlement: vi.fn(),
+      nominateCatalogVideoForAdmission: vi.fn(),
       after: vi.fn(afterPassthrough),
       signAnonId: vi.fn(),
       verifyAnonId: vi.fn(),
@@ -73,6 +74,11 @@ vi.mock("@/lib/services/entitlements", () => ({
     historyItems: 10,
   },
   ANON_LIMITS: { summariesLifetime: 1 },
+}));
+
+vi.mock("@/lib/catalog/catalog-admission", () => ({
+  nominateCatalogVideoForAdmission:
+    mocks.nominateCatalogVideoForAdmission,
 }));
 
 vi.mock("next/headers", () => ({
@@ -225,6 +231,9 @@ describe("POST /api/summarize/stream", () => {
       ]),
     );
     mocks.writeCachedSummary.mockResolvedValue(undefined);
+    mocks.nominateCatalogVideoForAdmission.mockResolvedValue({
+      outcome: "enqueued",
+    });
     mocks.after.mockImplementation(afterPassthrough);
     mocks.signAnonId.mockImplementation((id: string) => `${id}.sig`);
     mocks.verifyAnonId.mockImplementation((value: string) =>
@@ -515,6 +524,174 @@ describe("POST /api/summarize/stream", () => {
   });
 
   describe("Summary cache response policy", () => {
+    it.each([
+      ["generated", null],
+      ["cached", cachedSummary()],
+    ])(
+      "nominates one eligible public Video after a %s Summary succeeds",
+      async (_source, cached) => {
+        mocks.getCachedSummary.mockResolvedValue(cached);
+
+        const events = await readEvents(
+          await POST(
+            makeRequest(
+              { youtube_url: VALID_URL, output_language: "es" },
+              { requestId: "request-catalog-1" },
+            ),
+          ),
+        );
+
+        expect(events.at(-1)?.type).toBe("summary");
+        expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledOnce();
+        expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledWith({
+          youtubeUrl: VALID_URL,
+          requestId: "request-catalog-1",
+          signal: expect.any(AbortSignal),
+          isCancelled: expect.any(Function),
+        });
+      },
+    );
+
+    it("does not nominate when a cached Summary request is cancelled before completion", async () => {
+      const controller = new AbortController();
+      let resolveCached!: (summary: CachedSummary) => void;
+      mocks.getCachedSummary.mockReturnValue(
+        new Promise<CachedSummary>((resolve) => {
+          resolveCached = resolve;
+        }),
+      );
+
+      const response = await POST(
+        makeRequest(
+          { youtube_url: VALID_URL },
+          { signal: controller.signal },
+        ),
+      );
+      controller.abort();
+      resolveCached(cachedSummary());
+
+      await expect(readEvents(response)).resolves.toEqual([]);
+      expect(mocks.nominateCatalogVideoForAdmission).not.toHaveBeenCalled();
+    });
+
+    it("does not nominate when the Summary response reader is cancelled", async () => {
+      let resolveCached!: (summary: CachedSummary) => void;
+      mocks.getCachedSummary.mockReturnValue(
+        new Promise<CachedSummary>((resolve) => {
+          resolveCached = resolve;
+        }),
+      );
+
+      const response = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const reader = response.body!.getReader();
+      const cancelled = reader.cancel();
+      resolveCached(cachedSummary());
+      await cancelled;
+
+      expect(mocks.nominateCatalogVideoForAdmission).not.toHaveBeenCalled();
+    });
+
+    it("does not run a deferred nomination after a generated Summary request is cancelled", async () => {
+      const controller = new AbortController();
+      let deferred!: () => unknown;
+      mocks.after.mockImplementation((callback: () => unknown) => {
+        deferred = callback;
+      });
+
+      const events = await readEvents(
+        await POST(
+          makeRequest(
+            { youtube_url: VALID_URL },
+            { signal: controller.signal },
+          ),
+        ),
+      );
+      expect(events.at(-1)?.type).toBe("summary");
+
+      controller.abort();
+      await Promise.resolve(deferred());
+
+      expect(mocks.writeCachedSummary).toHaveBeenCalledOnce();
+      expect(mocks.nominateCatalogVideoForAdmission).not.toHaveBeenCalled();
+    });
+
+    it("does not enqueue when the response reader is cancelled during provider verification", async () => {
+      let resolveProvider!: () => void;
+      const providerResponse = new Promise<void>((resolve) => {
+        resolveProvider = resolve;
+      });
+      const durableEnqueue = vi.fn();
+      mocks.nominateCatalogVideoForAdmission.mockImplementation(
+        async (input: {
+          signal?: AbortSignal;
+          isCancelled?: () => boolean;
+        }) => {
+          await providerResponse;
+          if (input.signal?.aborted || input.isCancelled?.()) {
+            return { outcome: "skipped", reason: "cancelled" };
+          }
+          durableEnqueue();
+          return { outcome: "enqueued" };
+        },
+      );
+
+      const response = await POST(makeRequest({ youtube_url: VALID_URL }));
+      const reader = response.body!.getReader();
+      await vi.waitFor(() =>
+        expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledOnce(),
+      );
+
+      const cancellation = reader.cancel();
+      resolveProvider();
+      await cancellation;
+      await providerResponse;
+
+      expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledWith({
+        youtubeUrl: VALID_URL,
+        requestId: expect.any(String),
+        signal: expect.any(AbortSignal),
+        isCancelled: expect.any(Function),
+      });
+      expect(durableEnqueue).not.toHaveBeenCalled();
+    });
+
+    it("still nominates a successful generated Summary when cache metadata is unavailable", async () => {
+      mocks.acquireTranscript.mockResolvedValue(
+        acquired({ title: undefined, channelName: undefined }),
+      );
+
+      const events = await readEvents(
+        await POST(makeRequest({ youtube_url: VALID_URL })),
+      );
+
+      expect(events.at(-1)?.type).toBe("summary");
+      expect(mocks.writeCachedSummary).not.toHaveBeenCalled();
+      expect(mocks.nominateCatalogVideoForAdmission).toHaveBeenCalledOnce();
+    });
+
+    it("keeps a classified admission enqueue failure out of the successful Summary stream", async () => {
+      mocks.nominateCatalogVideoForAdmission.mockRejectedValue(
+        Object.assign(new Error("queue unavailable"), {
+          errorId: "CATALOG_NOMINATION_ENQUEUE_FAILED",
+        }),
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const events = await readEvents(
+        await POST(makeRequest({ youtube_url: VALID_URL })),
+      );
+
+      expect(events.filter((event) => event.type === "summary")).toHaveLength(1);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[summarize/stream] Catalog Nomination failed (fail-soft)",
+        expect.objectContaining({
+          errorId: "CATALOG_NOMINATION_ENQUEUE_FAILED",
+          stage: "catalog_nomination",
+        }),
+      );
+    });
+
     it("serves a cached Summary without Transcript Acquisition when Transcript display is omitted", async () => {
       mocks.getCachedSummary.mockResolvedValue(
         cachedSummary({

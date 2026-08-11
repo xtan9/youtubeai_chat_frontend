@@ -405,6 +405,7 @@ declare
   completion_result jsonb;
   slow_persistence_result jsonb;
   slow_reload_result jsonb;
+  slow_persistence_barrier_observed boolean := false;
   slow_user_message_id uuid := 'd5000000-0000-4000-8000-000000000006';
   slow_attempt_token uuid := 'e5000000-0000-4000-8000-000000000006';
   manifest jsonb := '{
@@ -447,7 +448,8 @@ begin
   join public.project_conversation_messages as messages
     on messages.conversation_id = conversations.id
   where conversations.project_id = 'a5000000-0000-4000-8000-000000000005'
-    and messages.role = 'user';
+    and messages.role = 'user'
+    and messages.id <> slow_user_message_id;
 
   perform dblink_connect('grounded_revision_mutation', connection_string);
   perform dblink_connect('grounded_revision_completion', connection_string);
@@ -616,8 +618,10 @@ begin
       'with persisted as materialized ('
         || 'select public.begin_project_grounded_answer_persistence_v2('
         || '%L,%L,%L,%L,%L,%L,%L,%s,%L::jsonb,%L::jsonb,%L::jsonb,%L) as result'
-        || '), pause as materialized (select pg_sleep(0.3) from persisted) '
-        || 'select persisted.result from persisted, pause',
+        || '), barrier as materialized ('
+        || 'select pg_advisory_xact_lock(348, 325), persisted.result from persisted'
+        || '), pause as materialized (select pg_sleep(0.3) from barrier) '
+        || 'select barrier.result from barrier, pause',
       '95000000-0000-4000-8000-000000000005',
       'a5000000-0000-4000-8000-000000000005',
       conversation_id,
@@ -632,7 +636,24 @@ begin
       'question'
     )
   );
-  perform pg_catalog.pg_sleep(0.05);
+
+  -- dblink_send_query only confirms dispatch. Observe a transaction-scoped
+  -- barrier acquired after persistence has locked and updated the attempt row
+  -- before allowing reload's lease reaper to contend for that row.
+  for barrier_attempt in 1..100 loop
+    if not pg_catalog.pg_try_advisory_lock(348, 325) then
+      slow_persistence_barrier_observed := true;
+      exit;
+    end if;
+
+    perform pg_catalog.pg_advisory_unlock(348, 325);
+    perform pg_catalog.pg_sleep(0.01);
+  end loop;
+
+  if not slow_persistence_barrier_observed then
+    raise exception 'REGRESSION: slow persistence never reached the row-lock barrier';
+  end if;
+
   perform dblink_send_query(
     'grounded_slow_reload',
     pg_catalog.format(

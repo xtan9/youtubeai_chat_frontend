@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/project-activation-outbox",
       "schedule": "17 7 * * *"
+    },
+    {
+      "path": "/api/internal/catalog-admission",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
