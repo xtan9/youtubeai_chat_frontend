@@ -373,6 +373,67 @@ test.describe("Hero demo chat", () => {
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
   });
 
+  test("passive network and lease denials stay retryable, private, and mobile-safe", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/me/entitlements*", (route) =>
+      fulfillJson(route, {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 4 },
+        subscriptionPresentation: { state: "anonymous" },
+      }),
+    );
+    const outcomes = [
+      {
+        status: 429,
+        errorCode: "anonymous_trial_rate_limited",
+        message:
+          "Anonymous chat is busy on this network. Try again later or create an account.",
+      },
+      {
+        status: 409,
+        errorCode: "anonymous_trial_concurrent",
+        message: "Another anonymous response is in progress. Try again shortly.",
+      },
+    ];
+    await page.route("**/api/chat/stream", (route) => {
+      const outcome = outcomes.shift();
+      if (!outcome) throw new Error("Unexpected passive-control request");
+      return fulfillJson(route, outcome, outcome.status);
+    });
+
+    await page.goto(BASE_URL + "/");
+    const input = page.getByLabel("Chat message");
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    for (const expectedMessage of [
+      "Anonymous chat is busy on this network. Try again later or create an account.",
+      "Another anonymous response is in progress. Try again shortly.",
+    ]) {
+      await input.fill("What does the Video support?");
+      await page.getByLabel("Send message").click();
+      await expect(page.getByRole("alert")).toHaveText(expectedMessage);
+      await expect(input).toBeVisible();
+      await expect(
+        page.getByText("4 Anonymous Trial messages remaining"),
+      ).toBeVisible();
+    }
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await expect(page.getByText(/20 messages|network hash|203\.0\.113/u)).toHaveCount(0);
+  });
+
   test("Registered Free reconciles and reloads the authoritative per-demo allowance", async ({
     page,
   }) => {

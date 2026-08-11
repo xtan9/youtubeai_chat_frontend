@@ -55,6 +55,8 @@ const SAFE_FIELDS = new Set([
   "hasUrl",
   "hasKey",
   "count",
+  "outcome",
+  "remainingAllowanceBucket",
 ]);
 
 const URL_PATTERN = /https?:\/\/\S+/gi;

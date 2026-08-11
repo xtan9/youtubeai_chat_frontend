@@ -562,6 +562,9 @@ describe("POST /api/chat/stream", () => {
         outcome,
         remainingMessages: 4,
       });
+      const logSpy = vi
+        .spyOn(console, outcome === "global_shutdown" ? "error" : "warn")
+        .mockImplementation(() => {});
 
       const { POST } = await import("../route");
       const response = await POST(
@@ -573,6 +576,15 @@ describe("POST /api/chat/stream", () => {
       const body = await response.json();
       expect(body).not.toHaveProperty("networkKeyHash");
       expect(JSON.stringify(body)).not.toContain("20");
+      expect(logSpy).toHaveBeenCalledWith(
+        "[chat/stream] anonymous trial admission denied",
+        {
+          errorId,
+          outcome,
+          remainingAllowanceBucket: "1-4",
+        },
+      );
+      expect(JSON.stringify(logSpy.mock.calls)).not.toContain("hi");
       expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
     },
   );

@@ -99,13 +99,59 @@ describe("Anonymous Trial service boundary", () => {
     );
   });
 
-  it("fails closed before the RPC when the required kill switch is absent", async () => {
-    vi.stubEnv("ANONYMOUS_TRIAL_KILL_SWITCH", "");
+  it.each(["", "true"])(
+    "distinguishes the immediate kill switch value %j from dependency failure",
+    async (killSwitch) => {
+      vi.stubEnv("ANONYMOUS_TRIAL_KILL_SWITCH", killSwitch);
 
+      await expect(
+        reserveAnonymousTrialChatMessage({
+          userId: "74000000-0000-4000-8000-000000000001",
+          request: request(),
+        }),
+      ).resolves.toEqual(
+        killSwitch === "true"
+          ? { outcome: "global_shutdown", remainingMessages: 0 }
+          : { outcome: "unavailable" },
+      );
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["missing HMAC secret", "ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET", ""],
+    [
+      "missing spending ceiling",
+      "ANONYMOUS_TRIAL_GLOBAL_24H_SPEND_LIMIT_MICROS",
+      "",
+    ],
+    [
+      "invalid reservation cost",
+      "ANONYMOUS_TRIAL_RESERVATION_COST_MICROS",
+      "not-a-number",
+    ],
+  ] as const)(
+    "fails closed before storage for a %s",
+    async (_label, key, value) => {
+      vi.stubEnv(key, value);
+      await expect(
+        reserveAnonymousTrialChatMessage({
+          userId: "74000000-0000-4000-8000-000000000001",
+          request: request(),
+        }),
+      ).resolves.toEqual({ outcome: "unavailable" });
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain(
+        "203.0.113",
+      );
+    },
+  );
+
+  it("fails closed without a trusted deployment client IP", async () => {
     await expect(
       reserveAnonymousTrialChatMessage({
         userId: "74000000-0000-4000-8000-000000000001",
-        request: request(),
+        request: new Request("https://example.test"),
       }),
     ).resolves.toEqual({ outcome: "unavailable" });
     expect(mocks.rpc).not.toHaveBeenCalled();

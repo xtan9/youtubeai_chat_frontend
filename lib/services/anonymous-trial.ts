@@ -139,11 +139,18 @@ export function reserveAnonymousTrialChatMessage(input: {
   readonly userId: string;
   readonly request: Request;
 }): Promise<AnonymousTrialReservationResult> {
-  const context = resolveAnonymousTrialAdmissionContext(input.request);
-  if (!context) {
+  const resolution = resolveAnonymousTrialAdmissionContext(input.request);
+  if (resolution.outcome === "global_shutdown") {
+    return Promise.resolve({
+      outcome: "global_shutdown",
+      remainingMessages: 0,
+    });
+  }
+  if (resolution.outcome === "unavailable") {
     logUnavailable("reserve", "AdmissionConfigurationUnavailable");
     return Promise.resolve({ outcome: "unavailable" });
   }
+  const { context } = resolution;
   return callAnonymousTrialRpc({
     operation: "reserve",
     functionName: "reserve_anonymous_trial_chat_message",

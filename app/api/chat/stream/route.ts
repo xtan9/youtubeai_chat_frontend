@@ -78,6 +78,30 @@ const CHAT_STREAM_SUBJECT_UNAVAILABLE = "CHAT_STREAM_SUBJECT_UNAVAILABLE";
 const CHAT_STREAM_GROUNDING_NOT_READY = "CHAT_STREAM_GROUNDING_NOT_READY";
 const CHAT_STREAM_GROUNDING_UNAVAILABLE = "CHAT_STREAM_GROUNDING_UNAVAILABLE";
 
+function anonymousTrialRemainingBucket(
+  remainingMessages: number | undefined,
+): "0" | "1-4" | "5" | "unavailable" {
+  if (remainingMessages === 0) return "0";
+  if (remainingMessages === 5) return "5";
+  if (remainingMessages !== undefined) return "1-4";
+  return "unavailable";
+}
+
+function logAnonymousTrialAdmissionDenied(input: {
+  readonly level: "error" | "warn" | "info";
+  readonly errorId: string;
+  readonly outcome: string;
+  readonly remainingMessages?: number;
+}): void {
+  logAppEvent(input.level, "[chat/stream] anonymous trial admission denied", {
+    errorId: input.errorId,
+    outcome: input.outcome,
+    remainingAllowanceBucket: anonymousTrialRemainingBucket(
+      input.remainingMessages,
+    ),
+  });
+}
+
 function jsonError(status: number, message: string, requestId: string, errorId: string) {
   return new Response(JSON.stringify({ message }), {
     status,
@@ -489,6 +513,12 @@ export async function POST(request: Request) {
   if (anonymousTrialEnabled) {
     const reservation = await reserveAnonymousTrialChatMessage({ userId, request });
     if (reservation.outcome === "exhausted") {
+      logAnonymousTrialAdmissionDenied({
+        level: "info",
+        errorId: "ANONYMOUS_TRIAL_EXHAUSTED",
+        outcome: reservation.outcome,
+        remainingMessages: reservation.remainingMessages,
+      });
       return new Response(
         JSON.stringify({
           message: "You've used all 5 Anonymous Trial messages.",
@@ -508,6 +538,11 @@ export async function POST(request: Request) {
       );
     }
     if (reservation.outcome === "unavailable") {
+      logAnonymousTrialAdmissionDenied({
+        level: "error",
+        errorId: "ANONYMOUS_TRIAL_UNAVAILABLE",
+        outcome: "dependency_failure",
+      });
       return new Response(
         JSON.stringify({
           message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
@@ -545,6 +580,12 @@ export async function POST(request: Request) {
           errorCode: "anonymous_trial_unavailable",
         },
       }[reservation.outcome];
+      logAnonymousTrialAdmissionDenied({
+        level: reservation.outcome === "global_shutdown" ? "error" : "warn",
+        errorId: denial.errorId,
+        outcome: reservation.outcome,
+        remainingMessages: reservation.remainingMessages,
+      });
       return new Response(
         JSON.stringify({
           message: denial.message,

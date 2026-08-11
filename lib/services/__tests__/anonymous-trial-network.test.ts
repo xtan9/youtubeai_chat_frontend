@@ -10,6 +10,8 @@ describe("Anonymous Trial trusted network key", () => {
 
   it.each([
     ["203.0.113.42", "203.0.113.0/24"],
+    ["::ffff:203.0.113.42", "203.0.113.0/24"],
+    ["::ffff:cb00:712a", "203.0.113.0/24"],
     ["2001:db8:abcd:1234:1111:2222:3333:4444", "2001:db8:abcd:1234::/64"],
   ])("normalizes %s and returns only its HMAC", (address, prefix) => {
     const expected = createHmac("sha256", secret).update(prefix).digest("hex");

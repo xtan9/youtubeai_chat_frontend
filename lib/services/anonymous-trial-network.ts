@@ -46,6 +46,18 @@ function networkPrefix(address: string): string | null {
   if (version !== 6) return null;
   const parts = expandIpv6(address);
   if (!parts) return null;
+  if (
+    parts.slice(0, 5).every((part) => part === 0) &&
+    parts[5] === 0xffff
+  ) {
+    const mappedIpv4 = [
+      parts[6] >> 8,
+      parts[6] & 0xff,
+      parts[7] >> 8,
+      parts[7] & 0xff,
+    ].join(".");
+    return ipv4Prefix(mappedIpv4);
+  }
   return `${parts.slice(0, 4).map((part) => part.toString(16)).join(":")}::/64`;
 }
 
@@ -72,10 +84,20 @@ export type AnonymousTrialAdmissionContext = {
   readonly reservationCostMicros: number;
 };
 
+export type AnonymousTrialAdmissionContextResult =
+  | {
+      readonly outcome: "ready";
+      readonly context: AnonymousTrialAdmissionContext;
+    }
+  | { readonly outcome: "global_shutdown" }
+  | { readonly outcome: "unavailable" };
+
 export function resolveAnonymousTrialAdmissionContext(
   request: Request,
-): AnonymousTrialAdmissionContext | null {
-  if (process.env.ANONYMOUS_TRIAL_KILL_SWITCH?.trim() !== "false") return null;
+): AnonymousTrialAdmissionContextResult {
+  const killSwitch = process.env.ANONYMOUS_TRIAL_KILL_SWITCH?.trim();
+  if (killSwitch === "true") return { outcome: "global_shutdown" };
+  if (killSwitch !== "false") return { outcome: "unavailable" };
   const network = deriveAnonymousTrialNetworkKey({
     trustedClientIp: request.headers.get("x-forwarded-for") ?? undefined,
     hmacSecret: process.env.ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET,
@@ -94,11 +116,14 @@ export function resolveAnonymousTrialAdmissionContext(
     reservationCost <= 0 ||
     reservationCost > spendLimit
   ) {
-    return null;
+    return { outcome: "unavailable" };
   }
   return {
-    networkKeyHash: network.networkKeyHash,
-    globalSpendLimitMicros: spendLimit,
-    reservationCostMicros: reservationCost,
+    outcome: "ready",
+    context: {
+      networkKeyHash: network.networkKeyHash,
+      globalSpendLimitMicros: spendLimit,
+      reservationCostMicros: reservationCost,
+    },
   };
 }
