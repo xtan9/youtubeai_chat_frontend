@@ -21,21 +21,23 @@ vi.mock("@/lib/analytics/client", () => ({ captureAnalyticsEvent: analytics.capt
 
 const CONTENT = `# Project Brief
 
+> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
+
 ## Important findings
 
 The launch happened in April [S1 @ 00:42].
 
 ## Agreements
 
-The source consistently dates the launch to April [S1 @ 00:42].
+Interpretation — possible agreement A: The launch happened in April [S1 @ 00:42].
 
 ## Material disagreements
 
-The available source does not establish a cross-source conflict [S1 @ 00:42].
+No model-identified material disagreement in this Evidence Snapshot.
 
 ## Open questions
 
-- What happened after launch [S1 @ 00:42]?`;
+- Interpretation — possible open question: What happened after launch [S1 @ 00:42].`;
 
 function artifact(
   revision = 3,
@@ -68,8 +70,12 @@ function artifact(
     citationDiagnostics: [],
     generationMetadata: {
       model: "gpt-5.3-codex-spark",
-      promptVersion: "project-brief-v1",
+      promptVersion: "project-brief-v3",
       generatedAt: `2026-08-0${revision}T18:00:00.000Z`,
+      normalizationAudit: {
+        version: "project-brief-normalization-v2",
+        recordSetHash: "a".repeat(64),
+      },
     },
     createdAt: `2026-08-0${revision}T18:00:00.000Z`,
     supersededAt: null,
@@ -128,6 +134,8 @@ describe("ProjectBrief", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(screen.getByRole("heading", { name: "Open questions" })).toBeTruthy();
+    expect(screen.getByText(/Only exact source-language clauses/)).toBeTruthy();
+    expect(screen.getAllByText(/Interpretation/).length).toBeGreaterThan(1);
     expect(screen.getAllByRole("link", { name: /S1 @ 00:42.*Launch notes/i })[0]?.getAttribute("href"))
       .toBe("https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
     expect(screen.getByLabelText("Project Brief provenance").textContent).toContain("1 passage");
@@ -193,6 +201,8 @@ describe("ProjectBrief", () => {
 
     await user.click(screen.getByRole("button", { name: "Copy Markdown" }));
     expect(writeText).toHaveBeenCalledWith(expected);
+    expect(expected).toContain("non-authoritative model Interpretation");
+    expect(expected).toContain("Interpretation — possible open question");
     expect(expected).not.toContain("evil.example");
     expect(expected).not.toContain("javascript:");
     await user.click(screen.getByRole("button", { name: "Download Markdown" }));

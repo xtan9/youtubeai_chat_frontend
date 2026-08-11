@@ -18,6 +18,7 @@ import type {
   ProjectEvidenceSnapshot,
 } from "@/lib/projects/project-grounded-answer-contract";
 import type {
+  ProjectArtifactGenerationMetadataSchema,
   ProjectArtifactKind,
   ProjectArtifactReservation,
 } from "@/lib/projects/project-artifact-contract";
@@ -47,8 +48,8 @@ type InvalidArtifact = {
   readonly reason: string;
 };
 
-export type ProjectArtifactRouteDefinition = Readonly<{
-  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
+type ProjectArtifactRouteBase = Readonly<{
+  kind: ProjectArtifactKind;
   title: string;
   responseKey: string;
   promptVersion: string;
@@ -57,6 +58,18 @@ export type ProjectArtifactRouteDefinition = Readonly<{
   balanceSources?: boolean;
   evidenceNotReadyMessage: string;
   evidenceInsufficientMessage: string;
+}>;
+
+type ProjectArtifactGeneration = Readonly<{
+  messages: readonly ChatGatewayMessage[];
+  validate(content: string): ValidArtifact | InvalidArtifact;
+  generationMetadata?: Pick<
+    z.infer<typeof ProjectArtifactGenerationMetadataSchema>,
+    "normalizationAudit"
+  >;
+}>;
+
+type StandardProjectArtifactRouteDefinition = Readonly<{
   buildMessages(args: {
     readonly projectName: string;
     readonly goal: string | null;
@@ -69,7 +82,23 @@ export type ProjectArtifactRouteDefinition = Readonly<{
     evidenceSnapshot: ProjectEvidenceSnapshot,
     goal: string | null,
   ): ValidArtifact | InvalidArtifact;
+  prepareGeneration?: never;
 }>;
+
+type PreparedProjectArtifactRouteDefinition = Readonly<{
+  buildMessages?: never;
+  validate?: never;
+  prepareGeneration(args: {
+    readonly projectName: string;
+    readonly goal: string | null;
+    readonly sourceManifest: ProjectAnswerSourceManifest;
+    readonly evidenceSnapshot: ProjectEvidenceSnapshot;
+    readonly signal: AbortSignal;
+  }): Promise<ProjectArtifactGeneration>;
+}>;
+
+export type ProjectArtifactRouteDefinition = ProjectArtifactRouteBase &
+  (StandardProjectArtifactRouteDefinition | PreparedProjectArtifactRouteDefinition);
 
 const MAX_ARTIFACT_LENGTH = 100_000;
 const GenerationRequestSchema = z
@@ -303,16 +332,33 @@ export function createProjectArtifactRoute(
         );
       }
 
-      const messages = definition.buildMessages({
-        projectName: subject.value.name,
-        goal: subject.value.guidance.goal,
-        sourceManifest: artifacts.sourceManifest,
-        evidenceSnapshot: artifacts.evidenceSnapshot,
-      });
+      const generation = definition.prepareGeneration
+        ? await definition.prepareGeneration({
+            projectName: subject.value.name,
+            goal: subject.value.guidance.goal,
+            sourceManifest: artifacts.sourceManifest,
+            evidenceSnapshot: artifacts.evidenceSnapshot,
+            signal: request.signal,
+          })
+        : {
+            messages: definition.buildMessages({
+              projectName: subject.value.name,
+              goal: subject.value.guidance.goal,
+              sourceManifest: artifacts.sourceManifest,
+              evidenceSnapshot: artifacts.evidenceSnapshot,
+            }),
+            validate: (content: string) =>
+              definition.validate(
+                content,
+                artifacts.sourceManifest,
+                artifacts.evidenceSnapshot,
+                subject.value.guidance.goal,
+              ),
+          };
       let generated = "";
       generationStartedAt = Date.now();
       for await (const event of streamChatCompletion({
-        messages,
+        messages: generation.messages,
         signal: request.signal,
       })) {
         if (event.type === "usage") {
@@ -326,12 +372,7 @@ export function createProjectArtifactRoute(
         }
       }
 
-      const validated = definition.validate(
-        generated,
-        artifacts.sourceManifest,
-        artifacts.evidenceSnapshot,
-        subject.value.guidance.goal,
-      );
+      const validated = generation.validate(generated);
       if (validated.status !== "valid") {
         throw new Error(
           `${definition.title} validation failed: ${validated.reason}`,
@@ -346,6 +387,7 @@ export function createProjectArtifactRoute(
           model: SPARK,
           promptVersion: definition.promptVersion,
           generatedAt: new Date().toISOString(),
+          ...generation.generationMetadata,
         },
       });
       if (completed.status === "conflict") {

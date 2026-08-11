@@ -160,7 +160,10 @@ function ArtifactMarkdown({
   const renderedOccurrences = new Map<string, number>();
 
   return (
-    <article className="ph-no-capture" data-ph-no-autocapture>
+    <article
+      className="ph-no-capture min-w-0 [overflow-wrap:anywhere]"
+      data-ph-no-autocapture
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

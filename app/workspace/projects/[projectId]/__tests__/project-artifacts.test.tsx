@@ -39,21 +39,23 @@ const CREATOR_CONTENT = `# Creator Brief
 
 const PROJECT_BRIEF_CONTENT = `# Project Brief
 
+> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
+
 ## Important findings
 
 - Reliability testing remains incomplete [S1 @ 00:42].
 
 ## Agreements
 
-- No supported cross-source agreement in this Evidence Snapshot.
+- No model-identified cross-source agreement in this Evidence Snapshot.
 
 ## Material disagreements
 
-- No supported material disagreement in this Evidence Snapshot.
+- No model-identified material disagreement in this Evidence Snapshot.
 
 ## Open questions
 
-- When will reliability testing finish [S1 @ 00:42]?`;
+- Interpretation — possible open question: When will reliability testing finish [S1 @ 00:42].`;
 
 function emptyLoad(): Extract<
   ProjectArtifactLoadResolution,
@@ -129,7 +131,11 @@ function generatedProjectBrief(): Extract<
       content: PROJECT_BRIEF_CONTENT,
       generationMetadata: {
         ...creator.current.generationMetadata,
-        promptVersion: "project-brief-v1",
+        promptVersion: "project-brief-v3",
+        normalizationAudit: {
+          version: "project-brief-normalization-v2",
+          recordSetHash: "b".repeat(64),
+        },
       },
     },
   };

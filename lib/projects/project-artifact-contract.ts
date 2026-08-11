@@ -13,11 +13,19 @@ export const ProjectArtifactKindSchema = z.enum([
 
 export type ProjectArtifactKind = z.infer<typeof ProjectArtifactKindSchema>;
 
+export const ProjectArtifactNormalizationAuditSchema = z
+  .object({
+    version: z.string().min(1).max(80),
+    recordSetHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+
 export const ProjectArtifactGenerationMetadataSchema = z
   .object({
     model: z.string().min(1).max(120),
     promptVersion: z.string().min(1).max(80),
     generatedAt: z.iso.datetime(),
+    normalizationAudit: ProjectArtifactNormalizationAuditSchema.optional(),
   })
   .strict();
 
