@@ -1,9 +1,28 @@
--- Real multi-session proof for Issue #351 Assessment idempotency.
+-- Real multi-session proof for Issue #351 Assessment and Set idempotency.
 
 create schema if not exists extensions;
 create extension if not exists dblink with schema extensions;
 set search_path = public, extensions;
 
+delete from catalog_private.recommendations
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+delete from catalog_private.recommendation_sets
+where source_profile_id in (
+  select id from catalog_private.semantic_profile_versions
+  where video_id in (
+    '39000000-0000-4000-8000-000000000001',
+    '39000000-0000-4000-8000-000000000002'
+  )
+);
 delete from catalog_private.recommendation_assessments
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
@@ -295,6 +314,251 @@ begin
 end;
 $fixture$;
 
+do $replacement_assessment$
+declare
+  pair_evidence_id uuid;
+  remembered jsonb;
+begin
+  select id into pair_evidence_id
+  from catalog_private.recommendation_candidate_pair_evidence
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id = '39000000-0000-4000-8000-000000000001'
+  )
+  limit 1;
+  set local role service_role;
+  select public.remember_recommendation_assessment(
+    pair_evidence_id,
+    'fixture-concurrent-set-replacement-assessor-v1',
+    'recommendation-assessment-prompt-v1',
+    'continuation-relationship-policy-v1',
+    '{
+      "schemaVersion": "recommendation-assessment-v1",
+      "supported": true,
+      "continuationRelationship": "deeper_explanation",
+      "explanation": "A replacement treatment of the shared race concepts.",
+      "evidenceReferences": [
+        {
+          "kind": "matchedCoreConceptKeys",
+          "conceptKey": "race-core-b"
+        }
+      ]
+    }'::jsonb
+  ) into remembered;
+  if remembered ->> 'outcome' not in ('stored', 'reused')
+    or remembered ->> 'assessmentId' is null
+  then
+    raise exception 'replacement Set Assessment failed: %', remembered;
+  end if;
+end;
+$replacement_assessment$;
+
+do $set_concurrency$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  connection_names text[] := array[
+    'shadow_recommendation_set_race_1',
+    'shadow_recommendation_set_race_2',
+    'shadow_recommendation_set_race_3',
+    'shadow_recommendation_set_race_4'
+  ];
+  connection_name text;
+  replacement_connection text := 'shadow_recommendation_set_replacement';
+  fixture_source_profile_id uuid;
+  first_assessment_id uuid;
+  replacement_assessment_id uuid;
+  set_policy_fingerprint text;
+  published jsonb;
+  replacement jsonb;
+  set_ids text[] := array[]::text[];
+  distinct_set_id_count integer;
+  stored_set_count integer;
+  stored_item_count integer;
+  first_set_id uuid;
+  replacement_set_id uuid;
+  visible_current_set_id uuid;
+  old_set record;
+begin
+  select id into fixture_source_profile_id
+  from catalog_private.semantic_profile_versions
+  where video_id = '39000000-0000-4000-8000-000000000001';
+  select id into first_assessment_id
+  from catalog_private.recommendation_assessments
+  where recommendation_assessments.source_profile_id =
+    fixture_source_profile_id
+    and assessment_model_identifier = 'fixture-concurrent-assessor-v1';
+  select id into replacement_assessment_id
+  from catalog_private.recommendation_assessments
+  where recommendation_assessments.source_profile_id =
+    fixture_source_profile_id
+    and assessment_model_identifier =
+      'fixture-concurrent-set-replacement-assessor-v1';
+  select policy.set_policy_fingerprint into set_policy_fingerprint
+  from catalog_private.recommendation_set_policies as policy
+  where policy.status = 'active';
+  if fixture_source_profile_id is null
+    or first_assessment_id is null
+    or replacement_assessment_id is null
+    or set_policy_fingerprint is null
+  then
+    raise exception 'Set concurrency fixture inputs are missing';
+  end if;
+
+  foreach connection_name in array connection_names loop
+    perform extensions.dblink_connect(connection_name, connection_string);
+    perform extensions.dblink_exec(connection_name, 'set role service_role');
+    perform extensions.dblink_send_query(
+      connection_name,
+      format(
+        $query$
+          select public.publish_shadow_recommendation_set(
+            %L::uuid,
+            %L,
+            array[%L::uuid]
+          )
+        $query$,
+        fixture_source_profile_id,
+        set_policy_fingerprint,
+        first_assessment_id
+      )
+    );
+  end loop;
+
+  foreach connection_name in array connection_names loop
+    select result into published
+    from extensions.dblink_get_result(connection_name) as result(result jsonb);
+    perform result
+    from extensions.dblink_get_result(connection_name) as cleared(result jsonb);
+    if published ->> 'outcome' not in ('published', 'reused')
+      or published ->> 'status' <> 'current'
+      or published ->> 'recommendationSetId' is null
+    then
+      raise exception 'concurrent Set publication failed: %', published;
+    end if;
+    set_ids := array_append(
+      set_ids,
+      published ->> 'recommendationSetId'
+    );
+    perform extensions.dblink_disconnect(connection_name);
+  end loop;
+
+  select count(distinct set_id) into distinct_set_id_count
+  from unnest(set_ids) as ids(set_id);
+  select count(*) into stored_set_count
+  from catalog_private.recommendation_sets
+  where recommendation_sets.source_profile_id = fixture_source_profile_id;
+  select id into first_set_id
+  from catalog_private.recommendation_sets
+  where recommendation_sets.source_profile_id = fixture_source_profile_id;
+  select count(*) into stored_item_count
+  from catalog_private.recommendations
+  where recommendation_set_id = first_set_id;
+  if distinct_set_id_count <> 1
+    or stored_set_count <> 1
+    or stored_item_count <> 1
+  then
+    raise exception 'concurrent Set publication diverged: %, %, %, %',
+      set_ids, distinct_set_id_count, stored_set_count, stored_item_count;
+  end if;
+
+  perform extensions.dblink_connect(
+    replacement_connection,
+    connection_string
+  );
+  perform extensions.dblink_exec(replacement_connection, 'begin');
+  perform extensions.dblink_exec(
+    replacement_connection,
+    'set local role service_role'
+  );
+  select result into replacement
+  from extensions.dblink(
+    replacement_connection,
+    format(
+      $query$
+        select public.publish_shadow_recommendation_set(
+          %L::uuid,
+          %L,
+          array[%L::uuid]
+        )
+      $query$,
+      fixture_source_profile_id,
+      set_policy_fingerprint,
+      replacement_assessment_id
+    )
+  ) as result(result jsonb);
+  replacement_set_id := (replacement ->> 'recommendationSetId')::uuid;
+  if replacement ->> 'outcome' <> 'published'
+    or replacement_set_id is null
+    or replacement_set_id = first_set_id
+  then
+    raise exception 'replacement Set transaction failed: %', replacement;
+  end if;
+
+  -- The replacement transaction is still uncommitted. A separate reader sees
+  -- the prior complete Set, never a building or partially inserted Set.
+  select id into visible_current_set_id
+  from catalog_private.recommendation_sets
+  where recommendation_sets.source_profile_id = fixture_source_profile_id
+    and status = 'current';
+  if visible_current_set_id <> first_set_id then
+    raise exception 'uncommitted replacement hid the prior current Set: %, %',
+      visible_current_set_id, first_set_id;
+  end if;
+
+  perform extensions.dblink_exec(replacement_connection, 'commit');
+  perform extensions.dblink_disconnect(replacement_connection);
+
+  select id into visible_current_set_id
+  from catalog_private.recommendation_sets
+  where recommendation_sets.source_profile_id = fixture_source_profile_id
+    and status = 'current';
+  select * into old_set
+  from catalog_private.recommendation_sets
+  where id = first_set_id;
+  select count(*) into stored_set_count
+  from catalog_private.recommendation_sets
+  where recommendation_sets.source_profile_id = fixture_source_profile_id;
+  select count(*) into stored_item_count
+  from catalog_private.recommendations
+  where recommendation_set_id in (first_set_id, replacement_set_id);
+  if visible_current_set_id <> replacement_set_id
+    or old_set.status <> 'superseded'
+    or old_set.superseded_by_set_id <> replacement_set_id
+    or stored_set_count <> 2
+    or stored_item_count <> 2
+  then
+    raise exception 'committed Set replacement was incoherent: %, %, %, %, %',
+      visible_current_set_id,
+      replacement_set_id,
+      to_jsonb(old_set),
+      stored_set_count,
+      stored_item_count;
+  end if;
+end;
+$set_concurrency$;
+
+delete from catalog_private.recommendations
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+delete from catalog_private.recommendation_sets
+where source_profile_id in (
+  select id from catalog_private.semantic_profile_versions
+  where video_id in (
+    '39000000-0000-4000-8000-000000000001',
+    '39000000-0000-4000-8000-000000000002'
+  )
+);
 delete from catalog_private.recommendation_assessments
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
