@@ -60,6 +60,22 @@ _Avoid_: Full Transcript, Summary, Project Goal
 The evidence-relative result of one Evidence Finding: Supported, Qualified, Conflicts, or Unresolved. It describes what the admissible evidence retrieved as of a stated date establishes about one claim, not whether a Video or person is truthful or trustworthy.
 _Avoid_: Verdict, truth label, factuality rating
 
+**Evidence Check Run**:
+One mutable, asynchronous attempt with frozen inputs and exactly one terminal outcome. It never exposes partial or invalid Findings.
+_Avoid_: Report draft, retry attempt
+
+**Evidence Report Version**:
+One immutable, atomically published Evidence Check artifact containing complete validated Findings, Coverage, and provenance. A recheck creates a new Run and may publish a new version; it never edits an existing version.
+_Avoid_: Run, mutable report
+
+**Evidence Review Intake**:
+A privacy-preserving external submission that never confirms whether a private Evidence Report exists. Authorized staff may optionally link it to an Evidence Review Case.
+_Avoid_: Appeal vote, Report lookup
+
+**Evidence Review Case**:
+An authorized, human-reviewed workflow concerning an exact Evidence Report or Finding Version. A material correction publishes a new validated Evidence Report Version rather than editing the original.
+_Avoid_: External Intake, in-place correction
+
 **Summary**:
 A concise, structured account of a Video that remains faithful to its Transcript.
 _Avoid_: Abstract, recap
