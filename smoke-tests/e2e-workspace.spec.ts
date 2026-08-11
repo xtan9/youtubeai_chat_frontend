@@ -544,12 +544,38 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
       ),
     });
   });
+  await page.route("**/auth/v1/signup**", async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "beta-candidate@example.test",
+      password: "fixture-password",
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": appUrl,
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({
+        user: authUser(OTHER_ID, "beta-candidate@example.test"),
+        session: null,
+      }),
+    });
+  });
 
   await page.goto(`${appUrl}/workspace`);
   await page.getByRole("link", { name: "Create free account" }).press("Enter");
   await expect(page).toHaveURL(/\/auth\/sign-up\?redirect_to=%2Fworkspace$/u);
   await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
-  await page.getByRole("link", { name: "Login" }).click();
+  await page.getByLabel("Email").fill("beta-candidate@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("fixture-password");
+  await page.getByLabel("Repeat Password").fill("fixture-password");
+  await page.getByRole("button", { name: "Sign up" }).press("Enter");
+  await expect(page).toHaveURL(/\/auth\/sign-up-success$/u);
+  await expect(
+    page.getByRole("heading", { name: "Thank you for signing up!" }),
+  ).toBeVisible();
+  await page.goto(`${appUrl}/auth/login`);
   await expect(page).toHaveURL(/\/auth\/login$/u);
   await expect(page.getByRole("heading", { name: "Login" })).toBeVisible();
   await page.getByLabel("Email").fill("other@example.test");
@@ -568,7 +594,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await page.getByLabel("Project name").fill("Invited multilingual beta");
   await page
     .getByLabel("Project Goal (optional)")
-    .fill("Compare local and regional climate adaptation evidence.");
+    .fill("Explore local climate adaptation decisions.");
   await page.getByRole("button", { name: "Create Project" }).last().click();
   await page
     .getByRole("link", { name: "Open Invited multilingual beta" })
@@ -645,18 +671,27 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
       .getByRole("link", { name: /S2 @ 00:42.*Delta context/iu })
       .first(),
   ).toBeVisible();
-  await expect(page.getByLabel("Source Coverage")).toContainText(
-    "2 of 2 Project Videos used",
-  );
+  const sourceCoverage = groundedAssessment.getByLabel("Source Coverage");
+  await expect(
+    sourceCoverage.getByText("Project Videos", { exact: true }).locator(".."),
+  ).toContainText("2");
+  await expect(
+    sourceCoverage.getByText("Used", { exact: true }).locator(".."),
+  ).toContainText("2");
+  await expect(
+    page.getByRole("status", { name: "1 of 5 free Project messages used" }),
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "New conversation" }).press("Enter");
+  const newConversation = page.getByRole("button", { name: "New conversation" });
+  await expect(newConversation).toBeEnabled();
+  await newConversation.press("Enter");
   await page.getByRole("button", { name: "Rename New conversation" }).click();
   await page
     .getByRole("textbox", { name: "Conversation name" })
     .fill("Artifact choices");
   await page.getByRole("button", { name: "Save conversation name" }).click();
   await expect(
-    page.getByRole("button", { name: /Project Conversation 1 message/iu }),
+    page.getByRole("button", { name: /Project Conversation 2 messages/iu }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /Artifact choices 0 messages/iu }),
@@ -664,11 +699,18 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
 
   await page.getByRole("button", { name: "Choose Creator Brief" }).press("Enter");
   const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
+  const creatorResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/artifacts/creator-brief") &&
+      response.request().method() === "POST",
+  );
   await creatorBrief
     .getByRole("button", { name: "Generate Creator Brief" })
     .click();
+  const creatorResponse = await creatorResponsePromise;
+  expect(creatorResponse.status()).toBe(201);
   await expect(
-    creatorBrief.getByRole("heading", { name: "Grounded inspirations" }),
+    creatorBrief.getByRole("heading", { name: "Source claims" }),
   ).toBeVisible();
   await expect(
     creatorBrief
@@ -681,16 +723,28 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await expect(creatorBrief.getByRole("alert")).toContainText(
     "Free includes 1 Artifact generation total.",
   );
+  await expect(
+    creatorBrief.getByRole("link", { name: "View Pro plans" }),
+  ).toHaveAttribute("href", "/pricing");
+
+  const projectGoal = page.getByLabel("Project Goal (optional)");
+  await projectGoal.fill(
+    "Compare local and regional climate adaptation evidence.",
+  );
+  await page.getByRole("button", { name: "Save changes" }).press("Enter");
+  await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByLabel("Project Search")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
   await expect(creatorBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
+  const mainLandmark = page.getByRole("main");
+  await expect(mainLandmark).toHaveCount(1);
   expect(
-    await page.locator("main").evaluate((main) =>
+    await mainLandmark.evaluate((main) =>
       [...main.querySelectorAll<HTMLElement>("*")].every((element) => {
         const style = getComputedStyle(element);
         const nestedVerticalScroll =
@@ -724,7 +778,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   await expect(
     page.getByRole("region", { name: "Creator Brief" }),
-  ).toContainText("Grounded inspirations");
+  ).toContainText("Source claims");
   await expect(page.getByText("Alpha evidence", { exact: true })).toBeVisible();
   await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
 });
@@ -2708,20 +2762,25 @@ async function handleSupabaseRequest(
           .map((record) => record.recordId),
       });
     }
+    const creatorSecondSourceEvidence = prompt.includes(
+      "气候适应需要准确的本地证据",
+    )
+      ? "气候适应需要准确的本地证据"
+      : "no evidencia comparaciones";
     const creatorBriefContent = creatorUsesTwoSources
       ? `# Creator Brief
 
 ## Source claims
 
 - Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
-- Inspiration: no evidencia comparaciones [S2 @ 00:42].
+- Inspiration: ${creatorSecondSourceEvidence} [S2 @ 00:42].
 
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Compare exact evidence with comparaciones regionales for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Compare exact evidence with ${creatorSecondSourceEvidence} for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
-- Original angle: Evidence basis: comparaciones regionales; Goal fit: local climate adaptation; Original move: Map comparaciones regionales into revisable local climate adaptation choices [S2 @ 00:42].
+- Original angle: Evidence basis: ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Map ${creatorSecondSourceEvidence} into revisable local climate adaptation choices [S2 @ 00:42].
 
 ## Originality plan
 
@@ -2730,7 +2789,7 @@ async function handleSupabaseRequest(
 
 ## Video direction
 
-- Proposed beat: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Contrast exact evidence and comparaciones regionales then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
+- Proposed beat: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Contrast exact evidence and ${creatorSecondSourceEvidence} then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
       : `# Creator Brief
 
 ## Source claims

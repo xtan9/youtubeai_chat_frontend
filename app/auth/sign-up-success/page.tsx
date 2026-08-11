@@ -3,7 +3,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import type { Metadata } from "next";
 
@@ -22,9 +21,9 @@ export default function Page() {
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">
+              <h1 className="text-2xl font-semibold leading-none">
                 Thank you for signing up!
-              </CardTitle>
+              </h1>
               <CardDescription>Check your email to confirm</CardDescription>
             </CardHeader>
             <CardContent>

@@ -38,7 +38,7 @@ export function ProjectOutcomeState({
   }[kind];
 
   return (
-    <main className="mx-auto flex w-full max-w-page justify-center px-4 py-12 sm:px-6">
+    <div className="mx-auto flex w-full max-w-page justify-center px-4 py-12 sm:px-6">
       <Card className="w-full max-w-prose">
         <CardHeader>
           <h1 className="text-h4 font-semibold text-text-primary">
@@ -62,6 +62,6 @@ export function ProjectOutcomeState({
           </Button>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }
