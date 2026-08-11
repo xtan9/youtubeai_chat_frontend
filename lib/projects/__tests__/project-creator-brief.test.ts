@@ -539,6 +539,69 @@ describe("Project Creator Brief originality and grounding", () => {
     ).toEqual(expect.objectContaining({ status: "valid" }));
   });
 
+  it("accepts a two-Video multilingual brief with citations to both sources", () => {
+    const evidence = buildProjectAnswerArtifacts({
+      projectId: PROJECT_ID,
+      goal: "Explore local climate adaptation decisions.",
+      balanceSources: true,
+      search: {
+        status: "ready",
+        sourceSetRevision: 2,
+        coverage: {
+          totalVideos: 2,
+          readyVideos: 2,
+          unavailableVideos: [],
+          passagesExamined: 4,
+        },
+        passages: [
+          passage({
+            text: "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
+            endSeconds: 48,
+          }),
+          passage({
+            videoId: "20000000-0000-4000-8000-000000000002",
+            youtubeVideoId: "bbbbbbb0002",
+            title: "Delta context",
+            text: "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La evidencia transparente ayuda a generar confianza. La date exacte du lancement reste à déterminer.",
+            language: "mul",
+            endSeconds: 48,
+          }),
+        ],
+      },
+    });
+    const brief = `# Creator Brief
+
+## Source claims
+
+- Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
+- Inspiration: no evidencia comparaciones [S2 @ 00:42].
+
+## Proposed ideas
+
+- Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
+- Combination: Evidence basis: exact evidence no evidencia comparaciones; Goal fit: local climate adaptation; Original move: Compare exact evidence with no evidencia comparaciones for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
+- Original angle: Evidence basis: no evidencia comparaciones; Goal fit: local climate adaptation; Original move: Map no evidencia comparaciones into revisable local climate adaptation choices [S2 @ 00:42].
+
+## Originality plan
+
+- Source sequence: evidence > contrast > decision [S1 @ 00:42] [S2 @ 00:42].
+- Proposed sequence: contrast > evidence > framework.
+
+## Video direction
+
+- Proposed beat: Evidence basis: exact evidence no evidencia comparaciones; Goal fit: local climate adaptation; Original move: Contrast exact evidence and no evidencia comparaciones then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`;
+
+    expect(
+      validateProjectCreatorBrief(
+        brief,
+        evidence.sourceManifest,
+        evidence.evidenceSnapshot,
+        "Explore local climate adaptation decisions.",
+      ),
+    ).toEqual(expect.objectContaining({ status: "valid" }));
+  });
+
   it("rejects source expression copied into an otherwise cited brief", () => {
     const evidence = artifacts();
     const copied = CONTENT.replace(

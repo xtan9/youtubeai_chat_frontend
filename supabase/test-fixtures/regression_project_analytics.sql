@@ -157,7 +157,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"e1000000-0000-4000-8000-000000000001","app_metadata":{}}',
+  '{"sub":"e1000000-0000-4000-8000-000000000001","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -193,7 +193,6 @@ do $$
 declare
   ordinals bigint[];
   decorated_assistant jsonb;
-  feedback_result jsonb;
 begin
   select array_agg(message_ordinal order by user_message_id)
   into ordinals
@@ -221,6 +220,17 @@ begin
     ) <> jsonb_build_object('id', 'not-a-uuid', 'role', 'assistant') then
     raise exception 'REGRESSION: missing ordinal did not fail soft';
   end if;
+end;
+$$;
+
+-- Feedback is a public user RPC. Exercise it as the trusted authenticated
+-- caller whose JWT was established above, not as the fixture superuser.
+set local role authenticated;
+
+do $$
+declare
+  feedback_result jsonb;
+begin
 
   feedback_result := public.record_project_answer_feedback(
     'ea000000-0000-4000-8000-000000000001',
@@ -254,6 +264,15 @@ begin
     raise exception 'REGRESSION: immutable feedback decision was overwritten: %',
       feedback_result;
   end if;
+end;
+$$;
+
+reset role;
+
+do $$
+declare
+  decorated_assistant jsonb;
+begin
 
   decorated_assistant :=
     project_private.with_project_message_analytics_ordinal(

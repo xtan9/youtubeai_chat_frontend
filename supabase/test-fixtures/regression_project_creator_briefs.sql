@@ -50,7 +50,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"84000000-0000-4000-8000-000000000004","app_metadata":{}}',
+  '{"sub":"84000000-0000-4000-8000-000000000004","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -145,7 +145,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"84000000-0000-4000-8000-000000000004","app_metadata":{}}',
+  '{"sub":"84000000-0000-4000-8000-000000000004","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -177,7 +177,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{}}',
+  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -262,7 +262,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{}}',
+  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -343,7 +343,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{}}',
+  '{"sub":"85000000-0000-4000-8000-000000000005","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -387,7 +387,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"86000000-0000-4000-8000-000000000006","app_metadata":{}}',
+  '{"sub":"86000000-0000-4000-8000-000000000006","app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 

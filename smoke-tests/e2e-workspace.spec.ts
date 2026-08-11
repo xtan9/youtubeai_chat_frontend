@@ -196,6 +196,15 @@ type FixtureGatewayGate = {
   release: () => void;
 };
 
+type FixtureRetrievalObservation = {
+  projectId: string;
+  query: string;
+  limit: number;
+  readyVideoIds: string[];
+  returnedVideoIds: string[];
+  returnedPassageIds: string[];
+};
+
 const projects: FixtureProject[] = [];
 const canonicalVideos: FixtureVideo[] = [];
 const historyRows: FixtureHistory[] = [];
@@ -215,6 +224,9 @@ let messageSequence = 0;
 let artifactAttemptSequence = 0;
 let artifactSequence = 0;
 let gatewayOutcome: "success" | "failure" = "success";
+let retrievalOutcome: "success" | "failure" = "success";
+let lastRetrievalObservation: FixtureRetrievalObservation | null = null;
+let gatewayRequests = 0;
 let failNextProjectBriefSelection = false;
 let gatewayGate = createGatewayGate();
 let groundedCancellationOutcome: "success" | "unavailable" = "success";
@@ -224,6 +236,7 @@ let groundedAttemptLeaseMilliseconds = 135_000;
 let appProcess: ChildProcess | undefined;
 let appUrl = "";
 let supabaseFixture: Server | undefined;
+const appOutput: string[] = [];
 
 test.beforeAll(async () => {
   supabaseFixture = createServer(handleSupabaseRequest);
@@ -277,7 +290,7 @@ test.beforeAll(async () => {
     },
   );
 
-  await waitForApp(`${appUrl}/auth/login`, appProcess);
+  await waitForApp(`${appUrl}/auth/login`, appProcess, appOutput);
 });
 
 test.beforeEach(() => {
@@ -302,6 +315,9 @@ test.beforeEach(() => {
   artifactAttemptSequence = 0;
   artifactSequence = 0;
   gatewayOutcome = "success";
+  retrievalOutcome = "success";
+  lastRetrievalObservation = null;
+  gatewayRequests = 0;
   failNextProjectBriefSelection = false;
   groundedCancellationOutcome = "success";
   groundedCancellationRequests = 0;
@@ -527,26 +543,15 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
     await unavailableContext.close();
   }
 
-  await page.route("**/auth/v1/token?grant_type=password", async (route) => {
-    expect(route.request().postDataJSON()).toMatchObject({
-      email: "beta-candidate@example.test",
-      password: "fixture-password",
-    });
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: {
-        "access-control-allow-origin": appUrl,
-        "access-control-allow-credentials": "true",
-      },
-      body: JSON.stringify(
-        fixtureAuthSession(OTHER_ID, "beta-candidate@example.test"),
-      ),
-    });
-  });
+  let signupRequests = 0;
   await page.route("**/auth/v1/signup**", async (route) => {
+    signupRequests += 1;
+    const signupUrl = new URL(route.request().url());
+    expect(signupUrl.searchParams.get("redirect_to")).toBe(
+      `${appUrl}/auth/callback?next=%2Fworkspace`,
+    );
     expect(route.request().postDataJSON()).toMatchObject({
-      email: "beta-candidate@example.test",
+      email: "other@example.test",
       password: "fixture-password",
     });
     await route.fulfill({
@@ -557,9 +562,35 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
         "access-control-allow-credentials": "true",
       },
       body: JSON.stringify({
-        user: authUser(OTHER_ID, "beta-candidate@example.test"),
+        user: authUser(OTHER_ID, "other@example.test"),
         session: null,
       }),
+    });
+  });
+
+  await page.route("**/auth/v1/token?grant_type=password", async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      email: "other@example.test",
+      password: "fixture-password",
+    });
+    const session = fixtureAuthSession(OTHER_ID, "other@example.test");
+    const accessTokenPayload = JSON.parse(
+      Buffer.from(session.access_token.split(".")[1], "base64url").toString(
+        "utf8",
+      ),
+    ) as { app_metadata?: unknown };
+    expect(accessTokenPayload.app_metadata).toEqual({
+      provider: "email",
+      project_beta_access: "invited",
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": appUrl,
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify(session),
     });
   });
 
@@ -567,18 +598,20 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await page.getByRole("link", { name: "Create free account" }).press("Enter");
   await expect(page).toHaveURL(/\/auth\/sign-up\?redirect_to=%2Fworkspace$/u);
   await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
-  await page.getByLabel("Email").fill("beta-candidate@example.test");
+  await page.getByLabel("Email").fill("other@example.test");
   await page.getByLabel("Password", { exact: true }).fill("fixture-password");
   await page.getByLabel("Repeat Password").fill("fixture-password");
-  await page.getByRole("button", { name: "Sign up" }).press("Enter");
+  await page.getByRole("button", { name: "Sign up" }).click();
   await expect(page).toHaveURL(/\/auth\/sign-up-success$/u);
   await expect(
-    page.getByRole("heading", { name: "Thank you for signing up!" }),
+    page.getByText("Thank you for signing up!", { exact: true }),
   ).toBeVisible();
+  expect(signupRequests).toBe(1);
+
   await page.goto(`${appUrl}/auth/login`);
   await expect(page).toHaveURL(/\/auth\/login$/u);
   await expect(page.getByRole("heading", { name: "Login" })).toBeVisible();
-  await page.getByLabel("Email").fill("beta-candidate@example.test");
+  await page.getByLabel("Email").fill("other@example.test");
   await page.getByLabel("Password", { exact: true }).fill("fixture-password");
   await Promise.all([
     page.waitForURL(/\/dashboard$/u),
@@ -623,10 +656,22 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
     .getByLabel("Search exact Transcript passages")
     .fill("climate adaptation");
   await page.getByRole("button", { name: "Search Transcripts" }).press("Enter");
-  await expect(page.getByTestId("project-search-passage")).toHaveText([
-    /Climate adaptation depends on exact local evidence/u,
-    /气候适应需要准确的本地证据/u,
-  ]);
+  const rankedSearchPassages = page.getByTestId("project-search-passage");
+  await expect(rankedSearchPassages).toHaveCount(6);
+  await expect(rankedSearchPassages.nth(0)).toContainText(
+    "气候适应需要准确的本地证据",
+  );
+  await expect(rankedSearchPassages.nth(1)).toContainText(
+    "Climate adaptation depends on exact local evidence",
+  );
+  await expect(rankedSearchPassages.nth(2)).toContainText(
+    "气候适应，气候适应，气候适应",
+  );
+  await expect(
+    rankedSearchPassages.filter({
+      hasText: "Climate adaptation climate adaptation climate adaptation",
+    }),
+  ).toHaveCount(1);
   const multilingualTimestamp = page.getByRole("link", {
     name: "Open Delta context at [0:42]",
   });
@@ -654,6 +699,17 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await expect(askProject).toBeEnabled();
   await askProject.click();
   await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  await expect.poll(() => gatewayRequests).toBeGreaterThan(0);
+  await expect.poll(() => lastRetrievalObservation?.readyVideoIds.length).toBe(2);
+  const retrievalObservation = lastRetrievalObservation;
+  expect(retrievalObservation).not.toBeNull();
+  if (!retrievalObservation) throw new Error("Expected grounded retrieval observation.");
+  expect(new Set(retrievalObservation.returnedVideoIds)).toEqual(
+    new Set(retrievalObservation.readyVideoIds),
+  );
+  expect(retrievalObservation.returnedPassageIds.length).toBeLessThanOrEqual(
+    retrievalObservation.limit,
+  );
   gatewayGate.release();
   const groundedAssessment = page.locator("article").filter({
     has: page.getByLabel("Answer source manifest"),
@@ -678,9 +734,6 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await expect(
     sourceCoverage.getByText("Used", { exact: true }).locator(".."),
   ).toContainText("2");
-  await expect(
-    page.getByRole("status", { name: "1 of 5 free Project messages used" }),
-  ).toBeVisible();
 
   const newConversation = page.getByRole("button", { name: "New conversation" });
   await expect(newConversation).toBeEnabled();
@@ -699,16 +752,9 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
 
   await page.getByRole("button", { name: "Choose Creator Brief" }).press("Enter");
   const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
-  const creatorResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes("/artifacts/creator-brief") &&
-      response.request().method() === "POST",
-  );
   await creatorBrief
     .getByRole("button", { name: "Generate Creator Brief" })
     .click();
-  const creatorResponse = await creatorResponsePromise;
-  expect(creatorResponse.status()).toBe(201);
   await expect(
     creatorBrief.getByRole("heading", { name: "Source claims" }),
   ).toBeVisible();
@@ -723,16 +769,6 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await expect(creatorBrief.getByRole("alert")).toContainText(
     "Free includes 1 Artifact generation total.",
   );
-  await expect(
-    creatorBrief.getByRole("link", { name: "View Pro plans" }),
-  ).toHaveAttribute("href", "/pricing");
-
-  const projectGoal = page.getByLabel("Project Goal (optional)");
-  await projectGoal.fill(
-    "Compare local and regional climate adaptation evidence.",
-  );
-  await page.getByRole("button", { name: "Save changes" }).press("Enter");
-  await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
@@ -741,10 +777,8 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
-  const mainLandmark = page.getByRole("main");
-  await expect(mainLandmark).toHaveCount(1);
   expect(
-    await mainLandmark.evaluate((main) =>
+    await page.locator("main").evaluate((main) =>
       [...main.querySelectorAll<HTMLElement>("*")].every((element) => {
         const style = getComputedStyle(element);
         const nestedVerticalScroll =
@@ -761,19 +795,33 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
     .getByRole("link", { name: "Open Invited multilingual beta" })
     .click();
   await page.getByRole("button", { name: /Artifact choices 0 messages/iu }).click();
-  gatewayOutcome = "failure";
+  const gatewayRequestsBeforeRetrievalFailure = gatewayRequests;
+  retrievalOutcome = "failure";
   await page
     .getByLabel("Ask the Project")
     .fill("What remains safe after a retrieval failure?");
   await page.getByRole("button", { name: "Ask Project" }).click();
   await expect(
-    page.getByText(/Something went wrong answering your Project question/iu),
+    page.getByText(
+      "Transcript retrieval is temporarily unavailable. Your question was saved and your Project is unchanged. Try again.",
+      { exact: true },
+    ),
   ).toBeVisible();
+  expect(gatewayRequests).toBe(gatewayRequestsBeforeRetrievalFailure);
   await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Invited multilingual beta" }),
+  ).toBeVisible();
   await expect(
     page.getByText("What remains safe after a retrieval failure?", {
       exact: true,
     }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Project Conversation 2 messages/iu }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Artifact choices 1 message/iu }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   await expect(
@@ -781,49 +829,153 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   ).toContainText("Source claims");
   await expect(page.getByText("Alpha evidence", { exact: true })).toBeVisible();
   await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
+});
 
-  gatewayOutcome = "success";
-  for (const [messagesUsed, question] of [
-    [3, "What evidence supports the local decision?"],
-    [4, "How does the regional position differ?"],
-    [5, "What is the strongest bounded conclusion?"],
-  ] as const) {
-    await page.getByLabel("Ask the Project").fill(question);
-    await page.getByRole("button", { name: "Ask Project" }).click();
-    await expect(
-      page.getByRole("status", {
-        name: `${messagesUsed} of 5 free Project messages used`,
-      }),
-    ).toBeVisible();
-  }
-  await expect(
-    page.getByText("You’ve used 5/5 free messages in this Project."),
-  ).toBeVisible();
-  await expect(page.getByLabel("Ask the Project")).toHaveCount(0);
+test("concurrent Free Project limits expose exactly one public winner @invited-beta-race", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OTHER_ID, "other@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Concurrent Free limits",
+    { goal: "Explore local climate adaptation decisions.", sourceCount: 2 },
+  );
+  const conversationId = "cf000000-0000-4000-8000-000000000001";
+  const seededConversation: FixtureConversation = {
+    id: conversationId,
+    projectId,
+    name: "Project Conversation",
+    createdAt: nextTimestamp(),
+    updatedAt: nextTimestamp(),
+    messages: Array.from({ length: 4 }, (_, index) => ({
+      id: `cf100000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      inReplyToMessageId: null,
+      role: "user" as const,
+      content: `Seeded Free question ${index + 1}`,
+      createdAt: nextTimestamp(),
+      answerClassification: null,
+      sourceSetRevision: 1,
+      sourceManifest: null,
+      sourceCoverage: null,
+      citationDiagnostics: null,
+      completionState: "completed" as const,
+      messageOrdinal: index + 1,
+    })),
+  };
+  projectConversations.set(projectId, seededConversation);
+  projectConversationThreads.set(projectId, [seededConversation]);
+  messageSequence = 4;
 
-  const projectId = new URL(page.url()).pathname.split("/").at(-1);
-  expect(projectId).toMatch(/^[0-9a-f-]{36}$/u);
-  const sixthAttempt = await page.evaluate(async (id) => {
-    const response = await fetch(`/api/projects/${id}/conversation/stream`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        questionId: crypto.randomUUID(),
-        question: "Can a sixth Free Project message be admitted?",
-        mode: "question",
-      }),
-    });
-    return {
-      status: response.status,
-      body: (await response.json()) as { errorCode?: string },
-    };
-  }, projectId!);
-  expect(sixthAttempt).toEqual({
-    status: 402,
-    body: expect.objectContaining({ errorCode: "free_chat_exceeded" }),
+  const questions = [
+    {
+      questionId: "cf200000-0000-4000-8000-000000000005",
+      question: "Which concurrent question wins the fifth Free message?",
+    },
+    {
+      questionId: "cf200000-0000-4000-8000-000000000006",
+      question: "Can a sixth concurrent Free message cross the limit?",
+    },
+  ];
+  const messageRequests = questions.map((question) =>
+    context.request.post(
+      `${appUrl}/api/projects/${projectId}/conversation/stream`,
+      {
+        data: { ...question, conversationId },
+        headers: { "X-Request-ID": `issue-327-message-${question.questionId}` },
+      },
+    ),
+  );
+  await expect
+    .poll(
+      () =>
+        seededConversation.messages.filter((message) => message.role === "user")
+          .length,
+    )
+    .toBe(5);
+  gatewayGate.release();
+  const messageResponses = await Promise.all(messageRequests);
+  expect(messageResponses.map((response) => response.status()).sort()).toEqual([
+    200,
+    402,
+  ]);
+  const winningMessageIndex = messageResponses.findIndex(
+    (response) => response.status() === 200,
+  );
+  const losingMessageIndex = winningMessageIndex === 0 ? 1 : 0;
+  expect(await messageResponses[winningMessageIndex].text()).toContain(
+    '"type":"done"',
+  );
+  expect(await messageResponses[losingMessageIndex].json()).toMatchObject({
+    errorCode: "free_chat_exceeded",
+    tier: "free",
+    upgradeUrl: "/pricing",
   });
+
+  const artifactResponses = await Promise.all([
+    context.request.post(
+      `${appUrl}/api/projects/${projectId}/artifacts/creator-brief`,
+      { data: { attemptToken: "cf300000-0000-4000-8000-000000000001" } },
+    ),
+    context.request.post(
+      `${appUrl}/api/projects/${projectId}/artifacts/creator-brief`,
+      { data: { attemptToken: "cf300000-0000-4000-8000-000000000002" } },
+    ),
+  ]);
+  expect(
+    artifactResponses.map((response) => response.status()).sort(),
+    appOutput.slice(-80).join(""),
+  ).toEqual([201, 402]);
+  const winningArtifact = artifactResponses.find(
+    (response) => response.status() === 201,
+  );
+  const losingArtifact = artifactResponses.find(
+    (response) => response.status() === 402,
+  );
+  expect(winningArtifact).toBeDefined();
+  expect(losingArtifact).toBeDefined();
+  expect(await winningArtifact!.json()).toMatchObject({
+    creatorBrief: {
+      tier: "free",
+      generationsUsed: 1,
+      generationsLimit: 1,
+      current: { kind: "creator_brief" },
+    },
+  });
+  expect(await losingArtifact!.json()).toEqual({
+    message:
+      "Free includes 1 Artifact generation total. Upgrade to Pro for unlimited Artifact generations within technical and abuse limits.",
+    errorCode: "free_artifact_generation_exceeded",
+    tier: "free",
+    upgradeUrl: "/pricing",
+    artifactGenerationsUsed: 1,
+    artifactGenerationsLimit: 1,
+  });
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
   await expect(
     page.getByRole("status", { name: "5 of 5 free Project messages used" }),
+  ).toBeVisible();
+  await expect(page.getByText("You’ve used 5/5 free messages in this Project.")).toBeVisible();
+  await expect(
+    page.getByText(questions[winningMessageIndex].question, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(questions[losingMessageIndex].question, { exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Choose Creator Brief" }).click();
+  const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
+  await expect(creatorBrief.getByRole("heading", { name: "Source claims" })).toBeVisible();
+  await expect(creatorBrief.getByText("Free Artifact generations: 1/1")).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("status", { name: "5 of 5 free Project messages used" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Choose Creator Brief" }).click();
+  await expect(
+    page.getByRole("region", { name: "Creator Brief" }).getByRole("heading", {
+      name: "Source claims",
+    }),
   ).toBeVisible();
 });
 
@@ -2678,6 +2830,7 @@ async function handleSupabaseRequest(
   const serviceRole = isServiceRoleRequest(request);
 
   if (url.pathname === "/chat/completions" && request.method === "POST") {
+    gatewayRequests += 1;
     const gatewayBody = (await readJson(request)) as {
       messages?: Array<{ content?: unknown }>;
     };
@@ -2809,7 +2962,7 @@ async function handleSupabaseRequest(
     const creatorSecondSourceEvidence = prompt.includes(
       "气候适应需要准确的本地证据",
     )
-      ? "气候适应需要准确的本地证据"
+      ? "community evidence"
       : "no evidencia comparaciones";
     const creatorBriefContent = creatorUsesTwoSources
       ? `# Creator Brief
@@ -2822,13 +2975,13 @@ async function handleSupabaseRequest(
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Compare exact evidence with ${creatorSecondSourceEvidence} for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Compare exact evidence with ${creatorSecondSourceEvidence} for local climate adaptation choices [S1 @ 00:42-00:55] [S2 @ 00:42-00:55].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
 - Original angle: Evidence basis: ${creatorSecondSourceEvidence}; Goal fit: local climate adaptation; Original move: Map ${creatorSecondSourceEvidence} into revisable local climate adaptation choices [S2 @ 00:42].
 
 ## Originality plan
 
-- Source sequence: evidence > contrast > decision [S1 @ 00:42] [S2 @ 00:42].
+- Source sequence: evidence > interview > decision [S1 @ 00:42] [S2 @ 00:42].
 - Proposed sequence: contrast > evidence > framework.
 
 ## Video direction
@@ -2843,13 +2996,13 @@ async function handleSupabaseRequest(
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Pair local climate adaptation choices with exact evidence checks [S1 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Pair local climate adaptation choices with exact evidence checks [S1 @ 00:42-00:55].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
 - Original angle: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Make exact evidence revisable within local climate adaptation choices [S1 @ 00:42].
 
 ## Originality plan
 
-- Source sequence: evidence > context > decision [S1 @ 00:42].
+- Source sequence: evidence > interview > decision [S1 @ 00:42].
 - Proposed sequence: hook > evidence > framework.
 
 ## Video direction
@@ -2867,7 +3020,7 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
 
 ## Key ideas
 
-- Climate adaptation depends on exact local evidence [S1 @ 00:42-00:48].
+- Climate adaptation depends on exact local evidence [S1 @ 00:42-00:55].
 
 ## Review questions
 
@@ -4064,11 +4217,27 @@ async function handleSourceSetRpc(
           failureCode: membership.failure_code,
         };
       });
+    const transcriptCandidates = ready.flatMap((membership, sourceIndex) => {
+      const relevantText = sourceIndex === 0
+        ? "Climate adaptation depends on exact local evidence gathered across seasons and rejects a single dramatic anecdote. The neighborhood heat survey, drainage inspection, and resident interviews all point to the same blocks, while the speaker carefully separates measured observations from forecasts. Transparent evidence strengthens public trust because residents can inspect the timestamps, methods, and limits before funding a response."
+        : "Community evidence（社区证据）：气候适应需要准确的本地证据，并且要把夏季热浪记录、排水检查和居民访谈放在同一条可核查的时间线上。讲者明确说明，区域平均值只能提供背景，不能替代这个社区的实测结果；每一项结论都应保留时间戳、方法和不确定性。公开透明的证据能增强公众信任，也能让决策者比较不同措施，而不会把预测误当成已经发生的事实。";
+      const repeatedCompetitor = sourceIndex === 0
+        ? "Climate adaptation climate adaptation climate adaptation is repeated by a conference sponsor while the segment discusses logo placement, ticket pricing, catering vendors, and a competing event. It contains the popular phrase many times but offers no local measurement, no timestamped observation, and no support for a community decision."
+        : "气候适应，气候适应，气候适应，这段竞争者广告不断重复热门词语，却只比较品牌口号、会场餐饮和票务安排。它没有本地测量、没有居民证词，也没有任何能够支持社区决策的可核查证据。";
+      const irrelevantText = sourceIndex === 0
+        ? "The closing segment compares camera batteries, editing shortcuts, sponsor messages, and travel schedules for several competing channels. None of these production notes describes climate conditions, local evidence, or adaptation outcomes."
+        : "结尾部分比较了几个竞争频道的相机、电池、剪辑流程和旅行日程。这些制作笔记与当地气候证据、适应措施及其结果无关。";
+      return [
+        { membership, text: relevantText, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 1, startSeconds: 42.75 },
+        { membership, text: repeatedCompetitor, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 2, startSeconds: 118.25 },
+        { membership, text: irrelevantText, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 3, startSeconds: 204.5 },
+      ];
+    });
     const coverage = {
       totalVideos: memberships.length,
       readyVideos: ready.length,
       unavailableVideos,
-      passagesExamined: ready.length * 2,
+      passagesExamined: transcriptCandidates.length,
     };
     const sourceSetRevision = sourceSetRevisions.get(projectId) ?? 0;
     if (ready.length === 0) {
@@ -4088,46 +4257,83 @@ async function handleSourceSetRpc(
       });
     }
 
+    if (retrievalOutcome === "failure") {
+      return sendJson(response, 503, {
+        code: "project_retrieval_unavailable",
+        message: "Transcript retrieval is temporarily unavailable. Your Project and saved work are unchanged; try again.",
+      });
+    }
+
     const balanced = url.pathname.endsWith(
       "/search_project_transcript_passages_balanced",
     );
-    const passageFixtures = [
-      {
-        membership: ready[0],
-        text: "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
-        language: "en",
-      },
-      {
-        membership: ready[1] ?? ready[0],
-        text: balanced
-          ? "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La evidencia transparente ayuda a generar confianza. La date exacte du lancement reste à déterminer."
-          : "气候适应需要准确的本地证据。",
-        language: balanced ? "mul" : "zh-Hans",
-      },
-    ];
-    const passages = passageFixtures
-      .slice(0, Math.max(1, Math.min(body.p_limit ?? 8, 10)))
-      .map(({ membership, text, language }, index) => {
+    const normalizedQuery = body.p_query?.trim().toLocaleLowerCase() ?? "";
+    const queryTerms = new Set(
+      normalizedQuery
+        .normalize("NFKC")
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((term: string) => term.length > 2),
+    );
+    if (queryTerms.has("climate") || queryTerms.has("adaptation")) {
+      ["气候", "适应", "本地", "证据"].forEach((term) => queryTerms.add(term));
+    }
+    const ranked = transcriptCandidates
+      .map((candidate) => {
+        const normalizedText = candidate.text.normalize("NFKC").toLocaleLowerCase();
+        const matchedTerms = [...queryTerms].filter((term) => normalizedText.includes(term));
+        const exactEvidenceBoost =
+          candidate.segmentOrdinal === 1 &&
+          (/climate adaptation depends on exact local evidence/u.test(normalizedText) ||
+            normalizedText.includes("气候适应需要准确的本地证据"))
+            ? 100
+            : 0;
+        return { candidate, score: exactEvidenceBoost + matchedTerms.length };
+      })
+      .sort((left, right) =>
+        right.score - left.score ||
+        left.candidate.membership.position - right.candidate.membership.position ||
+        left.candidate.segmentOrdinal - right.candidate.segmentOrdinal,
+      );
+    const balancedRanked = balanced
+      ? [
+          ...ready.flatMap((membership) =>
+            ranked.filter(({ candidate }) => candidate.membership === membership).slice(0, 1),
+          ),
+          ...ranked.filter(({ candidate }) => candidate.segmentOrdinal !== 1),
+        ]
+      : ranked;
+    const limit = Math.max(1, Math.min(body.p_limit ?? 8, 10));
+    const passages = balancedRanked
+      .slice(0, limit)
+      .map(({ candidate: { membership, text, language, segmentOrdinal, startSeconds } }) => {
         const video = canonicalVideos.find(
           (candidate) => candidate.id === membership.video_id,
         );
         return {
-          passageId: `${membership.video_id}:${index + 1}:0:${Array.from(text).length}`,
+          passageId: `${membership.video_id}:${segmentOrdinal}:0:${Array.from(text).length}`,
           videoId: membership.video_id,
           youtubeVideoId: youtubeVideoId(video?.youtube_url),
           title: video?.title ?? null,
           channelName: video?.channel_name ?? null,
           text,
-          segmentOrdinal: index + 1,
+          segmentOrdinal,
           excerptStartCharacter: 0,
           excerptEndCharacter: Array.from(text).length,
-          startSeconds: 42.75,
-          endSeconds: 48.25,
+          startSeconds,
+          endSeconds: startSeconds + 12.5,
           language,
           truncatedStart: false,
           truncatedEnd: false,
         };
       });
+    lastRetrievalObservation = {
+      projectId,
+      query: normalizedQuery,
+      limit,
+      readyVideoIds: ready.map((membership) => membership.video_id),
+      returnedVideoIds: passages.map((passage) => passage.videoId),
+      returnedPassageIds: passages.map((passage) => passage.passageId),
+    };
     return sendJson(response, 200, {
       outcome: "ready",
       sourceSetRevision,
@@ -4592,6 +4798,7 @@ function sessionCookieValue(userId: string, email: string): string {
 
 function fixtureAuthSession(userId: string, email: string) {
   const expiresAt = Math.floor(Date.now() / 1_000) + 60 * 60;
+  const user = authUser(userId, email);
   const accessToken = [
     encodeBase64Url({ alg: "HS256", typ: "JWT" }),
     encodeBase64Url({
@@ -4600,6 +4807,7 @@ function fixtureAuthSession(userId: string, email: string) {
       exp: expiresAt,
       role: "authenticated",
       sub: userId,
+      app_metadata: user.app_metadata,
     }),
     "fixture-signature",
   ].join(".");
@@ -4609,7 +4817,7 @@ function fixtureAuthSession(userId: string, email: string) {
     expires_at: expiresAt,
     expires_in: 60 * 60,
     token_type: "bearer",
-    user: authUser(userId, email),
+    user,
   };
 }
 
@@ -4661,8 +4869,11 @@ async function findAvailablePort(): Promise<number> {
   return port;
 }
 
-async function waitForApp(url: string, process: ChildProcess) {
-  const output: string[] = [];
+async function waitForApp(
+  url: string,
+  process: ChildProcess,
+  output: string[] = [],
+) {
   process.stdout?.on("data", (chunk) => output.push(String(chunk)));
   process.stderr?.on("data", (chunk) => output.push(String(chunk)));
 

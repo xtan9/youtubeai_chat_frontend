@@ -54,6 +54,19 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm test --coverage
+      - name: Install invited beta browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify invited beta Project journey and Free-limit races
+        run: >-
+          pnpm exec playwright test smoke-tests/e2e-workspace.spec.ts
+          --grep '@invited-beta-(critical|race)'
+          --workers=1
+          --retries=0
+          --reporter=line
+        env:
+          # The spec owns isolated app and Supabase fixture servers. Setting
+          # BASE_URL disables Playwright's unrelated global webServer.
+          BASE_URL: http://127.0.0.1
 
   build:
     runs-on: ubuntu-latest
@@ -277,6 +290,8 @@ jobs:
           dropdb identity_recovery_late
       - name: Workspace and Project contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
+      - name: Project beta database access - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_beta_access.sql
       - name: Project limit concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_limit_concurrency.sql
       - name: Project Source Set contract - representative legacy
@@ -358,6 +373,7 @@ jobs:
           done
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/assert_video_identity_recovery_fixed_point.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_workspace_projects.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_beta_access.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_limit_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_sets.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_set_concurrency.sql

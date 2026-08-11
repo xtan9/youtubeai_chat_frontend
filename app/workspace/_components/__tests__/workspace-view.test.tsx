@@ -66,6 +66,7 @@ describe("Workspace Project entitlement presentation", () => {
     const privacyBoundary = container.querySelector(
       ".ph-no-capture[data-ph-no-autocapture]",
     );
+    expect(privacyBoundary?.tagName).toBe("DIV");
     expect(privacyBoundary?.classList.contains("ph-no-capture")).toBe(true);
     expect(privacyBoundary?.hasAttribute("data-ph-no-autocapture")).toBe(true);
     expect(screen.queryByRole("button", { name: "Create Project" })).toBeNull();
