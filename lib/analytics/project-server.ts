@@ -59,8 +59,13 @@ const ActivationAckResultSchema = z
   .strict();
 
 const GenerationRecordResultSchema = z.object({
-  outcome: z.enum(["inserted", "deduplicated", "missing"]),
+  outcome: z.enum(["inserted", "deduplicated", "inactive", "missing"]),
 }).strict();
+
+export type ProjectGenerationUsageRecordStatus =
+  | z.infer<typeof GenerationRecordResultSchema>["outcome"]
+  | "suppressed"
+  | "unavailable";
 
 const RateCardSchema = z.object({
   version: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
@@ -280,14 +285,21 @@ export async function recordProjectGenerationUsage(args: {
   usage?: ProjectTokenUsage;
   durationMs: number;
   businessAnalyticsSuppressed: boolean;
-}): Promise<void> {
-  if (args.businessAnalyticsSuppressed) return;
+  activation?: Readonly<{
+    trigger: Extract<ProjectAnalyticsTrigger, "message" | "artifact">;
+    occurredAt: string;
+  }>;
+}): Promise<ProjectGenerationUsageRecordStatus> {
+  if (args.businessAnalyticsSuppressed) return "suppressed";
   try {
     const service = getServiceRoleClient();
-    if (!service) return;
+    if (!service) return "unavailable";
     const properties = generationProperties(args);
     const measured = properties.cost_status === "measured";
-    const { data, error } = await service.rpc("record_project_generation_usage", {
+    const rpcName = args.activation
+      ? "record_project_activated_generation_usage"
+      : "record_project_generation_usage";
+    const rpcArguments = {
       p_project_id: args.projectId,
       p_owner_id: args.ownerId,
       p_operation_id: args.operationId,
@@ -305,10 +317,19 @@ export async function recordProjectGenerationUsage(args: {
       p_rate_card_source: measured ? properties.rate_card_source : null,
       p_rate_card_effective_date: measured ? properties.rate_card_effective_date : null,
       p_error_class: measured ? null : properties.error_class,
-    });
+      ...(args.activation
+        ? {
+            p_trigger_kind: args.activation.trigger,
+            p_occurred_at: args.activation.occurredAt,
+          }
+        : {}),
+    };
+    const { data, error } = await service.rpc(rpcName, rpcArguments);
     if (error) throw error;
     const parsed = GenerationRecordResultSchema.safeParse(data);
-    if (!parsed.success || parsed.data.outcome !== "inserted") return;
+    if (!parsed.success) return "unavailable";
+    if (args.activation) await drainProjectActivationOutboxWithClient(service, 25);
+    if (parsed.data.outcome !== "inserted") return parsed.data.outcome;
     await captureProjectActivityEvent(
       args.ownerId,
       "project_generation_cost_recorded",
@@ -316,11 +337,13 @@ export async function recordProjectGenerationUsage(args: {
       false,
       `project-generation:${args.projectId}:${args.operationId}:${args.generationKind}`,
     );
+    return "inserted";
   } catch (error) {
     console.error("[analytics] Project generation usage write failed", {
       errorId: "PROJECT_GENERATION_USAGE_WRITE_FAILED",
       generationKind: args.generationKind,
       error,
     });
+    return "unavailable";
   }
 }

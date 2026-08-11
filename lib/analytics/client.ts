@@ -38,9 +38,20 @@ import {
 
 let businessAnalyticsCaptureSuppressed = false;
 
+function emitAnalyticsE2EDiagnostic(name: string, detail: unknown): void {
+  if (
+    process.env.NEXT_PUBLIC_ANALYTICS_E2E_DIAGNOSTICS !== "1" ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
 /** Set by the Auth/PostHog identity boundary when the current person is synthetic. */
 export function setBusinessAnalyticsCaptureSuppressed(suppressed: boolean): void {
   businessAnalyticsCaptureSuppressed = suppressed;
+  emitAnalyticsE2EDiagnostic("project-analytics-suppression-e2e", suppressed);
 }
 
 export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
@@ -150,6 +161,10 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
     posthog.capture(event, {
       analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
       ...validatedProperties,
+    });
+    emitAnalyticsE2EDiagnostic("project-analytics-capture-e2e", {
+      event,
+      properties: validatedProperties,
     });
   } catch (err) {
     console.error("[analytics] client capture failed", {

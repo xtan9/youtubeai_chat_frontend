@@ -60,6 +60,7 @@ type SourceSetPayload = {
   message?: string;
   sourceSet?: ProjectSourceSetValue;
   upgradeUrl?: string;
+  errorCode?: string;
 };
 
 type CandidatePayload = {
@@ -274,6 +275,17 @@ export function ProjectSourceSet({
             ? { http_status: response.status }
             : {}),
         });
+        if (
+          response.status === 402 &&
+          payload.errorCode === "free_quota_exceeded" &&
+          payload.upgradeUrl === "/pricing"
+        ) {
+          captureAnalyticsEvent("project_paywall_viewed", {
+            project_id: projectId,
+            paywall_kind: "source_processing",
+            tier: "free",
+          });
+        }
         setError(payload.message ?? "Couldn’t process that Video. Try again.");
         setUpgradeUrl(payload.upgradeUrl ?? null);
         await refreshSourceSet();

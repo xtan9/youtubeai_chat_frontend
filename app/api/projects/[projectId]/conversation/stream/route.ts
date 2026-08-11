@@ -409,8 +409,8 @@ export async function POST(request: Request, context: RouteContext) {
           emit: send,
         });
         if (result.generation) {
-          scheduleAnalyticsAfterResponse(() =>
-            recordProjectGenerationUsage({
+          scheduleAnalyticsAfterResponse(async () => {
+            await recordProjectGenerationUsage({
               projectId: subject.value.projectId,
               ownerId: researcher.principal.userId,
               operationId: reservation.attemptToken,
@@ -419,8 +419,12 @@ export async function POST(request: Request, context: RouteContext) {
               durationMs: result.generation?.durationMs ?? 0,
               businessAnalyticsSuppressed:
                 researcher.principal.businessAnalyticsSuppressed,
-            }),
-          );
+              activation: {
+                trigger: "message",
+                occurredAt: messageOccurredAt,
+              },
+            });
+          });
         }
         if (result.outcome === "failed") {
           await cancelReservedQuestion();

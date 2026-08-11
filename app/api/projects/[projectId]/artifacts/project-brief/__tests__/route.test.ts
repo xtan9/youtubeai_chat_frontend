@@ -638,6 +638,10 @@ describe("Project Brief API", () => {
       usage: { inputTokens: 160, cachedInputTokens: 25, outputTokens: 25 },
       durationMs: 70,
       businessAnalyticsSuppressed: false,
+      activation: {
+        trigger: "artifact",
+        occurredAt: "2026-08-09T18:00:00.000Z",
+      },
     });
     vi.useRealTimers();
   });

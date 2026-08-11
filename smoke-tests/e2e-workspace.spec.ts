@@ -105,6 +105,7 @@ type FixtureConversationMessage = {
   completionState?: "reserved" | "completed" | "cancelled" | null;
   leaseExpiresAt?: number | null;
   messageOrdinal?: number;
+  feedbackRating?: "helpful" | "not_helpful";
 };
 
 type FixtureSourceSetEvent = {
@@ -675,7 +676,8 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Useful", exact: true }),
-  ).toBeVisible();
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Feedback recorded.")).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -1879,7 +1881,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
     "2 exact Transcript passages found across 3 ready Videos",
   );
   await expect(page.getByTestId("project-search-passage")).toHaveText([
-    "Climate adaptation depends on exact local evidence.",
+    "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
     "气候适应需要准确的本地证据。",
   ]);
   const firstTimestamp = page.getByRole("link", {
@@ -2371,7 +2373,7 @@ async function handleSupabaseRequest(
       "cache-control": "no-cache",
     });
     response.flushHeaders();
-    const creatorUsesTwoSources = prompt.includes('"sourceId":"S2"');
+    const creatorUsesTwoSources = /"sourceId"\s*:\s*"S2"/u.test(prompt);
     const normalizationMarker = "IMMUTABLE_EVIDENCE_CANDIDATES:\n";
     const governedMarker =
       "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n";
@@ -2477,14 +2479,14 @@ async function handleSupabaseRequest(
 ## Source claims
 
 - Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
-- Inspiration: Regional interviews conflicting adaptation priorities [S2 @ 00:42].
+- Inspiration: no evidencia comparaciones [S2 @ 00:42].
 
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Compare exact evidence with regional interviews for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Compare exact evidence with comparaciones regionales for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
-- Original angle: Evidence basis: regional interviews; Goal fit: local climate adaptation; Original move: Map regional interviews into revisable local climate adaptation choices [S2 @ 00:42].
+- Original angle: Evidence basis: comparaciones regionales; Goal fit: local climate adaptation; Original move: Map comparaciones regionales into revisable local climate adaptation choices [S2 @ 00:42].
 
 ## Originality plan
 
@@ -2493,7 +2495,7 @@ async function handleSupabaseRequest(
 
 ## Video direction
 
-- Proposed beat: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Contrast exact evidence and regional interviews, then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
+- Proposed beat: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Contrast exact evidence and comparaciones regionales then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
       : `# Creator Brief
 
 ## Source claims
@@ -2857,6 +2859,8 @@ async function handleSourceSetRpc(
     p_rate_card_version?: string | null;
     p_trigger_kind?: string;
     p_occurred_at?: string;
+    p_answer_id?: string;
+    p_rating?: "helpful" | "not_helpful";
   };
   const projectId = body.p_project_id;
 
@@ -2935,8 +2939,90 @@ async function handleSourceSetRpc(
     });
   }
 
+  if (url.pathname.endsWith("/record_project_activated_generation_usage")) {
+    if (
+      !serviceRole ||
+      !projectId ||
+      body.p_owner_id !== projectOwnerId(projectId) ||
+      !body.p_operation_id ||
+      !body.p_generation_kind ||
+      !body.p_model_id ||
+      !body.p_provider_kind ||
+      !body.p_cost_status ||
+      body.p_duration_ms === undefined ||
+      !body.p_trigger_kind ||
+      !body.p_occurred_at
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const existing = projectGenerationUsage.find(
+      (usage) =>
+        usage.projectId === projectId &&
+        usage.operationId === body.p_operation_id &&
+        usage.generationKind === body.p_generation_kind,
+    );
+    if (existing) {
+      return sendJson(response, 200, { outcome: "deduplicated" });
+    }
+    projectGenerationUsage.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      operationId: body.p_operation_id,
+      generationKind: body.p_generation_kind,
+      modelId: body.p_model_id,
+      providerKind: body.p_provider_kind,
+      costStatus: body.p_cost_status,
+      inputTokens: body.p_input_tokens ?? null,
+      cachedInputTokens: body.p_cached_input_tokens ?? null,
+      outputTokens: body.p_output_tokens ?? null,
+      costUsdMicros: body.p_cost_usd_micros ?? null,
+      durationMs: body.p_duration_ms,
+      rateCardVersion: body.p_rate_card_version ?? null,
+    });
+    projectAnalyticsTransitions.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      triggerKind: body.p_trigger_kind,
+      occurredAt: body.p_occurred_at,
+    });
+    return sendJson(response, 200, { outcome: "inserted" });
+  }
+
   if (url.pathname.endsWith("/claim_project_activation_exports")) {
     return sendJson(response, 200, { outcome: "empty", exports: [] });
+  }
+
+  if (url.pathname.endsWith("/record_project_answer_feedback")) {
+    if (!userId || !projectId || projectOwnerId(projectId) !== userId) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const answer = conversationThreads(projectId)
+      .flatMap((conversation) => conversation.messages)
+      .find(
+        (message) =>
+          message.role === "assistant" && message.id === body.p_answer_id,
+      );
+    if (
+      !answer ||
+      !answer.messageOrdinal ||
+      (body.p_rating !== "helpful" && body.p_rating !== "not_helpful")
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    if (answer.feedbackRating) {
+      return sendJson(response, 200, {
+        outcome:
+          answer.feedbackRating === body.p_rating ? "deduplicated" : "conflict",
+        rating: answer.feedbackRating,
+        messageOrdinal: answer.messageOrdinal,
+      });
+    }
+    answer.feedbackRating = body.p_rating;
+    return sendJson(response, 200, {
+      outcome: "recorded",
+      rating: answer.feedbackRating,
+      messageOrdinal: answer.messageOrdinal,
+    });
   }
 
   if (url.pathname.endsWith("/load_project_source_set")) {
@@ -3895,6 +3981,9 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     completionState: message.role === "user" ? message.completionState : null,
     ...(message.messageOrdinal
       ? { messageOrdinal: message.messageOrdinal }
+      : {}),
+    ...(message.feedbackRating
+      ? { feedbackRating: message.feedbackRating }
       : {}),
   };
 }

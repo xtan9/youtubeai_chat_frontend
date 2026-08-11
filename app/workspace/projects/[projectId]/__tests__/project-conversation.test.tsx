@@ -244,6 +244,14 @@ describe("ProjectConversation", () => {
   });
 
   it("renders a private evidence ledger before linked and diagnostic citations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        outcome: "recorded",
+        rating: "helpful",
+        messageOrdinal: 7,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const astralMalformed = `[${"😀".repeat(90)} S9 at 00:10]`;
     const sourceManifest: ProjectAnswerSourceManifest = {
       projectId: PROJECT_ID,
@@ -358,16 +366,31 @@ describe("ProjectConversation", () => {
       timestamp_seconds: 42,
     });
     fireEvent.click(screen.getByRole("button", { name: "Useful" }));
-    expect(screen.getByText("Feedback recorded.")).toBeTruthy();
-    expect(mocks.capture).toHaveBeenCalledWith(
-      "project_answer_feedback_submitted",
-      {
-        project_id: PROJECT_ID,
-        answer_id: "50000000-0000-4000-8000-000000000001",
-        message_ordinal: 7,
-        rating: "helpful",
-      },
+    await waitFor(() => expect(screen.getByText("Feedback recorded.")).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/projects/${PROJECT_ID}/conversation/feedback`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          answerId: "50000000-0000-4000-8000-000000000001",
+          rating: "helpful",
+        }),
+      }),
     );
+    expect(mocks.capture).not.toHaveBeenCalledWith(
+      "project_answer_feedback_submitted",
+      expect.anything(),
+    );
+    expect(
+      (screen.getByRole("button", { name: "Useful" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Not useful" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Useful" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("link", { name: /\[S9 @ 00:10\]/ })).toBeNull();
     expect(container.textContent).toContain(astralMalformed);
     expect(screen.queryByRole("link", { name: /S9 at 00:10/ })).toBeNull();
@@ -376,6 +399,164 @@ describe("ProjectConversation", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("restores an immutable Project-global feedback decision after reload", async () => {
+    const sourceManifest: ProjectAnswerSourceManifest = {
+      projectId: PROJECT_ID,
+      sourceSetRevision: 1,
+      sources: [
+        {
+          sourceId: "S1",
+          videoId: VIDEO_ID,
+          youtubeVideoId: "aaaaaaa0001",
+          title: "Launch notes",
+          channelName: null,
+          passages: [{ passageId: "p1", startSeconds: 42, endSeconds: 58 }],
+        },
+      ],
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          conversationId: "40000000-0000-4000-8000-000000000001",
+          messages: [
+            {
+              id: USER_MESSAGE_ID,
+              inReplyToMessageId: null,
+              role: "user",
+              content: "When was the launch?",
+              createdAt: "2026-08-09T12:00:00.000Z",
+              answerClassification: null,
+              completionState: "completed",
+              sourceSetRevision: 1,
+              sourceManifest: null,
+              sourceCoverage: null,
+              citationDiagnostics: null,
+            },
+            {
+              id: "50000000-0000-4000-8000-000000000001",
+              inReplyToMessageId: USER_MESSAGE_ID,
+              role: "assistant",
+              content: "The launch is supported [S1 @ 00:42].",
+              createdAt: "2026-08-09T12:00:01.000Z",
+              answerClassification: "supported",
+              completionState: null,
+              sourceSetRevision: 1,
+              sourceManifest,
+              sourceCoverage: {
+                totalVideos: 1,
+                readyVideos: 1,
+                usedVideos: 1,
+                unavailableVideos: [],
+                passagesExamined: 1,
+                passagesUsed: 1,
+              },
+              citationDiagnostics: [],
+              messageOrdinal: 3,
+              feedbackRating: "helpful",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Useful" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      (screen.getByRole("button", { name: "Useful" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Not useful" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(screen.getByText("Feedback recorded.")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [400, "invalid", "request"],
+    [404, "missing", "request"],
+    [429, "unavailable", "rate_limit"],
+    [503, "unavailable", "processing"],
+    [200, "unexpected", "protocol"],
+  ] as const)(
+    "records a bounded feedback failure for HTTP %s without private answer content",
+    async (status, outcome, errorClass) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ outcome }, { status }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          conversationId: "40000000-0000-4000-8000-000000000001",
+          messages: [
+            {
+              id: USER_MESSAGE_ID,
+              inReplyToMessageId: null,
+              role: "user",
+              content: "When was the launch?",
+              createdAt: "2026-08-09T12:00:00.000Z",
+              answerClassification: null,
+              completionState: "completed",
+              sourceSetRevision: 1,
+              sourceManifest: null,
+              sourceCoverage: null,
+              citationDiagnostics: null,
+            },
+            {
+              id: "50000000-0000-4000-8000-000000000001",
+              inReplyToMessageId: USER_MESSAGE_ID,
+              role: "assistant",
+              content: "The launch is supported.",
+              createdAt: "2026-08-09T12:00:01.000Z",
+              answerClassification: "supported",
+              completionState: null,
+              sourceSetRevision: 1,
+              sourceManifest: {
+                projectId: PROJECT_ID,
+                sourceSetRevision: 1,
+                sources: [],
+              },
+              sourceCoverage: {
+                totalVideos: 0,
+                readyVideos: 0,
+                usedVideos: 0,
+                unavailableVideos: [],
+                passagesExamined: 0,
+                passagesUsed: 0,
+              },
+              citationDiagnostics: [],
+              messageOrdinal: 3,
+            },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Useful" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Couldn’t record feedback. Try again.",
+    );
+    expect(mocks.capture).toHaveBeenCalledWith("project_action_failed", {
+      project_id: PROJECT_ID,
+      action_kind: "feedback",
+      error_class: errorClass,
+      ...(status === 200 ? {} : { http_status: status }),
+    });
+    expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(
+      "The launch is supported",
+    );
+    },
+  );
 
   it("renders Source Set boundaries around durable answers", async () => {
     const { container } = renderWithProviders(

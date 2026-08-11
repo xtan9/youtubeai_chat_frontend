@@ -26,6 +26,7 @@ describe("findNavLabel", () => {
     expect(findNavLabel("/admin")).toBe("Dashboard");
     expect(findNavLabel("/admin/audit")).toBe("Audit log");
     expect(findNavLabel("/admin/subscriptions")).toBe("Subscription funnel");
+    expect(findNavLabel("/admin/projects")).toBe("Project adoption");
   });
 
   it("falls back to 'Page' for unknown paths", () => {
@@ -61,6 +62,14 @@ describe("buildAdminNav", () => {
     expect(nav[0].items.map((item) => [item.href, item.label])).toContainEqual([
       "/admin/subscriptions",
       "Subscription funnel",
+    ]);
+  });
+
+  it("exposes the Project adoption report from Overview", () => {
+    const nav = buildAdminNav({ usersTotal: 0 });
+    expect(nav[0].items.map((item) => [item.href, item.label])).toContainEqual([
+      "/admin/projects",
+      "Project adoption",
     ]);
   });
 });

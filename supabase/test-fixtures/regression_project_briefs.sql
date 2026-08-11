@@ -24,6 +24,68 @@ join (values
 insert into public.project_source_sets (project_id, revision)
 values ('a8700000-0000-4000-8000-000000000007', 1);
 
+insert into public.videos (
+  id, youtube_url, url_hash, title, channel_name, language
+) values (
+  '47000000-0000-4000-8000-000000000007',
+  'https://www.youtube.com/watch?v=ggggggg0007',
+  'project-brief-video-7',
+  'Launch evidence',
+  'Research channel',
+  'en'
+), (
+  '47000000-0000-4000-8000-000000000008',
+  'https://www.youtube.com/watch?v=hhhhhhh0008',
+  'project-brief-video-8',
+  'Launch context',
+  'Research channel',
+  'en'
+);
+
+insert into public.video_transcripts (
+  video_id, transcript_source, language, segments
+) values (
+  '47000000-0000-4000-8000-000000000007',
+  'manual_captions',
+  'en',
+  '[{"text":"The launch should happen in April because the team is ready.","start":42,"duration":16}]'::jsonb
+), (
+  '47000000-0000-4000-8000-000000000008',
+  'manual_captions',
+  'en',
+  '[{"text":"A second ready source provides stable activation context.","start":12,"duration":8}]'::jsonb
+);
+
+insert into public.summaries (
+  video_id, summary, transcript_source, output_language
+) values (
+  '47000000-0000-4000-8000-000000000007',
+  'Launch evidence fixture',
+  'manual_captions',
+  null
+), (
+  '47000000-0000-4000-8000-000000000008',
+  'Second launch context fixture',
+  'manual_captions',
+  null
+);
+
+insert into public.project_videos (
+  project_id, video_id, position, status, processing_attempt_id
+) values (
+  'a8700000-0000-4000-8000-000000000007',
+  '47000000-0000-4000-8000-000000000007',
+  1,
+  'ready',
+  null
+), (
+  'a8700000-0000-4000-8000-000000000007',
+  '47000000-0000-4000-8000-000000000008',
+  2,
+  'ready',
+  null
+);
+
 do $$
 begin
   if not has_function_privilege(
@@ -212,7 +274,7 @@ begin
     raise exception 'REGRESSION: service Project Brief completion failed: %', result;
   end if;
 
-  result := public.record_project_generation_usage(
+  result := public.record_project_activated_generation_usage(
     project_id,
     '87000000-0000-4000-8000-000000000007',
     '5c000000-0000-4000-8000-00000000000c',
@@ -228,7 +290,9 @@ begin
     null,
     null,
     null,
-    'usage_unavailable'
+    'usage_unavailable',
+    'artifact',
+    clock_timestamp()
   );
   if result <> '{"outcome":"inserted"}'::jsonb then
     raise exception 'REGRESSION: Project Brief usage accounting rejected governed kind: %', result;

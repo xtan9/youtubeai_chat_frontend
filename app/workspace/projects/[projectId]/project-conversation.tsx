@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
 import { buildAttributedPricingHref } from "@/lib/analytics/subscription-discovery-navigation";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
 import { useProjectGroundedConversation } from "@/lib/hooks/useProjectGroundedConversation";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
 import {
@@ -265,6 +266,7 @@ function AssistantAnswer({
   projectId,
   answerId,
   messageOrdinal,
+  initialFeedback,
 }: {
   content: string;
   manifest: ProjectAnswerSourceManifest;
@@ -276,24 +278,86 @@ function AssistantAnswer({
   projectId?: string;
   answerId?: string;
   messageOrdinal?: number;
+  initialFeedback?: "helpful" | "not_helpful";
 }) {
   const [feedback, setFeedback] = useState<"helpful" | "not_helpful" | null>(
-    null,
+    initialFeedback ?? null,
   );
+  const [feedbackPending, setFeedbackPending] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const analyticsIdentity =
     projectId && answerId && messageOrdinal
       ? { projectId, answerId, messageOrdinal }
       : null;
 
-  function submitFeedback(rating: "helpful" | "not_helpful") {
-    if (!analyticsIdentity) return;
-    setFeedback(rating);
-    captureAnalyticsEvent("project_answer_feedback_submitted", {
-      project_id: analyticsIdentity.projectId,
-      answer_id: analyticsIdentity.answerId,
-      message_ordinal: analyticsIdentity.messageOrdinal,
-      rating,
-    });
+  async function submitFeedback(rating: "helpful" | "not_helpful") {
+    if (!analyticsIdentity || feedback || feedbackPending) return;
+    setFeedbackPending(true);
+    setFeedbackError(null);
+    let failureCaptured = false;
+    const captureFailure = (
+      errorClass:
+        | ReturnType<typeof classifyProjectActionHttpFailure>
+        | "network"
+        | "protocol",
+      httpStatus?: number,
+    ) => {
+      if (failureCaptured) return;
+      failureCaptured = true;
+      captureAnalyticsEvent("project_action_failed", {
+        project_id: analyticsIdentity.projectId,
+        action_kind: "feedback",
+        error_class: errorClass,
+        ...(httpStatus !== undefined ? { http_status: httpStatus } : {}),
+      });
+    };
+    try {
+      const response = await fetch(
+        `/api/projects/${analyticsIdentity.projectId}/conversation/feedback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answerId: analyticsIdentity.answerId,
+            rating,
+          }),
+        },
+      );
+      let result: unknown;
+      try {
+        result = await response.json();
+      } catch {
+        captureFailure(
+          response.ok
+            ? "protocol"
+            : classifyProjectActionHttpFailure(response.status),
+          response.ok ? undefined : response.status,
+        );
+        throw new Error("feedback unavailable");
+      }
+      const durableRating =
+        result &&
+        typeof result === "object" &&
+        "rating" in result &&
+        (result.rating === "helpful" || result.rating === "not_helpful")
+          ? result.rating
+          : null;
+      if ((!response.ok && response.status !== 409) || !durableRating) {
+        captureFailure(
+          response.ok
+            ? "protocol"
+            : classifyProjectActionHttpFailure(response.status),
+          response.ok ? undefined : response.status,
+        );
+        throw new Error("feedback unavailable");
+      }
+      setFeedback(durableRating);
+    } catch {
+      captureFailure("network");
+      setFeedbackError("Couldn’t record feedback. Try again.");
+    } finally {
+      setFeedbackPending(false);
+    }
   }
 
   return (
@@ -338,7 +402,8 @@ function AssistantAnswer({
             size="sm"
             variant="outline"
             aria-pressed={feedback === "helpful"}
-            onClick={() => submitFeedback("helpful")}
+            disabled={feedback !== null || feedbackPending}
+            onClick={() => void submitFeedback("helpful")}
           >
             Useful
           </Button>
@@ -347,13 +412,18 @@ function AssistantAnswer({
             size="sm"
             variant="outline"
             aria-pressed={feedback === "not_helpful"}
-            onClick={() => submitFeedback("not_helpful")}
+            disabled={feedback !== null || feedbackPending}
+            onClick={() => void submitFeedback("not_helpful")}
           >
             Not useful
           </Button>
           {feedback ? (
             <span role="status" className="text-caption text-text-muted">
               Feedback recorded.
+            </span>
+          ) : feedbackError ? (
+            <span role="alert" className="text-caption text-status-error">
+              {feedbackError}
             </span>
           ) : null}
         </div>
@@ -392,6 +462,7 @@ function ConversationMessage({
       projectId={projectId}
       answerId={message.id}
       messageOrdinal={messageOrdinal}
+      initialFeedback={message.feedbackRating}
     />
   );
 }

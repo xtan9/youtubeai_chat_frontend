@@ -3,10 +3,7 @@ import "server-only";
 import { z } from "zod";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
 import { scheduleAnalyticsAfterResponse } from "@/lib/analytics/after";
-import {
-  recordProjectAnalyticsTransition,
-  recordProjectGenerationUsage,
-} from "@/lib/analytics/project-server";
+import { recordProjectGenerationUsage } from "@/lib/analytics/project-server";
 import { logAppEvent } from "@/lib/observability";
 import {
   projectOutcomeResponse,
@@ -284,6 +281,7 @@ export function createProjectArtifactRoute(
     };
     let generationStartedAt: number | null = null;
     let generationUsage: ChatTokenUsage | undefined;
+    let activationOccurredAt: string | null = null;
     let released = false;
     const release = async () => {
       if (released) return;
@@ -434,16 +432,8 @@ export function createProjectArtifactRoute(
       if (loaded.status !== "ready") {
         return projectUnavailableResponse(requestId);
       }
-      scheduleAnalyticsAfterResponse(() =>
-        recordProjectAnalyticsTransition({
-          projectId: subject.value.projectId,
-          ownerId: researcher.principal.userId,
-          trigger: "artifact",
-          occurredAt: loaded.current?.createdAt ?? new Date().toISOString(),
-          businessAnalyticsSuppressed:
-            researcher.principal.businessAnalyticsSuppressed,
-        }),
-      );
+      activationOccurredAt =
+        loaded.current?.createdAt ?? new Date().toISOString();
       return Response.json(
         { [definition.responseKey]: loaded },
         {
@@ -463,8 +453,8 @@ export function createProjectArtifactRoute(
     } finally {
       if (generationStartedAt !== null) {
         const durationMs = Math.max(0, Date.now() - generationStartedAt);
-        scheduleAnalyticsAfterResponse(() =>
-          recordProjectGenerationUsage({
+        scheduleAnalyticsAfterResponse(async () => {
+          await recordProjectGenerationUsage({
             projectId: subject.value.projectId,
             ownerId: researcher.principal.userId,
             operationId: reservation.attemptToken,
@@ -473,8 +463,16 @@ export function createProjectArtifactRoute(
             durationMs,
             businessAnalyticsSuppressed:
               researcher.principal.businessAnalyticsSuppressed,
-          }),
-        );
+            ...(activationOccurredAt
+              ? {
+                  activation: {
+                    trigger: "artifact" as const,
+                    occurredAt: activationOccurredAt,
+                  },
+                }
+              : {}),
+          });
+        });
       }
     }
   }
