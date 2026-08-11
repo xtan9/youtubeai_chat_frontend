@@ -28,6 +28,7 @@ import {
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 import {
+  completeAnonymousTrialChatMessage,
   markAnonymousTrialChatMessageStarted,
   refundAnonymousTrialChatMessage,
   reserveAnonymousTrialChatMessage,
@@ -77,6 +78,30 @@ const CHAT_STREAM_SUBJECT_NOT_READY = "CHAT_STREAM_SUBJECT_NOT_READY";
 const CHAT_STREAM_SUBJECT_UNAVAILABLE = "CHAT_STREAM_SUBJECT_UNAVAILABLE";
 const CHAT_STREAM_GROUNDING_NOT_READY = "CHAT_STREAM_GROUNDING_NOT_READY";
 const CHAT_STREAM_GROUNDING_UNAVAILABLE = "CHAT_STREAM_GROUNDING_UNAVAILABLE";
+
+function anonymousTrialRemainingBucket(
+  remainingMessages: number | undefined,
+): "0" | "1-4" | "5" | "unavailable" {
+  if (remainingMessages === 0) return "0";
+  if (remainingMessages === 5) return "5";
+  if (remainingMessages !== undefined) return "1-4";
+  return "unavailable";
+}
+
+function logAnonymousTrialAdmissionDenied(input: {
+  readonly level: "error" | "warn" | "info";
+  readonly errorId: string;
+  readonly outcome: string;
+  readonly remainingMessages?: number;
+}): void {
+  logAppEvent(input.level, "[chat/stream] anonymous trial admission denied", {
+    errorId: input.errorId,
+    outcome: input.outcome,
+    remainingAllowanceBucket: anonymousTrialRemainingBucket(
+      input.remainingMessages,
+    ),
+  });
+}
 
 function jsonError(status: number, message: string, requestId: string, errorId: string) {
   return new Response(JSON.stringify({ message }), {
@@ -487,8 +512,14 @@ export async function POST(request: Request) {
     { outcome: "admitted" }
   > | null = null;
   if (anonymousTrialEnabled) {
-    const reservation = await reserveAnonymousTrialChatMessage({ userId });
+    const reservation = await reserveAnonymousTrialChatMessage({ userId, request });
     if (reservation.outcome === "exhausted") {
+      logAnonymousTrialAdmissionDenied({
+        level: "info",
+        errorId: "ANONYMOUS_TRIAL_EXHAUSTED",
+        outcome: reservation.outcome,
+        remainingMessages: reservation.remainingMessages,
+      });
       return new Response(
         JSON.stringify({
           message: "You've used all 5 Anonymous Trial messages.",
@@ -508,6 +539,11 @@ export async function POST(request: Request) {
       );
     }
     if (reservation.outcome === "unavailable") {
+      logAnonymousTrialAdmissionDenied({
+        level: "error",
+        errorId: "ANONYMOUS_TRIAL_UNAVAILABLE",
+        outcome: "dependency_failure",
+      });
       return new Response(
         JSON.stringify({
           message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
@@ -524,6 +560,53 @@ export async function POST(request: Request) {
         },
       );
     }
+    if (reservation.outcome !== "admitted") {
+      const denial = {
+        network_limited: {
+          status: 429,
+          errorId: "ANONYMOUS_TRIAL_NETWORK_LIMITED",
+          message: "Anonymous chat is busy on this network. Try again later or create an account.",
+          errorCode: "anonymous_trial_rate_limited",
+        },
+        concurrent: {
+          status: 409,
+          errorId: "ANONYMOUS_TRIAL_CONCURRENT",
+          message: "Another anonymous response is in progress. Try again shortly.",
+          errorCode: "anonymous_trial_concurrent",
+        },
+        global_shutdown: {
+          status: 503,
+          errorId: "ANONYMOUS_TRIAL_GLOBAL_SHUTDOWN",
+          message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
+          errorCode: "anonymous_trial_unavailable",
+        },
+      }[reservation.outcome];
+      logAnonymousTrialAdmissionDenied({
+        level: reservation.outcome === "global_shutdown" ? "error" : "warn",
+        errorId: denial.errorId,
+        outcome: reservation.outcome,
+        remainingMessages: reservation.remainingMessages,
+      });
+      return new Response(
+        JSON.stringify({
+          message: denial.message,
+          errorCode: denial.errorCode,
+          remainingMessages: reservation.remainingMessages,
+          upgradeUrl: "/auth/sign-up",
+        }),
+        {
+          status: denial.status,
+          headers: {
+            "Content-Type": "application/json",
+            [REQUEST_ID_HEADER]: requestId,
+            "X-Error-ID": denial.errorId,
+            ...(reservation.outcome === "network_limited"
+              ? { "Retry-After": "3600" }
+              : {}),
+          },
+        },
+      );
+    }
     anonymousReservation = reservation;
   }
 
@@ -532,6 +615,20 @@ export async function POST(request: Request) {
   // `userMessagePersisted` prevents duplicate user-only writes on abort races.
   let closed = false;
   let assistantBuffer = "";
+  let anonymousTrialStarted = false;
+  let anonymousTrialCompletion:
+    | ReturnType<typeof completeAnonymousTrialChatMessage>
+    | undefined;
+  const releaseAnonymousTrialLease = () => {
+    if (!anonymousTrialStarted || !anonymousReservation) {
+      return Promise.resolve();
+    }
+    anonymousTrialCompletion ??= completeAnonymousTrialChatMessage({
+      userId,
+      reservationId: anonymousReservation.reservationId,
+    });
+    return anonymousTrialCompletion;
+  };
   // A subject without retention starts with no persistence work to do.
   let userMessagePersisted = !retainedThread;
 
@@ -595,8 +692,9 @@ export async function POST(request: Request) {
       };
 
       const rejectInvalidAnonymousAnswer = () => {
-        logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
+        logAppEvent("warn", "[chat/stream] anonymous trial terminal outcome", {
           errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+          outcome: "invalid_grounding",
           userId,
           videoId,
           requestId,
@@ -638,6 +736,7 @@ export async function POST(request: Request) {
             });
             return;
           }
+          anonymousTrialStarted = true;
           sendEvent({
             type: "anonymous_trial_admitted",
             reservationId: anonymousReservation.reservationId,
@@ -779,6 +878,7 @@ export async function POST(request: Request) {
           });
         }
       } finally {
+        await releaseAnonymousTrialLease();
         // Order matters: flip `closed` BEFORE close(). Any in-flight
         // sendEvent() observes the flag on its next call and short-
         // circuits instead of racing the close().
@@ -808,6 +908,7 @@ export async function POST(request: Request) {
       // appendChatTurn, in which case `userMessagePersisted` is set and
       // the dedupe guard inside persistUserOnly returns immediately.
       closed = true;
+      void releaseAnonymousTrialLease();
       if (!retainedThread || userMessagePersisted) return;
       userMessagePersisted = true;
       try {

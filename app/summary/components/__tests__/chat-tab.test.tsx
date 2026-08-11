@@ -918,6 +918,72 @@ describe("ChatTab", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it.each([
+    [
+      "network ceiling",
+      429,
+      "anonymous_trial_rate_limited",
+      "Anonymous chat is busy on this network. Try again later or create an account.",
+    ],
+    [
+      "active lease",
+      409,
+      "anonymous_trial_concurrent",
+      "Another anonymous response is in progress. Try again shortly.",
+    ],
+  ] as const)(
+    "announces the retryable %s outcome without hiding the composer",
+    async (_label, status, errorCode, message) => {
+      (useUser as unknown as Mock).mockReturnValue({
+        user: fakeSession("anon-token", true).user,
+        session: fakeSession("anon-token", true),
+        isLoading: false,
+        error: null,
+      });
+      vi.mocked(useEntitlements).mockReturnValue({
+        data: {
+          tier: "anon",
+          caps: {
+            summariesUsed: 0,
+            summariesLimit: 1,
+            projectsUsed: 0,
+            projectsLimit: 0,
+          },
+          anonymousTrial: { state: "available", remainingMessages: 4 },
+          subscriptionPresentation: { state: "anonymous" },
+        },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useEntitlements>);
+      vi.stubGlobal(
+        "fetch",
+        makeRouter({
+          onMessages: () => jsonResponse({ messages: [] }),
+          onStream: () => jsonResponse({ errorCode, message }, status),
+        }),
+      );
+
+      const { container } = renderWithChatProviders(
+        <ChatTab
+          youtubeUrl={VALID_URL}
+          active={true}
+          analyticsSurface="hero_demo"
+        />,
+      );
+      fireEvent.change(await screen.findByLabelText(/chat message/i), {
+        target: { value: "What is the main idea?" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toBe(message),
+      );
+      expect(screen.getByLabelText(/chat message/i)).toBeTruthy();
+      expect(screen.getByText("4 Anonymous Trial messages remaining")).toBeTruthy();
+      expect(await axe(container)).toHaveNoViolations();
+    },
+  );
+
   it("uses the authoritative Registered Free Hero Demo allowance instead of deletable history", async () => {
     vi.mocked(useEntitlements).mockReturnValue({
       data: {

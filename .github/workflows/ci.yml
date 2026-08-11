@@ -344,6 +344,14 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_registered_free_hero_demo_ledger.sql
       - name: Hero Demo conversation retention - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_hero_demo_conversations.sql
+      - name: Verify anonymous passive-control contract
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: postgres
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_passive_controls.sql
       - name: Workspace and Project contract - fresh migration replay
         run: |
           set -eo pipefail
@@ -400,6 +408,7 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_core.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_registered_free_hero_demo_ledger.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_hero_demo_conversations.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_passive_controls.sql
       # Reproduces the cache-write upsert that broke translation caching
       # in prod (verified 2026-04-25). Specifically guards against a
       # UNIQUE that conflicts when two summaries differ only by

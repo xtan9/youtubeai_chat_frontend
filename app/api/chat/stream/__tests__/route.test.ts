@@ -23,6 +23,7 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
       streamChatCompletion: vi.fn(),
       reserveAnonymousTrialChatMessage: vi.fn(),
       markAnonymousTrialChatMessageStarted: vi.fn(),
+      completeAnonymousTrialChatMessage: vi.fn(),
       refundAnonymousTrialChatMessage: vi.fn(),
       after: vi.fn(afterPassthrough),
     },
@@ -72,6 +73,7 @@ vi.mock("@/lib/services/anonymous-trial", () => ({
   reserveAnonymousTrialChatMessage: mocks.reserveAnonymousTrialChatMessage,
   markAnonymousTrialChatMessageStarted:
     mocks.markAnonymousTrialChatMessageStarted,
+  completeAnonymousTrialChatMessage: mocks.completeAnonymousTrialChatMessage,
   refundAnonymousTrialChatMessage: mocks.refundAnonymousTrialChatMessage,
 }));
 
@@ -273,6 +275,10 @@ describe("POST /api/chat/stream", () => {
       outcome: "started",
       remainingMessages: 4,
     });
+    mocks.completeAnonymousTrialChatMessage.mockResolvedValue({
+      outcome: "completed",
+      remainingMessages: 4,
+    });
     mocks.refundAnonymousTrialChatMessage.mockResolvedValue({
       outcome: "refunded",
       remainingMessages: 5,
@@ -425,6 +431,7 @@ describe("POST /api/chat/stream", () => {
     expect(response.status).toBe(200);
     expect(mocks.reserveAnonymousTrialChatMessage).toHaveBeenCalledWith({
       userId: "anonymous-trial-user",
+      request: expect.any(Request),
     });
     expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledWith({
       userId: "anonymous-trial-user",
@@ -461,6 +468,10 @@ describe("POST /api/chat/stream", () => {
       thread: heroDemoSubject().subject.retainedThread,
       userMessage: "What does the speaker recommend?",
       assistantMessage: "The speaker recommends starting with flow [0:01]",
+    });
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
     });
   });
 
@@ -542,7 +553,55 @@ describe("POST /api/chat/stream", () => {
     expect(events).not.toContain("Paris won the World Cup");
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+    });
   });
+
+  it.each([
+    ["network_limited", 429, "ANONYMOUS_TRIAL_NETWORK_LIMITED"],
+    ["concurrent", 409, "ANONYMOUS_TRIAL_CONCURRENT"],
+    ["global_shutdown", 503, "ANONYMOUS_TRIAL_GLOBAL_SHUTDOWN"],
+  ] as const)(
+    "fails closed with a bounded response for %s",
+    async (outcome, status, errorId) => {
+      vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anonymous-trial-user", true),
+      );
+      mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+      mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+      mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
+        outcome,
+        remainingMessages: 4,
+      });
+      const logSpy = vi
+        .spyOn(console, outcome === "global_shutdown" ? "error" : "warn")
+        .mockImplementation(() => {});
+
+      const { POST } = await import("../route");
+      const response = await POST(
+        makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+      );
+
+      expect(response.status).toBe(status);
+      expect(response.headers.get("X-Error-ID")).toBe(errorId);
+      const body = await response.json();
+      expect(body).not.toHaveProperty("networkKeyHash");
+      expect(JSON.stringify(body)).not.toContain("20");
+      expect(logSpy).toHaveBeenCalledWith(
+        "[chat/stream] anonymous trial admission denied",
+        {
+          errorId,
+          outcome,
+          remainingAllowanceBucket: "1-4",
+        },
+      );
+      expect(JSON.stringify(logSpy.mock.calls)).not.toContain("hi");
+      expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects an enabled Anonymous Trial on a retained Video before Grounding or admission", async () => {
     vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
@@ -689,6 +748,39 @@ describe("POST /api/chat/stream", () => {
     expect(events).toContain('"type":"anonymous_trial_admitted"');
     expect(events).toContain('"type":"error"');
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the started Anonymous Trial lease when the caller aborts", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    const abortController = new AbortController();
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta" as const, text: "partial" };
+      abortController.abort();
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest(
+        { youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" },
+        { signal: abortController.signal },
+      ),
+    );
+    await readSse(response.body!);
+
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+    });
+    expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
 
   it("buffers an Anonymous Trial result and exposes no partial output when validation rejects it", async () => {
@@ -709,6 +801,7 @@ describe("POST /api/chat/stream", () => {
       };
       yield { type: "done" as const };
     });
+    const logSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { POST } = await import("../route");
     const response = await POST(
@@ -731,6 +824,18 @@ describe("POST /api/chat/stream", () => {
       heroDemoSubject().subject.retainedThread,
       "What does the speaker recommend?",
     );
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      "[chat/stream] anonymous trial terminal outcome",
+      expect.objectContaining({
+        errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+        outcome: "invalid_grounding",
+      }),
+    );
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("Leaked fabrication");
   });
 
   it("stops consuming fragmented Anonymous Trial output as soon as the buffer bound is exceeded", async () => {
