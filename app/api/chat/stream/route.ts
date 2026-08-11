@@ -487,7 +487,7 @@ export async function POST(request: Request) {
     { outcome: "admitted" }
   > | null = null;
   if (anonymousTrialEnabled) {
-    const reservation = await reserveAnonymousTrialChatMessage({ userId });
+    const reservation = await reserveAnonymousTrialChatMessage({ userId, request });
     if (reservation.outcome === "exhausted") {
       return new Response(
         JSON.stringify({
@@ -520,6 +520,47 @@ export async function POST(request: Request) {
             "Content-Type": "application/json",
             [REQUEST_ID_HEADER]: requestId,
             "X-Error-ID": "ANONYMOUS_TRIAL_UNAVAILABLE",
+          },
+        },
+      );
+    }
+    if (reservation.outcome !== "admitted") {
+      const denial = {
+        network_limited: {
+          status: 429,
+          errorId: "ANONYMOUS_TRIAL_NETWORK_LIMITED",
+          message: "Anonymous chat is busy on this network. Try again later or create an account.",
+          errorCode: "anonymous_trial_rate_limited",
+        },
+        concurrent: {
+          status: 409,
+          errorId: "ANONYMOUS_TRIAL_CONCURRENT",
+          message: "Another anonymous response is in progress. Try again shortly.",
+          errorCode: "anonymous_trial_concurrent",
+        },
+        global_shutdown: {
+          status: 503,
+          errorId: "ANONYMOUS_TRIAL_GLOBAL_SHUTDOWN",
+          message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
+          errorCode: "anonymous_trial_unavailable",
+        },
+      }[reservation.outcome];
+      return new Response(
+        JSON.stringify({
+          message: denial.message,
+          errorCode: denial.errorCode,
+          remainingMessages: reservation.remainingMessages,
+          upgradeUrl: "/auth/sign-up",
+        }),
+        {
+          status: denial.status,
+          headers: {
+            "Content-Type": "application/json",
+            [REQUEST_ID_HEADER]: requestId,
+            "X-Error-ID": denial.errorId,
+            ...(reservation.outcome === "network_limited"
+              ? { "Retry-After": "3600" }
+              : {}),
           },
         },
       );

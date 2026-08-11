@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { logAppEvent } from "@/lib/observability";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
+import { resolveAnonymousTrialAdmissionContext } from "@/lib/services/anonymous-trial-network";
 
 const RemainingMessagesSchema = z.number().int().min(0).max(5);
 const ReservationIdSchema = z.string().uuid();
@@ -20,6 +21,10 @@ const ReservationResultSchema = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("exhausted"),
     remainingMessages: z.literal(0),
+  }),
+  z.object({
+    outcome: z.enum(["network_limited", "concurrent", "global_shutdown"]),
+    remainingMessages: RemainingMessagesSchema,
   }),
 ]);
 
@@ -132,11 +137,23 @@ export async function getAnonymousTrialChatAllowance(input: {
 
 export function reserveAnonymousTrialChatMessage(input: {
   readonly userId: string;
+  readonly request: Request;
 }): Promise<AnonymousTrialReservationResult> {
+  const context = resolveAnonymousTrialAdmissionContext(input.request);
+  if (!context) {
+    logUnavailable("reserve", "AdmissionConfigurationUnavailable");
+    return Promise.resolve({ outcome: "unavailable" });
+  }
   return callAnonymousTrialRpc({
     operation: "reserve",
     functionName: "reserve_anonymous_trial_chat_message",
-    args: { p_user_id: input.userId },
+    args: {
+      p_user_id: input.userId,
+      p_network_key_hash: context.networkKeyHash,
+      p_global_spend_limit_micros: String(context.globalSpendLimitMicros),
+      p_reservation_cost_micros: String(context.reservationCostMicros),
+      p_admission_enabled: "true",
+    },
     schema: ReservationResultSchema,
   });
 }

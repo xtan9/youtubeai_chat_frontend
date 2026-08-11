@@ -48,14 +48,16 @@ declare
   started_b jsonb;
 begin
   reservation_a := public.reserve_anonymous_trial_chat_message(
-    '74000000-0000-4000-8000-000000000003'
-  );
-  reservation_b := public.reserve_anonymous_trial_chat_message(
-    '74000000-0000-4000-8000-000000000003'
+    '74000000-0000-4000-8000-000000000003', repeat('c', 64),
+    1000000, 1000, true
   );
   refunded_a := public.refund_anonymous_trial_chat_message(
     '74000000-0000-4000-8000-000000000003',
     (reservation_a ->> 'reservationId')::uuid
+  );
+  reservation_b := public.reserve_anonymous_trial_chat_message(
+    '74000000-0000-4000-8000-000000000003', repeat('c', 64),
+    1000000, 1000, true
   );
   started_b := public.mark_anonymous_trial_chat_message_started(
     '74000000-0000-4000-8000-000000000003',
@@ -63,8 +65,8 @@ begin
   );
 
   if reservation_a ->> 'remainingMessages' <> '4'
-     or reservation_b ->> 'remainingMessages' <> '3'
-     or refunded_a ->> 'remainingMessages' <> '4'
+     or reservation_b ->> 'remainingMessages' <> '4'
+     or refunded_a ->> 'remainingMessages' <> '5'
      or started_b <> '{"outcome":"started","remainingMessages":4}'::jsonb then
     raise exception
       'REGRESSION: interleaved outcomes returned stale allowance (a %, b %, refund %, start %)',
@@ -72,6 +74,12 @@ begin
   end if;
 end;
 $$;
+
+update public.anonymous_trial_reservations
+set reserved_at = clock_timestamp() - interval '10 minutes',
+    expires_at = clock_timestamp() - interval '1 second'
+where user_id = '74000000-0000-4000-8000-000000000003'
+  and status = 'started';
 
 -- A reservation abandoned by a failed start/refund boundary is reclaimable.
 -- Entitlement reads perform reconciliation, so the failure cannot permanently
@@ -82,7 +90,8 @@ declare
   allowance jsonb;
 begin
   abandoned := public.reserve_anonymous_trial_chat_message(
-    '74000000-0000-4000-8000-000000000003'
+    '74000000-0000-4000-8000-000000000003', repeat('c', 64),
+    1000000, 1000, true
   );
   update public.anonymous_trial_reservations
   set reserved_at = clock_timestamp() - interval '2 minutes',
@@ -112,7 +121,8 @@ declare
 begin
   for attempt in 1..4 loop
     result := public.reserve_anonymous_trial_chat_message(
-      '74000000-0000-4000-8000-000000000001'
+      '74000000-0000-4000-8000-000000000001', repeat('d', 64),
+      1000000, 1000, true
     );
     if result ->> 'outcome' <> 'admitted'
        or (result ->> 'remainingMessages')::integer <> 5 - attempt then
@@ -126,6 +136,12 @@ begin
     if result ->> 'outcome' <> 'started' then
       raise exception 'REGRESSION: sequential reservation did not start: %', result;
     end if;
+    update public.anonymous_trial_reservations
+    set reserved_at = clock_timestamp() - interval '10 minutes',
+        expires_at = clock_timestamp() - interval '1 second'
+    where user_id = '74000000-0000-4000-8000-000000000001'
+      and status = 'started'
+      and expires_at > clock_timestamp();
   end loop;
 end;
 $$;
@@ -139,7 +155,8 @@ select dblink_send_query(
   'anonymous_trial_fifth',
   $$
     select public.reserve_anonymous_trial_chat_message(
-      '74000000-0000-4000-8000-000000000001'
+      '74000000-0000-4000-8000-000000000001', repeat('d', 64),
+      1000000, 1000, true
     )::text
   $$
 );
@@ -160,7 +177,8 @@ select dblink_send_query(
   'anonymous_trial_sixth',
   $$
     select public.reserve_anonymous_trial_chat_message(
-      '74000000-0000-4000-8000-000000000001'
+      '74000000-0000-4000-8000-000000000001', repeat('d', 64),
+      1000000, 1000, true
     )::text
   $$
 );
@@ -190,7 +208,7 @@ begin
   ) <> 1 or (
     select count(*)
     from anonymous_trial_race_results
-    where result ->> 'outcome' = 'exhausted'
+    where result ->> 'outcome' in ('exhausted', 'concurrent')
       and (result ->> 'remainingMessages')::integer = 0
   ) <> 1 then
     raise exception 'REGRESSION: fifth/sixth race did not admit exactly one: %',
@@ -224,7 +242,8 @@ declare
   rejected_refund jsonb;
 begin
   reserved := public.reserve_anonymous_trial_chat_message(
-    '74000000-0000-4000-8000-000000000002'
+    '74000000-0000-4000-8000-000000000002', repeat('e', 64),
+    1000000, 1000, true
   );
   first_refund := public.refund_anonymous_trial_chat_message(
     '74000000-0000-4000-8000-000000000002',
@@ -240,7 +259,8 @@ begin
   end if;
 
   reserved := public.reserve_anonymous_trial_chat_message(
-    '74000000-0000-4000-8000-000000000002'
+    '74000000-0000-4000-8000-000000000002', repeat('e', 64),
+    1000000, 1000, true
   );
   started := public.mark_anonymous_trial_chat_message_started(
     '74000000-0000-4000-8000-000000000002',
@@ -268,11 +288,11 @@ begin
 
   if has_function_privilege(
        'anon',
-       'public.reserve_anonymous_trial_chat_message(uuid)',
+       'public.reserve_anonymous_trial_chat_message(uuid,text,bigint,bigint,boolean)',
        'execute'
      ) or has_function_privilege(
        'authenticated',
-       'public.reserve_anonymous_trial_chat_message(uuid)',
+       'public.reserve_anonymous_trial_chat_message(uuid,text,bigint,bigint,boolean)',
        'execute'
      ) then
     raise exception 'REGRESSION: public roles can reserve Anonymous Trial usage';
@@ -292,7 +312,7 @@ begin
 
   if not has_function_privilege(
     'service_role',
-    'public.reserve_anonymous_trial_chat_message(uuid)',
+    'public.reserve_anonymous_trial_chat_message(uuid,text,bigint,bigint,boolean)',
     'execute'
   ) then
     raise exception 'REGRESSION: service role cannot reserve Anonymous Trial usage';

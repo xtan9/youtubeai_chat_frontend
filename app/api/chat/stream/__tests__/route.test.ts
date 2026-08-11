@@ -425,6 +425,7 @@ describe("POST /api/chat/stream", () => {
     expect(response.status).toBe(200);
     expect(mocks.reserveAnonymousTrialChatMessage).toHaveBeenCalledWith({
       userId: "anonymous-trial-user",
+      request: expect.any(Request),
     });
     expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledWith({
       userId: "anonymous-trial-user",
@@ -543,6 +544,38 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["network_limited", 429, "ANONYMOUS_TRIAL_NETWORK_LIMITED"],
+    ["concurrent", 409, "ANONYMOUS_TRIAL_CONCURRENT"],
+    ["global_shutdown", 503, "ANONYMOUS_TRIAL_GLOBAL_SHUTDOWN"],
+  ] as const)(
+    "fails closed with a bounded response for %s",
+    async (outcome, status, errorId) => {
+      vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anonymous-trial-user", true),
+      );
+      mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+      mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+      mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
+        outcome,
+        remainingMessages: 4,
+      });
+
+      const { POST } = await import("../route");
+      const response = await POST(
+        makeRequest({ youtube_url: HERO_IDENTITY.canonicalUrl, message: "hi" }),
+      );
+
+      expect(response.status).toBe(status);
+      expect(response.headers.get("X-Error-ID")).toBe(errorId);
+      const body = await response.json();
+      expect(body).not.toHaveProperty("networkKeyHash");
+      expect(JSON.stringify(body)).not.toContain("20");
+      expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects an enabled Anonymous Trial on a retained Video before Grounding or admission", async () => {
     vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
