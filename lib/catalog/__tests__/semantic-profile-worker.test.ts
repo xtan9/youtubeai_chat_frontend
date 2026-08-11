@@ -78,6 +78,7 @@ describe("runSemanticProfileWorker", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("begin_semantic_profile_generation", {
       p_request_id: WORK.request_id,
       p_estimated_micro_usd: 5_000,
+      p_generator_model: "gpt-5.3-codex-spark",
     });
     expect(mocks.generateSemanticProfile).toHaveBeenCalledWith({
       title: WORK.title,
@@ -106,6 +107,32 @@ describe("runSemanticProfileWorker", () => {
       }
       if (name === "begin_semantic_profile_generation") {
         return { data: { outcome: "budget_exhausted" }, error: null };
+      }
+      return { data: { outcome: "ok" }, error: null };
+    });
+
+    await expect(runSemanticProfileWorker()).resolves.toMatchObject({
+      claimed: 1,
+      deferred: 1,
+      completed: 0,
+      obsolete: 0,
+    });
+
+    expect(mocks.generateSemanticProfile).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledWith("defer_semantic_profile_work", {
+      p_msg_id: WORK.msg_id,
+      p_request_id: WORK.request_id,
+      p_delay_seconds: 900,
+    });
+  });
+
+  it("defers without calling the Gateway while model activation is absent", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "claim_semantic_profile_work") {
+        return { data: [WORK], error: null };
+      }
+      if (name === "begin_semantic_profile_generation") {
+        return { data: { outcome: "model_inactive" }, error: null };
       }
       return { data: { outcome: "ok" }, error: null };
     });

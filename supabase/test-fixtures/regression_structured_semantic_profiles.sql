@@ -67,18 +67,67 @@ declare
   inactive_request_id uuid;
   claimed record;
   inactive_claimed record;
+  pre_activation_candidate record;
   started jsonb;
   completed jsonb;
   inactive_started jsonb;
   inactive_completed jsonb;
+  pre_activation_request jsonb;
+  activation jsonb;
   candidate record;
 begin
+  set local role service_role;
+  select public.request_semantic_profile_generation(
+    '31000000-0000-4000-8000-000000000001'
+  ) into pre_activation_request;
+  if pre_activation_request ->> 'outcome' <> 'skipped'
+    or pre_activation_request ->> 'reason' <> 'model_inactive'
+  then
+    raise exception 'semantic profile generation was not fail-closed before approval: %',
+      pre_activation_request;
+  end if;
+
+  select * into pre_activation_candidate
+  from public.retrieve_semantic_profile_candidates(
+    '31000000-0000-4000-8000-000000000001', 12
+  ) limit 1;
+  if pre_activation_candidate.candidate_video_id is not null then
+    raise exception 'unapproved profile was retrievable before activation';
+  end if;
+
+  select public.activate_semantic_profile_model(
+    'gpt-5.3-codex-spark',
+    'semantic-profile-v1',
+    'semantic-profile-prompt-v1',
+    repeat('a', 64),
+    'review-2026-08-11-349'
+  ) into activation;
+  if activation ->> 'outcome' <> 'active' then
+    raise exception 'semantic profile activation failed: %', activation;
+  end if;
+
+  set local role postgres;
   select id into request_id
   from catalog_private.semantic_profile_requests
   where video_id = '31000000-0000-4000-8000-000000000001';
   if request_id is null then
-    raise exception 'structured profile trigger did not enqueue';
+    set local role service_role;
+    select public.request_semantic_profile_generation(
+      '31000000-0000-4000-8000-000000000001'
+    ) into pre_activation_request;
+    set local role postgres;
+    select id into request_id
+    from catalog_private.semantic_profile_requests
+    where video_id = '31000000-0000-4000-8000-000000000001';
   end if;
+  if request_id is null then
+    raise exception 'structured profile request did not enqueue after activation';
+  end if;
+  set local role service_role;
+  perform public.request_semantic_profile_generation(
+    '31000000-0000-4000-8000-000000000003'
+  );
+  set local role postgres;
   select id into inactive_request_id
   from catalog_private.semantic_profile_requests
   where video_id = '31000000-0000-4000-8000-000000000003'
@@ -89,7 +138,9 @@ begin
   if claimed.request_id <> request_id then
     raise exception 'service-role claim returned the wrong request';
   end if;
-  select public.begin_semantic_profile_generation(request_id, 5000) into started;
+  select public.begin_semantic_profile_generation(
+    request_id, 5000, 'gpt-5.3-codex-spark'
+  ) into started;
   if started ->> 'outcome' <> 'started' then
     raise exception 'budget admission did not start: %', started;
   end if;
@@ -137,7 +188,9 @@ begin
   from public.claim_semantic_profile_work(1, 120) as work
   where work.request_id = inactive_request_id
   limit 1;
-  select public.begin_semantic_profile_generation(inactive_request_id, 5000)
+  select public.begin_semantic_profile_generation(
+    inactive_request_id, 5000, 'gpt-5.3-codex-spark'
+  )
     into inactive_started;
   if inactive_started ->> 'outcome' <> 'started' then
     raise exception 'deactivation-race request did not start: %', inactive_started;
@@ -178,6 +231,12 @@ begin
   exception when insufficient_privilege then
     null;
   end;
+  begin
+    perform 1 from catalog_private.semantic_profile_model_registry;
+    raise exception 'service role could read the activation registry';
+  exception when insufficient_privilege then
+    null;
+  end;
 
   set local role anon;
   begin
@@ -188,6 +247,30 @@ begin
   exception when insufficient_privilege then
     null;
   end;
+  begin
+    perform public.activate_semantic_profile_model(
+      'gpt-5.3-codex-spark', 'semantic-profile-v1',
+      'semantic-profile-prompt-v1', repeat('b', 64), 'browser-must-fail'
+    );
+    raise exception 'browser role could activate a semantic profile model';
+  exception when insufficient_privilege then
+    null;
+  end;
+
+  set local role service_role;
+  select public.retire_semantic_profile_model(
+    'gpt-5.3-codex-spark', 'semantic-profile-v1', 'semantic-profile-prompt-v1'
+  ) into activation;
+  if activation ->> 'outcome' <> 'retired' then
+    raise exception 'semantic profile retirement did not engage the kill switch: %', activation;
+  end if;
+  select * into candidate
+  from public.retrieve_semantic_profile_candidates(
+    '31000000-0000-4000-8000-000000000001', 12
+  ) limit 1;
+  if candidate.candidate_video_id is not null then
+    raise exception 'retired semantic profile model remained retrievable';
+  end if;
 end;
 $$;
 

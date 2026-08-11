@@ -36,6 +36,9 @@ Copy `.env.example` to `.env.local` and fill in:
 Semantic Profiles use the existing server-only LLM Gateway for validated JSON
 generation. The first implementation does not require `OPENAI_API_KEY`, an
 embedding provider, pgvector, or a learner-request model call.
+Generation and retrieval remain disabled until the private model registry has
+an evaluation fingerprint and human approval for the exact model/schema/prompt
+tuple; setting `LLM_MODEL` alone never activates a model.
 | `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 

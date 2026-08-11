@@ -4,7 +4,9 @@
 
 This is the first-release replacement for the embedding-specific #349
 acceptance. It does not close #349 by itself: real Gateway evaluation and
-human review remain required before activation or pilot exposure.
+human review remain required before activation or pilot exposure. The private
+model registry is empty by default, so no profile generation or retrieval is
+available until that evidence and approval are recorded.
 
 ## Dependency
 
@@ -46,6 +48,15 @@ All Profile tables, queue functions, and candidate evidence are in
 `catalog_private`; browser roles have no schema usage, table access, or RPC
 execution. Learner requests never call the LLM, discovery provider, or an
 embedding service.
+
+The private `semantic_profile_model_registry` is the activation seam. An
+operator may activate exactly one model/schema/prompt tuple only by supplying
+a 64-hex evaluation fingerprint and an opaque human-approval reference. Queue
+admission, budget start, completion, and candidate retrieval each require the
+same tuple to be active. Activation retires the previous tuple; retirement
+immediately stops new work and makes its Profiles non-retrievable. There is no
+default or environment-only activation, and activation never happens from a
+benchmark result automatically.
 
 ## Retrieval
 
