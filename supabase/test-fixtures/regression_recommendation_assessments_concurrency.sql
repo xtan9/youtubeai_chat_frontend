@@ -1049,6 +1049,34 @@ begin
 end;
 $quality_publish_race$;
 
+do $quality_fixture_cleanup$
+declare
+  rollout_result jsonb;
+begin
+  -- This fixture is intentionally non-transactional because its dblink
+  -- sessions need to observe committed rows. Restore the seeded policy and
+  -- dormant rollout state before handing the shared database to later tests.
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 20,
+      minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'off', true, null,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'updated'
+    or rollout_result ->> 'configuredState' <> 'off'
+    or rollout_result ->> 'killSwitch' <> 'true'
+  then
+    raise exception 'quality fixture controls were not restored: %', rollout_result;
+  end if;
+end;
+$quality_fixture_cleanup$;
+
 delete from catalog_private.recommendation_ready_read_events
 where recommendation_set_id in (
   select id from catalog_private.recommendation_sets
