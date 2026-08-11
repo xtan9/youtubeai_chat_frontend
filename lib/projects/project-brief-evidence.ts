@@ -10,6 +10,8 @@ export type ProjectBriefEvidenceCandidate = Readonly<{
   clause: string;
 }>;
 
+export const PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT = 100;
+
 function timestampValue(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(total / 3600);
@@ -42,19 +44,46 @@ export function buildProjectBriefEvidenceCandidates(args: {
   const sourceIdByVideoId = new Map(
     args.sourceManifest.sources.map((source) => [source.videoId, source.sourceId]),
   );
-  const candidates: ProjectBriefEvidenceCandidate[] = [];
+  const clausesBySource = new Map<
+    string,
+    Array<Omit<ProjectBriefEvidenceCandidate, "candidateId">>
+  >(args.sourceManifest.sources.map((source) => [source.sourceId, []]));
+  const uncapped: Array<Omit<ProjectBriefEvidenceCandidate, "candidateId">> = [];
   for (const passage of args.evidenceSnapshot.passages) {
     const sourceId = sourceIdByVideoId.get(passage.videoId);
     if (!sourceId) continue;
     const citation = `[${sourceId} @ ${timestampValue(passage.startSeconds)}]`;
     for (const clause of projectBriefBoundedClauses(passage.text)) {
-      candidates.push({
-        candidateId: `C${candidates.length + 1}`,
+      const candidate = {
         sourceId,
         citation,
         clause,
-      });
+      };
+      clausesBySource.get(sourceId)?.push(candidate);
+      uncapped.push(candidate);
     }
   }
-  return candidates;
+  const balanced: Array<Omit<ProjectBriefEvidenceCandidate, "candidateId">> = [];
+  for (let sourceOffset = 0; ; sourceOffset += 1) {
+    let added = false;
+    for (const source of args.sourceManifest.sources) {
+      const candidate = clausesBySource.get(source.sourceId)?.[sourceOffset];
+      if (!candidate) continue;
+      balanced.push(candidate);
+      added = true;
+      if (balanced.length === PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT) break;
+    }
+    if (!added || balanced.length === PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT) {
+      break;
+    }
+  }
+
+  const selected =
+    uncapped.length <= PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT
+      ? uncapped
+      : balanced;
+  return selected.map((candidate, index) => ({
+    candidateId: `C${index + 1}`,
+    ...candidate,
+  }));
 }

@@ -78,7 +78,7 @@ const PLAN = JSON.stringify({
 
 const RENDERED_CONTENT = `# Project Brief
 
-> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
+> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, possible-conflict, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses. A non-certified possible agreement, conflict, or open question does not establish that its cited clauses agree, contradict each other, or leave an issue unresolved.
 
 ## Important findings
 
@@ -365,7 +365,7 @@ describe("Project Brief API", () => {
           }),
         }),
         generationMetadata: expect.objectContaining({
-          promptVersion: "project-brief-v3",
+          promptVersion: "project-brief-v4",
           normalizationAudit: {
             version: "project-brief-normalization-v2",
             recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -563,6 +563,34 @@ describe("Project Brief API", () => {
     expect(mocks.fail).not.toHaveBeenCalled();
   });
 
+  it("accepts formatted JSON in both stages and persists only canonical governed output", async () => {
+    modelSequence(
+      `\n${JSON.stringify(JSON.parse(NORMALIZATION), null, 2)}\n`,
+      `\n${JSON.stringify(JSON.parse(PLAN), null, 2)}\n`,
+    );
+
+    const response = await POST(
+      request("POST", { attemptToken: ATTEMPT_TOKEN }),
+      CONTEXT,
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: RENDERED_CONTENT,
+        generationMetadata: expect.objectContaining({
+          normalizationAudit: {
+            version: "project-brief-normalization-v2",
+            recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          },
+        }),
+      }),
+    );
+    expect(mocks.complete.mock.calls[0][0].content).not.toContain(
+      "importantFindingRecordIds",
+    );
+  });
+
   it("records one aggregate usage event and total duration for normalization plus selection", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
@@ -734,7 +762,7 @@ describe("Project Brief API", () => {
     const multilingualPlan = JSON.stringify({
       importantFindingRecordIds: ["R3", "R4"],
       agreementRecordIdPairs: [["R1", "R2"]],
-      disagreementRecordIdPairs: [],
+      disagreementRecordIdPairs: [["R3", "R4"]],
       openQuestionRecordIds: [],
     });
     model(multilingualPlan, multilingualNormalization);
@@ -753,20 +781,89 @@ describe("Project Brief API", () => {
       "- La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
     );
     expect(persistedContent).toContain(
+      "Interpretation — possible conflict (not server-certified) position A: Climate adaptation depends on exact local evidence [S1 @ 00:12].",
+    );
+    expect(persistedContent).toContain(
+      "Interpretation — possible conflict (not server-certified) position B: La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
+    );
+    expect(persistedContent).not.toContain(
       "No model-identified material disagreement in this Evidence Snapshot.",
+    );
+    expect(persistedContent).not.toContain(
+      "Interpretation — possible disagreement position",
     );
     expect(mocks.fail).not.toHaveBeenCalled();
   });
 
-  it("persists a Spanish unresolved question whose words stay inside its exact gap clause", async () => {
-    const spanishGap = "La fecha exacta del lanzamiento sigue sin resolverse.";
-    const gapLength = Array.from(spanishGap).length;
+  it("persists independently cited cross-language agreement interpretations without claiming certification", async () => {
+    const englishText = "Transparent evidence strengthens public trust.";
+    const spanishText = "La evidencia transparente ayuda a generar confianza.";
+    const englishPassage = {
+      ...PASSAGES[0],
+      passageId: `${VIDEO_ONE_ID}:1:0:${Array.from(englishText).length}`,
+      text: englishText,
+      excerptEndCharacter: Array.from(englishText).length,
+    };
+    const spanishPassage = {
+      ...PASSAGES[2],
+      passageId: `${VIDEO_TWO_ID}:1:0:${Array.from(spanishText).length}`,
+      text: spanishText,
+      excerptEndCharacter: Array.from(spanishText).length,
+      language: "es",
+    };
+    mocks.search.mockResolvedValue({
+      status: "ready",
+      sourceSetRevision: 3,
+      coverage: {
+        totalVideos: 2,
+        readyVideos: 2,
+        unavailableVideos: [],
+        passagesExamined: 2,
+      },
+      passages: [englishPassage, spanishPassage],
+    });
+    const multilingualNormalization = JSON.stringify({
+      records: [
+        { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "Transparent evidence strengthens public trust", interpretation: { issueKey: "evidence-trust", relation: "supports", resolution: "settled" } },
+        { candidateId: "C2", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "La evidencia transparente ayuda a generar confianza", interpretation: { issueKey: "evidence-trust", relation: "supports", resolution: "settled" } },
+      ],
+    });
+    const multilingualPlan = JSON.stringify({
+      importantFindingRecordIds: ["R1", "R2"],
+      agreementRecordIdPairs: [["R1", "R2"]],
+      disagreementRecordIdPairs: [],
+      openQuestionRecordIds: [],
+    });
+    model(multilingualPlan, multilingualNormalization);
+
+    const response = await POST(
+      request("POST", { attemptToken: ATTEMPT_TOKEN }),
+      CONTEXT,
+    );
+
+    expect(response.status).toBe(201);
+    const persistedContent = mocks.complete.mock.calls[0][0].content as string;
+    expect(persistedContent).toContain(
+      "Interpretation — possible agreement (not server-certified) position A: Transparent evidence strengthens public trust [S1 @ 00:12].",
+    );
+    expect(persistedContent).toContain(
+      "Interpretation — possible agreement (not server-certified) position B: La evidencia transparente ayuda a generar confianza [S2 @ 00:18].",
+    );
+    expect(persistedContent).not.toContain(
+      "No model-identified cross-source agreement in this Evidence Snapshot.",
+    );
+    expect(mocks.fail).not.toHaveBeenCalled();
+  });
+
+  it("persists a French unresolved interpretation without claiming source certification", async () => {
+    const frenchGap = "La date exacte du lancement reste à déterminer.";
+    const gapLength = Array.from(frenchGap).length;
     const gapPassage = {
       ...PASSAGES[0],
       passageId: `${VIDEO_ONE_ID}:1:0:${gapLength}`,
-      text: spanishGap,
+      text: frenchGap,
       excerptEndCharacter: gapLength,
-      language: "es",
+      language: "fr",
     };
     mocks.search.mockResolvedValue({
       status: "ready",
@@ -779,12 +876,12 @@ describe("Project Brief API", () => {
       },
       passages: [gapPassage],
     });
-    const spanishNormalization = JSON.stringify({
+    const frenchNormalization = JSON.stringify({
       records: [{
         candidateId: "C1",
         sourceId: "S1",
         citation: "[S1 @ 00:12]",
-        clause: "La fecha exacta del lanzamiento sigue sin resolverse",
+        clause: "La date exacte du lancement reste à déterminer",
         interpretation: {
           issueKey: "launch-timing",
           relation: "states",
@@ -792,13 +889,13 @@ describe("Project Brief API", () => {
         },
       }],
     });
-    const spanishPlan = JSON.stringify({
+    const frenchPlan = JSON.stringify({
       importantFindingRecordIds: ["R1"],
       agreementRecordIdPairs: [],
       disagreementRecordIdPairs: [],
       openQuestionRecordIds: ["R1"],
     });
-    model(spanishPlan, spanishNormalization);
+    model(frenchPlan, frenchNormalization);
 
     const response = await POST(
       request("POST", { attemptToken: ATTEMPT_TOKEN }),
@@ -808,7 +905,7 @@ describe("Project Brief API", () => {
     expect(response.status).toBe(201);
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.stringContaining(
-        "Interpretation — possible open question: La fecha exacta del lanzamiento sigue sin resolverse [S1 @ 00:12].",
+        "Interpretation — possible open question (not server-certified): La date exacte du lancement reste à déterminer [S1 @ 00:12].",
       ),
     }));
     expect(mocks.fail).not.toHaveBeenCalled();

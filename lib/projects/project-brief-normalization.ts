@@ -8,6 +8,7 @@ import type {
 } from "./project-grounded-answer-contract";
 import {
   buildProjectBriefEvidenceCandidates,
+  PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT,
   type ProjectBriefEvidenceCandidate,
 } from "./project-brief-evidence";
 
@@ -94,7 +95,10 @@ export function buildProjectBriefNormalizationMessages(args: {
   readonly evidenceSnapshot: ProjectEvidenceSnapshot;
 }): readonly ChatGatewayMessage[] {
   const candidates = buildProjectBriefEvidenceCandidates(args);
-  if (candidates.length === 0 || candidates.length > 100) {
+  if (
+    candidates.length === 0 ||
+    candidates.length > PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT
+  ) {
     throw new TypeError("Project Brief evidence candidates are not bounded.");
   }
   const primer = `Normalize only the immutable evidence candidates below into a strict semantic record set.
@@ -133,7 +137,7 @@ export async function validateProjectBriefNormalization(
     return { status: "invalid", reason: "invalid_json" };
   }
   const parsed = NormalizationResponseSchema.safeParse(decoded);
-  if (!parsed.success || rawContent !== JSON.stringify(decoded)) {
+  if (!parsed.success) {
     return { status: "invalid", reason: "invalid_schema" };
   }
   const candidates = buildProjectBriefEvidenceCandidates({
@@ -143,7 +147,7 @@ export async function validateProjectBriefNormalization(
   if (
     candidates.length === 0 ||
     candidates.length !== parsed.data.records.length ||
-    candidates.length > 100
+    candidates.length > PROJECT_BRIEF_EVIDENCE_CANDIDATE_LIMIT
   ) {
     return { status: "invalid", reason: "incomplete_coverage" };
   }

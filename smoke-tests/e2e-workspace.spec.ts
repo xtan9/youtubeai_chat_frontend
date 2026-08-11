@@ -166,6 +166,29 @@ type FixtureArtifact = {
   generationAttemptId: string;
 };
 
+type FixtureGenerationUsage = {
+  projectId: string;
+  ownerId: string;
+  operationId: string;
+  generationKind: string;
+  modelId: string;
+  providerKind: string;
+  costStatus: string;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  costUsdMicros: number | null;
+  durationMs: number;
+  rateCardVersion: string | null;
+};
+
+type FixtureAnalyticsTransition = {
+  projectId: string;
+  ownerId: string;
+  triggerKind: string;
+  occurredAt: string;
+};
+
 type FixtureGatewayGate = {
   waitForRelease: Promise<void>;
   release: () => void;
@@ -181,6 +204,8 @@ const projectConversations = new Map<string, FixtureConversation>();
 const projectConversationThreads = new Map<string, FixtureConversation[]>();
 const artifactAttempts: FixtureArtifactAttempt[] = [];
 const projectArtifacts: FixtureArtifact[] = [];
+const projectGenerationUsage: FixtureGenerationUsage[] = [];
+const projectAnalyticsTransitions: FixtureAnalyticsTransition[] = [];
 let projectSequence = 0;
 let clockSequence = 0;
 let conversationSequence = 0;
@@ -188,6 +213,7 @@ let messageSequence = 0;
 let artifactAttemptSequence = 0;
 let artifactSequence = 0;
 let gatewayOutcome: "success" | "failure" = "success";
+let failNextProjectBriefSelection = false;
 let gatewayGate = createGatewayGate();
 let groundedCancellationOutcome: "success" | "unavailable" = "success";
 let groundedCancellationRequests = 0;
@@ -236,6 +262,14 @@ test.beforeAll(async () => {
         LLM_GATEWAY_API_KEY: "fixture-gateway-key",
         NEXT_TELEMETRY_DISABLED: "1",
         WORKSPACE_E2E_DIST_DIR: ".next-workspace-e2e",
+        PROJECT_MODEL_RATE_CARD_VERSION: "fixture-2026-08",
+        PROJECT_MODEL_RATE_CARD_SOURCE: "provider_contract",
+        PROJECT_MODEL_RATE_CARD_MODEL_ID: "gpt-5.3-codex-spark",
+        PROJECT_MODEL_RATE_CARD_GATEWAY_PROVIDER: "cliproxyapi",
+        PROJECT_MODEL_RATE_CARD_EFFECTIVE_DATE: "2026-08-01",
+        PROJECT_MODEL_INPUT_USD_PER_MILLION_TOKENS: "1",
+        PROJECT_MODEL_CACHED_INPUT_USD_PER_MILLION_TOKENS: "0.5",
+        PROJECT_MODEL_OUTPUT_USD_PER_MILLION_TOKENS: "2",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -257,6 +291,8 @@ test.beforeEach(() => {
   projectConversationThreads.clear();
   artifactAttempts.splice(0);
   projectArtifacts.splice(0);
+  projectGenerationUsage.splice(0);
+  projectAnalyticsTransitions.splice(0);
   projectSequence = 0;
   clockSequence = 0;
   conversationSequence = 0;
@@ -264,6 +300,7 @@ test.beforeEach(() => {
   artifactAttemptSequence = 0;
   artifactSequence = 0;
   gatewayOutcome = "success";
+  failNextProjectBriefSelection = false;
   groundedCancellationOutcome = "success";
   groundedCancellationRequests = 0;
   groundedAttemptChecks = 0;
@@ -1339,14 +1376,37 @@ test("Project Brief persists cited positions across desktop export, regeneration
   ).toBeVisible();
   await expect(brief.getByRole("heading", { name: "Open questions" })).toBeVisible();
   await expect(
+    brief
+      .getByText(/possible conflict \(not server-certified\) position A/iu)
+      .first(),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(
+      "A non-certified possible agreement, conflict, or open question does not establish that its cited clauses agree, contradict each other, or leave an issue unresolved.",
+    ),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(
+      "No model-identified material disagreement in this Evidence Snapshot.",
+    ),
+  ).toHaveCount(0);
+  await expect(
     brief.getByText(/adaptación climática no debe depender/iu).first(),
   ).toBeVisible();
   await expect(
-    brief.getByText(/La fecha exacta del lanzamiento sigue sin resolverse/iu).first(),
+    brief.getByText(/La date exacte du lancement reste à déterminer/iu).first(),
   ).toBeVisible();
   await expect(
     brief.getByText("No model-identified cross-source agreement in this Evidence Snapshot."),
+  ).toHaveCount(0);
+  await expect(
+    brief
+      .getByText(/possible agreement \(not server-certified\) position A/iu)
+      .first(),
   ).toBeVisible();
+  await expect(
+    brief.getByText("No model-identified open question in this Evidence Snapshot."),
+  ).toHaveCount(0);
   await expect(brief.getByText(/Only exact source-language clauses/iu)).toBeVisible();
   await expect(brief.getByText(/Interpretation/iu).first()).toBeVisible();
   await expect(
@@ -1357,6 +1417,54 @@ test("Project Brief persists cited positions across desktop export, regeneration
   ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0002&t=42s");
   await expect(brief.getByLabel("Project Brief provenance", { exact: true }))
     .toContainText("Source Set revision 2");
+  expect(
+    projectArtifacts.find(
+      (artifact) =>
+        artifact.projectId === projectId &&
+        artifact.kind === "project_brief" &&
+        artifact.supersededAt === null,
+    )?.generationMetadata,
+  ).toMatchObject({
+    promptVersion: "project-brief-v4",
+    normalizationAudit: {
+      version: "project-brief-normalization-v2",
+      recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    },
+  });
+  await expect
+    .poll(
+      () =>
+        projectGenerationUsage.filter(
+          (usage) =>
+            usage.projectId === projectId &&
+            usage.generationKind === "project_brief",
+        ).length,
+    )
+    .toBe(1);
+  expect(projectGenerationUsage[0]).toMatchObject({
+    projectId,
+    ownerId: OWNER_ID,
+    generationKind: "project_brief",
+    modelId: "gpt-5.3-codex-spark",
+    providerKind: "cliproxyapi",
+    costStatus: "measured",
+    inputTokens: 160,
+    cachedInputTokens: 25,
+    outputTokens: 25,
+    costUsdMicros: 198,
+    rateCardVersion: "fixture-2026-08",
+  });
+  expect(projectGenerationUsage[0]?.durationMs).toBeGreaterThanOrEqual(0);
+  await expect
+    .poll(
+      () =>
+        projectAnalyticsTransitions.filter(
+          (transition) =>
+            transition.projectId === projectId &&
+            transition.triggerKind === "artifact",
+        ).length,
+    )
+    .toBe(1);
 
   await brief.getByRole("button", { name: "Copy Markdown" }).click();
   await expect(brief.getByText("Markdown copied.")).toBeVisible();
@@ -1383,7 +1491,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   const markdown = await readFile(downloadPath, "utf8");
   expect(markdown).toContain("# Project Brief");
   expect(markdown).toContain("## Open questions");
-  expect(markdown).toContain("La fecha exacta del lanzamiento sigue sin resolverse");
+  expect(markdown).toContain("La date exacte du lancement reste à déterminer");
   expect(markdown).not.toContain("javascript:");
 
   await page.getByRole("button", { name: "Add from History" }).click();
@@ -1402,6 +1510,52 @@ test("Project Brief persists cited positions across desktop export, regeneration
   await expect(brief.getByLabel("Earlier Project Brief provenance")).toContainText(
     "Source Set revision 2",
   );
+  expect(
+    projectArtifacts
+      .filter(
+        (artifact) =>
+          artifact.projectId === projectId &&
+          artifact.kind === "project_brief",
+      )
+      .map((artifact) => artifact.generationMetadata.promptVersion),
+  ).toEqual(["project-brief-v4", "project-brief-v4"]);
+  await expect
+    .poll(
+      () =>
+        projectGenerationUsage.filter(
+          (usage) =>
+            usage.projectId === projectId &&
+            usage.generationKind === "project_brief",
+        ).length,
+    )
+    .toBe(2);
+  expect(projectGenerationUsage.slice(0, 2)).toEqual([
+    expect.objectContaining({
+      inputTokens: 160,
+      cachedInputTokens: 25,
+      outputTokens: 25,
+      costUsdMicros: 198,
+    }),
+    expect.objectContaining({
+      inputTokens: 160,
+      cachedInputTokens: 25,
+      outputTokens: 25,
+      costUsdMicros: 198,
+    }),
+  ]);
+  expect(projectGenerationUsage[1]?.operationId).not.toBe(
+    projectGenerationUsage[0]?.operationId,
+  );
+  await expect
+    .poll(
+      () =>
+        projectAnalyticsTransitions.filter(
+          (transition) =>
+            transition.projectId === projectId &&
+            transition.triggerKind === "artifact",
+        ).length,
+    )
+    .toBe(2);
 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1410,10 +1564,24 @@ test("Project Brief persists cited positions across desktop export, regeneration
     mobileBrief.getByRole("heading", { name: "Material disagreements" }),
   ).toBeVisible();
   await expect(
-    mobileBrief.getByText(/La fecha exacta del lanzamiento sigue sin resolverse/iu).first(),
+    mobileBrief.getByText(/La date exacte du lancement reste à déterminer/iu).first(),
   ).toBeVisible();
   await expect(mobileBrief.getByLabel("Project Brief provenance", { exact: true }))
     .toContainText("Source Set revision 3");
+  const reloadedBrief = await context.request.get(
+    `${appUrl}/api/projects/${projectId}/artifacts/project-brief`,
+  );
+  expect(reloadedBrief.status()).toBe(200);
+  expect(await reloadedBrief.json()).toMatchObject({
+    projectBrief: {
+      current: {
+        generationMetadata: { promptVersion: "project-brief-v4" },
+      },
+      history: [
+        { generationMetadata: { promptVersion: "project-brief-v4" } },
+      ],
+    },
+  });
   await expect(mobileBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
   await expect(
     mobileBrief.getByRole("button", { name: "Download Markdown" }),
@@ -1442,6 +1610,49 @@ test("Project Brief persists cited positions across desktop export, regeneration
       })),
   );
   expect(mobileLayoutFailures).toEqual([]);
+
+  failNextProjectBriefSelection = true;
+  await mobileBrief
+    .getByRole("button", { name: "Regenerate Project Brief" })
+    .click();
+  await expect(mobileBrief.getByRole("alert")).toContainText(
+    "Projects are temporarily unavailable.",
+  );
+  await expect
+    .poll(
+      () =>
+        projectGenerationUsage.filter(
+          (usage) =>
+            usage.projectId === projectId &&
+            usage.generationKind === "project_brief",
+        ).length,
+    )
+    .toBe(3);
+  expect(projectGenerationUsage[2]).toMatchObject({
+    projectId,
+    ownerId: OWNER_ID,
+    generationKind: "project_brief",
+    costStatus: "measured",
+    inputTokens: 100,
+    cachedInputTokens: 20,
+    outputTokens: 10,
+    costUsdMicros: 110,
+  });
+  expect(
+    artifactAttempts
+      .filter(
+        (attempt) =>
+          attempt.projectId === projectId && attempt.kind === "project_brief",
+      )
+      .map((attempt) => attempt.state),
+  ).toEqual(["completed", "completed", "failed"]);
+  expect(
+    projectAnalyticsTransitions.filter(
+      (transition) =>
+        transition.projectId === projectId &&
+        transition.triggerKind === "artifact",
+    ),
+  ).toHaveLength(2);
 });
 
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
@@ -2145,7 +2356,14 @@ async function handleSupabaseRequest(
     const activeGatewayGate = gatewayGate;
     await activeGatewayGate.waitForRelease;
     if (response.destroyed || response.writableEnded) return;
-    if (gatewayOutcome === "failure") {
+    const isProjectBriefSelection = userPrompt.includes(
+      "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n",
+    );
+    if (
+      gatewayOutcome === "failure" ||
+      (failNextProjectBriefSelection && isProjectBriefSelection)
+    ) {
+      if (isProjectBriefSelection) failNextProjectBriefSelection = false;
       return sendJson(response, 502, { message: "Fixture gateway failure" });
     }
     response.writeHead(200, {
@@ -2174,17 +2392,22 @@ async function handleSupabaseRequest(
             "climate adaptation depends on exact local evidence",
           );
           const climateOpposition = clause.includes("no debe depender solo");
-          const unresolved = clause.includes("sin resolverse");
+          const trustAgreement =
+            clause.includes("transparent evidence strengthens public trust") ||
+            clause.includes("evidencia transparente ayuda a generar confianza");
+          const unresolved = clause.includes("reste à déterminer");
           return {
             ...candidate,
             interpretation: {
               issueKey:
                 climateSupport || climateOpposition
                   ? "climate-evidence"
+                  : trustAgreement
+                    ? "evidence-trust"
                   : unresolved
                     ? "launch-timing"
                     : `evidence-${candidate.candidateId.toLocaleLowerCase()}`,
-              relation: climateSupport
+              relation: climateSupport || trustAgreement
                 ? "supports"
                 : climateOpposition
                   ? "opposes"
@@ -2223,12 +2446,24 @@ async function handleSupabaseRequest(
             : [],
         ),
       )[0];
+      const conflict = records.flatMap((left, index) =>
+        records.slice(index + 1).flatMap((right) =>
+          left.sourceId !== right.sourceId &&
+          left.interpretation.issueKey === right.interpretation.issueKey &&
+          left.interpretation.resolution === "settled" &&
+          right.interpretation.resolution === "settled" &&
+          ((left.interpretation.relation === "supports" &&
+            right.interpretation.relation === "opposes") ||
+            (left.interpretation.relation === "opposes" &&
+              right.interpretation.relation === "supports"))
+            ? [[left.recordId, right.recordId] as const]
+            : [],
+        ),
+      )[0];
       projectBriefResponse = JSON.stringify({
         importantFindingRecordIds: [...firstBySource.values()],
         agreementRecordIdPairs: agreement ? [agreement] : [],
-        // The English and Spanish clauses are topically related, but the
-        // server cannot prove they reduce to one proposition across languages.
-        disagreementRecordIdPairs: [],
+        disagreementRecordIdPairs: conflict ? [conflict] : [],
         openQuestionRecordIds: records
           .filter(
             (record) => record.interpretation.resolution === "unresolved",
@@ -2313,6 +2548,20 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
         ],
       })}\n\n`,
     );
+    if (projectBriefResponse) {
+      const usage = userPrompt.includes(normalizationMarker)
+        ? {
+            prompt_tokens: 100,
+            completion_tokens: 10,
+            prompt_tokens_details: { cached_tokens: 20 },
+          }
+        : {
+            prompt_tokens: 60,
+            completion_tokens: 15,
+            prompt_tokens_details: { cached_tokens: 5 },
+          };
+      response.write(`data: ${JSON.stringify({ choices: [], usage })}\n\n`);
+    }
     response.end("data: [DONE]\n\n");
     return;
   }
@@ -2595,11 +2844,99 @@ async function handleSourceSetRpc(
         recordSetHash?: string;
       };
     };
+    p_operation_id?: string;
+    p_generation_kind?: string;
+    p_model_id?: string;
+    p_provider_kind?: string;
+    p_cost_status?: string;
+    p_input_tokens?: number | null;
+    p_cached_input_tokens?: number | null;
+    p_output_tokens?: number | null;
+    p_cost_usd_micros?: number | null;
+    p_duration_ms?: number;
+    p_rate_card_version?: string | null;
+    p_trigger_kind?: string;
+    p_occurred_at?: string;
   };
   const projectId = body.p_project_id;
 
   if (url.pathname.endsWith("/increment_rate_limit")) {
     return sendJson(response, 200, 1);
+  }
+
+  if (url.pathname.endsWith("/record_project_generation_usage")) {
+    if (
+      !serviceRole ||
+      !projectId ||
+      body.p_owner_id !== projectOwnerId(projectId) ||
+      !body.p_operation_id ||
+      !body.p_generation_kind ||
+      !body.p_model_id ||
+      !body.p_provider_kind ||
+      !body.p_cost_status ||
+      body.p_duration_ms === undefined
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const existing = projectGenerationUsage.find(
+      (usage) =>
+        usage.projectId === projectId &&
+        usage.operationId === body.p_operation_id &&
+        usage.generationKind === body.p_generation_kind,
+    );
+    if (existing) {
+      return sendJson(response, 200, { outcome: "deduplicated" });
+    }
+    projectGenerationUsage.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      operationId: body.p_operation_id,
+      generationKind: body.p_generation_kind,
+      modelId: body.p_model_id,
+      providerKind: body.p_provider_kind,
+      costStatus: body.p_cost_status,
+      inputTokens: body.p_input_tokens ?? null,
+      cachedInputTokens: body.p_cached_input_tokens ?? null,
+      outputTokens: body.p_output_tokens ?? null,
+      costUsdMicros: body.p_cost_usd_micros ?? null,
+      durationMs: body.p_duration_ms,
+      rateCardVersion: body.p_rate_card_version ?? null,
+    });
+    return sendJson(response, 200, { outcome: "inserted" });
+  }
+
+  if (url.pathname.endsWith("/record_project_analytics_transition")) {
+    if (
+      !serviceRole ||
+      !projectId ||
+      body.p_owner_id !== projectOwnerId(projectId) ||
+      !body.p_trigger_kind ||
+      !body.p_occurred_at
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const priorProjectTransitions = projectAnalyticsTransitions.filter(
+      (transition) => transition.projectId === projectId,
+    );
+    projectAnalyticsTransitions.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      triggerKind: body.p_trigger_kind,
+      occurredAt: body.p_occurred_at,
+    });
+    return sendJson(response, 200, {
+      outcome:
+        priorProjectTransitions.length === 0 ? "activated" : "already_activated",
+      activationKind: "artifact",
+      activationRevision: 1,
+      readyVideos: orderedMemberships(projectId).filter(
+        (membership) => membership.status === "ready",
+      ).length,
+    });
+  }
+
+  if (url.pathname.endsWith("/claim_project_activation_exports")) {
+    return sendJson(response, 200, { outcome: "empty", exports: [] });
   }
 
   if (url.pathname.endsWith("/load_project_source_set")) {
@@ -3333,15 +3670,15 @@ async function handleSourceSetRpc(
     const passageFixtures = [
       {
         membership: ready[0],
-        text: "Climate adaptation depends on exact local evidence.",
+        text: "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
         language: "en",
       },
       {
         membership: ready[1] ?? ready[0],
         text: balanced
-          ? "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La fecha exacta del lanzamiento sigue sin resolverse."
+          ? "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La evidencia transparente ayuda a generar confianza. La date exacte du lancement reste à déterminer."
           : "气候适应需要准确的本地证据。",
-        language: balanced ? "es" : "zh-Hans",
+        language: balanced ? "mul" : "zh-Hans",
       },
     ];
     const passages = passageFixtures

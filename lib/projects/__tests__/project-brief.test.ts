@@ -79,8 +79,10 @@ describe("Project Brief governed record selection", () => {
     expect(messages[0].content).toContain('"recordId":"R1"');
     expect(messages[0].content).toContain("PROJECT_GOAL_GUIDANCE_NOT_EVIDENCE");
     expect(messages[0].content).toContain("Output record IDs only");
-    expect(messages[0].content).toContain("server-verifiable proposition");
-    expect(messages[0].content).toContain("explicitly unresolved source wording");
+    expect(messages[0].content).toContain("cannot be server-certified");
+    expect(messages[0].content).toContain(
+      "non-English or otherwise unfamiliar unresolved wording",
+    );
     expect(messages[0].content).not.toContain("candidateId");
   });
 
@@ -91,7 +93,7 @@ describe("Project Brief governed record selection", () => {
     if (result.status !== "valid") throw new Error(result.reason);
     expect(result.content).toBe(`# Project Brief
 
-> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
+> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, possible-conflict, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses. A non-certified possible agreement, conflict, or open question does not establish that its cited clauses agree, contradict each other, or leave an issue unresolved.
 
 ## Important findings
 
@@ -124,9 +126,194 @@ describe("Project Brief governed record selection", () => {
         '"issue":"celebrity-location","importantFindingRecordIds"',
       ),
     ],
-    ["noncanonical JSON", ` ${VALID_PLAN}`],
   ])("rejects %s instead of letting the final model rebound evidence", (_label, plan) => {
     expect(validateProjectBrief(plan, normalization).status).toBe("invalid");
+  });
+
+  it("accepts formatted schema-valid ID plans and renders the canonical server form", () => {
+    const prettyPlan = `\n${JSON.stringify(JSON.parse(VALID_PLAN), null, 2)}\n`;
+
+    const compact = validateProjectBrief(VALID_PLAN, normalization);
+    const pretty = validateProjectBrief(prettyPlan, normalization);
+
+    expect(compact.status).toBe("valid");
+    expect(pretty.status).toBe("valid");
+    if (compact.status !== "valid" || pretty.status !== "valid") {
+      throw new Error("expected both plans to be valid");
+    }
+    expect(pretty.content).toBe(compact.content);
+  });
+
+  it("renders a cross-language model-identified conflict explicitly without claiming server certification", () => {
+    const multilingual: ProjectBriefNormalization = {
+      ...normalization,
+      recordCount: 2,
+      records: [
+        {
+          ...normalization.records[0],
+          clause: "Climate adaptation depends on exact local evidence",
+          interpretation: {
+            issueKey: "climate-evidence",
+            relation: "supports",
+            resolution: "settled",
+          },
+        },
+        {
+          ...normalization.records[1],
+          clause:
+            "La adaptación climática no debe depender solo de evidencia local exacta",
+          interpretation: {
+            issueKey: "climate-evidence",
+            relation: "opposes",
+            resolution: "settled",
+          },
+        },
+      ],
+    };
+    const plan = JSON.stringify({
+      importantFindingRecordIds: ["R1", "R2"],
+      agreementRecordIdPairs: [],
+      disagreementRecordIdPairs: [["R1", "R2"]],
+      openQuestionRecordIds: [],
+    });
+
+    const result = validateProjectBrief(plan, multilingual);
+
+    expect(result.status).toBe("valid");
+    if (result.status !== "valid") throw new Error(result.reason);
+    expect(result.content).toContain(
+      "Interpretation — possible conflict (not server-certified) position A",
+    );
+    expect(result.content).toContain(
+      "A non-certified possible agreement, conflict, or open question does not establish that its cited clauses agree, contradict each other, or leave an issue unresolved.",
+    );
+    expect(result.content).toContain(
+      "La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18]",
+    );
+    expect(result.content).not.toContain(
+      "No model-identified material disagreement in this Evidence Snapshot.",
+    );
+  });
+
+  it("renders a modal conflict explicitly when lexical polarity cannot certify one proposition", () => {
+    const modal: ProjectBriefNormalization = {
+      ...normalization,
+      recordCount: 2,
+      records: [
+        {
+          ...normalization.records[0],
+          clause: "The launch must happen in April",
+        },
+        {
+          ...normalization.records[1],
+          clause: "The launch may not happen in April",
+        },
+      ],
+    };
+    const plan = JSON.stringify({
+      importantFindingRecordIds: ["R1", "R2"],
+      agreementRecordIdPairs: [],
+      disagreementRecordIdPairs: [["R1", "R2"]],
+      openQuestionRecordIds: [],
+    });
+
+    const result = validateProjectBrief(plan, modal);
+
+    expect(result.status).toBe("valid");
+    if (result.status !== "valid") throw new Error(result.reason);
+    expect(result.content).toContain(
+      "Interpretation — possible conflict (not server-certified) position A: The launch must happen in April [S1 @ 00:12].",
+    );
+    expect(result.content).toContain(
+      "Interpretation — possible conflict (not server-certified) position B: The launch may not happen in April [S2 @ 00:18].",
+    );
+    expect(result.content).not.toContain(
+      "No model-identified material disagreement in this Evidence Snapshot.",
+    );
+  });
+
+  it("renders a cross-language paraphrased agreement without claiming server certification", () => {
+    const multilingual: ProjectBriefNormalization = {
+      ...normalization,
+      recordCount: 2,
+      records: [
+        {
+          ...normalization.records[2],
+          recordId: "R1",
+          clause: "Transparent evidence strengthens public trust",
+          interpretation: {
+            issueKey: "evidence-trust",
+            relation: "supports",
+            resolution: "settled",
+          },
+        },
+        {
+          ...normalization.records[3],
+          recordId: "R2",
+          clause: "La evidencia transparente ayuda a generar confianza",
+          interpretation: {
+            issueKey: "evidence-trust",
+            relation: "supports",
+            resolution: "settled",
+          },
+        },
+      ],
+    };
+    const plan = JSON.stringify({
+      importantFindingRecordIds: ["R1", "R2"],
+      agreementRecordIdPairs: [["R1", "R2"]],
+      disagreementRecordIdPairs: [],
+      openQuestionRecordIds: [],
+    });
+
+    const result = validateProjectBrief(plan, multilingual);
+
+    expect(result.status).toBe("valid");
+    if (result.status !== "valid") throw new Error(result.reason);
+    expect(result.content).toContain(
+      "Interpretation — possible agreement (not server-certified) position A: Transparent evidence strengthens public trust [S1 @ 00:24].",
+    );
+    expect(result.content).toContain(
+      "Interpretation — possible agreement (not server-certified) position B: La evidencia transparente ayuda a generar confianza [S2 @ 00:31].",
+    );
+    expect(result.content).not.toContain(
+      "No model-identified cross-source agreement in this Evidence Snapshot.",
+    );
+  });
+
+  it("renders a non-English unresolved interpretation without claiming source verification", () => {
+    const french: ProjectBriefNormalization = {
+      ...normalization,
+      recordCount: 1,
+      records: [
+        {
+          ...normalization.records[0],
+          clause: "La date exacte du lancement reste à déterminer",
+          interpretation: {
+            issueKey: "launch-timing",
+            relation: "states",
+            resolution: "unresolved",
+          },
+        },
+      ],
+    };
+    const plan = JSON.stringify({
+      importantFindingRecordIds: ["R1"],
+      agreementRecordIdPairs: [],
+      disagreementRecordIdPairs: [],
+      openQuestionRecordIds: ["R1"],
+    });
+
+    const result = validateProjectBrief(plan, french);
+
+    expect(result.status).toBe("valid");
+    if (result.status !== "valid") throw new Error(result.reason);
+    expect(result.content).toContain(
+      "Interpretation — possible open question (not server-certified): La date exacte du lancement reste à déterminer [S1 @ 00:12].",
+    );
+    expect(result.content).not.toContain(
+      "No model-identified open question in this Evidence Snapshot.",
+    );
   });
 
   it("derives agreement and disagreement eligibility only from normalized records", () => {
@@ -189,7 +376,7 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [["R1", "R4"]],
         openQuestionRecordIds: ["R5"],
       },
-      "invalid_disagreement_interpretation",
+      "possible_conflict",
     ],
     [
       "opposite clauses relabeled as an agreement",
@@ -214,7 +401,7 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [],
         openQuestionRecordIds: ["R5"],
       },
-      "invalid_agreement_interpretation",
+      "possible_agreement",
     ],
     [
       "a settled statement relabeled as an open question",
@@ -248,14 +435,41 @@ describe("Project Brief governed record selection", () => {
         disagreementRecordIdPairs: [],
         openQuestionRecordIds: ["R1"],
       },
-      "invalid_open_question_interpretation",
+      "possible_open_question",
     ],
   ])(
-    "fails closed when model semantics present %s",
+    "handles model semantics that present %s conservatively",
     (_label, adversarialNormalization, plan, reason) => {
-      expect(
-        validateProjectBrief(JSON.stringify(plan), adversarialNormalization),
-      ).toMatchObject({ status: "invalid", reason });
+      const result = validateProjectBrief(
+        JSON.stringify(plan),
+        adversarialNormalization,
+      );
+      if (
+        reason === "possible_conflict" ||
+        reason === "possible_agreement" ||
+        reason === "possible_open_question"
+      ) {
+        expect(result.status).toBe("valid");
+        if (result.status !== "valid") throw new Error(result.reason);
+        if (reason === "possible_conflict") {
+          expect(result.content).toContain(
+            "Interpretation — possible conflict (not server-certified)",
+          );
+          expect(result.content).not.toContain(
+            "Interpretation — possible disagreement position",
+          );
+        } else if (reason === "possible_agreement") {
+          expect(result.content).toContain(
+            "Interpretation — possible agreement (not server-certified)",
+          );
+        } else {
+          expect(result.content).toContain(
+            "Interpretation — possible open question (not server-certified)",
+          );
+        }
+        return;
+      }
+      expect(result).toMatchObject({ status: "invalid", reason });
     },
   );
 
