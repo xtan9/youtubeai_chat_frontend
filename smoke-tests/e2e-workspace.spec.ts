@@ -1881,7 +1881,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
     "2 exact Transcript passages found across 3 ready Videos",
   );
   await expect(page.getByTestId("project-search-passage")).toHaveText([
-    "Climate adaptation depends on exact local evidence.",
+    "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
     "气候适应需要准确的本地证据。",
   ]);
   const firstTimestamp = page.getByRole("link", {
@@ -2373,7 +2373,7 @@ async function handleSupabaseRequest(
       "cache-control": "no-cache",
     });
     response.flushHeaders();
-    const creatorUsesTwoSources = prompt.includes('"sourceId":"S2"');
+    const creatorUsesTwoSources = /"sourceId"\s*:\s*"S2"/u.test(prompt);
     const normalizationMarker = "IMMUTABLE_EVIDENCE_CANDIDATES:\n";
     const governedMarker =
       "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n";
@@ -2479,7 +2479,7 @@ async function handleSupabaseRequest(
 ## Source claims
 
 - Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
-- Inspiration: no evidencia comparaciones sin [S2 @ 00:42].
+- Inspiration: no evidencia comparaciones [S2 @ 00:42].
 
 ## Proposed ideas
 
@@ -2940,6 +2940,51 @@ async function handleSourceSetRpc(
   }
 
   if (url.pathname.endsWith("/record_project_activated_generation_usage")) {
+    if (
+      !serviceRole ||
+      !projectId ||
+      body.p_owner_id !== projectOwnerId(projectId) ||
+      !body.p_operation_id ||
+      !body.p_generation_kind ||
+      !body.p_model_id ||
+      !body.p_provider_kind ||
+      !body.p_cost_status ||
+      body.p_duration_ms === undefined ||
+      !body.p_trigger_kind ||
+      !body.p_occurred_at
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const existing = projectGenerationUsage.find(
+      (usage) =>
+        usage.projectId === projectId &&
+        usage.operationId === body.p_operation_id &&
+        usage.generationKind === body.p_generation_kind,
+    );
+    if (existing) {
+      return sendJson(response, 200, { outcome: "deduplicated" });
+    }
+    projectGenerationUsage.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      operationId: body.p_operation_id,
+      generationKind: body.p_generation_kind,
+      modelId: body.p_model_id,
+      providerKind: body.p_provider_kind,
+      costStatus: body.p_cost_status,
+      inputTokens: body.p_input_tokens ?? null,
+      cachedInputTokens: body.p_cached_input_tokens ?? null,
+      outputTokens: body.p_output_tokens ?? null,
+      costUsdMicros: body.p_cost_usd_micros ?? null,
+      durationMs: body.p_duration_ms,
+      rateCardVersion: body.p_rate_card_version ?? null,
+    });
+    projectAnalyticsTransitions.push({
+      projectId,
+      ownerId: body.p_owner_id,
+      triggerKind: body.p_trigger_kind,
+      occurredAt: body.p_occurred_at,
+    });
     return sendJson(response, 200, { outcome: "inserted" });
   }
 
