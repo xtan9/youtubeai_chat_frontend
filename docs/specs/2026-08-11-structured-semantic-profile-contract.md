@@ -15,7 +15,9 @@ Blocked by #348 (Catalog Admission).
 ## Profile
 
 An admitted public Video receives at most one active
-`semantic-profile-v1` Profile for the current approved evidence fingerprint.
+`semantic-profile-v1` Profile for the current approved evidence fingerprint;
+the persisted Profile binds that fingerprint so a later activation cannot
+make an older evaluation's output retrievable.
 The server-only LLM Gateway produces exactly one JSON object with:
 
 - BCP-47 source language;
@@ -41,8 +43,11 @@ evidence fingerprint creates a successor request; any older pending/in-flight re
 is marked obsolete so stale output cannot become the current profile, and the new
 version supersedes the old active version without mutating history.
 If an obsolete or exhausted request becomes eligible again after a governed
-reactivation, its durable request is reset and re-enqueued with the same approved
-fingerprint rather than silently blocking the Video forever.
+reactivation, the authenticated service request seam resets and re-enqueues its
+durable request with the same approved fingerprint rather than silently blocking
+the Video forever. Activation rebinds already-pending requests but does not run
+an unbounded catalog scan inside the activation transaction; existing active
+Videos are submitted through that same bounded service seam.
 
 All Profile tables, queue functions, and candidate evidence are in
 `catalog_private`; browser roles have no schema usage, table access, or RPC
@@ -50,13 +55,17 @@ execution. Learner requests never call the LLM, discovery provider, or an
 embedding service.
 
 The private `semantic_profile_model_registry` is the activation seam. An
-operator may activate exactly one model/schema/prompt tuple only by supplying
-a 64-hex evaluation fingerprint and an opaque human-approval reference. Queue
-admission, budget start, completion, and candidate retrieval each require the
-same tuple to be active. Activation retires the previous tuple; retirement
-immediately stops new work and makes its Profiles non-retrievable. There is no
-default or environment-only activation, and activation never happens from a
-benchmark result automatically.
+operator may activate exactly one model/schema/prompt tuple only when the
+private evaluation ledger contains a passed Gateway evaluation with all
+required metrics and the private approval ledger contains a matching,
+named human approval. The registry stores the 64-hex evaluation fingerprint
+and opaque approval reference, but neither is self-attested by the service
+role. Every durable request binds that exact activation fingerprint, model,
+and prompt; budget start, completion, and candidate retrieval reject a
+different or retired activation. Activation retires the previous tuple;
+retirement immediately stops new work and makes its Profiles non-retrievable.
+There is no default or environment-only activation, and activation never
+happens from a benchmark result automatically.
 
 ## Retrieval
 

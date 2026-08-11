@@ -4,6 +4,70 @@
 -- versioned Gateway evaluation and human approval that authorize one model /
 -- schema / prompt tuple.  The registry is private and empty after migration.
 
+create table catalog_private.semantic_profile_evaluations (
+  evaluation_fingerprint text primary key check (
+    evaluation_fingerprint ~ '^[a-f0-9]{64}$'
+  ),
+  model_identifier text not null check (
+    btrim(model_identifier) <> '' and model_identifier = btrim(model_identifier)
+  ),
+  profile_schema_version text not null check (
+    profile_schema_version = 'semantic-profile-v1'
+  ),
+  prompt_version text not null check (
+    prompt_version = 'semantic-profile-prompt-v1'
+  ),
+  gateway_provider text not null check (
+    btrim(gateway_provider) <> '' and gateway_provider = btrim(gateway_provider)
+  ),
+  metrics jsonb not null check (
+    jsonb_typeof(metrics) = 'object'
+    and metrics ?& array[
+      'schema_validity_rate',
+      'multilingual_concept_normalization',
+      'useful_neighbor_recall',
+      'false_neighbor_rejection',
+      'latency_ms_p95',
+      'token_cost_totals',
+      'retry_dead_letter_behavior',
+      'representative_source_coverage'
+    ]
+  ),
+  status text not null check (status in ('passed', 'revoked')),
+  evaluated_at timestamptz not null,
+  created_at timestamptz not null default clock_timestamp()
+);
+
+create table catalog_private.semantic_profile_human_approvals (
+  approval_ref text primary key check (
+    approval_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$'
+  ),
+  evaluation_fingerprint text not null references
+    catalog_private.semantic_profile_evaluations(evaluation_fingerprint),
+  model_identifier text not null check (
+    btrim(model_identifier) <> '' and model_identifier = btrim(model_identifier)
+  ),
+  profile_schema_version text not null check (
+    profile_schema_version = 'semantic-profile-v1'
+  ),
+  prompt_version text not null check (
+    prompt_version = 'semantic-profile-prompt-v1'
+  ),
+  approved_by text not null check (
+    btrim(approved_by) <> '' and approved_by = btrim(approved_by)
+  ),
+  decision text not null check (decision in ('approved', 'revoked')),
+  approved_at timestamptz not null,
+  created_at timestamptz not null default clock_timestamp()
+);
+
+alter table catalog_private.semantic_profile_evaluations enable row level security;
+alter table catalog_private.semantic_profile_human_approvals enable row level security;
+revoke all on table catalog_private.semantic_profile_evaluations
+  from public, anon, authenticated, service_role;
+revoke all on table catalog_private.semantic_profile_human_approvals
+  from public, anon, authenticated, service_role;
+
 create table catalog_private.semantic_profile_model_registry (
   id uuid primary key default gen_random_uuid(),
   model_identifier text not null check (
@@ -34,6 +98,30 @@ create table catalog_private.semantic_profile_model_registry (
   )
 );
 
+alter table catalog_private.semantic_profile_requests
+  add column generator_model text,
+  add column prompt_version text,
+  add column evaluation_fingerprint text;
+alter table catalog_private.semantic_profile_requests
+  add constraint semantic_profile_request_generator_model_check check (
+    generator_model is null
+    or (btrim(generator_model) <> '' and generator_model = btrim(generator_model))
+  ),
+  add constraint semantic_profile_request_prompt_version_check check (
+    prompt_version is null or prompt_version = 'semantic-profile-prompt-v1'
+  ),
+  add constraint semantic_profile_request_evaluation_fingerprint_check check (
+    evaluation_fingerprint is null
+    or evaluation_fingerprint ~ '^[a-f0-9]{64}$'
+  );
+alter table catalog_private.semantic_profile_versions
+  add column evaluation_fingerprint text;
+alter table catalog_private.semantic_profile_versions
+  add constraint semantic_profile_version_evaluation_fingerprint_check check (
+    evaluation_fingerprint is null
+    or evaluation_fingerprint ~ '^[a-f0-9]{64}$'
+  );
+
 create unique index semantic_profile_one_active_model_idx
   on catalog_private.semantic_profile_model_registry (
     profile_schema_version,
@@ -48,7 +136,8 @@ revoke all on table catalog_private.semantic_profile_model_registry
 create or replace function catalog_private.semantic_profile_activation_is_available(
   p_model_identifier text,
   p_profile_schema_version text,
-  p_prompt_version text
+  p_prompt_version text,
+  p_evaluation_fingerprint text
 )
 returns boolean
 language sql
@@ -62,6 +151,7 @@ as $$
     where registry.model_identifier = btrim(p_model_identifier)
       and registry.profile_schema_version = p_profile_schema_version
       and registry.prompt_version = p_prompt_version
+      and registry.evaluation_fingerprint = p_evaluation_fingerprint
       and registry.status = 'active'
   );
 $$;
@@ -89,6 +179,24 @@ begin
     or coalesce(p_human_approval_ref, '') !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$'
   then
     return jsonb_build_object('outcome', 'rejected', 'reason', 'activation_contract');
+  end if;
+  if not exists (
+    select 1
+    from catalog_private.semantic_profile_evaluations as evaluation
+    join catalog_private.semantic_profile_human_approvals as approval
+      on approval.evaluation_fingerprint = evaluation.evaluation_fingerprint
+     and approval.model_identifier = evaluation.model_identifier
+     and approval.profile_schema_version = evaluation.profile_schema_version
+     and approval.prompt_version = evaluation.prompt_version
+     and approval.decision = 'approved'
+     and approval.approval_ref = p_human_approval_ref
+    where evaluation.evaluation_fingerprint = p_evaluation_fingerprint
+      and evaluation.model_identifier = btrim(p_model_identifier)
+      and evaluation.profile_schema_version = p_profile_schema_version
+      and evaluation.prompt_version = p_prompt_version
+      and evaluation.status = 'passed'
+  ) then
+    return jsonb_build_object('outcome', 'rejected', 'reason', 'evaluation_or_approval_missing');
   end if;
 
   update catalog_private.semantic_profile_model_registry
@@ -128,6 +236,12 @@ begin
     retired_at = null
   returning id into activation_id;
 
+  update catalog_private.semantic_profile_requests
+  set generator_model = btrim(p_model_identifier),
+      prompt_version = p_prompt_version,
+      evaluation_fingerprint = p_evaluation_fingerprint
+  where status = 'pending';
+
   return jsonb_build_object(
     'outcome', 'active',
     'activationId', activation_id,
@@ -166,6 +280,156 @@ begin
 end;
 $$;
 
+create or replace function catalog_private.enqueue_semantic_profile_request(
+  p_video_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  video_row record;
+  active_registry record;
+  transcript_text text;
+  fingerprint text;
+  request_id uuid;
+  stale_request_id uuid;
+  enqueued_message_id bigint;
+  existing_request record;
+begin
+  select model_identifier, profile_schema_version, prompt_version,
+         evaluation_fingerprint
+  into active_registry
+  from catalog_private.semantic_profile_model_registry
+  where status = 'active'
+    and profile_schema_version = 'semantic-profile-v1'
+    and prompt_version = 'semantic-profile-prompt-v1'
+  limit 1;
+  if active_registry.model_identifier is null then
+    return jsonb_build_object('outcome', 'skipped', 'reason', 'model_inactive');
+  end if;
+
+  select
+    video.id,
+    video.title,
+    coalesce(nullif(video.default_language, ''), nullif(video.language, ''), 'en') as source_language,
+    video.catalog_state,
+    transcript.segments
+  into video_row
+  from public.videos as video
+  left join public.video_transcripts as transcript on transcript.video_id = video.id
+  where video.id = p_video_id;
+
+  if video_row.id is null or video_row.catalog_state is distinct from 'active'
+    or video_row.segments is null or jsonb_typeof(video_row.segments) <> 'array'
+  then
+    return jsonb_build_object('outcome', 'skipped', 'reason', 'profile_evidence_unavailable');
+  end if;
+
+  select coalesce(string_agg(nullif(segment.value ->> 'text', ''), ' ' order by segment.ordinality), '')
+  into transcript_text
+  from jsonb_array_elements(video_row.segments) with ordinality as segment(value, ordinality);
+  if btrim(coalesce(transcript_text, '')) = '' then
+    return jsonb_build_object('outcome', 'skipped', 'reason', 'profile_evidence_unavailable');
+  end if;
+
+  fingerprint := catalog_private.semantic_profile_fingerprint(
+    video_row.title, video_row.source_language, transcript_text
+  );
+
+  select request.* into existing_request
+  from catalog_private.semantic_profile_requests as request
+  where request.video_id = p_video_id
+    and request.profile_schema_version = 'semantic-profile-v1'
+    and request.content_fingerprint = fingerprint;
+  if existing_request.id is not null then
+    if existing_request.status in ('pending', 'completed')
+      and existing_request.generator_model = active_registry.model_identifier
+      and existing_request.prompt_version = active_registry.prompt_version
+      and existing_request.evaluation_fingerprint = active_registry.evaluation_fingerprint
+    then
+      return jsonb_build_object('outcome', 'already_recorded', 'status', existing_request.status);
+    end if;
+    if existing_request.status = 'pending' then
+      update catalog_private.semantic_profile_requests
+      set generator_model = active_registry.model_identifier,
+          prompt_version = active_registry.prompt_version,
+          evaluation_fingerprint = active_registry.evaluation_fingerprint
+      where id = existing_request.id;
+      return jsonb_build_object('outcome', 'already_recorded', 'status', 'pending');
+    end if;
+    if existing_request.status = 'processing' then
+      update catalog_private.semantic_profile_requests
+      set status = 'obsolete'
+      where id = existing_request.id;
+    end if;
+    update catalog_private.semantic_profile_requests
+    set status = 'pending',
+        attempts = 0,
+        last_failure_code = null,
+        claimed_at = null,
+        completed_at = null,
+        generator_model = active_registry.model_identifier,
+        prompt_version = active_registry.prompt_version,
+        evaluation_fingerprint = active_registry.evaluation_fingerprint
+    where id = existing_request.id;
+    request_id := existing_request.id;
+  end if;
+
+  for stale_request_id in
+    select request.id
+    from catalog_private.semantic_profile_requests as request
+    where request.video_id = p_video_id
+      and request.profile_schema_version = 'semantic-profile-v1'
+      and request.content_fingerprint <> fingerprint
+      and request.status in ('pending', 'processing')
+    for update
+  loop
+    update catalog_private.semantic_profile_requests
+    set status = 'obsolete'
+    where id = stale_request_id;
+  end loop;
+
+  if request_id is null then
+    begin
+      insert into catalog_private.semantic_profile_requests (
+        video_id, profile_schema_version, source_language, content_fingerprint,
+        generator_model, prompt_version, evaluation_fingerprint
+      ) values (
+        p_video_id, 'semantic-profile-v1', video_row.source_language, fingerprint,
+        active_registry.model_identifier, active_registry.prompt_version,
+        active_registry.evaluation_fingerprint
+      ) returning id into request_id;
+    exception when unique_violation then
+      return jsonb_build_object('outcome', 'already_queued');
+    end;
+  end if;
+
+  select send into enqueued_message_id
+  from pgmq.send(
+    'semantic_profile',
+    jsonb_build_object(
+      'request_id', request_id,
+      'video_id', video_row.id,
+      'title', left(coalesce(video_row.title, ''), 300),
+      'source_language', left(video_row.source_language, 35),
+      'transcript', left(transcript_text, 32000),
+      'content_fingerprint', fingerprint,
+      'profile_schema_version', 'semantic-profile-v1'
+    ),
+    0
+  );
+
+  update catalog_private.semantic_profile_requests
+  set queue_message_id = enqueued_message_id
+  where id = request_id;
+  return jsonb_build_object(
+    'outcome', 'enqueued', 'requestId', request_id, 'queueMessageId', enqueued_message_id
+  );
+end;
+$$;
+
 -- Replace the old two-argument bridge.  A worker must name the configured
 -- model, so a stale caller cannot reserve budget or invoke the Gateway after
 -- the approved tuple has changed.
@@ -197,10 +461,16 @@ begin
   if request_row.status <> 'pending' then
     return jsonb_build_object('outcome', request_row.status);
   end if;
+  if request_row.generator_model is distinct from btrim(p_generator_model)
+    or request_row.prompt_version is distinct from 'semantic-profile-prompt-v1'
+  then
+    return jsonb_build_object('outcome', 'obsolete', 'reason', 'activation_superseded');
+  end if;
   if not catalog_private.semantic_profile_activation_is_available(
     p_generator_model,
     request_row.profile_schema_version,
-    'semantic-profile-prompt-v1'
+    'semantic-profile-prompt-v1',
+    request_row.evaluation_fingerprint
   ) then
     return jsonb_build_object('outcome', 'model_inactive');
   end if;
@@ -301,10 +571,17 @@ begin
   if request_row.status = 'completed' then
     return jsonb_build_object('outcome', 'already_completed');
   end if;
+  if request_row.generator_model is distinct from btrim(p_generator_model)
+    or request_row.prompt_version is distinct from p_prompt_version
+  then
+    select pgmq.archive('semantic_profile', p_msg_id) into archived;
+    return jsonb_build_object('outcome', 'obsolete', 'reason', 'activation_superseded');
+  end if;
   if not catalog_private.semantic_profile_activation_is_available(
     p_generator_model,
     request_row.profile_schema_version,
-    p_prompt_version
+    p_prompt_version,
+    request_row.evaluation_fingerprint
   ) then
     update catalog_private.semantic_profile_requests
     set status = 'obsolete'
@@ -344,7 +621,8 @@ begin
 
   insert into catalog_private.semantic_profile_versions (
     video_id, profile_schema_version, content_fingerprint, generator_model,
-    prompt_version, source_language, topics, core_concepts, topic_keys, core_concept_keys,
+    prompt_version, evaluation_fingerprint, source_language, topics, core_concepts,
+    topic_keys, core_concept_keys,
     prerequisite_concept_keys, application_concept_keys, counterpoint_concept_keys,
     difficulty, profile
   )
@@ -354,6 +632,7 @@ begin
     p_content_fingerprint,
     p_generator_model,
     p_prompt_version,
+    request_row.evaluation_fingerprint,
     request_row.source_language,
     p_profile -> 'topics',
     p_profile -> 'coreConcepts',
@@ -487,7 +766,8 @@ security definer
 set search_path = ''
 as $$
   with active_model as (
-    select model_identifier, profile_schema_version, prompt_version
+    select model_identifier, profile_schema_version, prompt_version,
+           evaluation_fingerprint
     from catalog_private.semantic_profile_model_registry
     where status = 'active'
       and profile_schema_version = 'semantic-profile-v1'
@@ -505,9 +785,10 @@ as $$
       profile.counterpoint_concept_keys
     from catalog_private.semantic_profile_versions as profile
     join active_model
-      on active_model.model_identifier = profile.generator_model
+     on active_model.model_identifier = profile.generator_model
      and active_model.profile_schema_version = profile.profile_schema_version
      and active_model.prompt_version = profile.prompt_version
+     and active_model.evaluation_fingerprint = profile.evaluation_fingerprint
     where profile.video_id = p_source_video_id and profile.status = 'active'
     order by profile.created_at desc
     limit 1
@@ -526,9 +807,10 @@ as $$
       profile.counterpoint_concept_keys
     from catalog_private.semantic_profile_versions as profile
     join active_model
-      on active_model.model_identifier = profile.generator_model
+     on active_model.model_identifier = profile.generator_model
      and active_model.profile_schema_version = profile.profile_schema_version
      and active_model.prompt_version = profile.prompt_version
+     and active_model.evaluation_fingerprint = profile.evaluation_fingerprint
     join public.videos as video on video.id = profile.video_id
     where profile.status = 'active'
       and profile.video_id <> p_source_video_id
@@ -573,7 +855,7 @@ $$;
 
 revoke all on table catalog_private.semantic_profile_model_registry
   from public, anon, authenticated, service_role;
-revoke all on function catalog_private.semantic_profile_activation_is_available(text, text, text)
+revoke all on function catalog_private.semantic_profile_activation_is_available(text, text, text, text)
   from public, anon, authenticated, service_role;
 revoke all on function public.activate_semantic_profile_model(text, text, text, text, text)
   from public, anon, authenticated;

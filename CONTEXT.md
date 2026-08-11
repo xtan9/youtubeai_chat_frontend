@@ -213,7 +213,7 @@ A short learner-facing account of the Continuation Relationship between a Recomm
 _Avoid_: Score, model rationale
 
 **Semantic Profile**:
-A versioned, language-independent representation of a Video's subject and meaning used to compare it with other Videos. The first implementation is a strict server-validated JSON profile produced asynchronously by the existing LLM Gateway and stored with one active profile per Video and profile schema version only after the private model activation registry approves the exact model/schema/prompt tuple; deterministic Postgres concept overlap retrieves candidates. A future vector or hybrid representation requires a new versioned decision.
+A versioned, language-independent representation of a Video's subject and meaning used to compare it with other Videos. The first implementation is a strict server-validated JSON profile produced asynchronously by the existing LLM Gateway and stored with one active profile per Video and profile schema version only after private evaluation and human-approval ledger records authorize the exact model/schema/prompt tuple; durable requests bind that activation and deterministic Postgres concept overlap retrieves candidates. A future vector or hybrid representation requires a new versioned decision.
 _Avoid_: Embedding, search document, hidden similarity score
 
 **Recommendation Evidence**:
