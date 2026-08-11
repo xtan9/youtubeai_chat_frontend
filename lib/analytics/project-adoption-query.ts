@@ -40,6 +40,9 @@ export interface ProjectAdoptionMetrics {
   groundedPassagesUsed: number;
   citationDiagnostics: number;
   answersWithCitationDiagnostics: number;
+  citationCandidates: number;
+  resolvedCitations: number;
+  citationMeasuredAnswers: number;
   processingSucceeded: number;
   processingFailed: number;
   generationEvents: number;
@@ -179,6 +182,9 @@ export function buildProjectAdoptionQuery(input: {
       "  sumIf(toUInt64OrZero(properties['passages_used']), event = 'project_grounded_answer_completed') AS grounded_passages_used,",
       "  sumIf(toUInt64OrZero(properties['citation_diagnostics']), event = 'project_grounded_answer_completed') AS citation_diagnostics,",
       "  countIf(event = 'project_grounded_answer_completed' AND toUInt64OrZero(properties['citation_diagnostics']) > 0) AS answers_with_citation_diagnostics,",
+      "  sumIf(toUInt64OrZero(properties['citation_candidates']), event = 'project_grounded_answer_completed') AS citation_candidates,",
+      "  sumIf(toUInt64OrZero(properties['resolved_citations']), event = 'project_grounded_answer_completed') AS resolved_citations,",
+      "  countIf(event = 'project_grounded_answer_completed' AND properties['citation_measurement_status'] = 'measured') AS citation_measured_answers,",
       "  countIf(event = 'project_video_processing_succeeded') AS processing_succeeded,",
       "  countIf(event = 'project_video_processing_failed') AS processing_failed,",
       "  countIf(event = 'project_generation_cost_recorded') AS generation_events,",
@@ -263,6 +269,9 @@ const METRIC_COLUMNS = {
   groundedPassagesUsed: "grounded_passages_used",
   citationDiagnostics: "citation_diagnostics",
   answersWithCitationDiagnostics: "answers_with_citation_diagnostics",
+  citationCandidates: "citation_candidates",
+  resolvedCitations: "resolved_citations",
+  citationMeasuredAnswers: "citation_measured_answers",
   processingSucceeded: "processing_succeeded",
   processingFailed: "processing_failed",
   generationEvents: "generation_events",

@@ -163,6 +163,9 @@ describe("useProjectGroundedConversation canonical persistence", () => {
         passages_examined: 9,
         passages_used: 1,
         citation_diagnostics: 0,
+        citation_candidates: 1,
+        resolved_citations: 1,
+        citation_measurement_status: "measured",
       },
     );
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("launch");

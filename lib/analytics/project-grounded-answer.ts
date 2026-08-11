@@ -14,6 +14,9 @@ const ProjectGroundedAnswerCompletedPropertiesSchema = z
     passages_examined: z.number().int().min(0).max(1_000_000),
     passages_used: z.number().int().min(0).max(10),
     citation_diagnostics: z.number().int().min(0).max(20),
+    citation_candidates: z.number().int().min(0).max(100),
+    resolved_citations: z.number().int().min(0).max(100),
+    citation_measurement_status: z.literal("measured"),
   })
   .strict()
   .superRefine((properties, context) => {
@@ -33,6 +36,15 @@ const ProjectGroundedAnswerCompletedPropertiesSchema = z
       context.addIssue({
         code: "custom",
         message: "Grounded Answer selected evidence must fit its coverage.",
+      });
+    }
+    if (
+      properties.resolved_citations + properties.citation_diagnostics !==
+      properties.citation_candidates
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Citation candidates must reconcile to resolved citations and diagnostics.",
       });
     }
   });

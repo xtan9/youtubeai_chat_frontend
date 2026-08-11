@@ -33,6 +33,9 @@ const columns = [
   "grounded_passages_used",
   "citation_diagnostics",
   "answers_with_citation_diagnostics",
+  "citation_candidates",
+  "resolved_citations",
+  "citation_measured_answers",
   "processing_succeeded",
   "processing_failed",
   "generation_events",
@@ -50,7 +53,7 @@ describe("loadProjectAdoptionReport", () => {
         columns,
         results: [[
           10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 20, 8, 12, 7, 13, 30, 100, 10, 9,
-          25, 20, 15, 5, 80, 25, 4, 3, 18, 2, 6, 5, 4, 2400, 120000,
+          25, 20, 15, 5, 80, 25, 4, 3, 10, 9, 10, 18, 2, 6, 5, 4, 2400, 120000,
         ]],
         isCached: false,
       })
@@ -84,6 +87,8 @@ describe("loadProjectAdoptionReport", () => {
       sourceCoverageIntegrityPct: 90,
       processingFailurePct: 10,
       answersWithCitationDiagnosticsPct: 30,
+      citationResolutionPct: 90,
+      citationMeasurementCoveragePct: 100,
       measuredCostCoveragePct: 83.3,
       averageGenerationDurationMs: 400,
       costPerActiveProjectUsdMicros: 30000,
