@@ -58,7 +58,10 @@ returns jsonb
 language plpgsql
 volatile
 security definer
-set search_path = ''
+-- Supabase installs pgcrypto in `extensions`; the plain-Postgres upgrade
+-- fixture installs it in `public`. Keep the resolver explicit while allowing
+-- both supported locations without relying on a mutable caller search path.
+set search_path = extensions, public, pg_temp
 as $$
 declare
   token_hash_value text;
@@ -83,7 +86,7 @@ begin
     return jsonb_build_object('outcome', 'missing');
   end if;
 
-  token_hash_value := encode(extensions.digest(p_token, 'sha256'), 'hex');
+  token_hash_value := encode(digest(p_token, 'sha256'), 'hex');
   select binding.*
   into existing_binding
   from catalog_private.continue_learning_token_bindings as binding
@@ -128,7 +131,7 @@ returns jsonb
 language plpgsql
 volatile
 security definer
-set search_path = ''
+set search_path = extensions, public, pg_temp
 as $$
 declare
   token_hash_value text;
@@ -145,7 +148,7 @@ begin
     return jsonb_build_object('outcome', 'invalid');
   end if;
 
-  token_hash_value := encode(extensions.digest(p_token, 'sha256'), 'hex');
+  token_hash_value := encode(digest(p_token, 'sha256'), 'hex');
   select token_binding.*
   into binding
   from catalog_private.continue_learning_token_bindings as token_binding

@@ -88,7 +88,9 @@ insert into catalog_private.continue_learning_token_bindings (
   recommendation_set_id,
   recommendation_ordinal
 ) values (
-  encode(extensions.digest('cl1.' || repeat('a', 43), 'sha256'), 'hex'),
+  -- SHA-256("cl1." || repeat("a", 43)); keep this legacy fixture
+  -- independent of whichever schema hosts pgcrypto.
+  '0739f26ef8a9e88a20aaa560c8e73e2fcd3837c5e5fbc8e658ce031e68dc2119',
   '35400000-0000-4000-8000-000000000001',
   '35400000-0000-4000-8000-000000000101',
   1
