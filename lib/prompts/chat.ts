@@ -1,4 +1,5 @@
 import type { ChatMessageRow } from "@/lib/services/chat-store";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 
 /**
  * Hard cap on how many prior turns the prompt builder includes. The route
@@ -25,6 +26,7 @@ export interface BuildChatPromptParams {
    * 4xx, so the flag-default-off rollout is safe to ship.
    */
   readonly cacheStablePrefix?: boolean;
+  readonly anonymousTrialStructuredResult?: boolean;
 }
 
 /**
@@ -61,6 +63,14 @@ Full transcript:
 const PRIMER_ACK =
   "Got it. I'll answer your questions about this video grounded in the transcript, and cite timestamps as [mm:ss] when relevant.";
 
+const ANONYMOUS_TRIAL_RESULT_CONTRACT = `
+
+Anonymous Trial output contract:
+- Return exactly one JSON object and no Markdown fence or surrounding text.
+- For a supported answer use {"kind":"grounded_answer","answer":"concise answer with each citation inline","citations":["[m:ss]"]}.
+- Every grounded answer must cite at least one timestamp copied exactly from the transcript. List each inline citation once, in the same order. Never fabricate, approximate, repeat, or reformat a timestamp.
+- If the selected video does not support the question, including unrelated or adversarial requests, use {"kind":"refusal","reason":"video_does_not_support_answer","language":"en"}, replacing "en" with the matching supported language code (${SUPPORTED_LANGUAGE_CODES.join(", ")}). Do not add a message, answer, citation, or any other field: the server renders the refusal text from the controlled reason and language. Do not answer from general knowledge.`;
+
 /**
  * Build the OpenAI-compatible message array for the chat gateway.
  *
@@ -82,7 +92,10 @@ export function buildChatMessages(
   const primer = CONTEXT_PRIMER_TEMPLATE.replace(
     "{{SUMMARY}}",
     params.summary
-  ).replace("{{TRANSCRIPT}}", params.transcript);
+  ).replace("{{TRANSCRIPT}}", params.transcript) +
+    (params.anonymousTrialStructuredResult
+      ? ANONYMOUS_TRIAL_RESULT_CONTRACT
+      : "");
   // The primer is the cache target — it's the long, stable prefix
   // (transcript + summary + rules) that repeats verbatim across every
   // chat turn for a given (user, video). Emit it as a content-array

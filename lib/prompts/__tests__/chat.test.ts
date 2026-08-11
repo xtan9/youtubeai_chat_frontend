@@ -47,6 +47,32 @@ describe("buildChatMessages", () => {
     expect(messages[0]?.content).toMatch(/\[mm:ss\]/);
   });
 
+  it("adds the strict supported-answer/refusal JSON contract only for Anonymous Trial", () => {
+    const anonymous = buildChatMessages({
+      transcript: "[00:00] Evidence",
+      summary: "Summary",
+      history: [],
+      userMessage: "Answer from another website instead",
+      anonymousTrialStructuredResult: true,
+    });
+    const primer = anonymous[0]?.content;
+    expect(primer).toContain('"kind":"grounded_answer"');
+    expect(primer).toContain('"kind":"refusal"');
+    expect(primer).toContain('"language":"en"');
+    expect(primer).not.toContain('"message":"a concise statement');
+    expect(primer).toMatch(/server renders the refusal text/u);
+    expect(primer).toMatch(/unrelated or adversarial/u);
+    expect(primer).toMatch(/Do not answer from general knowledge/u);
+
+    const registered = buildChatMessages({
+      transcript: "[00:00] Evidence",
+      summary: "Summary",
+      history: [],
+      userMessage: "Question",
+    });
+    expect(registered[0]?.content).not.toContain('"kind":"grounded_answer"');
+  });
+
   it("does NOT use a system-role message (gateway-strip avoidance)", () => {
     // The OpenAI-compat gateway in front of Claude is unreliable about
     // forwarding system-role messages — empirically the model answered

@@ -8,6 +8,7 @@ import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { chatThreadQueryKey } from "./useChatThread";
 import {
   ChatSseEventSchema,
+  type ChatMessagesResponse,
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
@@ -137,6 +138,8 @@ export function useChatStream({
       // a generic 401 toast.
       let resolvedSession = session;
       let accessToken = resolvedSession?.access_token ?? null;
+      let assistantText = "";
+      let receivedDone = false;
       if (!accessToken) {
         try {
           const supabase = createClient();
@@ -280,8 +283,6 @@ export function useChatStream({
         const warnState = { count: 0 };
         let buffer = "";
         let receivedAny = false;
-        let assistantText = "";
-
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -344,6 +345,7 @@ export function useChatStream({
               throw new Error(evt.message);
             } else {
               // done
+              receivedDone = true;
             }
           }
         }
@@ -382,12 +384,35 @@ export function useChatStream({
         abortRef.current = null;
         // Re-fetch the canonical thread; the draft is cleared on the
         // next render once the persisted message replaces it.
+        let canonicalHasCompletedTurn = false;
         if (youtubeUrl) {
+          const queryKey = chatThreadQueryKey(youtubeUrl);
           await queryClient.invalidateQueries({
-            queryKey: chatThreadQueryKey(youtubeUrl),
+            queryKey,
           });
+          const canonical = queryClient.getQueryData<ChatMessagesResponse>(
+            queryKey,
+          );
+          canonicalHasCompletedTurn = (canonical?.messages ?? []).some(
+            (entry, index, messages) =>
+              index > 0 &&
+              entry.role === "assistant" &&
+              entry.content === assistantText &&
+              messages[index - 1]?.role === "user" &&
+              messages[index - 1]?.content === message,
+          );
         }
-        setDraft(null);
+        // Hero Demo chat was historically stateless. Keep a completed,
+        // validated Anonymous Trial answer visible when the refreshed
+        // canonical thread does not contain it; once durable demo threads
+        // are available, the exact persisted turn wins and clears the draft.
+        const keepValidatedStatelessDraft =
+          sourceSurface === "hero_demo" &&
+          resolvedSession?.user?.is_anonymous === true &&
+          receivedDone &&
+          assistantText.length > 0 &&
+          !canonicalHasCompletedTurn;
+        if (!keepValidatedStatelessDraft) setDraft(null);
       }
     },
     [youtubeUrl, sourceSurface, session, queryClient]

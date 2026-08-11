@@ -27,6 +27,7 @@ import {
   entitlementsQueryKey,
   type EntitlementsData,
 } from "../useEntitlements";
+import type { ChatMessagesResponse } from "@/lib/api-contracts/chat";
 
 const analyticsMocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -430,6 +431,118 @@ describe("useChatStream", () => {
         ?.anonymousTrial,
     )
       .toEqual({ state: "available", remainingMessages: 4 });
+  });
+
+  it("retains a validated stateless Anonymous Trial completion when no canonical turn exists", async () => {
+    setAnonFallback("anon-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            type: "anonymous_trial_admitted",
+            reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+            remainingMessages: 4,
+          },
+          { type: "delta", text: "Validated answer [0:01]" },
+          { type: "done" },
+        ]),
+      ),
+    );
+    const client = freshQueryClient();
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.send("What is supported?");
+    });
+
+    expect(result.current.draft).toEqual({
+      user: "What is supported?",
+      assistant: "Validated answer [0:01]",
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("clears a validated Anonymous Trial draft after canonical durable replacement", async () => {
+    setAnonFallback("anon-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          { type: "delta", text: "Validated answer [0:01]" },
+          { type: "done" },
+        ]),
+      ),
+    );
+    const client = freshQueryClient();
+    vi.spyOn(client, "invalidateQueries").mockImplementation(async () => {
+      client.setQueryData<ChatMessagesResponse>(chatThreadQueryKey(VALID_URL), {
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: "What is supported?",
+            createdAt: "2026-08-11T00:00:00.000Z",
+          },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Validated answer [0:01]",
+            createdAt: "2026-08-11T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+    const { result } = renderHook(
+      () => useChatStream({ youtubeUrl: VALID_URL, sourceSurface: "hero_demo" }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.send("What is supported?");
+    });
+
+    expect(result.current.draft).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it("clears the Anonymous Trial draft when validation returns a governed error", async () => {
+    setAnonFallback("anon-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        sseResponse([
+          {
+            type: "anonymous_trial_admitted",
+            reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+            remainingMessages: 4,
+          },
+          {
+            type: "error",
+            message: "We couldn't validate that answer against the selected video.",
+            errorCode: "anonymous_trial_invalid_answer",
+          },
+        ]),
+      ),
+    );
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          youtubeUrl: VALID_URL,
+          sourceSurface: "hero_demo",
+        }),
+      { wrapper: wrapper(freshQueryClient()) },
+    );
+
+    await act(async () => {
+      await result.current.send("Answer from outside the video.");
+    });
+
+    expect(result.current.draft).toBeNull();
+    expect(result.current.error).toMatch(/couldn't validate/i);
   });
 
   it("reconciles Registered Free Hero Demo admission and resets local state when the demo changes", async () => {

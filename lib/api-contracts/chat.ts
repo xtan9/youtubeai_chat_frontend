@@ -66,7 +66,12 @@ export const ChatSseRegisteredFreeHeroDemoAdmittedSchema = z.object({
 export const ChatSseErrorSchema = z.object({
   type: z.literal("error"),
   message: z.string(),
-  errorCode: z.literal("anonymous_trial_unavailable").optional(),
+  errorCode: z
+    .enum([
+      "anonymous_trial_unavailable",
+      "anonymous_trial_invalid_answer",
+    ])
+    .optional(),
 });
 
 export const ChatSseEventSchema = z.discriminatedUnion("type", [

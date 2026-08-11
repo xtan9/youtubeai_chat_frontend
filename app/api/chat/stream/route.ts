@@ -37,6 +37,10 @@ import {
   admitRegisteredFreeHeroDemoChatMessage,
   type RegisteredFreeHeroDemoAdmissionResult,
 } from "@/lib/services/registered-free-hero-demo";
+import {
+  MAX_ANONYMOUS_TRIAL_RESULT_CHARS,
+  validateAnonymousTrialChatResult,
+} from "@/lib/services/anonymous-trial-chat-result";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -470,7 +474,13 @@ export async function POST(request: Request) {
     history,
     userMessage: message,
     cacheStablePrefix,
+    anonymousTrialStructuredResult: anonymousTrialEnabled,
   });
+  const anonymousTrialAvailableCitations = new Set(
+    grounding.transcript.segments.map((segment) =>
+      formatTimestamp(segment.start),
+    ),
+  );
 
   let anonymousReservation: Extract<
     AnonymousTrialReservationResult,
@@ -584,6 +594,25 @@ export async function POST(request: Request) {
         }
       };
 
+      const rejectInvalidAnonymousAnswer = () => {
+        logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
+          errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+          userId,
+          videoId,
+          requestId,
+        });
+        // The admitted model call is still part of the retained thread:
+        // keep the learner's question for a safe retry, but never persist
+        // or expose the rejected assistant payload.
+        persistUserOnly("CHAT_ANONYMOUS_ANSWER_INVALID_PERSIST_FAILED");
+        sendEvent({
+          type: "error",
+          message:
+            "We couldn't validate that answer against the selected video. Try another question.",
+          errorCode: "anonymous_trial_invalid_answer",
+        });
+      };
+
       try {
         if (registeredFreeHeroDemoAdmission) {
           sendEvent({
@@ -623,8 +652,18 @@ export async function POST(request: Request) {
           })) {
             if (request.signal.aborted) break;
             if (evt.type === "delta") {
+              if (
+                anonymousTrialEnabled &&
+                assistantBuffer.length + evt.text.length >
+                  MAX_ANONYMOUS_TRIAL_RESULT_CHARS
+              ) {
+                rejectInvalidAnonymousAnswer();
+                return;
+              }
               assistantBuffer += evt.text;
-              sendEvent({ type: "delta", text: evt.text });
+              if (!anonymousTrialEnabled) {
+                sendEvent({ type: "delta", text: evt.text });
+              }
             }
             // We don't forward the generator's `done` here — the inline
             // persist below sends the terminal `done` event so the
@@ -662,6 +701,19 @@ export async function POST(request: Request) {
           persistUserOnly("CHAT_LLM_FAILED_PERSIST_FAILED");
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
           return;
+        }
+
+        if (anonymousTrialEnabled) {
+          const validated = validateAnonymousTrialChatResult(
+            assistantBuffer,
+            anonymousTrialAvailableCitations,
+          );
+          if (validated.outcome === "rejected") {
+            rejectInvalidAnonymousAnswer();
+            return;
+          }
+          assistantBuffer = validated.text;
+          sendEvent({ type: "delta", text: validated.text });
         }
 
         if (assistantBuffer.length === 0) {
