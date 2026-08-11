@@ -825,6 +825,79 @@ begin
 end;
 $quality_policy_race$;
 
+do $quality_policy_inverse_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  lock_connection text := 'recommendation_policy_inverse_lock';
+  policy_connection text := 'recommendation_policy_inverse_update';
+  quality_connection text := 'recommendation_policy_inverse_quality';
+  quality_result jsonb;
+begin
+  -- Hold the quality lock first, then start the policy UPDATE (which takes
+  -- its tuple lock before the row trigger waits on that advisory lock), and
+  -- finally start quality computation. Neither waiter may form a cycle.
+  perform extensions.dblink_connect(lock_connection, connection_string);
+  perform extensions.dblink_exec(lock_connection, 'begin');
+  perform result
+  from extensions.dblink(
+    lock_connection,
+    $$select pg_advisory_xact_lock(hashtext('recommendation-quality'))$$
+  ) as result(result text);
+
+  perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(policy_connection, 'begin');
+  perform extensions.dblink_send_query(
+    policy_connection,
+    $query$
+      update catalog_private.recommendation_review_policies
+      set minimum_usefulness_percent = 100
+      where review_policy_version = 'recommendation-review-policy-v1'
+    $query$
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(policy_connection) <> 1 then
+    raise exception 'inverse-order policy update did not wait for quality lock';
+  end if;
+
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(quality_connection, 'begin');
+  perform extensions.dblink_send_query(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(quality_connection) <> 1 then
+    raise exception 'inverse-order quality computation did not wait for quality lock';
+  end if;
+
+  perform extensions.dblink_exec(lock_connection, 'commit');
+  perform extensions.dblink_disconnect(lock_connection);
+
+  perform result
+  from extensions.dblink_get_result(policy_connection) as result(result text);
+  perform extensions.dblink_exec(policy_connection, 'commit');
+  perform extensions.dblink_disconnect(policy_connection);
+
+  select result into quality_result
+  from extensions.dblink_get_result(quality_connection) as result(result jsonb);
+  perform extensions.dblink_exec(quality_connection, 'commit');
+  perform extensions.dblink_disconnect(quality_connection);
+  if quality_result ->> 'outcome' <> 'computed' then
+    raise exception 'inverse-order quality computation failed: %', quality_result;
+  end if;
+
+  update catalog_private.recommendation_review_policies
+  set minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+end;
+$quality_policy_inverse_race$;
+
 do $quality_publish_race$
 declare
   connection_string text := format(

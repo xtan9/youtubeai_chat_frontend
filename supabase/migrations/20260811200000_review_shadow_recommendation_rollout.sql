@@ -23,15 +23,14 @@ declare
   read_rows text;
 begin
   -- Keep policy thresholds in the same transaction snapshot as the Set and
-  -- Review inputs. A direct owner configuration update must wait while a
-  -- quality report is being computed or fingerprinted.
+  -- Review inputs. The policy DML trigger waits on this lock while a quality
+  -- report is being computed or fingerprinted.
   perform pg_advisory_xact_lock(hashtext('recommendation-quality'));
 
   select policy.* into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active'
-  for share;
+    and policy.status = 'active';
 
   if policy_row.review_policy_version is null then
     return null;
@@ -877,8 +876,7 @@ begin
   into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active'
-  for share;
+    and policy.status = 'active';
 
   if policy_row.review_policy_version is null then
     return jsonb_build_object(
@@ -1219,8 +1217,8 @@ begin
     ),
     '[]'::jsonb
   ) into review_rows
-  from catalog_private.recommendation_reviews as review
-  join catalog_private.recommendations as recommendation
+  from catalog_private.recommendations as recommendation
+  left join catalog_private.recommendation_reviews as review
     on recommendation.recommendation_set_id = review.recommendation_set_id
    and recommendation.ordinal = review.recommendation_ordinal
   join catalog_private.recommendation_candidate_pair_evidence as evidence

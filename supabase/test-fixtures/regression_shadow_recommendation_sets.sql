@@ -769,11 +769,12 @@ begin
     null, null, null, 'current', null
   ) into rollout;
   if rollout ->> 'outcome' <> 'listed'
-    or jsonb_array_length(rollout -> 'reviews') <> 1
+    or jsonb_array_length(rollout -> 'reviews') <> 2
     or (rollout -> 'reviews' -> 0 ->> 'reviewerId')::uuid
       <> '3a000000-0000-4000-8000-0000000000f1'::uuid
+    or rollout -> 'reviews' -> 1 ->> 'reviewerId' is not null
   then
-    raise exception 'Review list/detail contract failed: %', rollout;
+    raise exception 'Review/prepared Recommendation list contract failed: %', rollout;
   end if;
 
   select public.list_recommendation_reviews(
@@ -785,7 +786,7 @@ begin
     'catalog-admission-policy-v1'
   ) into rollout;
   if rollout ->> 'outcome' <> 'listed'
-    or jsonb_array_length(rollout -> 'reviews') <> 1
+    or jsonb_array_length(rollout -> 'reviews') <> 2
     or rollout -> 'reviews' -> 0 ->> 'evidenceLevel'
       <> 'semantic-profile-v1'
     or rollout -> 'reviews' -> 0 ->> 'assessmentModelIdentifier'
@@ -794,7 +795,7 @@ begin
       <> 'catalog-admission-policy-v1'
     or rollout -> 'reviews' -> 0 ->> 'candidatePairModelIdentifier'
       <> 'fixture-set-semantic-model'
-    or (rollout -> 'reviews' -> 0 ->> 'itemCount')::integer <> 1
+    or (rollout -> 'reviews' -> 0 ->> 'itemCount')::integer <> 2
   then
     raise exception 'exact Set model/policy/evidence filters failed: %', rollout;
   end if;
