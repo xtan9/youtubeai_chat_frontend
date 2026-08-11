@@ -1,4 +1,4 @@
-create schema if not exists chat_private;
+create schema chat_private;
 revoke all on schema chat_private from public, anon, authenticated, service_role;
 grant usage on schema chat_private to service_role;
 
@@ -225,7 +225,9 @@ begin
 end;
 $$;
 
-create function chat_private.cleanup_inactive_anonymous_demo_conversations()
+create function chat_private.cleanup_inactive_anonymous_demo_conversations(
+  p_limit integer
+)
 returns jsonb
 language plpgsql
 security definer
@@ -234,11 +236,24 @@ as $$
 declare
   deleted_count integer;
 begin
+  if p_limit not between 1 and 500 then
+    return jsonb_build_object(
+      'outcome', 'invalid',
+      'deletedConversations', 0
+    );
+  end if;
+
   delete from chat_private.hero_demo_conversations as conversation
-  using auth.users as owner
-  where owner.id = conversation.user_id
-    and owner.is_anonymous
-    and conversation.last_activity_at < clock_timestamp() - interval '30 days';
+  where conversation.id in (
+    select candidate.id
+    from chat_private.hero_demo_conversations as candidate
+    join auth.users as owner on owner.id = candidate.user_id
+    where owner.is_anonymous
+      and candidate.last_activity_at < clock_timestamp() - interval '30 days'
+    order by candidate.last_activity_at, candidate.id
+    limit p_limit
+    for update of candidate skip locked
+  );
   get diagnostics deleted_count = row_count;
   return jsonb_build_object(
     'outcome', 'cleaned',
@@ -254,7 +269,7 @@ create function public.load_hero_demo_conversation(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 begin
@@ -275,7 +290,7 @@ create function public.append_hero_demo_chat_turn(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 begin
@@ -295,7 +310,7 @@ create function public.append_hero_demo_chat_user_message(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 begin
@@ -314,7 +329,7 @@ create function public.clear_hero_demo_conversation(
 )
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 begin
@@ -327,23 +342,24 @@ begin
 end;
 $$;
 
-create function public.cleanup_inactive_anonymous_demo_conversations()
+create function public.cleanup_inactive_anonymous_demo_conversations(
+  p_limit integer
+)
 returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = ''
 as $$
 begin
   if current_setting('role', true) <> 'service_role' then
     raise insufficient_privilege using message = 'service_role required';
   end if;
-  return chat_private.cleanup_inactive_anonymous_demo_conversations();
+  return chat_private.cleanup_inactive_anonymous_demo_conversations(p_limit);
 end;
 $$;
 
 revoke all on all functions in schema chat_private
 from public, anon, authenticated, service_role;
-grant execute on all functions in schema chat_private to service_role;
 
 revoke all on function public.load_hero_demo_conversation(uuid,text,integer)
 from public, anon, authenticated, service_role;
@@ -353,7 +369,7 @@ revoke all on function public.append_hero_demo_chat_user_message(uuid,text,text)
 from public, anon, authenticated, service_role;
 revoke all on function public.clear_hero_demo_conversation(uuid,text)
 from public, anon, authenticated, service_role;
-revoke all on function public.cleanup_inactive_anonymous_demo_conversations()
+revoke all on function public.cleanup_inactive_anonymous_demo_conversations(integer)
 from public, anon, authenticated, service_role;
 
 grant execute on function public.load_hero_demo_conversation(uuid,text,integer)
@@ -364,7 +380,7 @@ grant execute on function public.append_hero_demo_chat_user_message(uuid,text,te
 to service_role;
 grant execute on function public.clear_hero_demo_conversation(uuid,text)
 to service_role;
-grant execute on function public.cleanup_inactive_anonymous_demo_conversations()
+grant execute on function public.cleanup_inactive_anonymous_demo_conversations(integer)
 to service_role;
 
 notify pgrst, 'reload schema';

@@ -783,7 +783,7 @@ describe("POST /api/chat/stream", () => {
 
   it("returns the normal plan upgrade outcome when a Registered Free Hero Demo allowance is exhausted", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.admitRegisteredFreeHeroDemoChatMessage.mockResolvedValue({
       outcome: "exhausted",
@@ -818,7 +818,7 @@ describe("POST /api/chat/stream", () => {
       subscription: null,
       presentation: { state: "active_pro", plan: null, renewsAt: null },
     });
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "unlimited" };
@@ -858,7 +858,7 @@ describe("POST /api/chat/stream", () => {
       mocks.resolveRequestPrincipal.mockResolvedValue(
         resolvedPrincipal("free-demo-user"),
       );
-      mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+      mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
       mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
       arrange();
 

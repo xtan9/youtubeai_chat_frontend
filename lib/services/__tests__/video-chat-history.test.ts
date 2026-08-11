@@ -12,6 +12,7 @@ vi.mock("server-only", () => ({}));
 
 import {
   appendVideoChatTurn,
+  cleanupInactiveAnonymousDemoConversations,
   clearVideoChatMessages,
   listVideoChatMessages,
 } from "../video-chat-history";
@@ -96,6 +97,21 @@ describe("Hero Demo Video history adapter", () => {
     mocks.getServiceRoleClient.mockReturnValue(null);
     await expect(listVideoChatMessages("user-376", THREAD)).rejects.toThrow(
       /storage unavailable/i,
+    );
+  });
+
+  it("runs a bounded anonymous-retention cleanup through the governed bridge", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: { outcome: "cleaned", deletedConversations: 37 },
+      error: null,
+    });
+
+    await expect(
+      cleanupInactiveAnonymousDemoConversations(500),
+    ).resolves.toEqual({ deletedConversations: 37 });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "cleanup_inactive_anonymous_demo_conversations",
+      { p_limit: 500 },
     );
   });
 });

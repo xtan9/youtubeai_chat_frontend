@@ -33,6 +33,12 @@ const ClearedSchema = z
     deletedConversations: z.number().int().min(0).max(1),
   })
   .strict();
+const CleanedSchema = z
+  .object({
+    outcome: z.literal("cleaned"),
+    deletedConversations: z.number().int().min(0).max(500),
+  })
+  .strict();
 
 function historyUnavailable(operation: string, detail: string): Error {
   logAppEvent("error", "[video-chat-history] durable boundary unavailable", {
@@ -44,12 +50,13 @@ function historyUnavailable(operation: string, detail: string): Error {
 }
 
 async function callHeroDemoRpc<T>(input: {
-  readonly operation: "load" | "append_turn" | "append_user" | "clear";
+  readonly operation: "load" | "append_turn" | "append_user" | "clear" | "cleanup";
   readonly functionName:
     | "load_hero_demo_conversation"
     | "append_hero_demo_chat_turn"
     | "append_hero_demo_chat_user_message"
-    | "clear_hero_demo_conversation";
+    | "clear_hero_demo_conversation"
+    | "cleanup_inactive_anonymous_demo_conversations";
   readonly args: Record<string, string | number>;
   readonly schema: z.ZodType<T>;
 }): Promise<T> {
@@ -163,4 +170,19 @@ export async function clearVideoChatMessages(
     },
     schema: ClearedSchema,
   });
+}
+
+export async function cleanupInactiveAnonymousDemoConversations(
+  limit: number,
+): Promise<{ readonly deletedConversations: number }> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error("Anonymous Demo cleanup limit must be between 1 and 500");
+  }
+  const result = await callHeroDemoRpc({
+    operation: "cleanup",
+    functionName: "cleanup_inactive_anonymous_demo_conversations",
+    args: { p_limit: limit },
+    schema: CleanedSchema,
+  });
+  return { deletedConversations: result.deletedConversations };
 }

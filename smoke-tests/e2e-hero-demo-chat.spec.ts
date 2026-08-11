@@ -160,6 +160,10 @@ test.describe("Hero demo chat", () => {
                 projectsUsed: 0,
                 projectsLimit: 3,
               },
+              registeredFreeHeroDemoChat: {
+                state: "available",
+                remainingMessages: 5,
+              },
               subscriptionPresentation: { state: "free" },
             }
           : {
@@ -260,6 +264,7 @@ test.describe("Hero demo chat", () => {
     await expect(
       page.getByText(/Anonymous Trial messages remaining/i),
     ).toHaveCount(0);
+    await expect(page.getByText("0 of 5 free messages used")).toBeVisible();
   });
 
   test("enabled exhausted allowance replaces the composer with registration", async ({

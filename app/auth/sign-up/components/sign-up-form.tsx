@@ -21,6 +21,14 @@ import {
   getSafeAuthRedirect,
 } from "@/lib/auth/signup-redirect";
 
+function isMissingAuthSession(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AuthSessionMissingError" ||
+      "code" in error && error.code === "session_not_found")
+  );
+}
+
 export function SignUpForm({
   className,
   ...props
@@ -48,7 +56,9 @@ export function SignUpForm({
       const next = getSafeAuthRedirect(window.location.href);
       const emailRedirectTo = buildAuthCallbackUrl(window.location.origin, next);
       const currentUser = await supabase.auth.getUser();
-      if (currentUser.error) throw currentUser.error;
+      if (currentUser.error && !isMissingAuthSession(currentUser.error)) {
+        throw currentUser.error;
+      }
 
       const preservesAnonymousIdentity = currentUser.data.user?.is_anonymous === true;
       const { data, error } = preservesAnonymousIdentity
@@ -92,7 +102,9 @@ export function SignUpForm({
 
     try {
       const currentUser = await supabase.auth.getUser();
-      if (currentUser.error) throw currentUser.error;
+      if (currentUser.error && !isMissingAuthSession(currentUser.error)) {
+        throw currentUser.error;
+      }
       const credentials = {
         provider: "google",
         options: {

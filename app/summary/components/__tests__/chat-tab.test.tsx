@@ -75,7 +75,10 @@ vi.mock("@/lib/supabase/client", () => ({
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 interface RouteHandlers {
-  readonly onMessages?: (input: RequestInit | undefined) => Response;
+  readonly onMessages?: (
+    input: RequestInit | undefined,
+    url: string,
+  ) => Response;
   readonly onStream?: (input: RequestInit | undefined) => Response;
   readonly onSuggestions?: (input: RequestInit | undefined) => Response;
 }
@@ -110,7 +113,7 @@ function makeRouter(
       if (!handlers.onMessages) {
         throw new Error(`Unexpected /api/chat/messages call (method=${method})`);
       }
-      return handlers.onMessages(init);
+      return handlers.onMessages(init, url);
     }
     throw new Error(`Unexpected fetch in chat-tab test: ${url}`);
   });

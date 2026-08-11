@@ -75,6 +75,45 @@ function setSignupLocation(redirectTo?: string) {
 }
 
 describe("SignUpForm analytics", () => {
+  it("treats a missing signed-out session as a normal email signup", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("Auth session missing!"), {
+        name: "AuthSessionMissingError",
+        status: 400,
+      }),
+    });
+    mocks.signUp.mockResolvedValue({
+      data: { user: { identities: [{ id: "identity-1" }] }, session: null },
+      error: null,
+    });
+    render(<SignUpForm />);
+
+    submitValidForm();
+
+    await waitFor(() => expect(mocks.signUp).toHaveBeenCalledTimes(1));
+    expect(mocks.updateUser).not.toHaveBeenCalled();
+    expect(screen.queryByText("Auth session missing!")).toBeNull();
+  });
+
+  it("treats a missing signed-out session as a normal Google signup", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("Auth session missing!"), {
+        name: "AuthSessionMissingError",
+        status: 400,
+      }),
+    });
+    mocks.signInWithOAuth.mockResolvedValue({ error: null });
+    render(<SignUpForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+
+    await waitFor(() => expect(mocks.signInWithOAuth).toHaveBeenCalledTimes(1));
+    expect(mocks.linkIdentity).not.toHaveBeenCalled();
+    expect(screen.queryByText("Auth session missing!")).toBeNull();
+  });
+
   it("converts an anonymous email account in place so retained conversations keep their owner", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: { id: "anonymous-user-1", is_anonymous: true } },

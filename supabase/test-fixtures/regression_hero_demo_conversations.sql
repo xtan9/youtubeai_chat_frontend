@@ -70,6 +70,12 @@ create temporary table converted_history as
 select public.load_hero_demo_conversation(
   '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo', 16
 ) as result;
+create temporary table converted_registered_allowances as
+select youtube_video_id,
+  public.get_registered_free_hero_demo_chat_allowance(
+    '37600000-0000-4000-8000-000000000001', youtube_video_id
+  ) as result
+from (values ('Hrbq66XqtCo'), ('nm1TxQj9IsQ')) as demos(youtube_video_id);
 select public.clear_hero_demo_conversation(
   '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo'
 );
@@ -86,6 +92,12 @@ reset role;
 do $$
 begin
   if jsonb_array_length((select result -> 'messages' from converted_history)) <> 2
+    or exists (
+      select 1
+      from converted_registered_allowances
+      where result <> '{"outcome":"available","remainingMessages":5}'::jsonb
+    )
+    or (select count(*) from converted_registered_allowances) <> 2
     or jsonb_array_length((select result -> 'messages' from cleared_history)) <> 0
     or (select result ->> 'remainingMessages' from quota_after_clear)::integer <> 4
     or exists (
@@ -97,7 +109,7 @@ begin
         and conversation.youtube_video_id = 'Hrbq66XqtCo'
     )
   then
-    raise exception 'REGRESSION: conversion/clear rewrote ownership or quota';
+    raise exception 'REGRESSION: conversion did not preserve history and grant fresh per-demo Registered Free allowance';
   end if;
 end;
 $$;
@@ -131,7 +143,7 @@ where user_id = '37600000-0000-4000-8000-000000000002';
 
 set local role service_role;
 create temporary table cleanup_result as
-select public.cleanup_inactive_anonymous_demo_conversations() as result;
+select public.cleanup_inactive_anonymous_demo_conversations(500) as result;
 create temporary table expired_history as
 select public.load_hero_demo_conversation(
   '37600000-0000-4000-8000-000000000002', 'Hrbq66XqtCo', 16
@@ -157,12 +169,33 @@ begin
     or has_schema_privilege('authenticated', 'chat_private', 'usage')
     or has_table_privilege('service_role', 'chat_private.hero_demo_conversations', 'insert')
     or has_function_privilege(
+      'service_role',
+      'chat_private.load_hero_demo_conversation(uuid,text,integer)',
+      'execute'
+    )
+    or has_function_privilege(
       'authenticated',
       'public.load_hero_demo_conversation(uuid,text,integer)',
       'execute'
     )
   then
     raise exception 'REGRESSION: Hero Demo history bypasses server ownership boundary';
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not has_function_privilege(
+       'service_role',
+       'public.cleanup_inactive_anonymous_demo_conversations(integer)',
+       'execute'
+     ) or has_function_privilege(
+       'authenticated',
+       'public.cleanup_inactive_anonymous_demo_conversations(integer)',
+       'execute'
+     ) then
+    raise exception 'REGRESSION: cleanup bridge grants drifted';
   end if;
 end;
 $$;
