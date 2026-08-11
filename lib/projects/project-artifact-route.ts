@@ -18,6 +18,7 @@ import type {
   ProjectEvidenceSnapshot,
 } from "@/lib/projects/project-grounded-answer-contract";
 import type {
+  ProjectArtifactGenerationMetadataSchema,
   ProjectArtifactKind,
   ProjectArtifactReservation,
 } from "@/lib/projects/project-artifact-contract";
@@ -47,8 +48,8 @@ type InvalidArtifact = {
   readonly reason: string;
 };
 
-export type ProjectArtifactRouteDefinition = Readonly<{
-  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
+type ProjectArtifactRouteBase = Readonly<{
+  kind: ProjectArtifactKind;
   title: string;
   responseKey: string;
   promptVersion: string;
@@ -57,6 +58,18 @@ export type ProjectArtifactRouteDefinition = Readonly<{
   balanceSources?: boolean;
   evidenceNotReadyMessage: string;
   evidenceInsufficientMessage: string;
+}>;
+
+type ProjectArtifactGeneration = Readonly<{
+  messages: readonly ChatGatewayMessage[];
+  validate(content: string): ValidArtifact | InvalidArtifact;
+  generationMetadata?: Pick<
+    z.infer<typeof ProjectArtifactGenerationMetadataSchema>,
+    "normalizationAudit"
+  >;
+}>;
+
+type StandardProjectArtifactRouteDefinition = Readonly<{
   buildMessages(args: {
     readonly projectName: string;
     readonly goal: string | null;
@@ -69,12 +82,41 @@ export type ProjectArtifactRouteDefinition = Readonly<{
     evidenceSnapshot: ProjectEvidenceSnapshot,
     goal: string | null,
   ): ValidArtifact | InvalidArtifact;
+  prepareGeneration?: never;
 }>;
+
+type PreparedProjectArtifactRouteDefinition = Readonly<{
+  buildMessages?: never;
+  validate?: never;
+  prepareGeneration(args: {
+    readonly projectName: string;
+    readonly goal: string | null;
+    readonly sourceManifest: ProjectAnswerSourceManifest;
+    readonly evidenceSnapshot: ProjectEvidenceSnapshot;
+    readonly signal: AbortSignal;
+    readonly onUsage: (usage: ChatTokenUsage) => void;
+  }): Promise<ProjectArtifactGeneration>;
+}>;
+
+export type ProjectArtifactRouteDefinition = ProjectArtifactRouteBase &
+  (StandardProjectArtifactRouteDefinition | PreparedProjectArtifactRouteDefinition);
 
 const MAX_ARTIFACT_LENGTH = 100_000;
 const GenerationRequestSchema = z
   .object({ attemptToken: z.uuid().optional() })
   .strict();
+
+function accumulateChatTokenUsage(
+  current: ChatTokenUsage | undefined,
+  next: ChatTokenUsage,
+): ChatTokenUsage {
+  return {
+    inputTokens: (current?.inputTokens ?? 0) + next.inputTokens,
+    cachedInputTokens:
+      (current?.cachedInputTokens ?? 0) + next.cachedInputTokens,
+    outputTokens: (current?.outputTokens ?? 0) + next.outputTokens,
+  };
+}
 
 function jsonError(
   status: number,
@@ -303,20 +345,46 @@ export function createProjectArtifactRoute(
         );
       }
 
-      const messages = definition.buildMessages({
-        projectName: subject.value.name,
-        goal: subject.value.guidance.goal,
-        sourceManifest: artifacts.sourceManifest,
-        evidenceSnapshot: artifacts.evidenceSnapshot,
-      });
-      let generated = "";
       generationStartedAt = Date.now();
+      const generation = definition.prepareGeneration
+        ? await definition.prepareGeneration({
+            projectName: subject.value.name,
+            goal: subject.value.guidance.goal,
+            sourceManifest: artifacts.sourceManifest,
+            evidenceSnapshot: artifacts.evidenceSnapshot,
+            signal: request.signal,
+            onUsage: (usage) => {
+              generationUsage = accumulateChatTokenUsage(
+                generationUsage,
+                usage,
+              );
+            },
+          })
+        : {
+            messages: definition.buildMessages({
+              projectName: subject.value.name,
+              goal: subject.value.guidance.goal,
+              sourceManifest: artifacts.sourceManifest,
+              evidenceSnapshot: artifacts.evidenceSnapshot,
+            }),
+            validate: (content: string) =>
+              definition.validate(
+                content,
+                artifacts.sourceManifest,
+                artifacts.evidenceSnapshot,
+                subject.value.guidance.goal,
+              ),
+          };
+      let generated = "";
       for await (const event of streamChatCompletion({
-        messages,
+        messages: generation.messages,
         signal: request.signal,
       })) {
         if (event.type === "usage") {
-          generationUsage = event.usage;
+          generationUsage = accumulateChatTokenUsage(
+            generationUsage,
+            event.usage,
+          );
           continue;
         }
         if (event.type !== "delta") continue;
@@ -326,12 +394,7 @@ export function createProjectArtifactRoute(
         }
       }
 
-      const validated = definition.validate(
-        generated,
-        artifacts.sourceManifest,
-        artifacts.evidenceSnapshot,
-        subject.value.guidance.goal,
-      );
+      const validated = generation.validate(generated);
       if (validated.status !== "valid") {
         throw new Error(
           `${definition.title} validation failed: ${validated.reason}`,
@@ -346,6 +409,7 @@ export function createProjectArtifactRoute(
           model: SPARK,
           promptVersion: definition.promptVersion,
           generatedAt: new Date().toISOString(),
+          ...generation.generationMetadata,
         },
       });
       if (completed.status === "conflict") {

@@ -19,7 +19,8 @@ export type ProjectAnalyticsTrigger =
 export type ProjectGenerationKind =
   | "grounded_answer"
   | "study_guide"
-  | "creator_brief";
+  | "creator_brief"
+  | "project_brief";
 
 export type ProjectTokenUsage = Readonly<{
   inputTokens: number;

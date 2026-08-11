@@ -10,6 +10,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FileText,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -37,16 +38,16 @@ type GenerationError = {
 };
 
 export type ProjectArtifactPanelDefinition = Readonly<{
-  kind: Extract<ProjectArtifactKind, "study_guide" | "creator_brief">;
-  slug: "study-guide" | "creator-brief";
-  responseKey: "studyGuide" | "creatorBrief";
-  title: "Study Guide" | "Creator Brief";
+  kind: ProjectArtifactKind;
+  slug: "study-guide" | "creator-brief" | "project-brief";
+  responseKey: "studyGuide" | "creatorBrief" | "projectBrief";
+  title: "Study Guide" | "Creator Brief" | "Project Brief";
   shortName: "guide" | "brief";
-  icon: "book" | "creator";
+  icon: "book" | "creator" | "document";
   description: string;
   emptyTitle: string;
   emptyDescription: string;
-  filenameSuffix: "study-guide" | "creator-brief";
+  filenameSuffix: "study-guide" | "creator-brief" | "project-brief";
   buildMarkdown(
     content: string,
     sourceManifest: ProjectAnswerSourceManifest,
@@ -159,7 +160,10 @@ function ArtifactMarkdown({
   const renderedOccurrences = new Map<string, number>();
 
   return (
-    <article className="ph-no-capture" data-ph-no-autocapture>
+    <article
+      className="ph-no-capture min-w-0 [overflow-wrap:anywhere]"
+      data-ph-no-autocapture
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -209,12 +213,7 @@ function ArtifactMarkdown({
                 className="inline-flex items-center gap-1 rounded-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
                 aria-label={`${label}, open ${source?.title ?? "source Video"} at this timestamp`}
                 onClick={() => {
-                  if (
-                    !citation ||
-                    citation.citationOrdinal > 100 ||
-                    (artifact.kind !== "study_guide" &&
-                      artifact.kind !== "creator_brief")
-                  ) {
+                  if (!citation || citation.citationOrdinal > 100) {
                     return;
                   }
                   captureAnalyticsEvent("project_citation_clicked", {
@@ -323,7 +322,12 @@ export function ProjectArtifactPanel({
     [current, definition],
   );
   const titleId = `project-${definition.slug}-title`;
-  const Icon = definition.icon === "book" ? BookOpen : Clapperboard;
+  const Icon =
+    definition.icon === "book"
+      ? BookOpen
+      : definition.icon === "creator"
+        ? Clapperboard
+        : FileText;
 
   async function generate() {
     if (pending) return;

@@ -156,6 +156,10 @@ type FixtureArtifact = {
     model: string;
     promptVersion: string;
     generatedAt: string;
+    normalizationAudit?: {
+      version: string;
+      recordSetHash: string;
+    };
   };
   createdAt: string;
   supersededAt: string | null;
@@ -1300,6 +1304,146 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   }
 });
 
+test("Project Brief persists cited positions across desktop export, regeneration, and mobile reload", async ({
+  context,
+  page,
+}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(
+    context,
+    "Durable Project Brief",
+  );
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: appUrl,
+  });
+  gatewayGate.release();
+
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await historyDialog.getByLabel("Search History").fill("Beta processing");
+  await historyDialog.getByRole("button", { name: "Search" }).click();
+  await historyDialog
+    .getByRole("button", { name: "Add Beta processing to Source Set" })
+    .click();
+  await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Choose Project Brief" }).click();
+  const brief = page.getByRole("region", { name: "Project Brief" });
+  await brief.getByRole("button", { name: "Generate Project Brief" }).click();
+
+  await expect(brief.getByRole("heading", { name: "Important findings" })).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Agreements", exact: true })).toBeVisible();
+  await expect(
+    brief.getByRole("heading", { name: "Material disagreements", exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Open questions" })).toBeVisible();
+  await expect(
+    brief.getByText(/adaptación climática no debe depender/iu).first(),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(/La fecha exacta del lanzamiento sigue sin resolverse/iu).first(),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("No model-identified cross-source agreement in this Evidence Snapshot."),
+  ).toBeVisible();
+  await expect(brief.getByText(/Only exact source-language clauses/iu)).toBeVisible();
+  await expect(brief.getByText(/Interpretation/iu).first()).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: /@ 00:42.*Alpha evidence/iu }).first(),
+  ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
+  await expect(
+    brief.getByRole("link", { name: /@ 00:42.*Beta processing/iu }).first(),
+  ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0002&t=42s");
+  await expect(brief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 2");
+
+  await brief.getByRole("button", { name: "Copy Markdown" }).click();
+  await expect(brief.getByText("Markdown copied.")).toBeVisible();
+  const copiedMarkdown = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copiedMarkdown).toContain("## Material disagreements");
+  expect(copiedMarkdown).toContain("non-authoritative model Interpretation");
+  expect(copiedMarkdown).toContain("Interpretation — possible open question");
+  expect(copiedMarkdown).toContain(
+    "(https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+  );
+  expect(copiedMarkdown).toContain(
+    "(https://www.youtube.com/watch?v=aaaaaaa0002&t=42s)",
+  );
+
+  const downloadPromise = page.waitForEvent("download");
+  await brief.getByRole("button", { name: "Download Markdown" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(
+    "durable-project-brief-project-brief.md",
+  );
+  const downloadPath = await download.path();
+  expect(downloadPath).toBeTruthy();
+  if (!downloadPath) return;
+  const markdown = await readFile(downloadPath, "utf8");
+  expect(markdown).toContain("# Project Brief");
+  expect(markdown).toContain("## Open questions");
+  expect(markdown).toContain("La fecha exacta del lanzamiento sigue sin resolverse");
+  expect(markdown).not.toContain("javascript:");
+
+  await page.getByRole("button", { name: "Add from History" }).click();
+  const updateDialog = page.getByRole("dialog", { name: "Add a History Video" });
+  await updateDialog.getByLabel("Search History").fill("Delta context");
+  await updateDialog.getByRole("button", { name: "Search" }).click();
+  await updateDialog
+    .getByRole("button", { name: "Add Delta context to Source Set" })
+    .click();
+  await expect(brief.getByText("Update available.", { exact: true })).toBeVisible();
+  await brief.getByRole("button", { name: "Regenerate Project Brief" }).click();
+  await expect(brief.getByText("Project Brief updated.")).toBeVisible();
+  await expect(brief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 3");
+  await brief.getByText("Earlier provenance (1)").click();
+  await expect(brief.getByLabel("Earlier Project Brief provenance")).toContainText(
+    "Source Set revision 2",
+  );
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileBrief = page.getByRole("region", { name: "Project Brief" });
+  await expect(
+    mobileBrief.getByRole("heading", { name: "Material disagreements" }),
+  ).toBeVisible();
+  await expect(
+    mobileBrief.getByText(/La fecha exacta del lanzamiento sigue sin resolverse/iu).first(),
+  ).toBeVisible();
+  await expect(mobileBrief.getByLabel("Project Brief provenance", { exact: true }))
+    .toContainText("Source Set revision 3");
+  await expect(mobileBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  await expect(
+    mobileBrief.getByRole("button", { name: "Download Markdown" }),
+  ).toBeVisible();
+  await expect(
+    mobileBrief.getByRole("button", { name: "Regenerate Project Brief" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  const mobileLayoutFailures = await mobileBrief.evaluate((region) =>
+    [...region.querySelectorAll<HTMLElement>("*")]
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        const nestedVerticalScroll =
+          /^(?:auto|scroll)$/u.test(style.overflowY) &&
+          element.scrollHeight > element.clientHeight + 1;
+        return element.scrollWidth > element.clientWidth + 1 || nestedVerticalScroll;
+      })
+      .map((element) => ({
+        className: element.className,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        tagName: element.tagName,
+        text: element.textContent?.slice(0, 160),
+      })),
+  );
+  expect(mobileLayoutFailures).toEqual([]);
+});
+
 test("Free Project cap is clear, deletion frees it, and concurrent creation stays atomic", async ({
   context,
   page,
@@ -1994,6 +2138,10 @@ async function handleSupabaseRequest(
     const prompt = gatewayBody.messages
       ?.map((message) => (typeof message.content === "string" ? message.content : ""))
       .join("\n") ?? "";
+    const userPrompt =
+      typeof gatewayBody.messages?.[0]?.content === "string"
+        ? gatewayBody.messages[0].content
+        : "";
     const activeGatewayGate = gatewayGate;
     await activeGatewayGate.waitForRelease;
     if (response.destroyed || response.writableEnded) return;
@@ -2006,6 +2154,88 @@ async function handleSupabaseRequest(
     });
     response.flushHeaders();
     const creatorUsesTwoSources = prompt.includes('"sourceId":"S2"');
+    const normalizationMarker = "IMMUTABLE_EVIDENCE_CANDIDATES:\n";
+    const governedMarker =
+      "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n";
+    let projectBriefResponse: string | null = null;
+    if (userPrompt.includes(normalizationMarker)) {
+      const candidates = JSON.parse(
+        userPrompt.slice(userPrompt.indexOf(normalizationMarker) + normalizationMarker.length),
+      ) as Array<{
+        candidateId: string;
+        sourceId: string;
+        citation: string;
+        clause: string;
+      }>;
+      projectBriefResponse = JSON.stringify({
+        records: candidates.map((candidate) => {
+          const clause = candidate.clause.toLocaleLowerCase();
+          const climateSupport = clause.includes(
+            "climate adaptation depends on exact local evidence",
+          );
+          const climateOpposition = clause.includes("no debe depender solo");
+          const unresolved = clause.includes("sin resolverse");
+          return {
+            ...candidate,
+            interpretation: {
+              issueKey:
+                climateSupport || climateOpposition
+                  ? "climate-evidence"
+                  : unresolved
+                    ? "launch-timing"
+                    : `evidence-${candidate.candidateId.toLocaleLowerCase()}`,
+              relation: climateSupport
+                ? "supports"
+                : climateOpposition
+                  ? "opposes"
+                  : "states",
+              resolution: unresolved ? "unresolved" : "settled",
+            },
+          };
+        }),
+      });
+    } else if (userPrompt.includes(governedMarker)) {
+      const records = JSON.parse(
+        userPrompt.slice(userPrompt.indexOf(governedMarker) + governedMarker.length),
+      ) as Array<{
+        recordId: string;
+        sourceId: string;
+        interpretation: {
+          issueKey: string;
+          relation: "states" | "supports" | "opposes";
+          resolution: "settled" | "unresolved";
+        };
+      }>;
+      const firstBySource = new Map<string, string>();
+      for (const record of records) {
+        if (!firstBySource.has(record.sourceId)) {
+          firstBySource.set(record.sourceId, record.recordId);
+        }
+      }
+      const agreement = records.flatMap((left, index) =>
+        records.slice(index + 1).flatMap((right) =>
+          left.sourceId !== right.sourceId &&
+          left.interpretation.issueKey === right.interpretation.issueKey &&
+          left.interpretation.relation === right.interpretation.relation &&
+          left.interpretation.resolution === "settled" &&
+          right.interpretation.resolution === "settled"
+            ? [[left.recordId, right.recordId] as const]
+            : [],
+        ),
+      )[0];
+      projectBriefResponse = JSON.stringify({
+        importantFindingRecordIds: [...firstBySource.values()],
+        agreementRecordIdPairs: agreement ? [agreement] : [],
+        // The English and Spanish clauses are topically related, but the
+        // server cannot prove they reduce to one proposition across languages.
+        disagreementRecordIdPairs: [],
+        openQuestionRecordIds: records
+          .filter(
+            (record) => record.interpretation.resolution === "unresolved",
+          )
+          .map((record) => record.recordId),
+      });
+    }
     const creatorBriefContent = creatorUsesTwoSources
       ? `# Creator Brief
 
@@ -2050,9 +2280,10 @@ async function handleSupabaseRequest(
 ## Video direction
 
 - Proposed beat: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Open with exact evidence, then map a decision framework for local climate adaptation [S1 @ 00:42].`;
-    const responseContent = prompt.includes("originality-safe Markdown Creator Brief")
-      ? creatorBriefContent
-      : prompt.includes("durable Markdown Study Guide")
+    const responseContent = projectBriefResponse ??
+      (prompt.includes("originality-safe Markdown Creator Brief")
+        ? creatorBriefContent
+        : prompt.includes("durable Markdown Study Guide")
         ? `# Study Guide
 
 ## Overview
@@ -2070,7 +2301,7 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
         ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported by the first position [S1 @ 00:42]. The second position emphasizes exact local evidence [S2 @ 00:42].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:42].\n\nConfidence: medium"
         : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
           ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
-          : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].";
+          : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].");
     response.write(
       `data: ${JSON.stringify({
         choices: [
@@ -2359,6 +2590,10 @@ async function handleSourceSetRpc(
       model?: string;
       promptVersion?: string;
       generatedAt?: string;
+      normalizationAudit?: {
+        version?: string;
+        recordSetHash?: string;
+      };
     };
   };
   const projectId = body.p_project_id;
@@ -2438,6 +2673,11 @@ async function handleSourceSetRpc(
       !metadata?.model ||
       !metadata.promptVersion ||
       !metadata.generatedAt ||
+      (body.p_kind === "project_brief" &&
+        (!metadata.normalizationAudit?.version ||
+          !/^[a-f0-9]{64}$/u.test(
+            metadata.normalizationAudit.recordSetHash ?? "",
+          ))) ||
       !body.p_kind
     ) {
       return sendJson(response, 200, { outcome: "invalid" });
@@ -2468,6 +2708,14 @@ async function handleSourceSetRpc(
         model: metadata.model,
         promptVersion: metadata.promptVersion,
         generatedAt: metadata.generatedAt,
+        ...(metadata.normalizationAudit
+          ? {
+              normalizationAudit: {
+                version: metadata.normalizationAudit.version ?? "",
+                recordSetHash: metadata.normalizationAudit.recordSetHash ?? "",
+              },
+            }
+          : {}),
       },
       createdAt,
       supersededAt: null,
@@ -3091,9 +3339,9 @@ async function handleSourceSetRpc(
       {
         membership: ready[1] ?? ready[0],
         text: balanced
-          ? "Regional field interviews reveal conflicting adaptation priorities."
+          ? "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La fecha exacta del lanzamiento sigue sin resolverse."
           : "气候适应需要准确的本地证据。",
-        language: balanced ? "en" : "zh-Hans",
+        language: balanced ? "es" : "zh-Hans",
       },
     ];
     const passages = passageFixtures

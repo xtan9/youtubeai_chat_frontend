@@ -37,6 +37,26 @@ const CREATOR_CONTENT = `# Creator Brief
 
 - Proposed beat: Evidence basis: reliability testing; Goal fit: trustworthy product launch; Original move: Open with reliability testing, then build a decision framework for a trustworthy product launch [S1 @ 00:42].`;
 
+const PROJECT_BRIEF_CONTENT = `# Project Brief
+
+> Trust note: Only exact source-language clauses and canonical citations are authoritative evidence. Agreement, disagreement, and open-question labels are non-authoritative model Interpretation; inspect the cited clauses.
+
+## Important findings
+
+- Reliability testing remains incomplete [S1 @ 00:42].
+
+## Agreements
+
+- No model-identified cross-source agreement in this Evidence Snapshot.
+
+## Material disagreements
+
+- No model-identified material disagreement in this Evidence Snapshot.
+
+## Open questions
+
+- Interpretation — possible open question: When will reliability testing finish [S1 @ 00:42].`;
+
 function emptyLoad(): Extract<
   ProjectArtifactLoadResolution,
   { status: "ready" }
@@ -96,6 +116,31 @@ function generatedCreator(): Extract<
   };
 }
 
+function generatedProjectBrief(): Extract<
+  ProjectArtifactLoadResolution,
+  { status: "ready" }
+> {
+  const creator = generatedCreator();
+  if (!creator.current) throw new TypeError("Generated Artifact is missing.");
+  return {
+    ...creator,
+    current: {
+      ...creator.current,
+      artifactId: "40000000-0000-4000-8000-000000000004",
+      kind: "project_brief",
+      content: PROJECT_BRIEF_CONTENT,
+      generationMetadata: {
+        ...creator.current.generationMetadata,
+        promptVersion: "project-brief-v3",
+        normalizationAudit: {
+          version: "project-brief-normalization-v2",
+          recordSetHash: "b".repeat(64),
+        },
+      },
+    },
+  };
+}
+
 describe("ProjectArtifacts", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -119,6 +164,7 @@ describe("ProjectArtifacts", () => {
         currentSourceSetRevision={3}
         initialStudyGuide={emptyLoad()}
         initialCreatorBrief={emptyLoad()}
+        initialProjectBrief={emptyLoad()}
       />,
     );
 
@@ -145,6 +191,50 @@ describe("ProjectArtifacts", () => {
         "Free Artifact generations: 1/1",
       ),
     ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Free choose Project Brief first and shares that allowance with both sibling kinds", async () => {
+    const projectBrief = generatedProjectBrief();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ projectBrief }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProjectArtifacts
+        projectId={PROJECT_ID}
+        projectName="Launch research"
+        currentSourceSetRevision={3}
+        initialStudyGuide={emptyLoad()}
+        initialCreatorBrief={emptyLoad()}
+        initialProjectBrief={emptyLoad()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Choose Project Brief" }));
+    await user.click(screen.getByRole("button", { name: "Generate Project Brief" }));
+    expect(await screen.findByText("Project Brief generated.")).toBeTruthy();
+    expect(
+      within(screen.getByRole("button", { name: "Choose Project Brief" })).getByText(
+        "Current",
+      ),
+    ).toBeTruthy();
+
+    for (const [choice, title] of [
+      ["Choose Study Guide", "Study Guide"],
+      ["Choose Creator Brief", "Creator Brief"],
+    ] as const) {
+      await user.click(screen.getByRole("button", { name: choice }));
+      expect(
+        within(screen.getByRole("region", { name: title })).getByText(
+          "Free Artifact generations: 1/1",
+        ),
+      ).toBeTruthy();
+    }
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,6 +54,10 @@ type ProjectViewProps = {
     ProjectArtifactLoadResolution,
     { status: "ready" }
   >;
+  initialProjectBrief: Extract<
+    ProjectArtifactLoadResolution,
+    { status: "ready" }
+  >;
 };
 
 export function ProjectView({
@@ -64,6 +68,7 @@ export function ProjectView({
   initialConversations,
   initialStudyGuide,
   initialCreatorBrief,
+  initialProjectBrief,
 }: ProjectViewProps) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
@@ -169,6 +174,7 @@ export function ProjectView({
         currentSourceSetRevision={currentSourceSetRevision}
         initialStudyGuide={initialStudyGuide}
         initialCreatorBrief={initialCreatorBrief}
+        initialProjectBrief={initialProjectBrief}
       />
 
       <ProjectConversation

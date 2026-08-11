@@ -1,5 +1,6 @@
--- Two real PostgreSQL sessions race for the one Free Artifact reservation.
--- Exactly one may reserve; the other must observe the atomic 402 condition.
+-- Three real PostgreSQL sessions race for the one shared Free Artifact
+-- reservation. Exactly one kind may reserve; both competitors must observe
+-- the same atomic 402 condition.
 
 create schema if not exists extensions;
 create extension if not exists dblink with schema extensions;
@@ -21,18 +22,25 @@ declare
   connection_string text := pg_catalog.format('dbname=%L', current_database());
   result_a jsonb;
   result_b jsonb;
+  result_c jsonb;
   outcomes text[];
 begin
   perform dblink_connect('artifact_cap_a', connection_string);
   perform dblink_connect('artifact_cap_b', connection_string);
+  perform dblink_connect('artifact_cap_c', connection_string);
   perform dblink_exec('artifact_cap_a', 'set role authenticated');
   perform dblink_exec('artifact_cap_b', 'set role authenticated');
+  perform dblink_exec('artifact_cap_c', 'set role authenticated');
   perform dblink_exec(
     'artifact_cap_a',
     'set request.jwt.claim.sub = ''83000000-0000-4000-8000-000000000003'''
   );
   perform dblink_exec(
     'artifact_cap_b',
+    'set request.jwt.claim.sub = ''83000000-0000-4000-8000-000000000003'''
+  );
+  perform dblink_exec(
+    'artifact_cap_c',
     'set request.jwt.claim.sub = ''83000000-0000-4000-8000-000000000003'''
   );
 
@@ -58,18 +66,36 @@ begin
       ) from pause
     $query$
   );
+  perform dblink_send_query(
+    'artifact_cap_c',
+    $query$
+      with pause as materialized (select pg_sleep(0.2))
+      select public.reserve_project_artifact_generation(
+        'a8300000-0000-4000-8000-000000000003',
+        'project_brief',
+        '58000000-0000-4000-8000-000000000008'
+      ) from pause
+    $query$
+  );
 
   select result into result_a
   from dblink_get_result('artifact_cap_a') as raced(result jsonb);
   select result into result_b
   from dblink_get_result('artifact_cap_b') as raced(result jsonb);
+  select result into result_c
+  from dblink_get_result('artifact_cap_c') as raced(result jsonb);
   perform result
   from dblink_get_result('artifact_cap_a') as cleared(result jsonb);
   perform result
   from dblink_get_result('artifact_cap_b') as cleared(result jsonb);
+  perform result
+  from dblink_get_result('artifact_cap_c') as cleared(result jsonb);
 
-  outcomes := array[result_a ->> 'outcome', result_b ->> 'outcome'];
-  if not (outcomes @> array['started', 'limit_reached'])
+  outcomes := array[
+    result_a ->> 'outcome', result_b ->> 'outcome', result_c ->> 'outcome'
+  ];
+  if cardinality(array_positions(outcomes, 'started')) <> 1
+    or cardinality(array_positions(outcomes, 'limit_reached')) <> 2
     or (
       select count(*)
       from public.project_artifact_generation_attempts
@@ -80,12 +106,13 @@ begin
         and attempt_state = 'reserved'
     ) <> 1
   then
-    raise exception 'REGRESSION: concurrent Free Artifact cap drifted: %, %',
-      result_a, result_b;
+    raise exception 'REGRESSION: concurrent Free Artifact cap drifted: %, %, %',
+      result_a, result_b, result_c;
   end if;
 
   perform dblink_disconnect('artifact_cap_a');
   perform dblink_disconnect('artifact_cap_b');
+  perform dblink_disconnect('artifact_cap_c');
 end;
 $$;
 
