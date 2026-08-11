@@ -352,6 +352,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments.sql
       - name: Shadow Recommendation Set contract - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_shadow_recommendation_sets.sql
+      - name: Shadow Recommendation Review and rollout contract - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_review_rollout.sql
       - name: Recommendation Assessment and Set concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments_concurrency.sql
       - name: Anonymous Trial core ledger and concurrency - representative legacy
@@ -429,6 +431,7 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_shadow_recommendation_sets.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_review_rollout.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_assessments_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_anonymous_trial_core.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_registered_free_hero_demo_ledger.sql

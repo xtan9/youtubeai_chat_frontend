@@ -4,6 +4,56 @@ create schema if not exists extensions;
 create extension if not exists dblink with schema extensions;
 set search_path = public, extensions;
 
+delete from catalog_private.recommendation_ready_read_events
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+-- Review rows are immutable in production. This fixture is deliberately
+-- non-transactional, so disable only that immutable trigger while removing
+-- its own rows; all setup and race statements run with every trigger enabled.
+do $cleanup_fixture_reviews$
+begin
+  alter table catalog_private.recommendation_reviews
+    disable trigger recommendation_reviews_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_reviews
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_reviews
+      enable trigger recommendation_reviews_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_reviews
+    enable trigger recommendation_reviews_immutable_trg;
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgrelid = 'catalog_private.recommendation_reviews'::regclass
+      and tgname = 'recommendation_reviews_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable review trigger';
+  end if;
+end;
+$cleanup_fixture_reviews$;
+delete from auth.users
+where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 delete from catalog_private.recommendations
 where recommendation_set_id in (
   select id from catalog_private.recommendation_sets
@@ -353,6 +403,47 @@ begin
 end;
 $replacement_assessment$;
 
+do $quality_race_assessment$
+declare
+  v_source_profile_id uuid;
+  pair_id uuid;
+  remembered jsonb;
+begin
+  select id into v_source_profile_id
+  from catalog_private.semantic_profile_versions
+  where video_id = '39000000-0000-4000-8000-000000000001';
+  select pair.id into pair_id
+  from catalog_private.recommendation_candidate_pair_evidence as pair
+  where pair.source_profile_id = v_source_profile_id
+  order by created_at
+  limit 1;
+  set local role service_role;
+  select public.remember_recommendation_assessment(
+    pair_id,
+    'fixture-quality-race-assessor-v1',
+    'recommendation-assessment-prompt-v1',
+    'continuation-relationship-policy-v1',
+    jsonb_build_object(
+      'schemaVersion', 'recommendation-assessment-v1',
+      'supported', true,
+      'continuationRelationship', 'deeper_explanation',
+      'explanation', 'A quality race replacement keeps the shared concepts.',
+      'evidenceReferences', jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'matchedCoreConceptKeys',
+          'conceptKey', 'race-core-a'
+        )
+      )
+    )
+  ) into remembered;
+  if remembered ->> 'outcome' not in ('stored', 'reused')
+    or remembered ->> 'assessmentId' is null
+  then
+    raise exception 'quality race Assessment failed: %', remembered;
+  end if;
+end;
+$quality_race_assessment$;
+
 do $set_concurrency$
 declare
   connection_string text := format(
@@ -539,6 +630,528 @@ begin
   end if;
 end;
 $set_concurrency$;
+
+insert into auth.users (
+  id,
+  email,
+  raw_app_meta_data,
+  is_anonymous
+) values (
+  '39000000-0000-4000-8000-0000000000f1'::uuid,
+  'race-reviewer@example.com',
+  jsonb_build_object('is_admin', true),
+  false
+) on conflict (id) do update
+set email = excluded.email,
+    raw_app_meta_data = excluded.raw_app_meta_data,
+    is_anonymous = excluded.is_anonymous;
+
+do $review_concurrency$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  connection_names text[] := array[
+    'recommendation_review_race_1',
+    'recommendation_review_race_2',
+    'recommendation_review_race_3',
+    'recommendation_review_race_4'
+  ];
+  connection_name text;
+  current_set_id uuid;
+  v_reviewer_id uuid := '39000000-0000-4000-8000-0000000000f1'::uuid;
+  review_result jsonb;
+  review_results jsonb[] := array[]::jsonb[];
+  ready_result jsonb;
+  ready_results jsonb[] := array[]::jsonb[];
+  review_count integer;
+  ready_read_count integer;
+begin
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 1
+  where review_policy_version = 'recommendation-review-policy-v1';
+  select id into current_set_id
+  from catalog_private.recommendation_sets
+  where source_video_id =
+    '39000000-0000-4000-8000-000000000001'::uuid
+    and status = 'current';
+  if current_set_id is null then
+    raise exception 'Review concurrency current Set is missing';
+  end if;
+
+  foreach connection_name in array connection_names loop
+    perform extensions.dblink_connect(connection_name, connection_string);
+    perform extensions.dblink_exec(connection_name, 'set role service_role');
+    perform extensions.dblink_send_query(
+      connection_name,
+      format(
+        $query$
+          select public.submit_recommendation_review(
+            %L::uuid, 1, %L::uuid, 'race-reviewer@example.com',
+            true, true, true, true, true, null
+          )
+        $query$,
+        current_set_id, v_reviewer_id
+      )
+    );
+  end loop;
+
+  foreach connection_name in array connection_names loop
+    select result into review_result
+    from extensions.dblink_get_result(connection_name) as result(result jsonb);
+    if review_result ->> 'outcome' not in ('stored', 'reused') then
+      raise exception 'concurrent Review submission failed: %', review_result;
+    end if;
+    review_results := array_append(review_results, review_result);
+    perform result
+    from extensions.dblink_get_result(connection_name) as cleared(result jsonb);
+    perform extensions.dblink_disconnect(connection_name);
+  end loop;
+
+  select count(*) into review_count
+  from catalog_private.recommendation_reviews as review
+  where review.recommendation_set_id = current_set_id
+    and review.recommendation_ordinal = 1
+    and review.reviewer_id = v_reviewer_id;
+  if review_count <> 1
+    or (
+      select count(*)
+      from unnest(review_results) as results(value)
+      where results.value ->> 'outcome' = 'stored'
+    ) <> 1
+  then
+    raise exception 'concurrent Review submission diverged: %, %',
+      review_count, review_results;
+  end if;
+
+  foreach connection_name in array connection_names loop
+    perform extensions.dblink_connect(connection_name, connection_string);
+    perform extensions.dblink_exec(connection_name, 'set role service_role');
+    perform extensions.dblink_send_query(
+      connection_name,
+      format(
+        $query$
+          select public.record_recommendation_ready_read(%L::uuid, 1)
+        $query$,
+        current_set_id
+      )
+    );
+  end loop;
+
+  foreach connection_name in array connection_names loop
+    select result into ready_result
+    from extensions.dblink_get_result(connection_name) as result(result jsonb);
+    if ready_result ->> 'outcome' <> 'recorded' then
+      raise exception 'concurrent ready-read observation failed: %', ready_result;
+    end if;
+    ready_results := array_append(ready_results, ready_result);
+    perform result
+    from extensions.dblink_get_result(connection_name) as cleared(result jsonb);
+    perform extensions.dblink_disconnect(connection_name);
+  end loop;
+
+  select count(*) into ready_read_count
+  from catalog_private.recommendation_ready_read_events
+  where recommendation_set_id = current_set_id
+    and recommendation_ordinal = 1;
+  if ready_read_count <> 4 then
+    raise exception 'concurrent ready-read observations diverged: %, %',
+      ready_read_count, ready_results;
+  end if;
+end;
+$review_concurrency$;
+
+do $quality_policy_setup$
+declare
+  rollout_result jsonb;
+begin
+  -- Complete this state transition in its own transaction so its quality
+  -- advisory lock is released before the concurrent policy/quality race.
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'shadow', false, null,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'updated'
+    or rollout_result ->> 'effectiveState' <> 'shadow'
+  then
+    raise exception 'quality policy race could not enter shadow: %', rollout_result;
+  end if;
+end;
+$quality_policy_setup$;
+
+do $quality_policy_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  quality_connection text := 'recommendation_policy_race_quality';
+  policy_connection text := 'recommendation_policy_race_update';
+  quality_result jsonb;
+  quality_report_id uuid;
+  quality_input_fingerprint text;
+  current_input_fingerprint text;
+  rollout_result jsonb;
+begin
+  -- A quality report holds the shared advisory lock and policy FOR SHARE row
+  -- lock while computing metrics and its input fingerprint.
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_exec(quality_connection, 'begin');
+  select result into quality_result
+  from extensions.dblink(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  ) as result(result jsonb);
+  quality_report_id := (quality_result ->> 'qualityReportId')::uuid;
+  quality_input_fingerprint := quality_result ->> 'inputFingerprint';
+  if quality_result ->> 'outcome' <> 'computed'
+    or quality_result ->> 'eligible' <> 'true'
+    or quality_report_id is null
+    or quality_input_fingerprint is null
+  then
+    raise exception 'quality policy race baseline report was not eligible: %',
+      quality_result;
+  end if;
+
+  -- The owner update must wait for the report transaction. This proves a
+  -- threshold cannot change between metric eligibility and fingerprinting.
+  perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(
+    policy_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_send_query(
+    policy_connection,
+    $query$
+      update catalog_private.recommendation_review_policies
+      set minimum_usefulness_percent = 100
+      where review_policy_version = 'recommendation-review-policy-v1'
+    $query$
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(policy_connection) <> 1 then
+    raise exception 'policy threshold update was not serialized behind quality report';
+  end if;
+
+  perform extensions.dblink_exec(quality_connection, 'commit');
+  perform extensions.dblink_disconnect(quality_connection);
+  perform result
+  from extensions.dblink_get_result(policy_connection) as result(result text);
+  perform extensions.dblink_disconnect(policy_connection);
+
+  select catalog_private.recommendation_quality_input_fingerprint(
+    'recommendation-review-policy-v1'
+  ) into current_input_fingerprint;
+  if current_input_fingerprint = quality_input_fingerprint then
+    raise exception 'quality report fingerprint did not change after threshold update';
+  end if;
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'rejected'
+    or rollout_result ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'threshold-raced quality report was promotable: %',
+      rollout_result;
+  end if;
+
+  -- Leave shared fixture policy at its normal threshold for subsequent tests.
+  update catalog_private.recommendation_review_policies
+  set minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+end;
+$quality_policy_race$;
+
+do $quality_policy_inverse_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  policy_connection text := 'recommendation_policy_inverse_update';
+  quality_connection text := 'recommendation_policy_inverse_quality';
+  quality_result jsonb;
+begin
+  -- Take the policy row lock first, then start quality computation. Quality
+  -- takes the shared advisory lock before its FOR SHARE policy read and must
+  -- wait for this transaction; the updater never waits on that advisory lock,
+  -- so this inverse order cannot deadlock.
+  perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(
+    policy_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_exec(policy_connection, 'begin');
+  perform extensions.dblink_exec(
+    policy_connection,
+    $query$
+      update catalog_private.recommendation_review_policies
+      set minimum_usefulness_percent = 100
+      where review_policy_version = 'recommendation-review-policy-v1'
+    $query$
+  );
+
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_send_query(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(quality_connection) <> 1 then
+    raise exception 'inverse-order quality computation did not wait for policy row lock';
+  end if;
+
+  perform extensions.dblink_exec(policy_connection, 'commit');
+  perform extensions.dblink_disconnect(policy_connection);
+
+  select result into quality_result
+  from extensions.dblink_get_result(quality_connection) as result(result jsonb);
+  perform extensions.dblink_disconnect(quality_connection);
+  if quality_result ->> 'outcome' <> 'computed' then
+    raise exception 'inverse-order quality computation failed: %', quality_result;
+  end if;
+
+  update catalog_private.recommendation_review_policies
+  set minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+end;
+$quality_policy_inverse_race$;
+
+do $quality_publish_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  quality_connection text := 'recommendation_quality_race_quality';
+  publish_connection text := 'recommendation_quality_race_publish';
+  v_source_profile_id uuid;
+  current_set_id uuid;
+  set_policy_fingerprint text;
+  quality_race_assessment_id uuid;
+  quality_result jsonb;
+  published_result jsonb;
+  quality_report_id uuid;
+  quality_input_fingerprint text;
+  current_input_fingerprint text;
+  rollout_result jsonb;
+begin
+  select profile.id into v_source_profile_id
+  from catalog_private.semantic_profile_versions as profile
+  where profile.video_id = '39000000-0000-4000-8000-000000000001';
+  select assessment.id into quality_race_assessment_id
+  from catalog_private.recommendation_assessments as assessment
+  where assessment.source_profile_id = v_source_profile_id
+    and assessment.assessment_model_identifier =
+      'fixture-quality-race-assessor-v1';
+  select recommendation_set.id into current_set_id
+  from catalog_private.recommendation_sets as recommendation_set
+  where recommendation_set.source_profile_id = v_source_profile_id
+    and recommendation_set.status = 'current';
+  select policy.set_policy_fingerprint into set_policy_fingerprint
+  from catalog_private.recommendation_set_policies as policy
+  where policy.status = 'active';
+  if v_source_profile_id is null
+    or quality_race_assessment_id is null
+    or current_set_id is null
+    or set_policy_fingerprint is null
+  then
+    raise exception 'quality publish race inputs are missing';
+  end if;
+
+  -- Compute while holding the transaction-level quality lock open. The
+  -- publisher starts concurrently but its Set trigger must wait, so this
+  -- report can only describe the pre-publication current Set.
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    quality_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_exec(quality_connection, 'begin');
+  select result into quality_result
+  from extensions.dblink(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  ) as result(result jsonb);
+  quality_report_id := (quality_result ->> 'qualityReportId')::uuid;
+  quality_input_fingerprint := quality_result ->> 'inputFingerprint';
+  if quality_result ->> 'outcome' <> 'computed'
+    or quality_result ->> 'eligible' <> 'true'
+    or quality_report_id is null
+    or quality_input_fingerprint is null
+  then
+    raise exception 'quality race baseline report was not eligible: %',
+      quality_result;
+  end if;
+
+  perform extensions.dblink_connect(publish_connection, connection_string);
+  perform extensions.dblink_exec(publish_connection, 'set role service_role');
+  perform extensions.dblink_exec(
+    publish_connection,
+    'set statement_timeout = ''5s'''
+  );
+  perform extensions.dblink_exec(publish_connection, 'begin');
+  perform extensions.dblink_send_query(
+    publish_connection,
+    format(
+      $query$
+        select public.publish_shadow_recommendation_set(
+          %L::uuid,
+          %L,
+          array[%L::uuid]
+        )
+      $query$,
+      v_source_profile_id,
+      set_policy_fingerprint,
+      quality_race_assessment_id
+    )
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(publish_connection) <> 1 then
+    raise exception 'Set publisher was not serialized behind quality report';
+  end if;
+
+  -- Release the report snapshot before allowing publication to commit.
+  perform extensions.dblink_exec(quality_connection, 'commit');
+  perform extensions.dblink_disconnect(quality_connection);
+
+  select result into published_result
+  from extensions.dblink_get_result(publish_connection) as result(result jsonb);
+  if published_result ->> 'outcome' <> 'published'
+    or (published_result ->> 'recommendationSetId')::uuid = current_set_id
+  then
+    raise exception 'quality race Set publication failed: %', published_result;
+  end if;
+  perform result
+  from extensions.dblink_get_result(publish_connection) as result(result jsonb);
+  perform extensions.dblink_exec(publish_connection, 'commit');
+  perform extensions.dblink_disconnect(publish_connection);
+
+  select catalog_private.recommendation_quality_input_fingerprint(
+    'recommendation-review-policy-v1'
+  ) into current_input_fingerprint;
+  if current_input_fingerprint = quality_input_fingerprint then
+    raise exception 'quality report fingerprint did not change after Set publish';
+  end if;
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  if rollout_result ->> 'outcome' <> 'rejected'
+    or rollout_result ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'mixed quality report was promotable after Set publish: %',
+      rollout_result;
+  end if;
+end;
+$quality_publish_race$;
+
+do $quality_fixture_cleanup$
+declare
+  rollout_result jsonb;
+begin
+  -- This fixture is intentionally non-transactional because its dblink
+  -- sessions need to observe committed rows. Restore the seeded policy and
+  -- dormant rollout state before handing the shared database to later tests.
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 20,
+      minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'off', true, null,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'updated'
+    or rollout_result ->> 'configuredState' <> 'off'
+    or rollout_result ->> 'killSwitch' <> 'true'
+  then
+    raise exception 'quality fixture controls were not restored: %', rollout_result;
+  end if;
+end;
+$quality_fixture_cleanup$;
+
+delete from catalog_private.recommendation_ready_read_events
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+-- Keep the immutable-review trigger enabled for every test operation; only
+-- teardown of this fixture's own rows temporarily disables that trigger.
+do $cleanup_fixture_reviews_final$
+begin
+  alter table catalog_private.recommendation_reviews
+    disable trigger recommendation_reviews_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_reviews
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_reviews
+      enable trigger recommendation_reviews_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_reviews
+    enable trigger recommendation_reviews_immutable_trg;
+  if not exists (
+    select 1
+    from pg_trigger
+    where tgrelid = 'catalog_private.recommendation_reviews'::regclass
+      and tgname = 'recommendation_reviews_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable review trigger';
+  end if;
+end;
+$cleanup_fixture_reviews_final$;
+delete from auth.users
+where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 
 delete from catalog_private.recommendations
 where recommendation_set_id in (
