@@ -377,6 +377,47 @@ begin
 end;
 $replacement_assessment$;
 
+do $quality_race_assessment$
+declare
+  v_source_profile_id uuid;
+  pair_id uuid;
+  remembered jsonb;
+begin
+  select id into v_source_profile_id
+  from catalog_private.semantic_profile_versions
+  where video_id = '39000000-0000-4000-8000-000000000001';
+  select pair.id into pair_id
+  from catalog_private.recommendation_candidate_pair_evidence as pair
+  where pair.source_profile_id = v_source_profile_id
+  order by created_at
+  limit 1;
+  set local role service_role;
+  select public.remember_recommendation_assessment(
+    pair_id,
+    'fixture-quality-race-assessor-v1',
+    'recommendation-assessment-prompt-v1',
+    'continuation-relationship-policy-v1',
+    jsonb_build_object(
+      'schemaVersion', 'recommendation-assessment-v1',
+      'supported', true,
+      'continuationRelationship', 'deeper_explanation',
+      'explanation', 'A quality race replacement keeps the shared concepts.',
+      'evidenceReferences', jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'matchedCoreConceptKeys',
+          'conceptKey', 'race-core-a'
+        )
+      )
+    )
+  ) into remembered;
+  if remembered ->> 'outcome' not in ('stored', 'reused')
+    or remembered ->> 'assessmentId' is null
+  then
+    raise exception 'quality race Assessment failed: %', remembered;
+  end if;
+end;
+$quality_race_assessment$;
+
 do $set_concurrency$
 declare
   connection_string text := format(
@@ -648,7 +689,11 @@ begin
     and review.recommendation_ordinal = 1
     and review.reviewer_id = v_reviewer_id;
   if review_count <> 1
-    or (select count(*) from unnest(review_results) where value ->> 'outcome' = 'stored') <> 1
+    or (
+      select count(*)
+      from unnest(review_results) as results(value)
+      where results.value ->> 'outcome' = 'stored'
+    ) <> 1
   then
     raise exception 'concurrent Review submission diverged: %, %',
       review_count, review_results;
@@ -690,6 +735,131 @@ begin
   end if;
 end;
 $review_concurrency$;
+
+do $quality_publish_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  quality_connection text := 'recommendation_quality_race_quality';
+  publish_connection text := 'recommendation_quality_race_publish';
+  source_profile_id uuid;
+  current_set_id uuid;
+  set_policy_fingerprint text;
+  quality_race_assessment_id uuid;
+  quality_result jsonb;
+  published_result jsonb;
+  quality_report_id uuid;
+  quality_input_fingerprint text;
+  current_input_fingerprint text;
+  rollout_result jsonb;
+begin
+  select profile.id into source_profile_id
+  from catalog_private.semantic_profile_versions as profile
+  where profile.video_id = '39000000-0000-4000-8000-000000000001';
+  select assessment.id into quality_race_assessment_id
+  from catalog_private.recommendation_assessments as assessment
+  where assessment.source_profile_id = source_profile_id
+    and assessment.assessment_model_identifier =
+      'fixture-quality-race-assessor-v1';
+  select recommendation_set.id into current_set_id
+  from catalog_private.recommendation_sets as recommendation_set
+  where recommendation_set.source_profile_id = source_profile_id
+    and recommendation_set.status = 'current';
+  select policy.set_policy_fingerprint into set_policy_fingerprint
+  from catalog_private.recommendation_set_policies as policy
+  where policy.status = 'active';
+  if source_profile_id is null
+    or quality_race_assessment_id is null
+    or current_set_id is null
+    or set_policy_fingerprint is null
+  then
+    raise exception 'quality publish race inputs are missing';
+  end if;
+
+  -- Compute while holding the transaction-level quality lock open. The
+  -- publisher starts concurrently but its Set trigger must wait, so this
+  -- report can only describe the pre-publication current Set.
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(quality_connection, 'begin');
+  select result into quality_result
+  from extensions.dblink(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  ) as result(result jsonb);
+  quality_report_id := (quality_result ->> 'qualityReportId')::uuid;
+  quality_input_fingerprint := quality_result ->> 'inputFingerprint';
+  if quality_result ->> 'outcome' <> 'computed'
+    or quality_result ->> 'eligible' <> 'true'
+    or quality_report_id is null
+    or quality_input_fingerprint is null
+  then
+    raise exception 'quality race baseline report was not eligible: %',
+      quality_result;
+  end if;
+
+  perform extensions.dblink_connect(publish_connection, connection_string);
+  perform extensions.dblink_exec(publish_connection, 'set role service_role');
+  perform extensions.dblink_exec(publish_connection, 'begin');
+  perform extensions.dblink_send_query(
+    publish_connection,
+    format(
+      $query$
+        select public.publish_shadow_recommendation_set(
+          %L::uuid,
+          %L,
+          array[%L::uuid]
+        )
+      $query$,
+      source_profile_id,
+      set_policy_fingerprint,
+      quality_race_assessment_id
+    )
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(publish_connection) <> 1 then
+    raise exception 'Set publisher was not serialized behind quality report';
+  end if;
+
+  -- Release the report snapshot before allowing publication to commit.
+  perform extensions.dblink_exec(quality_connection, 'commit');
+  perform extensions.dblink_disconnect(quality_connection);
+
+  select result into published_result
+  from extensions.dblink_get_result(publish_connection) as result(result jsonb);
+  if published_result ->> 'outcome' <> 'published'
+    or (published_result ->> 'recommendationSetId')::uuid = current_set_id
+  then
+    raise exception 'quality race Set publication failed: %', published_result;
+  end if;
+  perform extensions.dblink_exec(publish_connection, 'commit');
+  perform extensions.dblink_disconnect(publish_connection);
+
+  select catalog_private.recommendation_quality_input_fingerprint(
+    'recommendation-review-policy-v1'
+  ) into current_input_fingerprint;
+  if current_input_fingerprint = quality_input_fingerprint then
+    raise exception 'quality report fingerprint did not change after Set publish';
+  end if;
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  if rollout_result ->> 'outcome' <> 'rejected'
+    or rollout_result ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'mixed quality report was promotable after Set publish: %',
+      rollout_result;
+  end if;
+end;
+$quality_publish_race$;
 
 delete from catalog_private.recommendation_ready_read_events
 where recommendation_set_id in (

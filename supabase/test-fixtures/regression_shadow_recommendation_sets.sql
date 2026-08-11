@@ -780,7 +780,9 @@ begin
     '3a000000-0000-4000-8000-000000000001'::uuid,
     null, 'semantic-profile-v1', null, 'current', null,
     'fixture-set-semantic-model', 'fixture-set-assessor-v1',
-    'candidate-pair-policy-v1', 'continuation-relationship-policy-v1'
+    'candidate-pair-policy-v1', 'continuation-relationship-policy-v1',
+    'fixture-set-semantic-model', 'catalog-admission-policy-v1',
+    'catalog-admission-policy-v1'
   ) into rollout;
   if rollout ->> 'outcome' <> 'listed'
     or jsonb_array_length(rollout -> 'reviews') <> 1
@@ -788,6 +790,10 @@ begin
       <> 'semantic-profile-v1'
     or rollout -> 'reviews' -> 0 ->> 'assessmentModelIdentifier'
       <> 'fixture-set-assessor-v1'
+    or rollout -> 'reviews' -> 0 ->> 'assessmentCandidateCatalogAdmissionPolicyVersion'
+      <> 'catalog-admission-policy-v1'
+    or rollout -> 'reviews' -> 0 ->> 'candidatePairModelIdentifier'
+      <> 'fixture-set-semantic-model'
   then
     raise exception 'exact Set model/policy/evidence filters failed: %', rollout;
   end if;

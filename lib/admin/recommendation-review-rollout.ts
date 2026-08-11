@@ -27,6 +27,9 @@ type ReviewFilters = {
   assessmentModelIdentifier?: string | null;
   candidatePairPolicyVersion?: string | null;
   relationshipPolicyVersion?: string | null;
+  candidatePairModelIdentifier?: string | null;
+  sourceCatalogAdmissionPolicyVersion?: string | null;
+  candidateCatalogAdmissionPolicyVersion?: string | null;
 };
 
 async function recommendationAdminClient() {
@@ -88,6 +91,12 @@ export async function listRecommendationReviewsAsAdmin(
     p_candidate_pair_policy_version:
       filters.candidatePairPolicyVersion ?? null,
     p_relationship_policy_version: filters.relationshipPolicyVersion ?? null,
+    p_candidate_pair_model_identifier:
+      filters.candidatePairModelIdentifier ?? null,
+    p_source_catalog_admission_policy_version:
+      filters.sourceCatalogAdmissionPolicyVersion ?? null,
+    p_candidate_catalog_admission_policy_version:
+      filters.candidateCatalogAdmissionPolicyVersion ?? null,
   });
 }
 

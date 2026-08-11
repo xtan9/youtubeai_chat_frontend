@@ -29,6 +29,9 @@ begin
       'public.list_recommendation_reviews(uuid,text,text,text,text,text,text,text,text,text)'
     ) is null
     or to_regprocedure(
+      'public.list_recommendation_reviews(uuid,text,text,text,text,text,text,text,text,text,text,text,text)'
+    ) is null
+    or to_regprocedure(
       'public.set_recommendation_rollout(text,boolean,uuid,uuid,text)'
     ) is null
     or to_regprocedure('public.get_recommendation_rollout()') is null
