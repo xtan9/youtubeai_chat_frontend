@@ -26,6 +26,8 @@ where recommendation_set_id in (
     )
   )
 );
+delete from auth.users
+where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 delete from catalog_private.recommendations
 where recommendation_set_id in (
   select id from catalog_private.recommendation_sets
@@ -596,6 +598,21 @@ begin
     raise exception 'Review concurrency current Set is missing';
   end if;
 
+  insert into auth.users (
+    id,
+    email,
+    raw_app_meta_data,
+    is_anonymous
+  ) values (
+    v_reviewer_id,
+    'race-reviewer@example.com',
+    jsonb_build_object('is_admin', true),
+    false
+  ) on conflict (id) do update
+  set email = excluded.email,
+      raw_app_meta_data = excluded.raw_app_meta_data,
+      is_anonymous = excluded.is_anonymous;
+
   foreach connection_name in array connection_names loop
     perform extensions.dblink_connect(connection_name, connection_string);
     perform extensions.dblink_exec(connection_name, 'set role service_role');
@@ -696,6 +713,8 @@ where recommendation_set_id in (
     )
   )
 );
+delete from auth.users
+where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 
 delete from catalog_private.recommendations
 where recommendation_set_id in (

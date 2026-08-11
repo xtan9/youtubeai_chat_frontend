@@ -44,8 +44,25 @@ begin
   select coalesce(
     string_agg(
       recommendation_set.id::text || ':' ||
+      recommendation_set.source_video_id::text || ':' ||
+      recommendation_set.source_profile_id::text || ':' ||
+      recommendation_set.source_catalog_admission_id::text || ':' ||
+      recommendation_set.semantic_model_identifier || ':' ||
+      recommendation_set.profile_schema_version || ':' ||
+      recommendation_set.semantic_prompt_version || ':' ||
+      recommendation_set.semantic_evaluation_fingerprint || ':' ||
+      recommendation_set.candidate_pair_policy_version || ':' ||
+      recommendation_set.source_catalog_admission_policy_version || ':' ||
+      recommendation_set.assessment_model_identifier || ':' ||
+      recommendation_set.assessment_schema_version || ':' ||
+      recommendation_set.assessment_prompt_version || ':' ||
+      recommendation_set.relationship_policy_version || ':' ||
+      recommendation_set.set_policy_version || ':' ||
+      recommendation_set.set_policy_fingerprint || ':' ||
+      recommendation_set.set_schema_version || ':' ||
       recommendation_set.build_fingerprint || ':' ||
-      recommendation_set.status,
+      recommendation_set.status || ':' ||
+      coalesce(recommendation_set.published_at::text, ''),
       ',' order by recommendation_set.id
     ),
     ''
@@ -62,6 +79,32 @@ begin
       recommendation.recommendation_assessment_id::text || ':' ||
       recommendation.candidate_pair_evidence_id::text || ':' ||
       recommendation.candidate_video_id::text || ':' ||
+      recommendation.candidate_profile_id::text || ':' ||
+      recommendation.candidate_catalog_admission_id::text || ':' ||
+      evidence.model_identifier || ':' || evidence.profile_schema_version || ':' ||
+      evidence.prompt_version || ':' || evidence.evaluation_fingerprint || ':' ||
+      evidence.candidate_pair_policy_version || ':' || evidence.evidence_level || ':' ||
+      evidence.relationship_score::text || ':' ||
+      md5(
+        evidence.matched_topic_keys::text || ':' ||
+        evidence.matched_core_concept_keys::text || ':' ||
+        evidence.matched_source_application_candidate_prerequisite_keys::text || ':' ||
+        evidence.matched_source_prerequisite_candidate_application_keys::text || ':' ||
+        evidence.matched_source_counterpoint_candidate_core_keys::text
+      ) || ':' ||
+      assessment.semantic_model_identifier || ':' ||
+      assessment.profile_schema_version || ':' ||
+      assessment.semantic_prompt_version || ':' ||
+      assessment.semantic_evaluation_fingerprint || ':' ||
+      assessment.candidate_pair_policy_version || ':' ||
+      assessment.source_catalog_admission_policy_version || ':' ||
+      assessment.candidate_catalog_admission_policy_version || ':' ||
+      assessment.assessment_model_identifier || ':' ||
+      assessment.assessment_schema_version || ':' ||
+      assessment.assessment_prompt_version || ':' ||
+      assessment.relationship_policy_version || ':' ||
+      assessment.supported::text || ':' ||
+      md5(coalesce(assessment.explanation, '') || ':' || assessment.evidence_references::text) || ':' ||
       recommendation.continuation_relationship || ':' ||
       md5(recommendation.explanation || ':' || recommendation.evidence_references::text),
       ',' order by recommendation.recommendation_set_id, recommendation.ordinal
@@ -69,6 +112,10 @@ begin
     ''
   ) into recommendation_rows
   from catalog_private.recommendations as recommendation
+  join catalog_private.recommendation_candidate_pair_evidence as evidence
+    on evidence.id = recommendation.candidate_pair_evidence_id
+  join catalog_private.recommendation_assessments as assessment
+    on assessment.id = recommendation.recommendation_assessment_id
   join catalog_private.recommendation_sets as recommendation_set
     on recommendation_set.id = recommendation.recommendation_set_id
    and recommendation_set.status = 'current'
@@ -114,12 +161,22 @@ begin
 
   return md5(
     'recommendation-quality-v1\n' || p_review_policy_version || E'\n' ||
-    policy_row.set_policy_fingerprint || E'\n' || current_sets || E'\n' ||
+    policy_row.set_policy_fingerprint || E'\n' ||
+    policy_row.minimum_review_corpus::text || E'\n' ||
+    policy_row.minimum_usefulness_percent::text || E'\n' ||
+    policy_row.minimum_source_coverage_percent::text || E'\n' ||
+    policy_row.maximum_ready_read_latency_ms::text || E'\n' ||
+    current_sets || E'\n' ||
     recommendation_rows || E'\n' ||
     review_rows || E'\n' || read_rows
   ) || md5(
     'recommendation-quality-v1-secondary\n' || p_review_policy_version ||
-    E'\n' || policy_row.set_policy_fingerprint || E'\n' || current_sets ||
+    E'\n' || policy_row.set_policy_fingerprint ||
+    E'\n' || policy_row.minimum_review_corpus::text ||
+    E'\n' || policy_row.minimum_usefulness_percent::text ||
+    E'\n' || policy_row.minimum_source_coverage_percent::text ||
+    E'\n' || policy_row.maximum_ready_read_latency_ms::text ||
+    E'\n' || current_sets ||
     E'\n' || recommendation_rows || E'\n' || review_rows || E'\n' || read_rows
   );
 end;
@@ -372,6 +429,36 @@ create trigger recommendation_quality_reports_immutable_trg
 before update or delete on catalog_private.recommendation_quality_reports
 for each row execute function catalog_private.reject_recommendation_quality_report_mutation();
 
+create or replace function catalog_private.assert_recommendation_admin(
+  p_admin_id uuid,
+  p_admin_email text
+)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  admin_exists boolean;
+begin
+  select exists (
+    select 1
+    from auth.users as admin_user
+    where admin_user.id = p_admin_id
+      and lower(admin_user.email) = lower(btrim(coalesce(p_admin_email, '')))
+      and (
+        admin_user.is_super_admin
+        or admin_user.raw_app_meta_data ->> 'is_admin' = 'true'
+      )
+  ) into admin_exists;
+
+  if not admin_exists then
+    raise insufficient_privilege using message = 'administrator gate required';
+  end if;
+end;
+$$;
+
 create or replace function catalog_private.submit_recommendation_review(
   p_recommendation_set_id uuid,
   p_recommendation_ordinal integer,
@@ -415,6 +502,11 @@ begin
       'reason', 'recommendation_review_contract'
     );
   end if;
+
+  perform catalog_private.assert_recommendation_admin(
+    p_reviewer_id,
+    normalized_email
+  );
 
   failure_class := case
     when not p_admission_compliant
@@ -931,7 +1023,11 @@ create or replace function catalog_private.list_recommendation_reviews(
   p_evidence_level text,
   p_set_policy_version text,
   p_build_state text,
-  p_failure_class text
+  p_failure_class text,
+  p_semantic_model_identifier text,
+  p_assessment_model_identifier text,
+  p_candidate_pair_policy_version text,
+  p_relationship_policy_version text
 )
 returns jsonb
 language plpgsql
@@ -989,18 +1085,42 @@ begin
         'recommendationSetId', recommendation_set.id,
         'setStatus', recommendation_set.status,
         'sourceVideoId', recommendation_set.source_video_id,
+        'sourceProfileId', recommendation_set.source_profile_id,
+        'sourceCatalogAdmissionId', recommendation_set.source_catalog_admission_id,
         'sourceVideoTitle', source_video.title,
         'sourceVideoLanguage', source_video.language,
         'candidateVideoId', recommendation.candidate_video_id,
+        'candidateProfileId', recommendation.candidate_profile_id,
+        'candidateCatalogAdmissionId', recommendation.candidate_catalog_admission_id,
         'candidateVideoTitle', candidate_video.title,
         'candidateVideoLanguage', candidate_video.language,
         'ordinal', recommendation.ordinal,
         'recommendationAssessmentId', recommendation.recommendation_assessment_id,
         'candidatePairEvidenceId', recommendation.candidate_pair_evidence_id,
+        'candidatePairModelIdentifier', evidence.model_identifier,
+        'candidatePairProfileSchemaVersion', evidence.profile_schema_version,
+        'candidatePairPromptVersion', evidence.prompt_version,
+        'candidatePairEvaluationFingerprint', evidence.evaluation_fingerprint,
+        'candidatePairPolicyVersion', evidence.candidate_pair_policy_version,
+        'evidenceLevel', evidence.evidence_level,
+        'relationshipScore', evidence.relationship_score,
         'relationship', recommendation.continuation_relationship,
         'explanation', recommendation.explanation,
         'evidenceReferences', recommendation.evidence_references,
+        'semanticModelIdentifier', recommendation_set.semantic_model_identifier,
+        'profileSchemaVersion', recommendation_set.profile_schema_version,
+        'semanticPromptVersion', recommendation_set.semantic_prompt_version,
+        'semanticEvaluationFingerprint', recommendation_set.semantic_evaluation_fingerprint,
+        'setCandidatePairPolicyVersion',
+          recommendation_set.candidate_pair_policy_version,
+        'sourceCatalogAdmissionPolicyVersion',
+          recommendation_set.source_catalog_admission_policy_version,
+        'assessmentModelIdentifier', recommendation_set.assessment_model_identifier,
+        'assessmentSchemaVersion', recommendation_set.assessment_schema_version,
+        'assessmentPromptVersion', recommendation_set.assessment_prompt_version,
+        'relationshipPolicyVersion', recommendation_set.relationship_policy_version,
         'setPolicyVersion', recommendation_set.set_policy_version,
+        'setPolicyFingerprint', recommendation_set.set_policy_fingerprint,
         'setSchemaVersion', recommendation_set.set_schema_version,
         'buildFingerprint', recommendation_set.build_fingerprint,
         'publishedAt', recommendation_set.published_at,
@@ -1022,6 +1142,10 @@ begin
   join catalog_private.recommendations as recommendation
     on recommendation.recommendation_set_id = review.recommendation_set_id
    and recommendation.ordinal = review.recommendation_ordinal
+  join catalog_private.recommendation_candidate_pair_evidence as evidence
+    on evidence.id = recommendation.candidate_pair_evidence_id
+  join catalog_private.recommendation_assessments as assessment
+    on assessment.id = recommendation.recommendation_assessment_id
   join catalog_private.recommendation_sets as recommendation_set
     on recommendation_set.id = recommendation.recommendation_set_id
   join public.videos as source_video
@@ -1034,13 +1158,20 @@ begin
       or recommendation.continuation_relationship = p_relationship)
     and (p_set_policy_version is null
       or recommendation_set.set_policy_version = p_set_policy_version)
+    and (p_semantic_model_identifier is null
+      or recommendation_set.semantic_model_identifier = p_semantic_model_identifier)
+    and (p_assessment_model_identifier is null
+      or recommendation_set.assessment_model_identifier = p_assessment_model_identifier)
+    and (p_candidate_pair_policy_version is null
+      or evidence.candidate_pair_policy_version = p_candidate_pair_policy_version)
+    and (p_relationship_policy_version is null
+      or recommendation_set.relationship_policy_version = p_relationship_policy_version)
     and (p_build_state is null or p_build_state = 'all'
       or recommendation_set.status = p_build_state)
     and (p_failure_class is null
       or review.failure_class = p_failure_class)
     and (p_evidence_level is null
-      or recommendation.evidence_references @>
-        jsonb_build_array(jsonb_build_object('level', p_evidence_level)));
+      or evidence.evidence_level = p_evidence_level);
 
   return jsonb_build_object(
     'outcome', 'listed',
@@ -1073,7 +1204,48 @@ begin
     p_evidence_level,
     p_set_policy_version,
     p_build_state,
-    p_failure_class
+    p_failure_class,
+    null,
+    null,
+    null,
+    null
+  );
+end;
+$$;
+
+create or replace function public.list_recommendation_reviews(
+  p_source_video_id uuid,
+  p_relationship text,
+  p_evidence_level text,
+  p_set_policy_version text,
+  p_build_state text,
+  p_failure_class text,
+  p_semantic_model_identifier text,
+  p_assessment_model_identifier text,
+  p_candidate_pair_policy_version text,
+  p_relationship_policy_version text
+)
+returns jsonb
+language plpgsql
+stable
+security invoker
+set search_path = ''
+as $$
+begin
+  if current_user <> 'service_role' then
+    raise insufficient_privilege using message = 'service_role required';
+  end if;
+  return catalog_private.list_recommendation_reviews(
+    p_source_video_id,
+    p_relationship,
+    p_evidence_level,
+    p_set_policy_version,
+    p_build_state,
+    p_failure_class,
+    p_semantic_model_identifier,
+    p_assessment_model_identifier,
+    p_candidate_pair_policy_version,
+    p_relationship_policy_version
   );
 end;
 $$;
@@ -1125,6 +1297,11 @@ begin
       'reason', 'kill_switch_requires_off'
     );
   end if;
+
+  perform catalog_private.assert_recommendation_admin(
+    p_admin_id,
+    normalized_email
+  );
 
   perform pg_advisory_xact_lock(hashtext('recommendation-quality'));
   perform pg_advisory_xact_lock(hashtext('recommendation-rollout'));
@@ -1434,6 +1611,8 @@ $$;
 
 revoke all on function catalog_private.recommendation_quality_input_fingerprint(text)
   from public, anon, authenticated, service_role;
+revoke all on function catalog_private.assert_recommendation_admin(uuid, text)
+  from public, anon, authenticated, service_role;
 revoke all on function catalog_private.submit_recommendation_review(
   uuid, integer, uuid, text, boolean, boolean, boolean, boolean, boolean, text
 ) from public, anon, authenticated, service_role;
@@ -1442,7 +1621,7 @@ revoke all on function catalog_private.record_recommendation_ready_read(uuid, in
 revoke all on function catalog_private.compute_recommendation_quality_report(text)
   from public, anon, authenticated, service_role;
 revoke all on function catalog_private.list_recommendation_reviews(
-  uuid, text, text, text, text, text
+  uuid, text, text, text, text, text, text, text, text, text
 ) from public, anon, authenticated, service_role;
 revoke all on function catalog_private.set_recommendation_rollout(
   text, boolean, uuid, uuid, text
@@ -1458,7 +1637,7 @@ grant execute on function catalog_private.record_recommendation_ready_read(uuid,
 grant execute on function catalog_private.compute_recommendation_quality_report(text)
   to service_role;
 grant execute on function catalog_private.list_recommendation_reviews(
-  uuid, text, text, text, text, text
+  uuid, text, text, text, text, text, text, text, text, text
 ) to service_role;
 grant execute on function catalog_private.set_recommendation_rollout(
   text, boolean, uuid, uuid, text
@@ -1476,6 +1655,9 @@ revoke all on function public.compute_recommendation_quality_report(text)
 revoke all on function public.list_recommendation_reviews(
   uuid, text, text, text, text, text
 ) from public, anon, authenticated;
+revoke all on function public.list_recommendation_reviews(
+  uuid, text, text, text, text, text, text, text, text, text
+) from public, anon, authenticated;
 revoke all on function public.set_recommendation_rollout(text, boolean, uuid, uuid, text)
   from public, anon, authenticated;
 revoke all on function public.get_recommendation_rollout()
@@ -1490,6 +1672,9 @@ grant execute on function public.compute_recommendation_quality_report(text)
   to service_role;
 grant execute on function public.list_recommendation_reviews(
   uuid, text, text, text, text, text
+) to service_role;
+grant execute on function public.list_recommendation_reviews(
+  uuid, text, text, text, text, text, text, text, text, text
 ) to service_role;
 grant execute on function public.set_recommendation_rollout(text, boolean, uuid, uuid, text)
   to service_role;

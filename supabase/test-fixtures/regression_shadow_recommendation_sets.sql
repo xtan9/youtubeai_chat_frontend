@@ -716,6 +716,21 @@ begin
     raise exception 'Review fixture current Set is missing';
   end if;
 
+  insert into auth.users (
+    id,
+    email,
+    raw_app_meta_data,
+    is_anonymous
+  ) values (
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com',
+    jsonb_build_object('is_admin', true),
+    false
+  ) on conflict (id) do update
+  set email = excluded.email,
+      raw_app_meta_data = excluded.raw_app_meta_data,
+      is_anonymous = excluded.is_anonymous;
+
   set local role service_role;
   select public.submit_recommendation_review(
     current_set_id,
@@ -761,6 +776,22 @@ begin
     raise exception 'Review list/detail contract failed: %', rollout;
   end if;
 
+  select public.list_recommendation_reviews(
+    '3a000000-0000-4000-8000-000000000001'::uuid,
+    null, 'semantic-profile-v1', null, 'current', null,
+    'fixture-set-semantic-model', 'fixture-set-assessor-v1',
+    'candidate-pair-policy-v1', 'continuation-relationship-policy-v1'
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'listed'
+    or jsonb_array_length(rollout -> 'reviews') <> 1
+    or rollout -> 'reviews' -> 0 ->> 'evidenceLevel'
+      <> 'semantic-profile-v1'
+    or rollout -> 'reviews' -> 0 ->> 'assessmentModelIdentifier'
+      <> 'fixture-set-assessor-v1'
+  then
+    raise exception 'exact Set model/policy/evidence filters failed: %', rollout;
+  end if;
+
   select public.set_recommendation_rollout(
     'shadow', false, null, '3a000000-0000-4000-8000-0000000000f1'::uuid,
     'reviewer@example.com'
@@ -777,6 +808,41 @@ begin
   if rollout ->> 'effectiveState' <> 'pilot' then
     raise exception 'eligible quality report did not permit pilot: %', rollout;
   end if;
+
+  set local role postgres;
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 2
+  where review_policy_version = 'recommendation-review-policy-v1';
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'rejected'
+    or rollout ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'threshold change did not stale quality report: %', rollout;
+  end if;
+  set local role postgres;
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 1
+  where review_policy_version = 'recommendation-review-policy-v1';
+  insert into auth.users (
+    id,
+    email,
+    raw_app_meta_data,
+    is_anonymous
+  ) values (
+    '3a000000-0000-4000-8000-0000000000f2'::uuid,
+    'second-reviewer@example.com',
+    jsonb_build_object('is_admin', true),
+    false
+  ) on conflict (id) do update
+  set email = excluded.email,
+      raw_app_meta_data = excluded.raw_app_meta_data,
+      is_anonymous = excluded.is_anonymous;
+  set local role service_role;
 
   select public.submit_recommendation_review(
     current_set_id,

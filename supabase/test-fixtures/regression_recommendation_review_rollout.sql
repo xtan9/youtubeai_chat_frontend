@@ -26,6 +26,9 @@ begin
       'public.list_recommendation_reviews(uuid,text,text,text,text,text)'
     ) is null
     or to_regprocedure(
+      'public.list_recommendation_reviews(uuid,text,text,text,text,text,text,text,text,text)'
+    ) is null
+    or to_regprocedure(
       'public.set_recommendation_rollout(text,boolean,uuid,uuid,text)'
     ) is null
     or to_regprocedure('public.get_recommendation_rollout()') is null
@@ -110,6 +113,23 @@ begin
   end;
 end;
 $authenticated_denial$;
+reset role;
+
+set local role service_role;
+do $service_admin_gate$
+begin
+  begin
+    perform public.set_recommendation_rollout(
+      'off', true, null,
+      '35200000-0000-4000-8000-000000000001'::uuid,
+      'not-an-admin@example.com'
+    );
+    raise exception 'service-only rollout accepted an unverified admin';
+  exception when insufficient_privilege then
+    null;
+  end;
+end;
+$service_admin_gate$;
 reset role;
 
 rollback;

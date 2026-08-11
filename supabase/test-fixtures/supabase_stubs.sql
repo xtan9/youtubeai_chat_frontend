@@ -7,7 +7,9 @@ CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT,
     is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+    is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
     -- SQL fixtures represent internal test Researchers unless a security
     -- contract supplies an explicit unavailable/invited claim.
     raw_app_meta_data JSONB NOT NULL DEFAULT
