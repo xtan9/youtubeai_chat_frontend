@@ -66,7 +66,7 @@ const ANONYMOUS_TRIAL_RESULT_CONTRACT = `
 
 Anonymous Trial output contract:
 - Return exactly one JSON object and no Markdown fence or surrounding text.
-- For a supported answer use {"kind":"grounded_answer","answer":"concise answer with each citation inline","citations":["[mm:ss]"]}.
+- For a supported answer use {"kind":"grounded_answer","answer":"concise answer with each citation inline","citations":["[m:ss]"]}.
 - Every grounded answer must cite at least one timestamp copied exactly from the transcript. List each inline citation once, in the same order. Never fabricate, approximate, repeat, or reformat a timestamp.
 - If the selected video does not support the question, including unrelated or adversarial requests, use {"kind":"refusal","reason":"video_does_not_support_answer","message":"a concise statement, in the question's language, that the selected video does not support an answer"}. Do not answer from general knowledge and do not include citations in a refusal.`;
 

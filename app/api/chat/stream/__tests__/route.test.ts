@@ -402,7 +402,14 @@ describe("POST /api/chat/stream", () => {
       },
     ]);
     mocks.streamChatCompletion.mockImplementation(async function* () {
-      yield { type: "delta" as const, text: "Grounded answer" };
+      yield {
+        type: "delta" as const,
+        text: '{"kind":"grounded_answer","answer":"The speaker recommends ',
+      };
+      yield {
+        type: "delta" as const,
+        text: 'starting with flow [0:01]","citations":["[0:01]"]}',
+      };
       yield { type: "done" as const };
     });
 
@@ -434,9 +441,16 @@ describe("POST /api/chat/stream", () => {
         ]),
       }),
     );
-    expect((await readSse(response.body!)).join("")).toContain(
+    const events = (await readSse(response.body!)).join("");
+    expect(events).toContain(
       '"type":"anonymous_trial_admitted","reservationId":"018f3f4e-8454-7e8b-a98d-f319b5c32291","remainingMessages":4',
     );
+    expect(events).toContain(
+      '"type":"delta","text":"The speaker recommends starting with flow [0:01]"',
+    );
+    expect(events).toContain('"type":"done"');
+    expect(events).not.toContain('"kind":"grounded_answer"');
+    expect(events).not.toContain('"citations"');
     expect(mocks.listChatMessages).toHaveBeenCalledWith(
       "anonymous-trial-user",
       heroDemoSubject().subject.retainedThread,
@@ -445,7 +459,50 @@ describe("POST /api/chat/stream", () => {
       userId: "anonymous-trial-user",
       thread: heroDemoSubject().subject.retainedThread,
       userMessage: "What does the speaker recommend?",
-      assistantMessage: "Grounded answer",
+      assistantMessage: "The speaker recommends starting with flow [0:01]",
+    });
+  });
+
+  it("buffers and presents a governed Anonymous Trial refusal without a citation", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+    mocks.resolveRequestPrincipal.mockResolvedValue(
+      resolvedPrincipal("anonymous-trial-user", true),
+    );
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+    mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield {
+        type: "delta" as const,
+        text: '{"kind":"refusal","reason":"video_does_not_support_answer",',
+      };
+      yield {
+        type: "delta" as const,
+        text: '"message":"The selected video does not support that answer."}',
+      };
+      yield { type: "done" as const };
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      makeRequest({
+        youtube_url: HERO_IDENTITY.canonicalUrl,
+        message: "Who won the World Cup?",
+      }),
+    );
+    const events = (await readSse(response.body!)).join("");
+
+    expect(events).toContain(
+      '"type":"delta","text":"The selected video does not support that answer."',
+    );
+    expect(events).toContain('"type":"done"');
+    expect(events).not.toContain('"kind":"refusal"');
+    expect(events).not.toContain("World Cup");
+    expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
+    expect(mocks.appendChatTurn).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      thread: heroDemoSubject().subject.retainedThread,
+      userMessage: "Who won the World Cup?",
+      assistantMessage: "The selected video does not support that answer.",
     });
   });
 
@@ -631,6 +688,60 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledTimes(1);
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      "missing citation",
+      '{"kind":"grounded_answer","answer":"Unsupported answer","citations":[]}',
+    ],
+    [
+      "malformed timestamp",
+      '{"kind":"grounded_answer","answer":"Unsupported [00:99]","citations":["[00:99]"]}',
+    ],
+    [
+      "duplicate citation",
+      '{"kind":"grounded_answer","answer":"Repeated [00:01] [00:01]","citations":["[00:01]","[00:01]"]}',
+    ],
+    [
+      "fabricated timestamp",
+      '{"kind":"grounded_answer","answer":"Fabricated [09:59]","citations":["[09:59]"]}',
+    ],
+    [
+      "unlisted inline citation",
+      '{"kind":"grounded_answer","answer":"Mixed [00:00] [00:01]","citations":["[00:00]"]}',
+    ],
+  ])(
+    "rejects an Anonymous Trial %s without leaking model output or refunding admission",
+    async (_label, rawResult) => {
+      vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "true");
+      mocks.resolveRequestPrincipal.mockResolvedValue(
+        resolvedPrincipal("anonymous-trial-user", true),
+      );
+       mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
+      mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+      mocks.streamChatCompletion.mockImplementation(async function* () {
+        yield { type: "delta" as const, text: rawResult.slice(0, 24) };
+        yield { type: "delta" as const, text: rawResult.slice(24) };
+        yield { type: "done" as const };
+      });
+
+      const { POST } = await import("../route");
+      const response = await POST(
+        makeRequest({
+          youtube_url: HERO_IDENTITY.canonicalUrl,
+          message: "Answer this from the selected video.",
+        }),
+      );
+      const events = (await readSse(response.body!)).join("");
+
+      expect(events).toContain('"errorCode":"anonymous_trial_invalid_answer"');
+      expect(events).not.toContain('"type":"delta"');
+      expect(events).not.toContain(rawResult);
+      expect(mocks.markAnonymousTrialChatMessageStarted).toHaveBeenCalledTimes(1);
+      expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
+      expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    },
+   );
 
   it("streams Hero Demo Grounding without entitlement while retaining its thread", async () => {
     // Simulates the bug condition: the DB cache for these ids was

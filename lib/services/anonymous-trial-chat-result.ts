@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 const MAX_BUFFERED_RESULT_CHARS = 12_000;
-const CANONICAL_TIMESTAMP_CITATION = /^\[(?:\d{2}:)?\d{2}:\d{2}\]$/;
+// `formatTimestamp` emits `[m:ss]` for sub-hour transcript segments and
+// `[hh:mm:ss]` for hour-plus segments. Keep the generated-result grammar
+// aligned with those immutable server-owned labels; membership in the
+// route-provided allowlist remains the authoritative validation step.
+const CANONICAL_TIMESTAMP_CITATION = /^\[(?:\d{2}:)?\d{1,2}:\d{2}\]$/;
 const BRACKETED_TOKEN = /\[[^\]\r\n]*\]/g;
 
 const GroundedAnswerSchema = z
