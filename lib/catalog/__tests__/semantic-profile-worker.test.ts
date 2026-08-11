@@ -14,6 +14,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 vi.mock("../semantic-profile", () => ({
   generateSemanticProfile: mocks.generateSemanticProfile,
+  SEMANTIC_PROFILE_PROMPT_VERSION: "semantic-profile-prompt-v1",
 }));
 
 import { runSemanticProfileWorker } from "../semantic-profile-worker";

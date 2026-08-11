@@ -461,7 +461,7 @@ describe("streamLlmSummary", () => {
   });
 });
 
-import { callLlmJson } from "../llm-client";
+import { callLlmJson, callLlmJsonWithUsage } from "../llm-client";
 
 describe("callLlmJson", () => {
   afterEach(() => {
@@ -496,6 +496,41 @@ describe("callLlmJson", () => {
     expect(body.model).toBe("claude-haiku-4-5-20251001");
     expect(body.stream).not.toBe(true);
     expect(body.temperature).toBe(0);
+  });
+
+  it("returns validated Gateway token usage for evaluation calls", async () => {
+    stubEnv();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          model: "gateway-model-v1",
+          choices: [{ message: { content: '{"x":1}' } }],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 4,
+            total_tokens: 16,
+            prompt_tokens_details: { cached_tokens: 3 },
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      callLlmJsonWithUsage({
+        model: "gateway-model-v1",
+        prompt: "hi",
+      }),
+    ).resolves.toEqual({
+      content: '{"x":1}',
+      responseModel: "gateway-model-v1",
+      usage: {
+        inputTokens: 12,
+        cachedInputTokens: 3,
+        outputTokens: 4,
+        totalTokens: 16,
+      },
+    });
   });
 
   it("throws on non-OK HTTP status", async () => {
