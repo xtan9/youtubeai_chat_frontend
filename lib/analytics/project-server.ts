@@ -285,6 +285,10 @@ export async function recordProjectGenerationUsage(args: {
   usage?: ProjectTokenUsage;
   durationMs: number;
   businessAnalyticsSuppressed: boolean;
+  activation?: Readonly<{
+    trigger: Extract<ProjectAnalyticsTrigger, "message" | "artifact">;
+    occurredAt: string;
+  }>;
 }): Promise<ProjectGenerationUsageRecordStatus> {
   if (args.businessAnalyticsSuppressed) return "suppressed";
   try {
@@ -292,7 +296,10 @@ export async function recordProjectGenerationUsage(args: {
     if (!service) return "unavailable";
     const properties = generationProperties(args);
     const measured = properties.cost_status === "measured";
-    const { data, error } = await service.rpc("record_project_generation_usage", {
+    const rpcName = args.activation
+      ? "record_project_activated_generation_usage"
+      : "record_project_generation_usage";
+    const rpcArguments = {
       p_project_id: args.projectId,
       p_owner_id: args.ownerId,
       p_operation_id: args.operationId,
@@ -310,10 +317,18 @@ export async function recordProjectGenerationUsage(args: {
       p_rate_card_source: measured ? properties.rate_card_source : null,
       p_rate_card_effective_date: measured ? properties.rate_card_effective_date : null,
       p_error_class: measured ? null : properties.error_class,
-    });
+      ...(args.activation
+        ? {
+            p_trigger_kind: args.activation.trigger,
+            p_occurred_at: args.activation.occurredAt,
+          }
+        : {}),
+    };
+    const { data, error } = await service.rpc(rpcName, rpcArguments);
     if (error) throw error;
     const parsed = GenerationRecordResultSchema.safeParse(data);
     if (!parsed.success) return "unavailable";
+    if (args.activation) await drainProjectActivationOutboxWithClient(service, 25);
     if (parsed.data.outcome !== "inserted") return parsed.data.outcome;
     await captureProjectActivityEvent(
       args.ownerId,

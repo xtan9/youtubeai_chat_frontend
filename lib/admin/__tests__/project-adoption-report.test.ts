@@ -16,6 +16,11 @@ const columns = [
   "helpful_feedback",
   "not_helpful_feedback",
   "paywall_views",
+  "sources_added",
+  "history_sources_added",
+  "youtube_url_sources_added",
+  "ready_sources_added",
+  "processing_sources_added",
   "search_results",
   "search_passages_examined",
   "grounded_answers",
@@ -32,7 +37,7 @@ const columns = [
   "processing_failed",
   "generation_events",
   "measured_generations",
-  "active_cost_projects",
+  "cost_eligible_activated_projects",
   "generation_duration_ms",
   "cost_usd_micros",
 ];
@@ -44,7 +49,7 @@ describe("loadProjectAdoptionReport", () => {
       .mockResolvedValueOnce({
         columns,
         results: [[
-          10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 30, 100, 10, 9,
+          10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 20, 8, 12, 7, 13, 30, 100, 10, 9,
           25, 20, 15, 5, 80, 25, 4, 3, 18, 2, 6, 5, 4, 2400, 120000,
         ]],
         isCached: false,
@@ -73,6 +78,7 @@ describe("loadProjectAdoptionReport", () => {
     expect(report.metrics.returnedProjects).toBe(3);
     expect(report.ratios).toEqual({
       sevenDayReturnPct: 75,
+      sourceReadyAtAddPct: 35,
       helpfulFeedbackPct: 80,
       retrievalYieldPct: 30,
       sourceCoverageIntegrityPct: 90,

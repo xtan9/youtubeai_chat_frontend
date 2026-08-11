@@ -24,6 +24,7 @@ export interface ProjectAdoptionReport {
   };
   ratios: {
     sevenDayReturnPct: number;
+    sourceReadyAtAddPct: number;
     helpfulFeedbackPct: number;
     retrievalYieldPct: number;
     sourceCoverageIntegrityPct: number;
@@ -72,6 +73,10 @@ export async function loadProjectAdoptionReport(
         metrics.returnedProjects,
         metrics.eligibleActivatedProjects,
       ),
+      sourceReadyAtAddPct: percentage(
+        metrics.readySourcesAdded,
+        metrics.sourcesAdded,
+      ),
       helpfulFeedbackPct: percentage(
         metrics.helpfulFeedback,
         metrics.helpfulFeedback + metrics.notHelpfulFeedback,
@@ -99,7 +104,7 @@ export async function loadProjectAdoptionReport(
       ),
       costPerActiveProjectUsdMicros: ratio(
         metrics.costUsdMicros,
-        metrics.activeCostProjects,
+        metrics.costEligibleActivatedProjects,
       ),
     },
     failures: parseProjectAdoptionFailureRows(failureResult),

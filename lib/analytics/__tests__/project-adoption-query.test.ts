@@ -17,6 +17,11 @@ const METRIC_COLUMNS = [
   "helpful_feedback",
   "not_helpful_feedback",
   "paywall_views",
+  "sources_added",
+  "history_sources_added",
+  "youtube_url_sources_added",
+  "ready_sources_added",
+  "processing_sources_added",
   "search_results",
   "search_passages_examined",
   "grounded_answers",
@@ -33,7 +38,7 @@ const METRIC_COLUMNS = [
   "processing_failed",
   "generation_events",
   "measured_generations",
-  "active_cost_projects",
+  "cost_eligible_activated_projects",
   "generation_duration_ms",
   "cost_usd_micros",
 ] as const;
@@ -59,12 +64,22 @@ describe("Project adoption PostHog query", () => {
     expect(query.returnHogql).toContain("argMax(");
     expect(query.returnHogql).toContain("properties['activation_revision']");
     expect(query.returnHogql).toContain("opened.project_id = activated.project_id");
-    expect(query.returnHogql).toContain("activated.activated_at + INTERVAL 7 DAY");
+    expect(query.returnHogql).toContain("opened.opened_at >= activated.activated_at + INTERVAL 7 DAY");
+    expect(query.returnHogql).toContain("opened.opened_at < activated.activated_at + INTERVAL 8 DAY");
     expect(query.returnHogql).toContain("eligible_activated_projects");
     expect(query.returnHogql).toContain("2026-07-27T12:00:00.000Z");
-    expect(query.returnHogql).toContain("2026-08-03T12:00:00.000Z");
+    expect(query.returnHogql).toContain("2026-08-02T12:00:00.000Z");
+    expect(query.returnHogql).toContain("activated_at <= toDateTime64('2026-08-02T12:00:00.000Z'");
+    expect(query.returnHogql).not.toContain("opened.opened_at <= activated.activated_at + INTERVAL 8 DAY");
     expect(query.returnHogql).toContain("event = 'project_opened'");
     expect(query.returnHogql).toContain("analytics_subject");
+    expect(query.metricsHogql).toContain("event = 'project_source_added'");
+    expect(query.metricsHogql).toContain("properties['source_kind'] = 'history'");
+    expect(query.metricsHogql).toContain("properties['source_kind'] = 'youtube_url'");
+    expect(query.metricsHogql).toContain("properties['readiness'] = 'ready'");
+    expect(query.metricsHogql).toContain("properties['readiness'] = 'processing'");
+    expect(query.metricsHogql).toContain("cost_eligible_activated_projects");
+    expect(query.metricsHogql).toContain("'project_opened'");
   });
 
   it.each([0, 14, 31])("rejects an unsupported %d-day window", (windowDays) => {
@@ -93,14 +108,19 @@ describe("Project adoption PostHog query", () => {
       searches: 3,
       messages: 4,
       helpfulFeedback: 9,
-      answersWithCitationDiagnostics: 23,
-      processingSucceeded: 24,
-      processingFailed: 25,
-      generationEvents: 26,
-      measuredGenerations: 27,
-      activeCostProjects: 28,
-      generationDurationMs: 29,
-      costUsdMicros: 30,
+      sourcesAdded: 12,
+      historySourcesAdded: 13,
+      youtubeUrlSourcesAdded: 14,
+      readySourcesAdded: 15,
+      processingSourcesAdded: 16,
+      answersWithCitationDiagnostics: 28,
+      processingSucceeded: 29,
+      processingFailed: 30,
+      generationEvents: 31,
+      measuredGenerations: 32,
+      costEligibleActivatedProjects: 33,
+      generationDurationMs: 34,
+      costUsdMicros: 35,
     });
   });
 

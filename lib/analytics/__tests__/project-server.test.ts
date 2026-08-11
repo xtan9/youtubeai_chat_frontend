@@ -230,6 +230,47 @@ describe("Project server analytics", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
+  it("records the qualifying transition and first generation usage atomically", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "record_project_activated_generation_usage") {
+        return { data: { outcome: "inserted" }, error: null };
+      }
+      if (name === "claim_project_activation_exports") {
+        return { data: { outcome: "empty", exports: [] }, error: null };
+      }
+      throw new Error(`unexpected RPC ${name}`);
+    });
+
+    await expect(
+      recordProjectGenerationUsage({
+        projectId: PROJECT_ID,
+        ownerId: OWNER_ID,
+        operationId: OPERATION_ID,
+        generationKind: "grounded_answer",
+        durationMs: 150,
+        businessAnalyticsSuppressed: false,
+        activation: {
+          trigger: "message",
+          occurredAt: "2026-08-09T20:00:00.123Z",
+        },
+      }),
+    ).resolves.toBe("inserted");
+
+    expect(mocks.rpc).toHaveBeenNthCalledWith(
+      1,
+      "record_project_activated_generation_usage",
+      expect.objectContaining({
+        p_trigger_kind: "message",
+        p_occurred_at: "2026-08-09T20:00:00.123Z",
+        p_operation_id: OPERATION_ID,
+      }),
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "record_project_generation_usage",
+      expect.anything(),
+    );
+  });
+
   it("uses only a complete, versioned configured rate card", async () => {
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_VERSION", "gateway-2026-08");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_SOURCE", "provider_contract");

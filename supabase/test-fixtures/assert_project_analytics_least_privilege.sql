@@ -44,7 +44,8 @@ begin
     'public.record_project_analytics_transition(uuid,uuid,text,timestamptz)',
     'public.claim_project_activation_exports(integer)',
     'public.ack_project_activation_export(uuid,bigint,uuid)',
-    'public.record_project_generation_usage(uuid,uuid,uuid,text,text,text,text,bigint,bigint,bigint,bigint,integer,text,text,date,text)'
+    'public.record_project_generation_usage(uuid,uuid,uuid,text,text,text,text,bigint,bigint,bigint,bigint,integer,text,text,date,text)',
+    'public.record_project_activated_generation_usage(uuid,uuid,uuid,text,text,text,text,bigint,bigint,bigint,bigint,integer,text,text,date,text,text,timestamptz)'
   ] loop
     function_oid := to_regprocedure(signature);
     if function_oid is null then continue; end if;

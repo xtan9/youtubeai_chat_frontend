@@ -419,6 +419,10 @@ export async function POST(request: Request, context: RouteContext) {
               durationMs: result.generation?.durationMs ?? 0,
               businessAnalyticsSuppressed:
                 researcher.principal.businessAnalyticsSuppressed,
+              activation: {
+                trigger: "message",
+                occurredAt: messageOccurredAt,
+              },
             });
           });
         }

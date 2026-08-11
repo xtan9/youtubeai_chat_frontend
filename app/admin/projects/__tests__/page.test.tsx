@@ -38,6 +38,11 @@ const report: ProjectAdoptionReport = {
     helpfulFeedback: 8,
     notHelpfulFeedback: 2,
     paywallViews: 3,
+    sourcesAdded: 20,
+    historySourcesAdded: 8,
+    youtubeUrlSourcesAdded: 12,
+    readySourcesAdded: 7,
+    processingSourcesAdded: 13,
     searchResults: 30,
     searchPassagesExamined: 100,
     groundedAnswers: 10,
@@ -54,12 +59,13 @@ const report: ProjectAdoptionReport = {
     processingFailed: 2,
     generationEvents: 6,
     measuredGenerations: 5,
-    activeCostProjects: 4,
+    costEligibleActivatedProjects: 4,
     generationDurationMs: 2400,
     costUsdMicros: 120000,
   },
   ratios: {
     sevenDayReturnPct: 75,
+    sourceReadyAtAddPct: 35,
     helpfulFeedbackPct: 80,
     retrievalYieldPct: 30,
     sourceCoverageIntegrityPct: 90,
@@ -103,6 +109,12 @@ describe("AdminProjectsPage", () => {
     expect(screen.getByText("75.0%")).toBeTruthy();
     expect(screen.getByText("Source Coverage integrity")).toBeTruthy();
     expect(screen.getByText("Processing failure rate")).toBeTruthy();
+    expect(screen.getByText("Sources added")).toBeTruthy();
+    expect(screen.getByText("Ready when added")).toBeTruthy();
+    expect(screen.getByText("Processing when added")).toBeTruthy();
+    expect(screen.getByText("History sources")).toBeTruthy();
+    expect(screen.getByText("YouTube URL sources")).toBeTruthy();
+    expect(screen.getByText("Ready-at-add rate")).toBeTruthy();
     expect(screen.getByText("Measured cost coverage")).toBeTruthy();
     expect(screen.getByText("$0.0300")).toBeTruthy();
     expect(screen.getByRole("table", { name: "Project failure classes" })).toBeTruthy();

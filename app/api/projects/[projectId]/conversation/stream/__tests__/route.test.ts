@@ -354,6 +354,17 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       false,
       `project-message:${PROJECT_ID}:${USER_MESSAGE_ID}`,
     );
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        operationId: ATTEMPT_TOKEN,
+        generationKind: "grounded_answer",
+        activation: {
+          trigger: "message",
+          occurredAt: expect.any(String),
+        },
+      }),
+    );
   });
 
   it("keeps guided synthesis on the grounded stream, persistence, and citation path", async () => {

@@ -27,6 +27,11 @@ const METRIC_COLUMNS = [
   "helpful_feedback",
   "not_helpful_feedback",
   "paywall_views",
+  "sources_added",
+  "history_sources_added",
+  "youtube_url_sources_added",
+  "ready_sources_added",
+  "processing_sources_added",
   "search_results",
   "search_passages_examined",
   "grounded_answers",
@@ -43,7 +48,7 @@ const METRIC_COLUMNS = [
   "processing_failed",
   "generation_events",
   "measured_generations",
-  "active_cost_projects",
+  "cost_eligible_activated_projects",
   "generation_duration_ms",
   "cost_usd_micros",
 ] as const;
@@ -205,6 +210,11 @@ test("protects and switches the complete 7d and 30d Project report", async ({
   await expect(page.getByText("75.0%")).toBeVisible();
   await expect(page.getByText("Source Coverage integrity")).toBeVisible();
   await expect(page.getByText("Processing failure rate")).toBeVisible();
+  await expect(page.getByText("Sources added")).toBeVisible();
+  await expect(page.getByText("Ready when added")).toBeVisible();
+  await expect(page.getByText("Processing when added")).toBeVisible();
+  await expect(page.getByText("Ready-at-add rate")).toBeVisible();
+  await expect(page.getByText("Active Projects in window")).toBeVisible();
   await expect(page.getByText("Cost per active Project")).toBeVisible();
   await expect(page.getByRole("table", { name: "Project failure classes" }))
     .toContainText("Quota");
@@ -325,7 +335,12 @@ async function handleFixtureRequest(
       return sendJson(response, 400, { detail: "unsafe Project query" });
     }
     if (body.name?.includes("seven_day_return")) {
-      if (!query.includes("INTERVAL 7 DAY") || !query.includes("project_opened")) {
+      if (
+        !query.includes("INTERVAL 7 DAY") ||
+        !query.includes("INTERVAL 8 DAY") ||
+        !query.includes("project_opened") ||
+        !query.includes("activated_at <=")
+      ) {
         return sendJson(response, 400, { detail: "invalid return query" });
       }
       return sendJson(response, 200, {
@@ -344,8 +359,10 @@ async function handleFixtureRequest(
     if (body.name?.includes("metrics")) {
       for (const required of [
         "project_grounded_answer_completed",
+        "project_source_added",
         "project_video_processing_succeeded",
         "project_generation_cost_recorded",
+        "cost_eligible_activated_projects",
       ]) {
         if (!query.includes(required)) {
           return sendJson(response, 400, { detail: "incomplete metrics query" });
@@ -354,7 +371,7 @@ async function handleFixtureRequest(
       return sendJson(response, 200, {
         columns: METRIC_COLUMNS,
         results: [[
-          10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 30, 100, 10, 9,
+          10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 20, 8, 12, 7, 13, 30, 100, 10, 9,
           25, 20, 15, 5, 80, 25, 4, 3, 18, 2, 6, 5, 4, 2400, 120000,
         ]],
         is_cached: false,

@@ -1,6 +1,8 @@
 import { BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER } from "./queries";
 
 const DAY_MS = 86_400_000;
+const D7_RETURN_START_DAYS = 7;
+const D7_RETURN_END_DAYS = 8;
 
 export type ProjectAdoptionWindowDays = 7 | 30;
 
@@ -21,6 +23,11 @@ export interface ProjectAdoptionMetrics {
   helpfulFeedback: number;
   notHelpfulFeedback: number;
   paywallViews: number;
+  sourcesAdded: number;
+  historySourcesAdded: number;
+  youtubeUrlSourcesAdded: number;
+  readySourcesAdded: number;
+  processingSourcesAdded: number;
   searchResults: number;
   searchPassagesExamined: number;
   groundedAnswers: number;
@@ -37,7 +44,7 @@ export interface ProjectAdoptionMetrics {
   processingFailed: number;
   generationEvents: number;
   measuredGenerations: number;
-  activeCostProjects: number;
+  costEligibleActivatedProjects: number;
   generationDurationMs: number;
   costUsdMicros: number;
 }
@@ -50,6 +57,8 @@ export interface ProjectAdoptionFailureRow {
 
 const REPORT_EVENTS = [
   "project_created",
+  "project_opened",
+  "project_source_added",
   "project_activated",
   "project_search_completed",
   "project_message_sent",
@@ -97,9 +106,11 @@ export function buildProjectAdoptionQuery(input: {
   };
   const returnCohort = {
     start: new Date(
-      new Date(window.start).getTime() - 7 * DAY_MS,
+      new Date(window.start).getTime() - D7_RETURN_START_DAYS * DAY_MS,
     ).toISOString(),
-    end: new Date(new Date(window.end).getTime() - 7 * DAY_MS).toISOString(),
+    end: new Date(
+      new Date(window.end).getTime() - D7_RETURN_END_DAYS * DAY_MS,
+    ).toISOString(),
   };
   const timeFilter = [
     `timestamp >= ${hogqlDateTime(window.start)}`,
@@ -118,6 +129,27 @@ export function buildProjectAdoptionQuery(input: {
   return {
     window,
     metricsHogql: [
+      "WITH activation_history AS (",
+      "  SELECT",
+      "    properties['project_id'] AS project_id,",
+      "    argMax(parseDateTime64BestEffortOrNull(properties['activation_occurred_at']), toUInt64OrZero(properties['activation_revision'])) AS activated_at",
+      "  FROM events",
+      "  WHERE event = 'project_activated'",
+      `    AND timestamp < ${hogqlDateTime(window.end)}`,
+      `    AND ${BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER}`,
+      "  GROUP BY project_id",
+      "), window_project_activity AS (",
+      "  SELECT DISTINCT properties['project_id'] AS project_id",
+      "  FROM events",
+      `  WHERE ${timeFilter}`,
+      `    AND event IN (${events})`,
+      `    AND ${BUSINESS_ANALYTICS_SMOKE_EXCLUSION_FILTER}`,
+      "), cost_eligible_activated AS (",
+      "  SELECT activation_history.project_id",
+      "  FROM activation_history",
+      "  INNER JOIN window_project_activity USING (project_id)",
+      `  WHERE activated_at < ${hogqlDateTime(window.end)}`,
+      ")",
       "SELECT",
       `  ${distinctProjects("project_created")} AS projects_created,`,
       `  ${distinctProjects("project_activated")} AS activated_projects,`,
@@ -130,6 +162,11 @@ export function buildProjectAdoptionQuery(input: {
       "  countIf(event = 'project_answer_feedback_submitted' AND properties['rating'] = 'helpful') AS helpful_feedback,",
       "  countIf(event = 'project_answer_feedback_submitted' AND properties['rating'] = 'not_helpful') AS not_helpful_feedback,",
       "  countIf(event IN ('project_paywall_viewed', 'project_limit_reached')) AS paywall_views,",
+      "  countIf(event = 'project_source_added') AS sources_added,",
+      "  countIf(event = 'project_source_added' AND properties['source_kind'] = 'history') AS history_sources_added,",
+      "  countIf(event = 'project_source_added' AND properties['source_kind'] = 'youtube_url') AS youtube_url_sources_added,",
+      "  countIf(event = 'project_source_added' AND properties['readiness'] = 'ready') AS ready_sources_added,",
+      "  countIf(event = 'project_source_added' AND properties['readiness'] = 'processing') AS processing_sources_added,",
       "  sumIf(toUInt64OrZero(properties['result_count']), event = 'project_search_completed') AS search_results,",
       "  sumIf(toUInt64OrZero(properties['passages_examined']), event = 'project_search_completed') AS search_passages_examined,",
       "  countIf(event = 'project_grounded_answer_completed') AS grounded_answers,",
@@ -146,7 +183,7 @@ export function buildProjectAdoptionQuery(input: {
       "  countIf(event = 'project_video_processing_failed') AS processing_failed,",
       "  countIf(event = 'project_generation_cost_recorded') AS generation_events,",
       "  countIf(event = 'project_generation_cost_recorded' AND properties['cost_status'] = 'measured') AS measured_generations,",
-      `  ${distinctProjects("project_generation_cost_recorded")} AS active_cost_projects,`,
+      "  (SELECT count() FROM cost_eligible_activated) AS cost_eligible_activated_projects,",
       "  sumIf(toUInt64OrZero(properties['duration_ms']), event = 'project_generation_cost_recorded') AS generation_duration_ms,",
       "  sumIf(toUInt64OrZero(properties['cost_usd_micros']), event = 'project_generation_cost_recorded' AND properties['cost_status'] = 'measured') AS cost_usd_micros",
       "FROM events",
@@ -168,7 +205,7 @@ export function buildProjectAdoptionQuery(input: {
       "  SELECT project_id, activated_at",
       "  FROM activation_history",
       `  WHERE activated_at >= ${hogqlDateTime(returnCohort.start)}`,
-      `    AND activated_at < ${hogqlDateTime(returnCohort.end)}`,
+      `    AND activated_at <= ${hogqlDateTime(returnCohort.end)}`,
       "), opened AS (",
       "  SELECT properties['project_id'] AS project_id, timestamp AS opened_at",
       "  FROM events",
@@ -178,7 +215,7 @@ export function buildProjectAdoptionQuery(input: {
       ")",
       "SELECT",
       "  count(DISTINCT activated.project_id) AS eligible_activated_projects,",
-      "  count(DISTINCT if(opened.opened_at >= activated.activated_at + INTERVAL 7 DAY, opened.project_id, NULL)) AS returned_projects",
+      "  count(DISTINCT if(opened.opened_at >= activated.activated_at + INTERVAL 7 DAY AND opened.opened_at < activated.activated_at + INTERVAL 8 DAY, opened.project_id, NULL)) AS returned_projects",
       "FROM activated",
       "LEFT JOIN opened ON opened.project_id = activated.project_id",
     ].join("\n"),
@@ -209,6 +246,11 @@ const METRIC_COLUMNS = {
   helpfulFeedback: "helpful_feedback",
   notHelpfulFeedback: "not_helpful_feedback",
   paywallViews: "paywall_views",
+  sourcesAdded: "sources_added",
+  historySourcesAdded: "history_sources_added",
+  youtubeUrlSourcesAdded: "youtube_url_sources_added",
+  readySourcesAdded: "ready_sources_added",
+  processingSourcesAdded: "processing_sources_added",
   searchResults: "search_results",
   searchPassagesExamined: "search_passages_examined",
   groundedAnswers: "grounded_answers",
@@ -225,7 +267,7 @@ const METRIC_COLUMNS = {
   processingFailed: "processing_failed",
   generationEvents: "generation_events",
   measuredGenerations: "measured_generations",
-  activeCostProjects: "active_cost_projects",
+  costEligibleActivatedProjects: "cost_eligible_activated_projects",
   generationDurationMs: "generation_duration_ms",
   costUsdMicros: "cost_usd_micros",
 } as const;

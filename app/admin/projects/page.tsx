@@ -49,6 +49,11 @@ export default async function AdminProjectsPage({
           content are never queried.
           {report.isCached ? " Cached result." : ""}
         </p>
+        <p className="muted">
+          D7 return means an open of the same stable activated Project from
+          day 7 inclusive to day 8 exclusive; only activation cohorts with the
+          full observation interval are eligible.
+        </p>
 
         <MetricSection title="Adoption and return">
           <Metric label="Projects created" value={metrics.projectsCreated} />
@@ -87,6 +92,12 @@ export default async function AdminProjectsPage({
         </MetricSection>
 
         <MetricSection title="Processing and active-Project cost">
+          <Metric label="Sources added" value={metrics.sourcesAdded} />
+          <Metric label="History sources" value={metrics.historySourcesAdded} />
+          <Metric label="YouTube URL sources" value={metrics.youtubeUrlSourcesAdded} />
+          <Metric label="Ready when added" value={metrics.readySourcesAdded} />
+          <Metric label="Processing when added" value={metrics.processingSourcesAdded} />
+          <Metric label="Ready-at-add rate" value={formatPct(ratios.sourceReadyAtAddPct)} />
           <Metric label="Processing succeeded" value={metrics.processingSucceeded} />
           <Metric label="Processing failed" value={metrics.processingFailed} />
           <Metric
@@ -94,7 +105,10 @@ export default async function AdminProjectsPage({
             value={formatPct(ratios.processingFailurePct)}
           />
           <Metric label="Generation records" value={metrics.generationEvents} />
-          <Metric label="Active cost Projects" value={metrics.activeCostProjects} />
+          <Metric
+            label="Active Projects in window"
+            value={metrics.costEligibleActivatedProjects}
+          />
           <Metric
             label="Measured cost coverage"
             value={formatPct(ratios.measuredCostCoveragePct)}

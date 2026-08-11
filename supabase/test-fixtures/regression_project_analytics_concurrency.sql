@@ -8,20 +8,33 @@ set search_path = public, extensions;
 begin;
 
 insert into auth.users (id, is_anonymous)
-values ('fa000000-0000-4000-8000-000000000001', false)
+values
+  ('fa000000-0000-4000-8000-000000000001', false),
+  ('fa000000-0000-4000-8000-000000000002', false)
 on conflict (id) do update set is_anonymous = excluded.is_anonymous;
 
 insert into public.projects (id, workspace_id, name, created_at)
-select
-  'fa100000-0000-4000-8000-000000000001',
-  id,
-  'Analytics concurrency fixture',
+select fixture.project_id, workspaces.id, fixture.project_name,
   clock_timestamp() - interval '10 minutes'
 from public.workspaces
-where owner_id = 'fa000000-0000-4000-8000-000000000001';
+join (values
+  (
+    'fa100000-0000-4000-8000-000000000001'::uuid,
+    'fa000000-0000-4000-8000-000000000001'::uuid,
+    'Activation correction race'
+  ),
+  (
+    'fa100000-0000-4000-8000-000000000002'::uuid,
+    'fa000000-0000-4000-8000-000000000002'::uuid,
+    'Activation and first usage race'
+  )
+) as fixture(project_id, owner_id, project_name)
+  on workspaces.owner_id = fixture.owner_id;
 
 insert into public.project_source_sets (project_id, revision)
-values ('fa100000-0000-4000-8000-000000000001', 2);
+values
+  ('fa100000-0000-4000-8000-000000000001', 2),
+  ('fa100000-0000-4000-8000-000000000002', 2);
 
 insert into public.videos (
   id, youtube_url, url_hash, title, channel_name, language
@@ -83,6 +96,20 @@ insert into public.project_videos (
     2,
     'ready',
     clock_timestamp() - interval '2 minutes'
+  ),
+  (
+    'fa100000-0000-4000-8000-000000000002',
+    'fa200000-0000-4000-8000-000000000001',
+    1,
+    'ready',
+    clock_timestamp() - interval '2 minutes'
+  ),
+  (
+    'fa100000-0000-4000-8000-000000000002',
+    'fa200000-0000-4000-8000-000000000002',
+    2,
+    'ready',
+    clock_timestamp() - interval '2 minutes'
   );
 
 commit;
@@ -102,6 +129,12 @@ declare
   outbox_times timestamptz[];
   claimed_versions bigint[];
   delivered_count integer;
+  first_usage jsonb;
+  second_usage jsonb;
+  atomic_state public.project_analytics_state%rowtype;
+  atomic_usage_count integer;
+  atomic_outbox_count integer;
+  atomic_occurred_at timestamptz := clock_timestamp() - interval '30 seconds';
 begin
   perform dblink_connect('analytics_earlier', connection_string);
   perform dblink_connect('analytics_later', connection_string);
@@ -236,13 +269,76 @@ begin
       ack_earlier, ack_later, delivered_count;
   end if;
 
+  -- Two real sessions starting from no analytics state prove each successful
+  -- generation performs its qualifying transition before usage admission.
+  perform dblink_send_query(
+    'analytics_earlier',
+    format($query$
+      select public.record_project_activated_generation_usage(
+        'fa100000-0000-4000-8000-000000000002',
+        'fa000000-0000-4000-8000-000000000002',
+        'fa300000-0000-4000-8000-000000000001',
+        'grounded_answer', 'gpt-5.3-codex-spark', 'cliproxyapi',
+        'unavailable', null, null, null, null, 125,
+        null, null, null, 'usage_unavailable',
+        'message', %L::timestamptz
+      )
+    $query$, atomic_occurred_at)
+  );
+  perform dblink_send_query(
+    'analytics_later',
+    format($query$
+      select public.record_project_activated_generation_usage(
+        'fa100000-0000-4000-8000-000000000002',
+        'fa000000-0000-4000-8000-000000000002',
+        'fa300000-0000-4000-8000-000000000002',
+        'grounded_answer', 'gpt-5.3-codex-spark', 'cliproxyapi',
+        'unavailable', null, null, null, null, 150,
+        null, null, null, 'usage_unavailable',
+        'message', %L::timestamptz
+      )
+    $query$, atomic_occurred_at)
+  );
+  select result into first_usage
+  from dblink_get_result('analytics_earlier') as raced(result jsonb);
+  select result into second_usage
+  from dblink_get_result('analytics_later') as raced(result jsonb);
+  perform result
+  from dblink_get_result('analytics_earlier') as cleared(result jsonb);
+  perform result
+  from dblink_get_result('analytics_later') as cleared(result jsonb);
+
+  select * into atomic_state
+  from public.project_analytics_state
+  where project_id = 'fa100000-0000-4000-8000-000000000002';
+  select count(*)::integer into atomic_usage_count
+  from public.project_generation_usage
+  where project_id = 'fa100000-0000-4000-8000-000000000002';
+  select count(*)::integer into atomic_outbox_count
+  from public.project_activation_outbox
+  where project_id = 'fa100000-0000-4000-8000-000000000002';
+  if first_usage ->> 'outcome' <> 'inserted'
+    or second_usage ->> 'outcome' <> 'inserted'
+    or atomic_state.activation_kind <> 'message'
+    or atomic_state.activation_revision <> 1
+    or atomic_usage_count <> 2
+    or atomic_outbox_count <> 1 then
+    raise exception
+      'REGRESSION: atomic activation/usage race lost data (a %, b %, state %, usage %, outbox %)',
+      first_usage, second_usage, row_to_json(atomic_state),
+      atomic_usage_count, atomic_outbox_count;
+  end if;
+
   perform dblink_disconnect('analytics_earlier');
   perform dblink_disconnect('analytics_later');
 end;
 $$;
 
 delete from auth.users
-where id = 'fa000000-0000-4000-8000-000000000001';
+where id in (
+  'fa000000-0000-4000-8000-000000000001',
+  'fa000000-0000-4000-8000-000000000002'
+);
 
 delete from public.videos
 where id in (
