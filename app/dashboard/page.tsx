@@ -47,9 +47,12 @@ export default async function DashboardPage() {
   const greetingName = fullName ?? emailLocal ?? "there";
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-8">
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
       <header className="flex flex-col gap-1">
-        <h1 className="text-h2 font-bold text-text-primary">
+        <p className="text-caption font-medium uppercase tracking-wider text-text-muted">
+          Your workspace
+        </p>
+        <h1 className="text-h3 font-bold text-text-primary sm:text-h2">
           Welcome back, {greetingName}
         </h1>
         <p className="text-body-md text-text-secondary">
@@ -58,10 +61,10 @@ export default async function DashboardPage() {
       </header>
 
       <section className="w-full">
-        <InputForm />
+        <InputForm variant="compact" />
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
           <h2 className="text-h4 font-semibold text-text-primary">Recent</h2>
           {showViewAll ? (
@@ -74,7 +77,11 @@ export default async function DashboardPage() {
           ) : null}
         </div>
         {result.ok ? (
-          <HistoryList rows={result.rows} chatCounts={chatCounts} />
+          <HistoryList
+            rows={result.rows}
+            variant="compact"
+            chatCounts={chatCounts}
+          />
         ) : (
           <HistoryFetchError message="Couldn't load your history right now. Please refresh in a moment." />
         )}
