@@ -3,9 +3,9 @@ import {
   type RequestPrincipal,
 } from "@/lib/auth/request-principal";
 import {
-  clearChatMessages,
-  listChatMessages,
-} from "@/lib/services/chat-store";
+  clearVideoChatMessages,
+  listVideoChatMessages,
+} from "@/lib/services/video-chat-history";
 import {
   resolveVideoChatSubject,
   type CanonicalVideoIdentity,
@@ -180,9 +180,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const messages = await listChatMessages(
+    const messages = await listVideoChatMessages(
       auth.principal.userId,
-      retainedThread.videoId,
+      retainedThread,
     );
     const body: ChatMessagesResponse = {
       messages: messages.map((m) => ({
@@ -234,7 +234,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await clearChatMessages(auth.principal.userId, retainedThread.videoId);
+    await clearVideoChatMessages(auth.principal.userId, retainedThread);
     return new Response(null, { status: 204 });
   } catch (err) {
     logAppEvent("error", "[chat/messages] clear failed", {

@@ -9,6 +9,9 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  updateUser: vi.fn(),
+  linkIdentity: vi.fn(),
   signUp: vi.fn(),
   signInWithOAuth: vi.fn(),
   push: vi.fn(),
@@ -18,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     auth: {
+      getUser: mocks.getUser,
+      updateUser: mocks.updateUser,
+      linkIdentity: mocks.linkIdentity,
       signUp: mocks.signUp,
       signInWithOAuth: mocks.signInWithOAuth,
     },
@@ -35,6 +41,10 @@ vi.mock("@/lib/analytics/client", () => ({
 import { SignUpForm } from "../sign-up-form";
 
 beforeEach(() => {
+  mocks.getUser.mockReset();
+  mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+  mocks.updateUser.mockReset();
+  mocks.linkIdentity.mockReset();
   mocks.signUp.mockReset();
   mocks.signInWithOAuth.mockReset();
   mocks.push.mockReset();
@@ -65,6 +75,94 @@ function setSignupLocation(redirectTo?: string) {
 }
 
 describe("SignUpForm analytics", () => {
+  it("treats a missing signed-out session as a normal email signup", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("Auth session missing!"), {
+        name: "AuthSessionMissingError",
+        status: 400,
+      }),
+    });
+    mocks.signUp.mockResolvedValue({
+      data: { user: { identities: [{ id: "identity-1" }] }, session: null },
+      error: null,
+    });
+    render(<SignUpForm />);
+
+    submitValidForm();
+
+    await waitFor(() => expect(mocks.signUp).toHaveBeenCalledTimes(1));
+    expect(mocks.updateUser).not.toHaveBeenCalled();
+    expect(screen.queryByText("Auth session missing!")).toBeNull();
+  });
+
+  it("treats a missing signed-out session as a normal Google signup", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("Auth session missing!"), {
+        name: "AuthSessionMissingError",
+        status: 400,
+      }),
+    });
+    mocks.signInWithOAuth.mockResolvedValue({ error: null });
+    render(<SignUpForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+
+    await waitFor(() => expect(mocks.signInWithOAuth).toHaveBeenCalledTimes(1));
+    expect(mocks.linkIdentity).not.toHaveBeenCalled();
+    expect(screen.queryByText("Auth session missing!")).toBeNull();
+  });
+
+  it("converts an anonymous email account in place so retained conversations keep their owner", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anonymous-user-1", is_anonymous: true } },
+      error: null,
+    });
+    mocks.updateUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "anonymous-user-1",
+          is_anonymous: false,
+          identities: [{ id: "identity-1" }],
+        },
+      },
+      error: null,
+    });
+    setSignupLocation("/?demo=Hrbq66XqtCo");
+    render(<SignUpForm />);
+
+    submitValidForm();
+
+    await waitFor(() => expect(mocks.updateUser).toHaveBeenCalled());
+    const [attributes, options] = mocks.updateUser.mock.calls[0];
+    expect(attributes).toEqual({ email: "new@example.com", password: "secret123" });
+    const emailRedirect = new URL(options.emailRedirectTo);
+    expect(emailRedirect.pathname).toBe("/auth/callback");
+    expect(emailRedirect.searchParams.get("next")).toBe("/?demo=Hrbq66XqtCo");
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledWith("/auth/sign-up-success");
+  });
+
+  it("links Google to the existing anonymous user instead of replacing its identity", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: "anonymous-user-1", is_anonymous: true } },
+      error: null,
+    });
+    mocks.linkIdentity.mockResolvedValue({ error: null });
+    setSignupLocation("/?demo=Hrbq66XqtCo");
+    render(<SignUpForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+
+    await waitFor(() => expect(mocks.linkIdentity).toHaveBeenCalled());
+    const request = mocks.linkIdentity.mock.calls[0][0];
+    const oauthRedirect = new URL(request.options.redirectTo);
+    expect(oauthRedirect.pathname).toBe("/auth/callback");
+    expect(oauthRedirect.searchParams.get("next")).toBe("/?demo=Hrbq66XqtCo");
+    expect(mocks.signInWithOAuth).not.toHaveBeenCalled();
+  });
+
   it("sends email confirmation to /auth/callback with the default dashboard destination", async () => {
     mocks.signUp.mockResolvedValue({
       data: {

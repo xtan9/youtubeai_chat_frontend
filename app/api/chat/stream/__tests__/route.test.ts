@@ -57,10 +57,10 @@ vi.mock("@/lib/services/video-chat-subject", () => ({
   resolveVideoChatSubject: mocks.resolveVideoChatSubject,
 }));
 
-vi.mock("@/lib/services/chat-store", () => ({
-  listChatMessages: mocks.listChatMessages,
-  appendChatTurn: mocks.appendChatTurn,
-  appendChatUserMessage: mocks.appendChatUserMessage,
+vi.mock("@/lib/services/video-chat-history", () => ({
+  listVideoChatMessages: mocks.listChatMessages,
+  appendVideoChatTurn: mocks.appendChatTurn,
+  appendVideoChatUserMessage: mocks.appendChatUserMessage,
 }));
 
 vi.mock("@/lib/services/llm-chat-client", () => ({
@@ -164,7 +164,7 @@ function databaseSubject(
     subject: {
       identity: VALID_IDENTITY,
       source: "database" as const,
-      retainedThread: { videoId: "video-uuid" },
+      retainedThread: { kind: "database" as const, videoId: "video-uuid" },
       entitlement: { videoId: "video-uuid" },
       grounding: { load: mocks.loadGrounding },
       ...overrides,
@@ -172,7 +172,7 @@ function databaseSubject(
   };
 }
 
-function statelessSubject(
+function heroDemoSubject(
   overrides: Partial<VideoChatSubject> = {},
 ) {
   return {
@@ -180,6 +180,10 @@ function statelessSubject(
     subject: {
       identity: HERO_IDENTITY,
       source: "hero_demo" as const,
+      retainedThread: {
+        kind: "hero_demo" as const,
+        youtubeVideoId: HERO_IDENTITY.youtubeVideoId,
+      },
       grounding: { load: mocks.loadGrounding },
       ...overrides,
     },
@@ -381,8 +385,22 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
+    mocks.listChatMessages.mockResolvedValue([
+      {
+        id: "history-user",
+        role: "user",
+        content: "What happened first?",
+        createdAt: "2026-08-10T00:00:00Z",
+      },
+      {
+        id: "history-assistant",
+        role: "assistant",
+        content: "The speaker introduced the topic.",
+        createdAt: "2026-08-10T00:00:01Z",
+      },
+    ]);
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "Grounded answer" };
       yield { type: "done" as const };
@@ -408,11 +426,27 @@ describe("POST /api/chat/stream", () => {
       mocks.markAnonymousTrialChatMessageStarted.mock.invocationCallOrder[0],
     ).toBeLessThan(mocks.streamChatCompletion.mock.invocationCallOrder[0]);
     expect(mocks.streamChatCompletion).toHaveBeenCalledWith(
-      expect.objectContaining({ maxOutputTokens: 600 }),
+      expect.objectContaining({
+        maxOutputTokens: 600,
+        messages: expect.arrayContaining([
+          expect.objectContaining({ content: "What happened first?" }),
+          expect.objectContaining({ content: "The speaker introduced the topic." }),
+        ]),
+      }),
     );
     expect((await readSse(response.body!)).join("")).toContain(
       '"type":"anonymous_trial_admitted","reservationId":"018f3f4e-8454-7e8b-a98d-f319b5c32291","remainingMessages":4',
     );
+    expect(mocks.listChatMessages).toHaveBeenCalledWith(
+      "anonymous-trial-user",
+      heroDemoSubject().subject.retainedThread,
+    );
+    expect(mocks.appendChatTurn).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      thread: heroDemoSubject().subject.retainedThread,
+      userMessage: "What does the speaker recommend?",
+      assistantMessage: "Grounded answer",
+    });
   });
 
   it("rejects an enabled Anonymous Trial on a retained Video before Grounding or admission", async () => {
@@ -461,7 +495,7 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
       outcome: "exhausted",
@@ -489,7 +523,7 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
       outcome: "unavailable",
@@ -518,7 +552,7 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.markAnonymousTrialChatMessageStarted.mockResolvedValue({
       outcome: "unavailable",
@@ -544,7 +578,7 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       throw new Error("gateway failed after admission");
@@ -562,13 +596,13 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.refundAnonymousTrialChatMessage).not.toHaveBeenCalled();
   });
 
-  it("streams stateless subject Grounding without entitlement or retention", async () => {
+  it("streams Hero Demo Grounding without entitlement while retaining its thread", async () => {
     // Simulates the bug condition: the DB cache for these ids was
     // never seeded because the hero registry serves them from static
     // files. Before the fix, this 404'd with "Generate the summary
     // first…" — the test pins that the demo path is now self-contained.
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "ok" };
@@ -582,14 +616,22 @@ describe("POST /api/chat/stream", () => {
     expect(events).toContain('"type":"delta"');
     expect(events).toContain('"type":"done"');
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
-    expect(mocks.listChatMessages).not.toHaveBeenCalled();
-    expect(mocks.appendChatTurn).not.toHaveBeenCalled();
+    expect(mocks.listChatMessages).toHaveBeenCalledWith(
+      "demo-user",
+      heroDemoSubject().subject.retainedThread,
+    );
+    expect(mocks.appendChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "demo-user",
+        thread: heroDemoSubject().subject.retainedThread,
+      }),
+    );
     expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
   });
 
   it("maps Grounding not-ready to the existing Summary-not-found response", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue({ status: "not_ready" });
     const { POST } = await import("../route");
     const HERO_URL = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
@@ -680,8 +722,8 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
   });
 
-  it("does not stream when the subject boundary reports stateless Grounding unavailable", async () => {
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+  it("does not stream when the Hero Demo Grounding boundary is unavailable", async () => {
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue({ status: "unavailable" });
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "should not stream" };
@@ -712,7 +754,13 @@ describe("POST /api/chat/stream", () => {
 
   it("atomically admits Registered Free Hero Demo chat and exposes authoritative remaining allowance", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.checkChatEntitlement.mockResolvedValue({
+      tier: "free",
+      allowed: false,
+      remaining: 0,
+      reason: "exceeded",
+    });
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "ok" };
@@ -735,7 +783,7 @@ describe("POST /api/chat/stream", () => {
 
   it("returns the normal plan upgrade outcome when a Registered Free Hero Demo allowance is exhausted", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.admitRegisteredFreeHeroDemoChatMessage.mockResolvedValue({
       outcome: "exhausted",
@@ -770,7 +818,7 @@ describe("POST /api/chat/stream", () => {
       subscription: null,
       presentation: { state: "active_pro", plan: null, renewsAt: null },
     });
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     mocks.streamChatCompletion.mockImplementation(async function* () {
       yield { type: "delta" as const, text: "unlimited" };
@@ -810,7 +858,7 @@ describe("POST /api/chat/stream", () => {
       mocks.resolveRequestPrincipal.mockResolvedValue(
         resolvedPrincipal("free-demo-user"),
       );
-      mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+      mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
       mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
       arrange();
 
@@ -843,7 +891,7 @@ describe("POST /api/chat/stream", () => {
       yield { type: "delta" as const, text: "ok" };
       yield { type: "done" as const };
     });
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     const { POST } = await import("../route");
     const res = await POST(
@@ -997,7 +1045,7 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.appendChatTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "u1",
-        videoId: "video-uuid",
+        thread: databaseSubject().subject.retainedThread,
         userMessage: "Hi",
         assistantMessage: "Hello world.",
       })
@@ -1037,9 +1085,14 @@ describe("POST /api/chat/stream", () => {
     await readSse(res.body!);
 
     expect(mocks.checkChatEntitlement).not.toHaveBeenCalled();
-    expect(mocks.listChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
+    expect(mocks.listChatMessages).toHaveBeenCalledWith(
+      "u1",
+      databaseSubject().subject.retainedThread,
+    );
     expect(mocks.appendChatTurn).toHaveBeenCalledWith(
-      expect.objectContaining({ videoId: "video-uuid" }),
+      expect.objectContaining({
+        thread: databaseSubject().subject.retainedThread,
+      }),
     );
   });
 
@@ -1123,14 +1176,14 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
       "u1",
-      "video-uuid",
-      "Hi"
+      databaseSubject().subject.retainedThread,
+      "Hi",
     );
   });
 
-  it("does not retain a stateless subject when the caller aborts mid-stream", async () => {
+  it("retains the Hero Demo question when the caller aborts mid-stream", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(resolvedPrincipal("demo-user"));
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     const controller = new AbortController();
     mocks.streamChatCompletion.mockImplementation(async function* (
@@ -1157,7 +1210,11 @@ describe("POST /api/chat/stream", () => {
     const res = await POST(req);
     await readSse(res.body!).catch(() => []);
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
-    expect(mocks.appendChatUserMessage).not.toHaveBeenCalled();
+    expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
+      "demo-user",
+      heroDemoSubject().subject.retainedThread,
+      "hi",
+    );
   });
 
   it("does NOT double-insert when cancel() fires after a clean appendChatTurn", async () => {
@@ -1229,7 +1286,7 @@ describe("POST /api/chat/stream", () => {
     // reload and the user can retry without retyping.
     expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
       "u1",
-      "video-uuid",
+      databaseSubject().subject.retainedThread,
       "Hi"
     );
   });
@@ -1249,7 +1306,7 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
       "u1",
-      "video-uuid",
+      databaseSubject().subject.retainedThread,
       "Hi"
     );
   });
@@ -1268,7 +1325,7 @@ describe("POST /api/chat/stream", () => {
     expect(mocks.appendChatTurn).not.toHaveBeenCalled();
     expect(mocks.appendChatUserMessage).toHaveBeenCalledWith(
       "u1",
-      "video-uuid",
+      databaseSubject().subject.retainedThread,
       "Hi"
     );
   });

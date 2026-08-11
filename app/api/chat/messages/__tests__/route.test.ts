@@ -15,9 +15,9 @@ vi.mock("@/lib/services/video-chat-subject", () => ({
   resolveVideoChatSubject: mocks.resolveVideoChatSubject,
 }));
 
-vi.mock("@/lib/services/chat-store", () => ({
-  listChatMessages: mocks.listChatMessages,
-  clearChatMessages: mocks.clearChatMessages,
+vi.mock("@/lib/services/video-chat-history", () => ({
+  listVideoChatMessages: mocks.listChatMessages,
+  clearVideoChatMessages: mocks.clearChatMessages,
 }));
 
 const VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
@@ -30,7 +30,7 @@ const DATABASE_SUBJECT = {
   subject: {
     identity: VALID_IDENTITY,
     source: "database",
-    retainedThread: { videoId: "video-uuid" },
+    retainedThread: { kind: "database", videoId: "video-uuid" },
     entitlement: { videoId: "video-uuid" },
     suggestionCache: { videoId: "video-uuid" },
   },
@@ -43,6 +43,10 @@ const HERO_DEMO_SUBJECT = {
       canonicalUrl: "https://www.youtube.com/watch?v=Hrbq66XqtCo",
     },
     source: "hero_demo",
+    retainedThread: {
+      kind: "hero_demo",
+      youtubeVideoId: "Hrbq66XqtCo",
+    },
   },
 };
 const NOT_READY_SUBJECT = {
@@ -102,7 +106,7 @@ describe("/api/chat/messages", () => {
       expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
     });
 
-    it("accepts a resolved anonymous principal without adding an authorization rule", async () => {
+    it("loads the anonymous principal's retained Hero Demo conversation", async () => {
       mocks.resolveRequestPrincipal.mockResolvedValue({
         kind: "resolved",
         principal: {
@@ -112,6 +116,14 @@ describe("/api/chat/messages", () => {
         },
       });
       mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
+      mocks.listChatMessages.mockResolvedValue([
+        {
+          id: "hero-message-1",
+          role: "user",
+          content: "Continue this thought",
+          createdAt: "2026-08-10T00:00:00Z",
+        },
+      ]);
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(
@@ -120,7 +132,18 @@ describe("/api/chat/messages", () => {
       );
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ messages: [] });
+      expect(await res.json()).toEqual({
+        messages: [
+          expect.objectContaining({
+            id: "hero-message-1",
+            content: "Continue this thought",
+          }),
+        ],
+      });
+      expect(mocks.listChatMessages).toHaveBeenCalledWith(
+        "anon-1",
+        HERO_DEMO_SUBJECT.subject.retainedThread,
+      );
     });
 
     it("returns 400 when the resolver rejects an unresolvable video URL", async () => {
@@ -143,9 +166,9 @@ describe("/api/chat/messages", () => {
       );
     });
 
-    it("returns empty messages for a stateless Hero Demo subject", async () => {
+    it("returns the selected Hero Demo history without mixing another demo", async () => {
       mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
-      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      mocks.listChatMessages.mockResolvedValue([]);
       const { GET } = await import("../route");
       const res = await GET(
         makeReq(
@@ -155,14 +178,10 @@ describe("/api/chat/messages", () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ messages: [] });
-      expect(infoSpy).toHaveBeenCalledWith(
-        "[chat/messages] empty list - no retained thread",
-        expect.objectContaining({
-          errorId: "CHAT_MESSAGES_NO_RETAINED_THREAD",
-          reason: "stateless",
-        }),
+      expect(mocks.listChatMessages).toHaveBeenCalledWith(
+        "u1",
+        HERO_DEMO_SUBJECT.subject.retainedThread,
       );
-      expect(mocks.listChatMessages).not.toHaveBeenCalled();
     });
 
     it("returns empty messages for a database subject that is not ready", async () => {
@@ -213,7 +232,10 @@ describe("/api/chat/messages", () => {
           },
         ],
       });
-      expect(mocks.listChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
+      expect(mocks.listChatMessages).toHaveBeenCalledWith(
+        "u1",
+        DATABASE_SUBJECT.subject.retainedThread,
+      );
     });
 
     it("returns 503 when subject resolution is unavailable", async () => {
@@ -295,9 +317,9 @@ describe("/api/chat/messages", () => {
       expect(mocks.resolveVideoChatSubject).not.toHaveBeenCalled();
     });
 
-    it("returns 204 for a stateless Hero Demo subject (idempotent)", async () => {
+    it("clears only the selected Hero Demo conversation", async () => {
       mocks.resolveVideoChatSubject.mockResolvedValue(HERO_DEMO_SUBJECT);
-      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      mocks.clearChatMessages.mockResolvedValue(undefined);
       const { DELETE } = await import("../route");
       const res = await DELETE(
         makeReq(
@@ -307,14 +329,10 @@ describe("/api/chat/messages", () => {
       );
 
       expect(res.status).toBe(204);
-      expect(infoSpy).toHaveBeenCalledWith(
-        "[chat/messages] clear no-op - no retained thread",
-        expect.objectContaining({
-          errorId: "CHAT_MESSAGES_CLEAR_NO_RETAINED_THREAD",
-          reason: "stateless",
-        }),
+      expect(mocks.clearChatMessages).toHaveBeenCalledWith(
+        "u1",
+        HERO_DEMO_SUBJECT.subject.retainedThread,
       );
-      expect(mocks.clearChatMessages).not.toHaveBeenCalled();
     });
 
     it("returns 204 for a database subject that is not ready (idempotent)", async () => {
@@ -350,7 +368,10 @@ describe("/api/chat/messages", () => {
       );
 
       expect(res.status).toBe(204);
-      expect(mocks.clearChatMessages).toHaveBeenCalledWith("u1", "video-uuid");
+      expect(mocks.clearChatMessages).toHaveBeenCalledWith(
+        "u1",
+        DATABASE_SUBJECT.subject.retainedThread,
+      );
     });
 
     it("returns 503 when subject resolution is unavailable", async () => {

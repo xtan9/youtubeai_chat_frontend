@@ -6,11 +6,11 @@ import {
   resolveRegisteredSubscription,
 } from "@/lib/services/entitlements";
 import {
-  appendChatTurn,
-  appendChatUserMessage,
-  listChatMessages,
-  type ChatMessageRow,
-} from "@/lib/services/chat-store";
+  appendVideoChatTurn,
+  appendVideoChatUserMessage,
+  listVideoChatMessages,
+} from "@/lib/services/video-chat-history";
+import type { ChatMessageRow } from "@/lib/services/chat-store";
 import { buildChatMessages, MAX_HISTORY_MESSAGES } from "@/lib/prompts/chat";
 import { streamChatCompletion } from "@/lib/services/llm-chat-client";
 import { formatSseEvent } from "@/lib/services/llm-client";
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
 
   // Every authenticated request consumes the same per-user rate limit.
   // Entitlement and retention are selected by the resolved subject because
-  // stateless subjects have no database-backed targets.
+  // some future subject kinds may have neither boundary.
   //
   // The subject resolver is the only source boundary for Grounding; this
   // route never assembles evidence from cache or static source helpers.
@@ -432,7 +432,7 @@ export async function POST(request: Request) {
     history = [];
   } else {
     try {
-      const fullHistory = await listChatMessages(userId, retainedThread.videoId);
+      const fullHistory = await listVideoChatMessages(userId, retainedThread);
       // Cap history at the route boundary so a long-running thread can't
       // blow the LLM's context window and the per-turn token cost stays
       // bounded regardless of how many turns the user has accumulated.
@@ -444,7 +444,10 @@ export async function POST(request: Request) {
       logAppEvent("error", "[chat/stream] history load failed", {
         errorId: "CHAT_HISTORY_LOAD_FAILED",
         userId,
-        videoId: retainedThread.videoId,
+        videoId:
+          retainedThread.kind === "database"
+            ? retainedThread.videoId
+            : retainedThread.youtubeVideoId,
         errorName: err instanceof Error ? err.name : typeof err,
         requestId,
       });
@@ -519,7 +522,7 @@ export async function POST(request: Request) {
   // `userMessagePersisted` prevents duplicate user-only writes on abort races.
   let closed = false;
   let assistantBuffer = "";
-  // A stateless subject starts with no persistence work to do.
+  // A subject without retention starts with no persistence work to do.
   let userMessagePersisted = !retainedThread;
 
   const stream = new ReadableStream({
@@ -555,9 +558,9 @@ export async function POST(request: Request) {
         try {
           after(async () => {
             try {
-              await appendChatUserMessage(
+              await appendVideoChatUserMessage(
                 userId,
-                retainedThread.videoId,
+                retainedThread,
                 message,
               );
             } catch (persistErr) {
@@ -688,9 +691,9 @@ export async function POST(request: Request) {
           return;
         }
         try {
-          await appendChatTurn({
+          await appendVideoChatTurn({
             userId,
-            videoId: retainedThread.videoId,
+            thread: retainedThread,
             userMessage: message,
             assistantMessage: assistantBuffer,
           });
@@ -758,9 +761,9 @@ export async function POST(request: Request) {
       try {
         after(async () => {
           try {
-            await appendChatUserMessage(
+            await appendVideoChatUserMessage(
               userId,
-              retainedThread.videoId,
+              retainedThread,
               message,
             );
           } catch (err) {

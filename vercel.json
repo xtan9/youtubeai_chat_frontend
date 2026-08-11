@@ -9,6 +9,10 @@
       "schedule": "17 7 * * *"
     },
     {
+      "path": "/api/cron/hero-demo-conversations",
+      "schedule": "31 7 * * *"
+    },
+    {
       "path": "/api/internal/catalog-admission",
       "schedule": "43 7 * * *"
     }

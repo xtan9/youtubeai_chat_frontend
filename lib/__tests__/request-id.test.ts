@@ -28,4 +28,10 @@ describe("request IDs and log redaction", () => {
       videoId: "dQw4w9WgXcQ",
     });
   });
+
+  it("retains a bounded cleanup count while stripping an ungoverned alias", () => {
+    expect(
+      redactLogFields({ count: 12, deletedConversations: 12 }),
+    ).toEqual({ count: 12 });
+  });
 });

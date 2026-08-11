@@ -87,6 +87,10 @@ function statelessHeroDemoSubject(
   return {
     identity,
     source: "hero_demo",
+    retainedThread: {
+      kind: "hero_demo",
+      youtubeVideoId: identity.youtubeVideoId,
+    },
     grounding: memoizeVideoGroundingLoader(() =>
       loadHeroDemoGrounding(identity, samples),
     ),
@@ -109,7 +113,7 @@ function databaseSubject(
   return {
     identity,
     source: "database",
-    retainedThread: { videoId },
+    retainedThread: { kind: "database", videoId },
     entitlement: { videoId },
     suggestionCache,
     grounding: memoizeVideoGroundingLoader(() =>
