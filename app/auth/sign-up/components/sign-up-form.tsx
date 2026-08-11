@@ -46,25 +46,38 @@ export function SignUpForm({
 
     try {
       const next = getSafeAuthRedirect(window.location.href);
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: buildAuthCallbackUrl(window.location.origin, next),
-        },
+      const emailRedirectTo = buildAuthCallbackUrl(window.location.origin, next);
+      const currentUser = await supabase.auth.getUser();
+      if (currentUser.error) throw currentUser.error;
+
+      const preservesAnonymousIdentity = currentUser.data.user?.is_anonymous === true;
+      const { data, error } = preservesAnonymousIdentity
+        ? await supabase.auth.updateUser(
+            { email, password },
+            { emailRedirectTo },
+          )
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo },
       });
       if (error) throw error;
+      const immediateSession = "session" in data ? data.session : null;
       // Supabase can return an obfuscated user for an already-registered
       // address when email enumeration protection is enabled. A real identity
       // is the authoritative signal that this request created an account.
       if ((data.user?.identities?.length ?? 0) > 0) {
         captureAnalyticsEvent("signup_completed", {
           auth_method: "email",
-          email_confirmation_required: !data.session,
+          email_confirmation_required: !immediateSession,
           source_surface: "sign_up_form",
         });
       }
-      router.push(data.session ? next : "/auth/sign-up-success");
+      router.push(
+        !preservesAnonymousIdentity && immediateSession
+          ? next
+          : "/auth/sign-up-success",
+      );
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -78,7 +91,9 @@ export function SignUpForm({
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const currentUser = await supabase.auth.getUser();
+      if (currentUser.error) throw currentUser.error;
+      const credentials = {
         provider: "google",
         options: {
           redirectTo: buildAuthCallbackUrl(
@@ -86,7 +101,10 @@ export function SignUpForm({
             getSafeAuthRedirect(window.location.href),
           ),
         },
-      });
+      } as const;
+      const { error } = currentUser.data.user?.is_anonymous
+        ? await supabase.auth.linkIdentity(credentials)
+        : await supabase.auth.signInWithOAuth(credentials);
       if (error) {
         // Better error message for OAuth configuration issues
         if (error.message.includes("provider") || error.message.includes("OAuth")) {

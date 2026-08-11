@@ -256,7 +256,7 @@ describe("Video Chat Subject resolver", () => {
       subject: {
         identity: identity(),
         source: "database",
-        retainedThread: { videoId: DATABASE_VIDEO_ID },
+        retainedThread: { kind: "database", videoId: DATABASE_VIDEO_ID },
         entitlement: { videoId: DATABASE_VIDEO_ID },
         suggestionCache: {
           videoId: "another-video",
@@ -289,7 +289,7 @@ describe("Video Chat Subject resolver", () => {
     );
   });
 
-  it("returns a stateless Hero Demo subject without retained capabilities", async () => {
+  it("returns a Hero Demo subject retained by canonical Video identity", async () => {
     const result = await heroDemoVideoChatSubjectAdapter.resolve(
       identity(HERO_VIDEO_ID),
     );
@@ -299,6 +299,10 @@ describe("Video Chat Subject resolver", () => {
       subject: {
         identity: identity(HERO_VIDEO_ID),
         source: "hero_demo",
+        retainedThread: {
+          kind: "hero_demo",
+          youtubeVideoId: HERO_VIDEO_ID,
+        },
         grounding: { load: expect.any(Function) },
       },
     });
@@ -664,7 +668,10 @@ describe("Video Chat Subject resolver", () => {
     expect(result.status).toBe("resolved");
     if (result.status !== "resolved") return;
 
-    expect(result.subject.retainedThread?.videoId).toBe(DATABASE_VIDEO_ID);
+    expect(result.subject.retainedThread).toEqual({
+      kind: "database",
+      videoId: DATABASE_VIDEO_ID,
+    });
     expect(result.subject.entitlement?.videoId).toBe(DATABASE_VIDEO_ID);
     expect(result.subject.suggestionCache?.videoId).toBe(DATABASE_VIDEO_ID);
     expect(result.subject.grounding).toBeDefined();

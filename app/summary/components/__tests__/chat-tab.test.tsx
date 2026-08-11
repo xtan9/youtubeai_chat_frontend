@@ -1001,6 +1001,72 @@ describe("ChatTab", () => {
     },
   );
 
+  it("switches between durable Hero Demo conversations without mixing their histories", async () => {
+    const alphaUrl = "https://www.youtube.com/watch?v=Hrbq66XqtCo";
+    const betaUrl = "https://www.youtube.com/watch?v=nm1TxQj9IsQ";
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "anon",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 1,
+          projectsUsed: 0,
+          projectsLimit: 0,
+        },
+        anonymousTrial: { state: "available", remainingMessages: 3 },
+        subscriptionPresentation: { state: "anonymous" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    const fetchMock = makeRouter({
+      onMessages: (_init, url) => {
+        const beta = url?.includes(encodeURIComponent(betaUrl));
+        return jsonResponse({
+          messages: [
+            {
+              id: beta ? "beta-message" : "alpha-message",
+              role: "user",
+              content: beta ? "Beta follow-up" : "Alpha follow-up",
+              createdAt: "2026-08-10T00:00:00Z",
+            },
+          ],
+        });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl={alphaUrl}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    await screen.findByText("Alpha follow-up");
+
+    view.rerender(
+      <ChatTab
+        youtubeUrl={betaUrl}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    await screen.findByText("Beta follow-up");
+    expect(screen.queryByText("Alpha follow-up")).toBeNull();
+    expect(screen.getByText("3 Anonymous Trial messages remaining")).toBeTruthy();
+
+    view.rerender(
+      <ChatTab
+        youtubeUrl={alphaUrl}
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    await screen.findByText("Alpha follow-up");
+    expect(screen.queryByText("Beta follow-up")).toBeNull();
+  });
+
   it("clears stale Anonymous Trial stream state after registration or upgrade", async () => {
     (useUser as unknown as Mock).mockReturnValue({
       user: fakeSession("anon-token", true).user,

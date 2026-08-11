@@ -125,6 +125,143 @@ test.describe("Hero demo chat", () => {
     ).toBeVisible();
   });
 
+  test("retains isolated demo histories through reload, switching, clearing, and registration", async ({
+    page,
+  }) => {
+    const alphaId = "Hrbq66XqtCo";
+    const betaId = "nm1TxQj9IsQ";
+    const histories = new Map<string, Array<Record<string, string>>>([
+      [
+        alphaId,
+        [
+          browserMessage("000000000001", "user", "Alpha retained question"),
+          browserMessage("000000000002", "assistant", "Alpha retained answer"),
+        ],
+      ],
+      [
+        betaId,
+        [
+          browserMessage("000000000003", "user", "Beta retained question"),
+          browserMessage("000000000004", "assistant", "Beta retained answer"),
+        ],
+      ],
+    ]);
+    let registered = false;
+
+    await page.route("**/api/me/entitlements", (route) =>
+      fulfillJson(
+        route,
+        registered
+          ? {
+              tier: "free",
+              caps: {
+                summariesUsed: 0,
+                summariesLimit: 10,
+                projectsUsed: 0,
+                projectsLimit: 3,
+              },
+              subscriptionPresentation: { state: "free" },
+            }
+          : {
+              tier: "anon",
+              caps: {
+                summariesUsed: 0,
+                summariesLimit: 1,
+                projectsUsed: 0,
+                projectsLimit: 0,
+              },
+              anonymousTrial: { state: "available", remainingMessages: 3 },
+              subscriptionPresentation: { state: "anonymous" },
+            },
+      ),
+    );
+    await page.route("**/api/chat/messages?*", (route) => {
+      const youtubeUrl = new URL(route.request().url()).searchParams.get(
+        "youtube_url",
+      );
+      const videoId = youtubeUrl
+        ? new URL(youtubeUrl).searchParams.get("v")
+        : null;
+      if (!videoId || !histories.has(videoId)) {
+        return fulfillJson(route, { messages: [] });
+      }
+      if (route.request().method() === "DELETE") {
+        histories.set(videoId, []);
+        return route.fulfill({ status: 204, body: "" });
+      }
+      return fulfillJson(route, { messages: histories.get(videoId) });
+    });
+    await page.route("**/auth/v1/user*", (route) => {
+      if (route.request().method() === "PUT") {
+        registered = true;
+        return fulfillJson(route, registeredUser());
+      }
+      return fulfillJson(
+        route,
+        registered ? registeredUser() : anonymousSession().user,
+      );
+    });
+
+    await page.goto(BASE_URL + "/");
+    await expect(page.getByText("Alpha retained question")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText("3 Anonymous Trial messages remaining"),
+    ).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByText("Alpha retained answer")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page
+      .getByRole("button", { name: /Master Your Sleep/i })
+      .click();
+    await expect(page.getByText("Beta retained question")).toBeVisible();
+    await expect(page.getByText("Alpha retained question")).toHaveCount(0);
+
+    await page
+      .getByRole("button", { name: /Jensen Huang.*moat persist/i })
+      .click();
+    await expect(page.getByText("Alpha retained question")).toBeVisible();
+    await page
+      .getByRole("button", { name: /clear chat history/i })
+      .click();
+    await expect(page.getByText("Alpha retained question")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByText("Alpha retained question")).toHaveCount(0);
+    await expect(
+      page.getByText("3 Anonymous Trial messages remaining"),
+    ).toBeVisible();
+
+    // A different demo remains intact after clearing alpha.
+    await page
+      .getByRole("button", { name: /Master Your Sleep/i })
+      .click();
+    await expect(page.getByText("Beta retained answer")).toBeVisible();
+
+    await page.goto(
+      BASE_URL + "/auth/sign-up?redirect_to=" + encodeURIComponent("/"),
+    );
+    await page.getByLabel("Email").fill("registered@example.com");
+    await page.getByLabel("Password", { exact: true }).fill("safe-password-1");
+    await page.getByLabel("Repeat Password").fill("safe-password-1");
+    await page.getByRole("button", { name: /^Sign up$/ }).click();
+    await expect(page).toHaveURL(/\/auth\/sign-up-success/);
+
+    await page.goto(BASE_URL + "/");
+    await page
+      .getByRole("button", { name: /Master Your Sleep/i })
+      .click();
+    await expect(page.getByText("Beta retained question")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      page.getByText(/Anonymous Trial messages remaining/i),
+    ).toHaveCount(0);
+  });
+
   test("enabled exhausted allowance replaces the composer with registration", async ({
     page,
   }) => {
@@ -312,5 +449,30 @@ function registeredSession() {
       app_metadata: { provider: "email", providers: ["email"] },
       is_anonymous: false,
     },
+  };
+}
+
+function registeredUser() {
+  return {
+    ...anonymousSession().user,
+    email: "registered@example.com",
+    is_anonymous: false,
+    app_metadata: { provider: "email", providers: ["email"] },
+    identities: [
+      {
+        identity_id: "registered-email-identity",
+        provider: "email",
+        user_id: anonymousSession().user.id,
+      },
+    ],
+  };
+}
+
+function browserMessage(id: string, role: "user" | "assistant", content: string) {
+  return {
+    id: `37600000-0000-4000-8000-${id}`,
+    role,
+    content,
+    createdAt: "2026-08-10T00:00:00.000Z",
   };
 }

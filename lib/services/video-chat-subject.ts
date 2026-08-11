@@ -24,6 +24,10 @@ export interface VideoChatCapabilityTarget {
   readonly videoId: string;
 }
 
+export type VideoChatRetainedThread =
+  | { readonly kind: "database"; readonly videoId: string }
+  | { readonly kind: "hero_demo"; readonly youtubeVideoId: string };
+
 export type VideoGroundingTranscript = Omit<CachedTranscript, "language"> & {
   readonly language: SupportedLanguageCode;
 };
@@ -60,7 +64,7 @@ export interface SuggestionCacheCapability extends VideoChatCapabilityTarget {
 export interface VideoChatSubject {
   readonly identity: CanonicalVideoIdentity;
   readonly source: VideoChatSubjectSource;
-  readonly retainedThread?: VideoChatCapabilityTarget;
+  readonly retainedThread?: VideoChatRetainedThread;
   readonly entitlement?: VideoChatCapabilityTarget;
   readonly suggestionCache?: SuggestionCacheCapability;
   readonly grounding?: VideoGroundingCapability;
@@ -107,13 +111,23 @@ function hasCoherentVideoGrounding(
   if (grounding.summary.videoId !== groundingVideoId) return false;
 
   const capabilityTargets = [
-    subject.retainedThread,
+    subject.retainedThread?.kind === "database"
+      ? { videoId: subject.retainedThread.videoId }
+      : undefined,
     subject.entitlement,
     subject.suggestionCache,
   ];
   const targetVideoIds = capabilityTargets
     .filter((target): target is VideoChatCapabilityTarget => target !== undefined)
     .map((target) => target.videoId);
+
+  if (subject.retainedThread?.kind === "hero_demo") {
+    return (
+      targetVideoIds.length === 0 &&
+      groundingVideoId === subject.retainedThread.youtubeVideoId &&
+      groundingVideoId === subject.identity.youtubeVideoId
+    );
+  }
 
   if (targetVideoIds.length === 0) {
     return groundingVideoId === subject.identity.youtubeVideoId;
