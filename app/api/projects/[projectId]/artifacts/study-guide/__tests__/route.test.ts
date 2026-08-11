@@ -196,7 +196,7 @@ describe("Project Study Guide API", () => {
     vi.resetAllMocks();
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
+      principal: { userId: USER_ID, isAnonymous: false },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({
@@ -277,7 +277,7 @@ describe("Project Study Guide API", () => {
 
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
+      principal: { userId: USER_ID, isAnonymous: false },
     });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "forbidden" });
     const forbidden = await POST(

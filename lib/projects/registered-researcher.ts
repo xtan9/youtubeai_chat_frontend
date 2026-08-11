@@ -5,11 +5,7 @@ import {
   type RequestPrincipalSource,
 } from "@/lib/auth/request-principal";
 import { authOutcomeResponse } from "./api-outcomes";
-import {
-  projectBetaUnavailableResponse,
-  projectRegistrationRequiredResponse,
-} from "./api-outcomes";
-import { hasProjectAvailability } from "./project-availability";
+import { projectRegistrationRequiredResponse } from "./api-outcomes";
 
 type ProjectPrincipalSource = Extract<
   RequestPrincipalSource,
@@ -38,12 +34,6 @@ export async function requireRegisteredResearcher(
       response: options.projectCreation
         ? projectRegistrationRequiredResponse()
         : authOutcomeResponse("anonymous"),
-    } as const;
-  }
-  if (!hasProjectAvailability(result.principal.projectAvailability)) {
-    return {
-      kind: "error",
-      response: projectBetaUnavailableResponse(),
     } as const;
   }
   return { kind: "resolved", principal: result.principal } as const;

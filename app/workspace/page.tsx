@@ -4,7 +4,6 @@ import { listWorkspaceProjects } from "@/lib/projects/project-subject";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectOutcomeState } from "./_components/project-outcome-state";
 import { WorkspaceView } from "./_components/workspace-view";
-import { hasProjectAvailability } from "@/lib/projects/project-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +21,6 @@ export default async function WorkspacePage() {
   if (principalResult.kind === "missing" || principalResult.principal.isAnonymous) {
     return <ProjectOutcomeState kind="anonymous" />;
   }
-  if (!hasProjectAvailability(principalResult.principal.projectAvailability)) {
-    return <ProjectOutcomeState kind="beta_unavailable" />;
-  }
-
   let result: Awaited<ReturnType<typeof listWorkspaceProjects>>;
   try {
     const supabase = await createClient();

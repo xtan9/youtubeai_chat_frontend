@@ -14,7 +14,6 @@ import { inspectProjectCitations } from "../lib/projects/project-grounded-citati
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
-const UNAVAILABLE_ID = "30000000-0000-4000-8000-000000000003";
 const OWNER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000001";
 const OTHER_WORKSPACE_ID = "b0000000-0000-4000-8000-000000000002";
 const FIXTURE_SERVICE_ROLE_KEY = "fixture-service-role-key";
@@ -511,38 +510,9 @@ async function expectProjectQuestionComposerReady(page: Page) {
   await question.clear();
 }
 
-test("invited Free Researcher completes the controlled Project beta journey @invited-beta-critical", async ({
-  browser,
+test("registered Free Researcher completes the Project journey @projects-ga-critical", async ({
   page,
 }) => {
-  const unavailableContext = await browser.newContext();
-  try {
-    await addSessionCookie(
-      unavailableContext,
-      UNAVAILABLE_ID,
-      "unavailable@example.test",
-    );
-    const unavailablePage = await unavailableContext.newPage();
-    await unavailablePage.goto(`${appUrl}/workspace`);
-    await expect(
-      unavailablePage.getByRole("heading", {
-        name: "Projects are in invited beta",
-      }),
-    ).toBeVisible();
-    await expect(
-      unavailablePage.getByRole("link", { name: "Workspace", exact: true }),
-    ).toHaveCount(0);
-    const unavailableApi = await unavailableContext.request.get(
-      `${appUrl}/api/workspace/projects`,
-    );
-    expect(unavailableApi.status()).toBe(403);
-    expect(await unavailableApi.json()).toMatchObject({
-      errorCode: "project_beta_unavailable",
-    });
-  } finally {
-    await unavailableContext.close();
-  }
-
   let signupRequests = 0;
   await page.route("**/auth/v1/signup**", async (route) => {
     signupRequests += 1;
@@ -579,10 +549,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
         "utf8",
       ),
     ) as { app_metadata?: unknown };
-    expect(accessTokenPayload.app_metadata).toEqual({
-      provider: "email",
-      project_beta_access: "invited",
-    });
+    expect(accessTokenPayload.app_metadata).toEqual({ provider: "email" });
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -624,13 +591,13 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
     page.getByRole("link", { name: "Workspace", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Create Project" }).press("Enter");
-  await page.getByLabel("Project name").fill("Invited multilingual beta");
+  await page.getByLabel("Project name").fill("Multilingual climate research");
   await page
     .getByLabel("Project Goal (optional)")
     .fill("Explore local climate adaptation decisions.");
   await page.getByRole("button", { name: "Create Project" }).last().click();
   await page
-    .getByRole("link", { name: "Open Invited multilingual beta" })
+    .getByRole("link", { name: "Open Multilingual climate research" })
     .click();
 
   async function addFixtureVideo(title: string) {
@@ -792,7 +759,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await page.getByRole("link", { name: "Back to Workspace" }).click();
   await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
   await page
-    .getByRole("link", { name: "Open Invited multilingual beta" })
+    .getByRole("link", { name: "Open Multilingual climate research" })
     .click();
   await page.getByRole("button", { name: /Artifact choices 0 messages/iu }).click();
   const gatewayRequestsBeforeRetrievalFailure = gatewayRequests;
@@ -810,7 +777,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   expect(gatewayRequests).toBe(gatewayRequestsBeforeRetrievalFailure);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Invited multilingual beta" }),
+    page.getByRole("heading", { name: "Multilingual climate research" }),
   ).toBeVisible();
   await expect(
     page.getByText("What remains safe after a retrieval failure?", {
@@ -831,7 +798,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
 });
 
-test("concurrent Free Project limits expose exactly one public winner @invited-beta-race", async ({
+test("concurrent Free Project limits expose exactly one public winner @projects-ga-race", async ({
   context,
   page,
 }) => {
@@ -4794,8 +4761,6 @@ function isServiceRoleRequest(request: IncomingMessage): boolean {
 }
 
 function authUser(id: string, email: string) {
-  const projectBetaAccess =
-    id === OWNER_ID ? "internal" : id === OTHER_ID ? "invited" : undefined;
   return {
     id,
     aud: "authenticated",
@@ -4807,9 +4772,6 @@ function authUser(id: string, email: string) {
     is_anonymous: false,
     app_metadata: {
       provider: "email",
-      ...(projectBetaAccess
-        ? { project_beta_access: projectBetaAccess }
-        : {}),
     },
     user_metadata: {},
     identities: [{ provider: "email" }],

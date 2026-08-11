@@ -7,7 +7,6 @@ export function ProjectOutcomeState({
 }: {
   kind:
     | "anonymous"
-    | "beta_unavailable"
     | "invalid"
     | "missing"
     | "unavailable";
@@ -21,12 +20,6 @@ export function ProjectOutcomeState({
         href: "/auth/sign-up?redirect_to=%2Fworkspace",
         label: "Create free account",
       },
-    },
-    beta_unavailable: {
-      title: "Projects are in invited beta",
-      message:
-        "This account does not have Project access yet. Your existing YouTube summaries and chats are unchanged.",
-      action: { href: "/dashboard", label: "Back to Dashboard" },
     },
     invalid: {
       title: "That Project link isn’t valid",

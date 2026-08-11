@@ -39,7 +39,6 @@ const PRINCIPAL = {
   isAnonymous: false,
   email: "owner@example.com",
   businessAnalyticsSuppressed: false,
-  projectAvailability: "invited" as const,
 };
 const SUBJECT = {
   kind: "project" as const,
@@ -200,7 +199,6 @@ describe("POST /api/projects/[projectId]/conversation/feedback", () => {
       principal: {
         ...PRINCIPAL,
         businessAnalyticsSuppressed: true,
-        projectAvailability: "internal",
       },
     });
 

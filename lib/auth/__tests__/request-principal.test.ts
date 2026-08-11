@@ -63,7 +63,6 @@ describe("resolveRequestPrincipal", () => {
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
-        projectAvailability: "unavailable",
       },
     });
     expect(Object.keys(result)).toEqual(["kind", "principal"]);
@@ -74,7 +73,6 @@ describe("resolveRequestPrincipal", () => {
       "email",
       "smokeProEntitled",
       "businessAnalyticsSuppressed",
-      "projectAvailability",
     ]);
   });
 
@@ -102,7 +100,6 @@ describe("resolveRequestPrincipal", () => {
         email: "",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
-        projectAvailability: "unavailable",
       },
     });
   });
@@ -127,7 +124,6 @@ describe("resolveRequestPrincipal", () => {
         email: "  Person@Example.COM  ",
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
-        projectAvailability: "unavailable",
       },
     });
   });
@@ -154,7 +150,6 @@ describe("resolveRequestPrincipal", () => {
         email: null,
         smokeProEntitled: false,
         businessAnalyticsSuppressed: false,
-        projectAvailability: "unavailable",
       },
     });
   });
@@ -185,12 +180,11 @@ describe("resolveRequestPrincipal", () => {
       principal: {
         smokeProEntitled: true,
         businessAnalyticsSuppressed: true,
-        projectAvailability: "internal",
       },
     });
   });
 
-  it("accepts only trusted Project beta metadata", async () => {
+  it("does not expose rollout metadata through the shared principal", async () => {
     configureClient();
     mockGetUser.mockResolvedValue({
       data: {
@@ -203,12 +197,13 @@ describe("resolveRequestPrincipal", () => {
       error: null,
     });
 
-    await expect(
-      resolveRequestPrincipal({ source: "workspace_projects" }),
-    ).resolves.toMatchObject({
-      kind: "resolved",
-      principal: { projectAvailability: "invited" },
+    const result = await resolveRequestPrincipal({
+      source: "workspace_projects",
     });
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind !== "resolved") throw new Error("expected resolved result");
+    expect(result.principal).not.toHaveProperty("projectAvailability");
   });
 
   it("returns missing when the provider returns no user and no error", async () => {

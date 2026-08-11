@@ -27,7 +27,7 @@ describe("GET exact Project Grounded Answer attempt", () => {
     vi.resetAllMocks();
     mocks.requireRegisteredResearcher.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false, projectAvailability: "invited" },
+      principal: { userId: USER_ID, isAnonymous: false },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({

@@ -29,6 +29,7 @@ LANGUAGE sql STABLE AS $$
         NULLIF(current_setting('request.jwt.claims', TRUE), '')::JSONB,
         jsonb_build_object(
           'sub', nullif(current_setting('request.jwt.claim.sub', TRUE), ''),
+          'is_anonymous', false,
           'app_metadata', jsonb_build_object(
             'project_beta_access', 'internal'
           )

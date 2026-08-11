@@ -151,7 +151,7 @@ describe("Header navigation", () => {
     expect(screen.queryByRole("link", { name: "FAQ" })).toBeNull();
   });
 
-  it("keeps Projects out of navigation for registered Researchers outside the beta", () => {
+  it("shows Workspace navigation to every registered Researcher", () => {
     userState.value = {
       ...userState.value,
       user: {
@@ -166,9 +166,9 @@ describe("Header navigation", () => {
       wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
     });
 
-    expect(screen.queryByRole("link", { name: "Workspace" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Workspace" })).not.toBeNull();
     openDropdown(screen.getByRole("button", { name: /user menu/i }));
-    expect(screen.queryByRole("menuitem", { name: "Workspace" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Workspace" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Account" })).not.toBeNull();
   });
 });
