@@ -81,6 +81,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!result) {
     return jsonError(503, "Recommendation reader unavailable.");
   }
+  if (result.outcome === "pending") {
+    return Response.json({ outcome: "pending" });
+  }
   if (result.outcome === "unavailable") {
     return Response.json({
       outcome: "unavailable",

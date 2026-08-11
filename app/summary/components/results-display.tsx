@@ -11,6 +11,8 @@ interface ResultsDisplayProps {
   browserLanguage: SupportedLanguageCode;
   onSelectLanguage: (code: SupportedLanguageCode) => void;
   languageDisabled: boolean;
+  sourceUrl?: string;
+  continueLearningEnabled?: boolean;
 }
 
 export function ResultsDisplay({
@@ -22,6 +24,8 @@ export function ResultsDisplay({
   browserLanguage,
   onSelectLanguage,
   languageDisabled,
+  sourceUrl,
+  continueLearningEnabled = false,
 }: ResultsDisplayProps) {
   return (
     data && (
@@ -35,6 +39,8 @@ export function ResultsDisplay({
           browserLanguage={browserLanguage}
           onSelectLanguage={onSelectLanguage}
           languageDisabled={languageDisabled}
+          sourceUrl={sourceUrl}
+          continueLearningEnabled={continueLearningEnabled}
         />
       </div>
     )

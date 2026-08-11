@@ -71,6 +71,20 @@ describe("continue-learning reader service", () => {
     ).resolves.toBeNull();
   });
 
+  it("accepts an opaque preparation state without a speculative job identity", async () => {
+    rpc.mockResolvedValue({
+      data: { outcome: "pending" },
+      error: null,
+    });
+
+    await expect(
+      readContinueLearningRecommendations(client, {
+        learnerId: "10000000-0000-4000-8000-000000000001",
+        sourceYoutubeVideoId: "dQw4w9WgXcQ",
+      }),
+    ).resolves.toEqual({ outcome: "pending" });
+  });
+
   it("records every ready-read observation without failing the read", async () => {
     rpc.mockResolvedValue({ data: { outcome: "recorded" }, error: null });
 
