@@ -60,6 +60,34 @@ _Avoid_: Full Transcript, Summary, Project Goal
 The evidence-relative result of one Evidence Finding: Supported, Qualified, Conflicts, or Unresolved. It describes what the admissible evidence retrieved as of a stated date establishes about one claim, not whether a Video or person is truthful or trustworthy.
 _Avoid_: Verdict, truth label, factuality rating
 
+**Claim Unit**:
+The smallest independently meaningful, checkable proposition that faithfully preserves every material element of one or more exact Transcript occurrences. Equivalent repetitions share one Claim Unit; related claims with any material difference do not.
+_Avoid_: Sentence, factoid, topic
+
+**Assertion Group**:
+The original compound Transcript assertion and the Claim Units faithfully decomposed from it. It preserves the relationship among the parts without becoming another countable claim.
+_Avoid_: Parent claim, claim count
+
+**Claim Family**:
+A non-counting diagnostic group of related but non-equivalent Claim Units. Membership never makes the claims interchangeable, affects selection or Coverage, or permits one to stand in for another.
+_Avoid_: Duplicate claims, semantic cluster
+
+**Material Claim Inventory**:
+The complete, outcome-blind account of the distinct assertions found across one frozen Transcript, including each assertion's Central, Consequential-support, or Incidental role and its eligible or Excluded state. It is fixed before evidence retrieval and retains every omission.
+_Avoid_: Selected claims, Findings list
+
+**Material Inventory Entry**:
+One countable Central or Consequential-support assertion in the Material Claim Inventory, represented by either an eligible Claim Unit or a distinct Excluded assertion. Incidental assertions, repeated occurrences, Assertion Groups, and Claim Families are not entries.
+_Avoid_: Finding, source-backed claim
+
+**Material Inventory Entry ID**:
+A server-issued, replay-stable opaque identifier for exactly one countable Material Inventory Entry. Its tagged canonical input is either an eligible Claim Unit identity or an Excluded assertion's governed reason and exact Transcript anchors; an Excluded assertion never receives a Claim Unit ID.
+_Avoid_: Provider ID, Claim Unit ID for an Excluded assertion
+
+**Evidence Coverage**:
+The unweighted share of all Material Inventory Entries that received a complete valid Evidence Finding. Unresolved Findings count as covered; Coverage does not measure support, accuracy, confidence, or source quality.
+_Avoid_: Accuracy, confidence, completeness score
+
 **Evidence Item**:
 One exact, bounded passage from one identified state of an external resource, admitted for one versioned material-claim representation under a governed source policy. It carries its source identity, origin, scope, rights, and change policy; a link alone is not an Evidence Item.
 _Avoid_: Source link, trusted website, search result
