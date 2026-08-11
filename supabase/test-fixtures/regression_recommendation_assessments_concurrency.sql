@@ -736,6 +736,95 @@ begin
 end;
 $review_concurrency$;
 
+do $quality_policy_race$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  quality_connection text := 'recommendation_policy_race_quality';
+  policy_connection text := 'recommendation_policy_race_update';
+  quality_result jsonb;
+  quality_report_id uuid;
+  quality_input_fingerprint text;
+  current_input_fingerprint text;
+  rollout_result jsonb;
+begin
+  -- A quality report holds the shared advisory lock and a FOR SHARE lock on
+  -- the policy row while computing metrics and its input fingerprint.
+  perform extensions.dblink_connect(quality_connection, connection_string);
+  perform extensions.dblink_exec(quality_connection, 'set role service_role');
+  perform extensions.dblink_exec(quality_connection, 'begin');
+  select result into quality_result
+  from extensions.dblink(
+    quality_connection,
+    $$select public.compute_recommendation_quality_report(
+      'recommendation-review-policy-v1'
+    )$$
+  ) as result(result jsonb);
+  quality_report_id := (quality_result ->> 'qualityReportId')::uuid;
+  quality_input_fingerprint := quality_result ->> 'inputFingerprint';
+  if quality_result ->> 'outcome' <> 'computed'
+    or quality_result ->> 'eligible' <> 'true'
+    or quality_report_id is null
+    or quality_input_fingerprint is null
+  then
+    raise exception 'quality policy race baseline report was not eligible: %',
+      quality_result;
+  end if;
+
+  -- The owner update must wait for the report transaction. This proves a
+  -- threshold cannot change between metric eligibility and fingerprinting.
+  perform extensions.dblink_connect(policy_connection, connection_string);
+  perform extensions.dblink_exec(policy_connection, 'begin');
+  perform extensions.dblink_send_query(
+    policy_connection,
+    $query$
+      update catalog_private.recommendation_review_policies
+      set minimum_usefulness_percent = 100
+      where review_policy_version = 'recommendation-review-policy-v1'
+    $query$
+  );
+  perform pg_sleep(0.2);
+  if extensions.dblink_is_busy(policy_connection) <> 1 then
+    raise exception 'policy threshold update was not serialized behind quality report';
+  end if;
+
+  perform extensions.dblink_exec(quality_connection, 'commit');
+  perform extensions.dblink_disconnect(quality_connection);
+  perform result
+  from extensions.dblink_get_result(policy_connection) as result(result text);
+  perform extensions.dblink_exec(policy_connection, 'commit');
+  perform extensions.dblink_disconnect(policy_connection);
+
+  select catalog_private.recommendation_quality_input_fingerprint(
+    'recommendation-review-policy-v1'
+  ) into current_input_fingerprint;
+  if current_input_fingerprint = quality_input_fingerprint then
+    raise exception 'quality report fingerprint did not change after threshold update';
+  end if;
+
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '39000000-0000-4000-8000-0000000000f1'::uuid,
+    'race-reviewer@example.com'
+  ) into rollout_result;
+  reset role;
+  if rollout_result ->> 'outcome' <> 'rejected'
+    or rollout_result ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'threshold-raced quality report was promotable: %',
+      rollout_result;
+  end if;
+
+  -- Leave shared fixture policy at its normal threshold for subsequent tests.
+  update catalog_private.recommendation_review_policies
+  set minimum_usefulness_percent = 80
+  where review_policy_version = 'recommendation-review-policy-v1';
+end;
+$quality_policy_race$;
+
 do $quality_publish_race$
 declare
   connection_string text := format(
@@ -744,7 +833,7 @@ declare
   );
   quality_connection text := 'recommendation_quality_race_quality';
   publish_connection text := 'recommendation_quality_race_publish';
-  source_profile_id uuid;
+  v_source_profile_id uuid;
   current_set_id uuid;
   set_policy_fingerprint text;
   quality_race_assessment_id uuid;
@@ -755,22 +844,22 @@ declare
   current_input_fingerprint text;
   rollout_result jsonb;
 begin
-  select profile.id into source_profile_id
+  select profile.id into v_source_profile_id
   from catalog_private.semantic_profile_versions as profile
   where profile.video_id = '39000000-0000-4000-8000-000000000001';
   select assessment.id into quality_race_assessment_id
   from catalog_private.recommendation_assessments as assessment
-  where assessment.source_profile_id = source_profile_id
+  where assessment.source_profile_id = v_source_profile_id
     and assessment.assessment_model_identifier =
       'fixture-quality-race-assessor-v1';
   select recommendation_set.id into current_set_id
   from catalog_private.recommendation_sets as recommendation_set
-  where recommendation_set.source_profile_id = source_profile_id
+  where recommendation_set.source_profile_id = v_source_profile_id
     and recommendation_set.status = 'current';
   select policy.set_policy_fingerprint into set_policy_fingerprint
   from catalog_private.recommendation_set_policies as policy
   where policy.status = 'active';
-  if source_profile_id is null
+  if v_source_profile_id is null
     or quality_race_assessment_id is null
     or current_set_id is null
     or set_policy_fingerprint is null
@@ -815,7 +904,7 @@ begin
           array[%L::uuid]
         )
       $query$,
-      source_profile_id,
+      v_source_profile_id,
       set_policy_fingerprint,
       quality_race_assessment_id
     )

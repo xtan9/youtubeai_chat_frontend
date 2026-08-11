@@ -794,6 +794,7 @@ begin
       <> 'catalog-admission-policy-v1'
     or rollout -> 'reviews' -> 0 ->> 'candidatePairModelIdentifier'
       <> 'fixture-set-semantic-model'
+    or (rollout -> 'reviews' -> 0 ->> 'itemCount')::integer <> 1
   then
     raise exception 'exact Set model/policy/evidence filters failed: %', rollout;
   end if;

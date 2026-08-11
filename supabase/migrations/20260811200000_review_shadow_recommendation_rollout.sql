@@ -22,10 +22,16 @@ declare
   review_rows text;
   read_rows text;
 begin
+  -- Keep policy thresholds in the same transaction snapshot as the Set and
+  -- Review inputs. A direct owner configuration update must wait while a
+  -- quality report is being computed or fingerprinted.
+  perform pg_advisory_xact_lock(hashtext('recommendation-quality'));
+
   select policy.* into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active';
+    and policy.status = 'active'
+  for share;
 
   if policy_row.review_policy_version is null then
     return null;
@@ -60,6 +66,7 @@ begin
       recommendation_set.set_policy_version || ':' ||
       recommendation_set.set_policy_fingerprint || ':' ||
       recommendation_set.set_schema_version || ':' ||
+      recommendation_set.item_count::text || ':' ||
       recommendation_set.build_fingerprint || ':' ||
       recommendation_set.status || ':' ||
       coalesce(recommendation_set.published_at::text, ''),
@@ -456,6 +463,13 @@ for each row execute function catalog_private.lock_recommendation_quality_inputs
 
 create trigger recommendations_quality_lock_trg
 before insert or update or delete on catalog_private.recommendations
+for each row execute function catalog_private.lock_recommendation_quality_inputs();
+
+-- Review policy thresholds are quality inputs too. Keep owner/admin edits
+-- behind the same transaction lock so metrics and their fingerprint cannot
+-- observe different threshold versions.
+create trigger recommendation_review_policies_quality_lock_trg
+before insert or update or delete on catalog_private.recommendation_review_policies
 for each row execute function catalog_private.lock_recommendation_quality_inputs();
 
 create or replace function catalog_private.assert_recommendation_admin(
@@ -863,7 +877,8 @@ begin
   into policy_row
   from catalog_private.recommendation_review_policies as policy
   where policy.review_policy_version = p_review_policy_version
-    and policy.status = 'active';
+    and policy.status = 'active'
+  for share;
 
   if policy_row.review_policy_version is null then
     return jsonb_build_object(
@@ -1186,6 +1201,7 @@ begin
         'setPolicyVersion', recommendation_set.set_policy_version,
         'setPolicyFingerprint', recommendation_set.set_policy_fingerprint,
         'setSchemaVersion', recommendation_set.set_schema_version,
+        'itemCount', recommendation_set.item_count,
         'buildFingerprint', recommendation_set.build_fingerprint,
         'publishedAt', recommendation_set.published_at,
         'reviewerId', review.reviewer_id,
