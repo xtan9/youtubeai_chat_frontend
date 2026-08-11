@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/internal/catalog-admission",
-      "schedule": "*/5 * * * *"
+      "schedule": "43 7 * * *"
     }
   ]
 }

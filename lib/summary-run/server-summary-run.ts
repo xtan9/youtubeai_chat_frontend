@@ -48,6 +48,7 @@ import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 import { hasTimedTranscriptSegments } from "@/lib/types";
 import { nominateCatalogVideoForAdmission } from "@/lib/catalog/catalog-admission";
+import { runCatalogAdmissionWorker } from "@/lib/catalog/catalog-admission-worker";
 
 export type ServerSummaryRunPersistence = "deferred" | "required";
 
@@ -298,8 +299,11 @@ export async function runServerSummaryRun(
       };
 
       const nominateSuccessfulSummary = async (): Promise<void> => {
+        let nomination: Awaited<
+          ReturnType<typeof nominateCatalogVideoForAdmission>
+        >;
         try {
-          await nominateCatalogVideoForAdmission({
+          nomination = await nominateCatalogVideoForAdmission({
             youtubeUrl: youtube_url,
             requestId,
             signal: request.signal,
@@ -319,6 +323,31 @@ export async function runServerSummaryRun(
             {
               errorId,
               stage: "catalog_nomination",
+              videoId: videoIdForLog(youtube_url),
+              requestId,
+              errorName: err instanceof Error ? err.name : typeof err,
+            },
+          );
+          return;
+        }
+
+        // PGMQ owns durability before this best-effort drain begins. Deferred
+        // Summary persistence runs inside next/server `after`, so this cannot
+        // delay the streamed response. Required persistence deliberately skips
+        // the assist. The daily cron remains the recovery path if an invocation
+        // ends early, and only a new queue write spends worker capacity.
+        if (persistence !== "deferred" || nomination.outcome !== "enqueued") {
+          return;
+        }
+        try {
+          await runCatalogAdmissionWorker();
+        } catch (err) {
+          logAppEvent(
+            "error",
+            "[summarize/stream] Catalog Admission drain failed (fail-soft)",
+            {
+              errorId: "CATALOG_ADMISSION_DRAIN_FAILED",
+              stage: "catalog_admission",
               videoId: videoIdForLog(youtube_url),
               requestId,
               errorName: err instanceof Error ? err.name : typeof err,
