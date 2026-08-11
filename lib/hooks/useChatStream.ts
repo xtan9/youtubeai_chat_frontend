@@ -12,6 +12,7 @@ import {
   type ChatSseEvent,
 } from "@/lib/api-contracts/chat";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import { anonymousTrialRemainingAllowance } from "@/lib/analytics/anonymous-trial";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent } from "@/lib/observability";
 import {
@@ -104,6 +105,7 @@ export function useChatStream({
     } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const chatStartedVideoKeysRef = useRef(new Set<string>());
+  const anonymousTrialStartedRef = useRef(false);
 
   const registeredFreeHeroDemoRemaining =
     youtubeUrl && registeredFreeHeroDemoAdmission?.youtubeUrl === youtubeUrl
@@ -168,6 +170,17 @@ export function useChatStream({
         return;
       }
 
+      if (
+        sourceSurface === "hero_demo" &&
+        resolvedSession?.user?.is_anonymous === true &&
+        !anonymousTrialStartedRef.current
+      ) {
+        captureAnalyticsEvent("anonymous_trial_started", {
+          source_surface: "hero_demo",
+        });
+        anonymousTrialStartedRef.current = true;
+      }
+
       try {
         const response = await fetch("/api/chat/stream", {
           method: "POST",
@@ -207,6 +220,9 @@ export function useChatStream({
               body.remainingMessages === 0
             ) {
               setAnonymousTrialRemaining(0);
+              captureAnalyticsEvent("anonymous_trial_exhausted", {
+                source_surface: "hero_demo",
+              });
               queryClient.setQueryData<EntitlementsData>(
                 entitlementsQueryKey(
                   sourceSurface === "hero_demo" ? youtubeUrl : null,
@@ -294,6 +310,17 @@ export function useChatStream({
             if (!evt) continue;
             if (evt.type === "anonymous_trial_admitted") {
               setAnonymousTrialRemaining(evt.remainingMessages);
+              captureAnalyticsEvent("anonymous_trial_message_admitted", {
+                source_surface: "hero_demo",
+                remaining_allowance: anonymousTrialRemainingAllowance(
+                  evt.remainingMessages,
+                ),
+              });
+              if (evt.remainingMessages === 0) {
+                captureAnalyticsEvent("anonymous_trial_exhausted", {
+                  source_surface: "hero_demo",
+                });
+              }
               queryClient.setQueryData<EntitlementsData>(
                 entitlementsQueryKey(
                   sourceSurface === "hero_demo" ? youtubeUrl : null,

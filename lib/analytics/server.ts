@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { PostHog } from "posthog-node";
 import type { User } from "@supabase/supabase-js";
 import { isSmokeAccount } from "@/lib/auth/smoke-account";
@@ -22,11 +22,73 @@ import {
   type ProjectActivityEventName,
   type ProjectActivityEventProperties,
 } from "./project-activity";
+import { validateAnonymousTrialEvent } from "./anonymous-trial";
 
 const POSTHOG_HOST = "https://us.i.posthog.com";
+const ANONYMOUS_TRIAL_CONVERSION_ID_DOMAIN =
+  "youtubeai:anonymous-trial-conversion:v1";
 
 export type SubscriptionActivationCaptureStatus = "sent" | "skipped" | "failed";
 export type ProjectActivityCaptureStatus = "sent" | "skipped" | "failed";
+
+export async function captureAnonymousTrialConversion(
+  subjectId: string,
+  registrationMethod: "email" | "google",
+  identity: Pick<User, "app_metadata"> & Partial<Pick<User, "user_metadata">>,
+): Promise<ProjectActivityCaptureStatus> {
+  if (isSmokeAccount(identity)) return "skipped";
+  const properties = {
+    source_surface: "hero_demo" as const,
+    registration_method: registrationMethod,
+  };
+  if (
+    !validateAnonymousTrialEvent("anonymous_trial_converted", properties)
+      .success
+  ) {
+    return "skipped";
+  }
+  const projectToken = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
+  if (process.env.NODE_ENV !== "production" || !projectToken) return "skipped";
+  const hmacSecret = process.env.ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET?.trim();
+  if (!hmacSecret || hmacSecret.length < 32) {
+    console.error("[analytics] anonymous conversion identity unavailable", {
+      errorId: "ANALYTICS_ANONYMOUS_CONVERSION_IDENTITY_UNAVAILABLE",
+    });
+    return "skipped";
+  }
+  const pseudonymousDistinctId = `anonymous-trial-conversion:v1:${createHmac(
+    "sha256",
+    hmacSecret,
+  )
+    .update(`${ANONYMOUS_TRIAL_CONVERSION_ID_DOMAIN}\0${subjectId}`)
+    .digest("hex")}`;
+  const client = new PostHog(projectToken, {
+    host: POSTHOG_HOST,
+    flushAt: 1,
+    flushInterval: 0,
+  });
+  try {
+    await client.captureImmediate({
+      distinctId: pseudonymousDistinctId,
+      event: "anonymous_trial_converted",
+      properties: {
+        analytics_schema_version: ANALYTICS_SCHEMA_VERSION,
+        [ANALYTICS_SUBJECT_PROPERTY]: ANALYTICS_HUMAN_SUBJECT,
+        ...properties,
+      },
+    });
+    return "sent";
+  } catch (err) {
+    console.error("[analytics] server capture failed", {
+      errorId: "ANALYTICS_SERVER_CAPTURE_FAILED",
+      event: "anonymous_trial_converted",
+      err,
+    });
+    return "failed";
+  } finally {
+    await client.shutdown().catch(() => undefined);
+  }
+}
 
 type SubscriptionActivationCaptureOptions = {
   /** Stable, non-identifying outbox marker used as the PostHog event UUID. */

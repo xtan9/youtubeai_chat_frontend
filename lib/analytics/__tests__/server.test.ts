@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({
   captureImmediate: vi.fn(),
@@ -12,10 +13,74 @@ vi.mock("posthog-node", () => ({
 
 import { ANALYTICS_SUBJECT_PROPERTY, ANALYTICS_SYNTHETIC_SUBJECT } from "../identity";
 import {
+  captureAnonymousTrialConversion,
   captureProjectActivityEventWithStatus,
   captureProjectVideoProcessingEvent,
   captureSubscriptionActivated,
 } from "../server";
+
+describe("captureAnonymousTrialConversion", () => {
+  it("captures a governed server-confirmed conversion under a pseudonymous identity", async () => {
+    const rawUserId = "74000000-0000-4000-8000-000000000003";
+    const expectedDistinctId = `anonymous-trial-conversion:v1:${createHmac(
+      "sha256",
+      "a".repeat(32),
+    )
+      .update(`youtubeai:anonymous-trial-conversion:v1\0${rawUserId}`)
+      .digest("hex")}`;
+    await expect(
+      captureAnonymousTrialConversion(
+        rawUserId,
+        "google",
+        { app_metadata: { provider: "google" } },
+      ),
+    ).resolves.toBe("sent");
+
+    expect(mocks.captureImmediate).toHaveBeenCalledWith({
+      distinctId: expectedDistinctId,
+      event: "anonymous_trial_converted",
+      properties: {
+        analytics_schema_version: 1,
+        analytics_subject: "human",
+        source_surface: "hero_demo",
+        registration_method: "google",
+      },
+    });
+    expect(JSON.stringify(mocks.captureImmediate.mock.calls)).not.toContain(
+      rawUserId,
+    );
+  });
+
+  it("fails closed when the server analytics HMAC secret is absent", async () => {
+    vi.stubEnv("ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET", "");
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(
+      captureAnonymousTrialConversion(
+        "74000000-0000-4000-8000-000000000003",
+        "email",
+        { app_metadata: { provider: "email" } },
+      ),
+    ).resolves.toBe("skipped");
+
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[analytics] anonymous conversion identity unavailable",
+      { errorId: "ANALYTICS_ANONYMOUS_CONVERSION_IDENTITY_UNAVAILABLE" },
+    );
+  });
+
+  it("suppresses a converted production-probe identity", async () => {
+    await expect(
+      captureAnonymousTrialConversion("smoke-user", "email", {
+        app_metadata: { is_smoke_account: true },
+      }),
+    ).resolves.toBe("skipped");
+    expect(mocks.PostHog).not.toHaveBeenCalled();
+  });
+});
 
 beforeEach(() => {
   mocks.captureImmediate.mockReset().mockResolvedValue(undefined);
@@ -28,6 +93,7 @@ beforeEach(() => {
   });
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "phc_test");
+  vi.stubEnv("ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET", "a".repeat(32));
 });
 
 afterEach(() => {

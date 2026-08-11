@@ -10,19 +10,35 @@ on conflict (id) do update set is_anonymous = excluded.is_anonymous;
 
 set local role service_role;
 
--- Establish retained Anonymous Trial usage before touching visible history.
+-- Exercise the production route order: reserve, mark provider work started,
+-- persist the validated turn, then complete the distributed lease.
+create temporary table anonymous_journey_reservation as
 select public.reserve_anonymous_trial_chat_message(
   '37600000-0000-4000-8000-000000000001',
   repeat('7', 64),
   1000000000,
   1000,
   true
-);
+) as result;
+
+create temporary table anonymous_journey_started as
+select public.mark_anonymous_trial_chat_message_started(
+  '37600000-0000-4000-8000-000000000001',
+  (select (result ->> 'reservationId')::uuid
+   from anonymous_journey_reservation)
+) as result;
 
 select public.append_hero_demo_chat_turn(
   '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo',
   'How does alpha begin?', 'It begins with alpha evidence.'
 );
+
+create temporary table anonymous_journey_completed as
+select public.complete_anonymous_trial_chat_message(
+  '37600000-0000-4000-8000-000000000001',
+  (select (result ->> 'reservationId')::uuid
+   from anonymous_journey_reservation)
+) as result;
 select public.append_hero_demo_chat_turn(
   '37600000-0000-4000-8000-000000000001', 'nm1TxQj9IsQ',
   'How does beta begin?', 'It begins with beta evidence.'
@@ -49,7 +65,10 @@ reset role;
 
 do $$
 begin
-  if jsonb_array_length((select result -> 'messages' from demo_a_history)) <> 2
+  if (select result ->> 'outcome' from anonymous_journey_reservation) <> 'admitted'
+    or (select result ->> 'outcome' from anonymous_journey_started) <> 'started'
+    or (select result ->> 'outcome' from anonymous_journey_completed) <> 'completed'
+    or jsonb_array_length((select result -> 'messages' from demo_a_history)) <> 2
     or (select result -> 'messages' -> 0 ->> 'content' from demo_a_history)
       <> 'How does alpha begin?'
     or jsonb_array_length((select result -> 'messages' from demo_b_history)) <> 2
@@ -80,6 +99,20 @@ select youtube_video_id,
     '37600000-0000-4000-8000-000000000001', youtube_video_id
   ) as result
 from (values ('Hrbq66XqtCo'), ('nm1TxQj9IsQ')) as demos(youtube_video_id);
+
+create temporary table converted_registered_admission as
+select public.admit_registered_free_hero_demo_chat_message(
+  '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo'
+) as result;
+select public.append_hero_demo_chat_turn(
+  '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo',
+  'What can I ask after registering?',
+  'The preserved conversation continues for this Registered Learner.'
+);
+create temporary table continued_registered_history as
+select public.load_hero_demo_conversation(
+  '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo', 16
+) as result;
 select public.clear_hero_demo_conversation(
   '37600000-0000-4000-8000-000000000001', 'Hrbq66XqtCo'
 );
@@ -102,6 +135,11 @@ begin
       where result <> '{"outcome":"available","remainingMessages":5}'::jsonb
     )
     or (select count(*) from converted_registered_allowances) <> 2
+    or (select result from converted_registered_admission)
+      <> '{"outcome":"admitted","remainingMessages":4}'::jsonb
+    or jsonb_array_length(
+      (select result -> 'messages' from continued_registered_history)
+    ) <> 4
     or jsonb_array_length((select result -> 'messages' from cleared_history)) <> 0
     or (select result ->> 'remainingMessages' from quota_after_clear)::integer <> 4
     or exists (

@@ -137,6 +137,40 @@ describe("PostHogUserIdentifier", () => {
     expect(state.optOut).toHaveBeenCalledTimes(1);
   });
 
+  it("marks and opts out a trusted anonymous production probe", () => {
+    state.user = {
+      id: "anonymous-smoke-user-1",
+      is_anonymous: true,
+      app_metadata: { is_smoke_account: true },
+    };
+
+    render(<PostHogUserIdentifier />);
+
+    expect(state.identify).toHaveBeenCalledWith("anonymous-smoke-user-1", {
+      account_type: "anonymous",
+      analytics_subject: "synthetic_smoke_account",
+    });
+    expect(state.register).toHaveBeenCalledWith({
+      analytics_subject: "synthetic_smoke_account",
+    });
+    expect(state.optOut).toHaveBeenCalledTimes(1);
+    expect(state.optIn).not.toHaveBeenCalled();
+  });
+
+  it("does not trust an anonymous user-metadata-only smoke marker", () => {
+    state.user = {
+      id: "anonymous-human-user-1",
+      is_anonymous: true,
+      user_metadata: { is_smoke_account: true },
+    };
+
+    render(<PostHogUserIdentifier />);
+
+    expect(state.identify).not.toHaveBeenCalled();
+    expect(state.optOut).not.toHaveBeenCalled();
+    expect(state.optIn).toHaveBeenCalledWith({ captureEventName: false });
+  });
+
   it("does not classify a user-metadata-only marker as Smoke", () => {
     state.user = {
       id: "human-user-1",

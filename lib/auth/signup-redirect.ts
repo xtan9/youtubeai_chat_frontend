@@ -32,8 +32,18 @@ export function getSafeAuthRedirect(currentUrl: string): string {
   }
 }
 
-export function buildAuthCallbackUrl(origin: string, next: string): string {
+export function buildAuthCallbackUrl(
+  origin: string,
+  next: string,
+  anonymousTrialConversion?: "email" | "google",
+): string {
   const callbackUrl = new URL("/auth/callback", origin);
   callbackUrl.searchParams.set("next", normalizeAuthRedirect(next));
+  if (anonymousTrialConversion) {
+    callbackUrl.searchParams.set(
+      "anonymous_trial_conversion",
+      anonymousTrialConversion,
+    );
+  }
   return callbackUrl.toString();
 }

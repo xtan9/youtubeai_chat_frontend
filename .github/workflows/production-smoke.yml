@@ -11,6 +11,16 @@ on:
     - cron: "0 * * * *"
     - cron: "17 15 * * *"
   workflow_dispatch:
+    inputs:
+      anonymous_trial_smoke_phase:
+        description: "Bounded Anonymous Trial rollout probe (run admitted, enable the kill switch, then run killed)"
+        required: false
+        type: choice
+        default: skip
+        options:
+          - skip
+          - admitted
+          - killed
 
 jobs:
   api-smoke:
@@ -85,6 +95,16 @@ jobs:
           pnpm exec playwright test
           smoke-tests/e2e-project-conversation-production.spec.ts
           --grep "@project-grounded"
+          --workers=1
+          --retries=0
+      - name: Run bounded Anonymous Trial rollout probe
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.anonymous_trial_smoke_phase != 'skip' }}
+        env:
+          ANONYMOUS_TRIAL_PRODUCTION_SMOKE_PHASE: ${{ inputs.anonymous_trial_smoke_phase }}
+        run: >-
+          pnpm exec playwright test
+          smoke-tests/e2e-anonymous-trial-production.spec.ts
+          --grep "@anonymous-trial-production"
           --workers=1
           --retries=0
       - uses: actions/upload-artifact@v6

@@ -531,6 +531,7 @@ test.describe("Hero demo chat", () => {
     expect(actionBox!.x).toBeGreaterThanOrEqual(0);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(390);
   });
+
 });
 
 function fulfillJson(route: Route, body: unknown, status = 200) {

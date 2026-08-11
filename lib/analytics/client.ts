@@ -35,6 +35,10 @@ import {
   isProjectActivityEventName,
   validateProjectActivityEvent,
 } from "./project-activity";
+import {
+  isAnonymousTrialEventName,
+  validateAnonymousTrialEvent,
+} from "./anonymous-trial";
 
 let businessAnalyticsCaptureSuppressed = false;
 
@@ -156,6 +160,18 @@ export function captureAnalyticsEvent<EventName extends AnalyticsEventName>(
         return;
       }
       validatedProperties = validation.properties as typeof properties;
+    }
+    if (isAnonymousTrialEventName(event)) {
+      const validation = validateAnonymousTrialEvent(event, properties);
+      if (!validation.success) {
+        console.error("[analytics] invalid Anonymous Trial event", {
+          errorId: "ANALYTICS_ANONYMOUS_TRIAL_INVALID",
+          event,
+          issueCount: validation.error.issues.length,
+        });
+        return;
+      }
+      validatedProperties = validation.data as typeof properties;
     }
 
     posthog.capture(event, {

@@ -8,13 +8,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // route can't silently regress sign-in/signup flows after Vercel's edge
 // 307 from non-www to www.
 
-const exchangeCodeForSession = vi.fn();
+const {
+  exchangeCodeForSession,
+  getUser,
+  captureAnonymousTrialConversion,
+} = vi.hoisted(() => ({
+  exchangeCodeForSession: vi.fn(),
+  getUser: vi.fn(),
+  captureAnonymousTrialConversion: vi.fn(),
+}));
 const createClient = vi.fn(async () => ({
-  auth: { exchangeCodeForSession },
+  auth: { exchangeCodeForSession, getUser },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => createClient(),
+}));
+vi.mock("@/lib/analytics/server", () => ({
+  captureAnonymousTrialConversion,
 }));
 
 import { GET } from "../route";
@@ -26,6 +37,10 @@ function req(url: string, headers: Record<string, string> = {}): Request {
 describe("GET /auth/callback", () => {
   beforeEach(() => {
     exchangeCodeForSession.mockReset();
+    exchangeCodeForSession.mockResolvedValue({ error: null });
+    getUser.mockReset();
+    getUser.mockResolvedValue({ data: { user: null }, error: null });
+    captureAnonymousTrialConversion.mockReset();
     createClient.mockClear();
     // Reset NODE_ENV every test so cases that assert dev-vs-prod behavior
     // don't depend on suite ordering.
@@ -52,6 +67,66 @@ describe("GET /auth/callback", () => {
     expect(res.headers.get("location")).toBe(
       "https://www.youtubeai.chat/account"
     );
+  });
+
+  it.each(["email", "google"] as const)(
+    "captures an authoritative anonymous-to-registered %s conversion after exchange",
+    async (registrationMethod) => {
+      getUser
+        .mockResolvedValueOnce({
+          data: {
+            user: {
+              id: "anonymous-user-1",
+              is_anonymous: true,
+              app_metadata: { provider: "anonymous" },
+            },
+          },
+          error: null,
+        })
+        .mockResolvedValueOnce({
+          data: {
+            user: {
+              id: "anonymous-user-1",
+              is_anonymous: false,
+              app_metadata: { provider: registrationMethod },
+            },
+          },
+          error: null,
+        });
+
+      await GET(
+        req(
+          `https://www.youtubeai.chat/auth/callback?code=abc&anonymous_trial_conversion=${registrationMethod}`,
+        ),
+      );
+
+      expect(captureAnonymousTrialConversion).toHaveBeenCalledWith(
+        "anonymous-user-1",
+        registrationMethod,
+        { app_metadata: { provider: registrationMethod } },
+      );
+    },
+  );
+
+  it("does not capture a forged conversion marker without an anonymous-to-registered transition", async () => {
+    getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "registered-user-1",
+          is_anonymous: false,
+          app_metadata: { provider: "google" },
+        },
+      },
+      error: null,
+    });
+
+    await GET(
+      req(
+        "https://www.youtubeai.chat/auth/callback?code=abc&anonymous_trial_conversion=google",
+      ),
+    );
+
+    expect(captureAnonymousTrialConversion).not.toHaveBeenCalled();
   });
 
   it("redirects to /dashboard when next is absent", async () => {

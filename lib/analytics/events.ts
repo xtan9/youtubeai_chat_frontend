@@ -9,6 +9,7 @@ import type { ProjectVideoProcessingEventProperties } from "./project-video-proc
 import type { ProjectGroundedAnswerEventProperties } from "./project-grounded-answer";
 import type { ProjectArtifactEventProperties } from "./project-artifacts";
 import type { ProjectActivityEventProperties } from "./project-activity";
+import type { AnonymousTrialEventProperties } from "./anonymous-trial";
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -56,6 +57,11 @@ export const ANALYTICS_EVENT_NAMES = [
   "project_paywall_viewed",
   "project_action_failed",
   "project_generation_cost_recorded",
+  "anonymous_trial_started",
+  "anonymous_trial_message_admitted",
+  "anonymous_trial_exhausted",
+  "anonymous_trial_registration_selected",
+  "anonymous_trial_converted",
 ] as const satisfies readonly AnalyticsEventName[];
 
 const analyticsEventNames = new Set<string>(ANALYTICS_EVENT_NAMES);
@@ -150,6 +156,11 @@ export interface AnalyticsEventProperties {
   project_paywall_viewed: ProjectActivityEventProperties["project_paywall_viewed"];
   project_action_failed: ProjectActivityEventProperties["project_action_failed"];
   project_generation_cost_recorded: ProjectActivityEventProperties["project_generation_cost_recorded"];
+  anonymous_trial_started: AnonymousTrialEventProperties["anonymous_trial_started"];
+  anonymous_trial_message_admitted: AnonymousTrialEventProperties["anonymous_trial_message_admitted"];
+  anonymous_trial_exhausted: AnonymousTrialEventProperties["anonymous_trial_exhausted"];
+  anonymous_trial_registration_selected: AnonymousTrialEventProperties["anonymous_trial_registration_selected"];
+  anonymous_trial_converted: AnonymousTrialEventProperties["anonymous_trial_converted"];
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventProperties;
