@@ -529,7 +529,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
 
   await page.route("**/auth/v1/token?grant_type=password", async (route) => {
     expect(route.request().postDataJSON()).toMatchObject({
-      email: "other@example.test",
+      email: "beta-candidate@example.test",
       password: "fixture-password",
     });
     await route.fulfill({
@@ -540,7 +540,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
         "access-control-allow-credentials": "true",
       },
       body: JSON.stringify(
-        fixtureAuthSession(OTHER_ID, "other@example.test"),
+        fixtureAuthSession(OTHER_ID, "beta-candidate@example.test"),
       ),
     });
   });
@@ -578,7 +578,7 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   await page.goto(`${appUrl}/auth/login`);
   await expect(page).toHaveURL(/\/auth\/login$/u);
   await expect(page.getByRole("heading", { name: "Login" })).toBeVisible();
-  await page.getByLabel("Email").fill("other@example.test");
+  await page.getByLabel("Email").fill("beta-candidate@example.test");
   await page.getByLabel("Password", { exact: true }).fill("fixture-password");
   await Promise.all([
     page.waitForURL(/\/dashboard$/u),
@@ -781,6 +781,50 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   ).toContainText("Source claims");
   await expect(page.getByText("Alpha evidence", { exact: true })).toBeVisible();
   await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
+
+  gatewayOutcome = "success";
+  for (const [messagesUsed, question] of [
+    [3, "What evidence supports the local decision?"],
+    [4, "How does the regional position differ?"],
+    [5, "What is the strongest bounded conclusion?"],
+  ] as const) {
+    await page.getByLabel("Ask the Project").fill(question);
+    await page.getByRole("button", { name: "Ask Project" }).click();
+    await expect(
+      page.getByRole("status", {
+        name: `${messagesUsed} of 5 free Project messages used`,
+      }),
+    ).toBeVisible();
+  }
+  await expect(
+    page.getByText("You’ve used 5/5 free messages in this Project."),
+  ).toBeVisible();
+  await expect(page.getByLabel("Ask the Project")).toHaveCount(0);
+
+  const projectId = new URL(page.url()).pathname.split("/").at(-1);
+  expect(projectId).toMatch(/^[0-9a-f-]{36}$/u);
+  const sixthAttempt = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/projects/${id}/conversation/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        questionId: crypto.randomUUID(),
+        question: "Can a sixth Free Project message be admitted?",
+        mode: "question",
+      }),
+    });
+    return {
+      status: response.status,
+      body: (await response.json()) as { errorCode?: string },
+    };
+  }, projectId!);
+  expect(sixthAttempt).toEqual({
+    status: 402,
+    body: expect.objectContaining({ errorCode: "free_chat_exceeded" }),
+  });
+  await expect(
+    page.getByRole("status", { name: "5 of 5 free Project messages used" }),
+  ).toBeVisible();
 });
 
 test("database-backed Pro Researcher completes a private responsive Project lifecycle", async ({
