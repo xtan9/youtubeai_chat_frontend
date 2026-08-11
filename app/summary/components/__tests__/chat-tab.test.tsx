@@ -774,6 +774,180 @@ describe("ChatTab", () => {
     expect(screen.queryByText(/1 of 5 free messages used/i)).toBeNull();
   });
 
+  it("uses the authoritative Registered Free Hero Demo allowance instead of deletable history", async () => {
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: {
+          state: "available",
+          remainingMessages: 2,
+        },
+        subscriptionPresentation: { state: "free" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({ onMessages: () => jsonResponse({ messages: [] }) }),
+    );
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl="https://youtu.be/Hrbq66XqtCo"
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("3 of 5 free messages used")).toBeTruthy(),
+    );
+    expect(useEntitlements).toHaveBeenCalledWith(
+      "https://youtu.be/Hrbq66XqtCo",
+    );
+  });
+
+  it("reconciles the Registered Free Hero Demo counter from the server admission event", async () => {
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: {
+          state: "available",
+          remainingMessages: 2,
+        },
+        subscriptionPresentation: { state: "free" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({
+        onMessages: () => jsonResponse({ messages: [] }),
+        onStream: () =>
+          sseResponse([
+            {
+              type: "registered_free_hero_demo_admitted",
+              remainingMessages: 1,
+            },
+            { type: "delta", text: "Grounded answer" },
+            { type: "done" },
+          ]),
+      }),
+    );
+
+    renderWithChatProviders(
+      <ChatTab
+        youtubeUrl="https://youtu.be/Hrbq66XqtCo"
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("3 of 5 free messages used")).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText(/chat message/i), {
+      target: { value: "What is the main idea?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+    await waitFor(() =>
+      expect(screen.getByText("4 of 5 free messages used")).toBeTruthy(),
+    );
+  });
+
+  it("replaces the Registered Free Hero Demo composer with an accessible plan upgrade at zero", async () => {
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: {
+          state: "available",
+          remainingMessages: 0,
+        },
+        subscriptionPresentation: { state: "free" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({ onMessages: () => jsonResponse({ messages: [] }) }),
+    );
+
+    const { container } = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl="https://youtu.be/Hrbq66XqtCo"
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/used 5\/5 free chat messages/i)).toBeTruthy(),
+    );
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByLabelText(/chat message/i)).toBeNull();
+    expect(screen.getByRole("link", { name: /upgrade to pro/i })).toBeTruthy();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("fails closed accessibly when the Registered Free Hero Demo ledger is unavailable", async () => {
+    vi.mocked(useEntitlements).mockReturnValue({
+      data: {
+        tier: "free",
+        caps: {
+          summariesUsed: 0,
+          summariesLimit: 10,
+          projectsUsed: 0,
+          projectsLimit: 1,
+        },
+        registeredFreeHeroDemoChat: { state: "unavailable" },
+        subscriptionPresentation: { state: "free" },
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useEntitlements>);
+    vi.stubGlobal(
+      "fetch",
+      makeRouter({ onMessages: () => jsonResponse({ messages: [] }) }),
+    );
+
+    const { container } = renderWithChatProviders(
+      <ChatTab
+        youtubeUrl="https://youtu.be/Hrbq66XqtCo"
+        active={true}
+        analyticsSurface="hero_demo"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/free demo chat is temporarily unavailable/i),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByLabelText(/chat message/i)).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it.each([
     [
       "exhausted",

@@ -19,6 +19,37 @@ beforeEach(() => {
 });
 
 describe("useEntitlements", () => {
+  it("keys and fetches Registered Free allowance by the selected Hero Demo URL", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          tier: "free",
+          caps: { summariesUsed: 0, summariesLimit: 10 },
+          registeredFreeHeroDemoChat: {
+            state: "available",
+            remainingMessages: 4,
+          },
+          subscriptionPresentation: { state: "free" },
+        }),
+        { status: 200 },
+      ),
+    );
+    const heroUrl = "https://youtu.be/Hrbq66XqtCo";
+    const { result } = renderHook(() => useEntitlements(heroUrl), {
+      wrapper: wrapper(freshQueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/me/entitlements?hero_demo_youtube_url=${encodeURIComponent(heroUrl)}`,
+      { cache: "no-store" },
+    );
+    expect(result.current.data?.registeredFreeHeroDemoChat).toEqual({
+      state: "available",
+      remainingMessages: 4,
+    });
+  });
+
   it("fetches and returns the entitlement payload (free tier)", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
       new Response(

@@ -13,7 +13,10 @@ import {
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent } from "@/lib/observability";
-import type { EntitlementsData } from "./useEntitlements";
+import {
+  entitlementsQueryKey,
+  type EntitlementsData,
+} from "./useEntitlements";
 
 interface UseChatStreamArgs {
   readonly youtubeUrl: string | null;
@@ -31,6 +34,7 @@ export interface ChatStreamApi {
   readonly upgradeError: UpgradeRequiredError | null;
   readonly anonymousTrialRemaining: number | null;
   readonly anonymousTrialUnavailable: boolean;
+  readonly registeredFreeHeroDemoRemaining: number | null;
 }
 
 const MAX_PARSE_WARNINGS_PER_STREAM = 3;
@@ -92,8 +96,18 @@ export function useChatStream({
   const [upgradeError, setUpgradeError] = useState<UpgradeRequiredError | null>(null);
   const [anonymousTrialRemaining, setAnonymousTrialRemaining] = useState<number | null>(null);
   const [anonymousTrialUnavailable, setAnonymousTrialUnavailable] = useState(false);
+  const [registeredFreeHeroDemoAdmission, setRegisteredFreeHeroDemoAdmission] =
+    useState<{
+      readonly youtubeUrl: string;
+      readonly remainingMessages: number;
+    } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const chatStartedVideoKeysRef = useRef(new Set<string>());
+
+  const registeredFreeHeroDemoRemaining =
+    youtubeUrl && registeredFreeHeroDemoAdmission?.youtubeUrl === youtubeUrl
+      ? registeredFreeHeroDemoAdmission.remainingMessages
+      : null;
 
   const abort = useCallback(() => {
     abortRef.current?.abort();
@@ -191,11 +205,35 @@ export function useChatStream({
             ) {
               setAnonymousTrialRemaining(0);
               queryClient.setQueryData<EntitlementsData>(
-                ["entitlements"],
+                entitlementsQueryKey(
+                  sourceSurface === "hero_demo" ? youtubeUrl : null,
+                ),
                 (current) => current
                   ? {
                       ...current,
                       anonymousTrial: { state: "available", remainingMessages: 0 },
+                    }
+                  : current,
+              );
+            }
+            if (
+              upgrade.errorCode === "free_chat_exceeded" &&
+              body.remainingMessages === 0 &&
+              sourceSurface === "hero_demo"
+            ) {
+              setRegisteredFreeHeroDemoAdmission({
+                youtubeUrl,
+                remainingMessages: 0,
+              });
+              queryClient.setQueryData<EntitlementsData>(
+                entitlementsQueryKey(youtubeUrl),
+                (current) => current
+                  ? {
+                      ...current,
+                      registeredFreeHeroDemoChat: {
+                        state: "available",
+                        remainingMessages: 0,
+                      },
                     }
                   : current,
               );
@@ -212,7 +250,9 @@ export function useChatStream({
             if (body.errorCode === "anonymous_trial_unavailable") {
               setAnonymousTrialUnavailable(true);
               queryClient.setQueryData<EntitlementsData>(
-                ["entitlements"],
+                entitlementsQueryKey(
+                  sourceSurface === "hero_demo" ? youtubeUrl : null,
+                ),
                 (current) => current
                   ? { ...current, anonymousTrial: { state: "unavailable" } }
                   : current,
@@ -254,11 +294,30 @@ export function useChatStream({
             if (evt.type === "anonymous_trial_admitted") {
               setAnonymousTrialRemaining(evt.remainingMessages);
               queryClient.setQueryData<EntitlementsData>(
-                ["entitlements"],
+                entitlementsQueryKey(
+                  sourceSurface === "hero_demo" ? youtubeUrl : null,
+                ),
                 (current) => current
                   ? {
                       ...current,
                       anonymousTrial: {
+                        state: "available",
+                        remainingMessages: evt.remainingMessages,
+                      },
+                    }
+                  : current,
+              );
+            } else if (evt.type === "registered_free_hero_demo_admitted") {
+              setRegisteredFreeHeroDemoAdmission({
+                youtubeUrl,
+                remainingMessages: evt.remainingMessages,
+              });
+              queryClient.setQueryData<EntitlementsData>(
+                entitlementsQueryKey(youtubeUrl),
+                (current) => current
+                  ? {
+                      ...current,
+                      registeredFreeHeroDemoChat: {
                         state: "available",
                         remainingMessages: evt.remainingMessages,
                       },
@@ -272,8 +331,10 @@ export function useChatStream({
             } else if (evt.type === "error") {
               if (evt.errorCode === "anonymous_trial_unavailable") {
                 setAnonymousTrialUnavailable(true);
-                queryClient.setQueryData<EntitlementsData>(
-                  ["entitlements"],
+                  queryClient.setQueryData<EntitlementsData>(
+                    entitlementsQueryKey(
+                      sourceSurface === "hero_demo" ? youtubeUrl : null,
+                    ),
                   (current) => current
                     ? { ...current, anonymousTrial: { state: "unavailable" } }
                     : current,
@@ -341,5 +402,6 @@ export function useChatStream({
     upgradeError,
     anonymousTrialRemaining,
     anonymousTrialUnavailable,
+    registeredFreeHeroDemoRemaining,
   };
 }

@@ -1,7 +1,10 @@
 import { after } from "next/server";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { checkRateLimit } from "@/lib/services/rate-limit";
-import { checkChatEntitlement } from "@/lib/services/entitlements";
+import {
+  checkChatEntitlement,
+  resolveRegisteredSubscription,
+} from "@/lib/services/entitlements";
 import {
   appendChatTurn,
   appendChatUserMessage,
@@ -30,6 +33,10 @@ import {
   reserveAnonymousTrialChatMessage,
   type AnonymousTrialReservationResult,
 } from "@/lib/services/anonymous-trial";
+import {
+  admitRegisteredFreeHeroDemoChatMessage,
+  type RegisteredFreeHeroDemoAdmissionResult,
+} from "@/lib/services/registered-free-hero-demo";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -312,6 +319,60 @@ export async function POST(request: Request) {
   const { retainedThread, entitlement: entitlementTarget } = subject;
   const videoId = grounding.transcript.videoId;
 
+  let registeredFreeHeroDemoAdmission: Extract<
+    RegisteredFreeHeroDemoAdmissionResult,
+    { outcome: "admitted" }
+  > | null = null;
+  if (!isAnonymous && subject.source === "hero_demo") {
+    const subscription = await resolveRegisteredSubscription(
+      userId,
+      smokeProEntitled,
+    );
+    if (subscription.kind === "unavailable") {
+      return jsonError(
+        503,
+        "Chat allowance temporarily unavailable.",
+        requestId,
+        "REGISTERED_FREE_HERO_DEMO_SUBSCRIPTION_UNAVAILABLE",
+      );
+    }
+    if (subscription.tier === "free") {
+      const admission = await admitRegisteredFreeHeroDemoChatMessage({
+        userId,
+        youtubeVideoId: subject.identity.youtubeVideoId,
+      });
+      if (admission.outcome === "unavailable") {
+        return jsonError(
+          503,
+          "Chat allowance temporarily unavailable.",
+          requestId,
+          "REGISTERED_FREE_HERO_DEMO_ALLOWANCE_UNAVAILABLE",
+        );
+      }
+      if (admission.outcome === "exhausted") {
+        return new Response(
+          JSON.stringify({
+            message:
+              "You've used your 5 free chat messages on this demo. Upgrade for unlimited.",
+            errorCode: "free_chat_exceeded",
+            tier: "free",
+            remainingMessages: admission.remainingMessages,
+            upgradeUrl: "/pricing",
+          }),
+          {
+            status: 402,
+            headers: {
+              "Content-Type": "application/json",
+              [REQUEST_ID_HEADER]: requestId,
+              "X-Error-ID": "REGISTERED_FREE_HERO_DEMO_EXHAUSTED",
+            },
+          },
+        );
+      }
+      registeredFreeHeroDemoAdmission = admission;
+    }
+  }
+
   if (entitlementTarget) {
     const entitlement = await checkChatEntitlement(
       userId,
@@ -521,6 +582,13 @@ export async function POST(request: Request) {
       };
 
       try {
+        if (registeredFreeHeroDemoAdmission) {
+          sendEvent({
+            type: "registered_free_hero_demo_admitted",
+            remainingMessages:
+              registeredFreeHeroDemoAdmission.remainingMessages,
+          });
+        }
         if (anonymousReservation) {
           const started = await markAnonymousTrialChatMessageStarted({
             userId,

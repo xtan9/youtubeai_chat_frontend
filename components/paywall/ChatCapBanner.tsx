@@ -40,6 +40,7 @@ export function ChatCapBanner({
   const isAnonymousTrialUnavailable =
     variant === "anonymous-trial-unavailable";
   const isAnonymousTrialStatus = variant.startsWith("anonymous-trial-");
+  const isLiveStatus = isAnonymousTrialStatus || variant === "free-cap";
 
   return (
     <div
@@ -48,14 +49,14 @@ export function ChatCapBanner({
       role={
         isAnonymousTrialUnavailable
           ? "alert"
-          : isAnonymousTrialStatus
+          : isLiveStatus
             ? "status"
             : undefined
       }
       aria-live={
         isAnonymousTrialUnavailable
           ? "assertive"
-          : isAnonymousTrialStatus
+          : isLiveStatus
             ? "polite"
             : undefined
       }

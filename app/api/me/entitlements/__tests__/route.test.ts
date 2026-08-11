@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   fromProjects: vi.fn(),
   getServiceRoleClient: vi.fn(),
   getAnonymousTrialChatAllowance: vi.fn(),
+  getRegisteredFreeHeroDemoChatAllowance: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -43,6 +44,11 @@ vi.mock("@/lib/services/anonymous-trial", () => ({
   getAnonymousTrialChatAllowance: mocks.getAnonymousTrialChatAllowance,
 }));
 
+vi.mock("@/lib/services/registered-free-hero-demo", () => ({
+  getRegisteredFreeHeroDemoChatAllowance:
+    mocks.getRegisteredFreeHeroDemoChatAllowance,
+}));
+
 function resolved(
   value: Omit<
     Extract<RegisteredSubscriptionResolution, { kind: "resolved" }>,
@@ -50,6 +56,10 @@ function resolved(
   >,
 ): RegisteredSubscriptionResolution {
   return { kind: "resolved", stripeSubscriptionId: null, ...value };
+}
+
+function entitlementsRequest(): Request {
+  return new Request("http://localhost/api/me/entitlements");
 }
 
 beforeEach(() => {
@@ -114,6 +124,10 @@ beforeEach(() => {
     outcome: "available",
     remainingMessages: 5,
   });
+  mocks.getRegisteredFreeHeroDemoChatAllowance.mockResolvedValue({
+    outcome: "available",
+    remainingMessages: 2,
+  });
   vi.stubEnv("ANONYMOUS_TRIAL_ENABLED", "false");
 });
 
@@ -128,7 +142,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.cookieGet.mockReturnValue(undefined);
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body).toEqual({
       tier: "anon",
@@ -150,7 +164,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.fromAnon.mockResolvedValue({ data: { count: 1 }, error: null });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.caps).toEqual({
       summariesUsed: 1,
@@ -179,7 +193,7 @@ describe("GET /api/me/entitlements", () => {
     );
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body).toEqual({
       tier: "pro",
@@ -222,7 +236,7 @@ describe("GET /api/me/entitlements", () => {
     );
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.tier).toBe("pro");
     expect(body.caps.summariesLimit).toBe(-1);
@@ -249,7 +263,7 @@ describe("GET /api/me/entitlements", () => {
       );
 
       const { GET } = await import("../route");
-      const body = await (await GET()).json();
+      const body = await (await GET(entitlementsRequest())).json();
 
       expect(body.tier).toBe(tier);
       expect(body.caps.summariesLimit).toBe(tier === "pro" ? -1 : 10);
@@ -266,7 +280,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.fromProjects.mockResolvedValue({ count: 1, error: null });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body).toEqual({
       tier: "free",
@@ -282,6 +296,77 @@ describe("GET /api/me/entitlements", () => {
     });
   });
 
+  it("returns the authoritative per-demo allowance for a canonical Hero Demo URL", async () => {
+    const { GET } = await import("../route");
+    const response = await GET(
+      new Request(
+        "http://localhost/api/me/entitlements?hero_demo_youtube_url=https%3A%2F%2Fyoutu.be%2FHrbq66XqtCo",
+      ),
+    );
+    const body = await response.json();
+
+    expect(mocks.getRegisteredFreeHeroDemoChatAllowance).toHaveBeenCalledWith({
+      userId: "u1",
+      youtubeVideoId: "Hrbq66XqtCo",
+    });
+    expect(body.registeredFreeHeroDemoChat).toEqual({
+      state: "available",
+      remainingMessages: 2,
+    });
+  });
+
+  it("does not expose a Registered Free demo allowance for Pro or non-demo input", async () => {
+    mocks.resolveRegisteredSubscription.mockResolvedValue(
+      resolved({
+        tier: "pro",
+        subscription: null,
+        presentation: { state: "active_pro", plan: null, renewsAt: null },
+      }),
+    );
+    const { GET } = await import("../route");
+    const proBody = await (
+      await GET(
+        new Request(
+          "http://localhost/api/me/entitlements?hero_demo_youtube_url=https%3A%2F%2Fyoutu.be%2FHrbq66XqtCo",
+        ),
+      )
+    ).json();
+    expect(proBody.registeredFreeHeroDemoChat).toBeUndefined();
+
+    mocks.resolveRegisteredSubscription.mockResolvedValue(
+      resolved({
+        tier: "free",
+        subscription: null,
+        presentation: { state: "free" },
+      }),
+    );
+    const nonDemoBody = await (
+      await GET(
+        new Request(
+          "http://localhost/api/me/entitlements?hero_demo_youtube_url=https%3A%2F%2Fyoutu.be%2FdQw4w9WgXcQ",
+        ),
+      )
+    ).json();
+    expect(nonDemoBody.registeredFreeHeroDemoChat).toBeUndefined();
+    expect(mocks.getRegisteredFreeHeroDemoChatAllowance).not.toHaveBeenCalled();
+  });
+
+  it("exposes an explicit unavailable state when the Registered Free demo ledger cannot be read", async () => {
+    mocks.getRegisteredFreeHeroDemoChatAllowance.mockResolvedValue({
+      outcome: "unavailable",
+    });
+    const { GET } = await import("../route");
+    const body = await (
+      await GET(
+        new Request(
+          "http://localhost/api/me/entitlements?hero_demo_youtube_url=https%3A%2F%2Fyoutu.be%2FHrbq66XqtCo",
+        ),
+      )
+    ).json();
+
+    expect(body.registeredFreeHeroDemoChat).toEqual({ state: "unavailable" });
+  });
+
   it("returns truthful Pro presentation when optional metadata is missing", async () => {
     mocks.resolveRegisteredSubscription.mockResolvedValue(
       resolved({
@@ -292,7 +377,7 @@ describe("GET /api/me/entitlements", () => {
     );
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.subscription).toBeNull();
     expect(body.subscriptionPresentation).toEqual({
@@ -321,7 +406,7 @@ describe("GET /api/me/entitlements", () => {
     );
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(mocks.resolveRegisteredSubscription).toHaveBeenCalledWith(
       "smoke-u1",
@@ -334,7 +419,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({ kind: "unavailable" });
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(entitlementsRequest());
 
     expect(response.status).toBe(503);
     expect((await response.json()).message).toContain("unavailable");
@@ -346,7 +431,7 @@ describe("GET /api/me/entitlements", () => {
     });
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(entitlementsRequest());
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
@@ -362,7 +447,7 @@ describe("GET /api/me/entitlements", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(entitlementsRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -379,7 +464,7 @@ describe("GET /api/me/entitlements", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(entitlementsRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -406,7 +491,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.fromAnon.mockResolvedValue({ data: { count: 1 }, error: null });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body).toEqual({
       tier: "anon",
@@ -437,7 +522,7 @@ describe("GET /api/me/entitlements", () => {
     });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(mocks.getAnonymousTrialChatAllowance).toHaveBeenCalledWith({
       userId: "anon-supabase-1",
@@ -463,7 +548,7 @@ describe("GET /api/me/entitlements", () => {
     });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.anonymousTrial).toEqual({ state: "unavailable" });
   });
@@ -479,7 +564,7 @@ describe("GET /api/me/entitlements", () => {
     });
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.anonymousTrial).toBeUndefined();
     expect(mocks.getAnonymousTrialChatAllowance).not.toHaveBeenCalled();
@@ -498,7 +583,7 @@ describe("GET /api/me/entitlements", () => {
     mocks.verifyAnonId.mockReturnValue(null);
 
     const { GET } = await import("../route");
-    const body = await (await GET()).json();
+    const body = await (await GET(entitlementsRequest())).json();
 
     expect(body.caps.summariesUsed).toBe(0);
     expect(mocks.fromAnon).not.toHaveBeenCalled();
