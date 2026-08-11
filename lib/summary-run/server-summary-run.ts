@@ -47,6 +47,7 @@ import type { LogStage } from "@/lib/stages";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 import { hasTimedTranscriptSegments } from "@/lib/types";
+import { nominateCatalogVideoForAdmission } from "@/lib/catalog/catalog-admission";
 
 export type ServerSummaryRunPersistence = "deferred" | "required";
 
@@ -263,6 +264,7 @@ export async function runServerSummaryRun(
   // subsequent `sendEvent` calls no-op instead of writing to a dead
   // controller.
   let closed = false;
+  let cancelled = false;
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -295,6 +297,83 @@ export async function runServerSummaryRun(
         });
       };
 
+      const nominateSuccessfulSummary = async (): Promise<void> => {
+        try {
+          await nominateCatalogVideoForAdmission({
+            youtubeUrl: youtube_url,
+            requestId,
+            signal: request.signal,
+            isCancelled: () => cancelled,
+          });
+        } catch (err) {
+          const errorId =
+            err &&
+            typeof err === "object" &&
+            "errorId" in err &&
+            err.errorId === "CATALOG_NOMINATION_ENQUEUE_FAILED"
+              ? err.errorId
+              : "CATALOG_NOMINATION_FAILED";
+          logAppEvent(
+            "error",
+            "[summarize/stream] Catalog Nomination failed (fail-soft)",
+            {
+              errorId,
+              stage: "catalog_nomination",
+              videoId: videoIdForLog(youtube_url),
+              requestId,
+              errorName: err instanceof Error ? err.name : typeof err,
+            },
+          );
+        }
+      };
+
+      const completeSuccessfulSummary = async (
+        persist?: () => Promise<void>,
+      ): Promise<void> => {
+        if (cancelled || request.signal.aborted) return;
+        const complete = async (): Promise<void> => {
+          if (persist) await persist();
+          if (cancelled || request.signal.aborted) return;
+          await nominateSuccessfulSummary();
+        };
+
+        if (persistence === "required") {
+          await complete();
+          return;
+        }
+
+        try {
+          after(complete);
+        } catch (err) {
+          if (persist) {
+            logAppEvent(
+              "error",
+              "[summarize/stream] CACHE_WRITE_SCHEDULE_FAILED",
+              {
+                errorId: "CACHE_WRITE_SCHEDULE_FAILED",
+                stage: "cache" satisfies LogStage,
+                videoId: videoIdForLog(youtube_url),
+                requestId,
+                userId,
+                outputLanguage: outputLanguageCode ?? null,
+                errorName: err instanceof Error ? err.name : typeof err,
+              },
+            );
+          }
+          logAppEvent(
+            "error",
+            "[summarize/stream] Catalog Nomination scheduling failed (fail-soft)",
+            {
+              errorId: "CATALOG_NOMINATION_SCHEDULE_FAILED",
+              stage: "catalog_nomination",
+              videoId: videoIdForLog(youtube_url),
+              requestId,
+              errorName: err instanceof Error ? err.name : typeof err,
+            },
+          );
+        }
+      };
+
       try {
         const cached = await getCachedSummary(
           youtube_url,
@@ -307,6 +386,7 @@ export async function runServerSummaryRun(
         // existing Summary-cache fast path and its stored timing snapshot.
         if (cached && !includeTranscript) {
           streamCached(sendEvent, cached, { includeTranscript: false });
+          await completeSuccessfulSummary();
           return;
         }
 
@@ -388,6 +468,7 @@ export async function runServerSummaryRun(
             transcribeTimeSeconds:
               acquisitionResult.acquisitionDurationSeconds,
           });
+          await completeSuccessfulSummary();
           return;
         }
 
@@ -456,6 +537,7 @@ export async function runServerSummaryRun(
             summarize_time: cached.summarizeTimeSeconds,
             transcribe_time: transcribeSeconds,
           });
+          await completeSuccessfulSummary();
           return;
         }
 
@@ -581,6 +663,7 @@ export async function runServerSummaryRun(
           } else {
             logAppEvent("warn", "[summarize/stream] CACHE_SKIP_EMPTY_HEADER", payload);
           }
+          await completeSuccessfulSummary();
           return;
         }
 
@@ -657,31 +740,7 @@ export async function runServerSummaryRun(
           }
         };
 
-        if (persistence === "required") {
-          await persistSummary();
-          return;
-        }
-
-        try {
-          after(persistSummary);
-        } catch (err) {
-          // after() registration itself failed (sync throw from Next.js).
-          // Distinct errorId so dashboards can separate "scheduling
-          // failed" (runtime contract regression) from "cache write
-          // failed" (Supabase / network). Don't re-throw — the user
-          // already has their summary; emitting a generic error event
-          // here would land AFTER the terminal `summary` event and look
-          // to the client like a failed run despite a complete answer.
-          logAppEvent("error", "[summarize/stream] CACHE_WRITE_SCHEDULE_FAILED", {
-            errorId: "CACHE_WRITE_SCHEDULE_FAILED",
-            stage: "cache" satisfies LogStage,
-            videoId: videoIdForLog(youtube_url),
-            requestId,
-            userId,
-            outputLanguage: outputLanguageCode ?? null,
-            errorName: err instanceof Error ? err.name : typeof err,
-          });
-        }
+        await completeSuccessfulSummary(persistSummary);
       } catch (err) {
         if (isCallerAbort(request.signal)) return;
         logStageError("unknown", err);
@@ -717,6 +776,7 @@ export async function runServerSummaryRun(
     // request.signal aborts, which Vercel/Next.js typically fire on
     // client disconnect.
     cancel() {
+      cancelled = true;
       closed = true;
     },
   });
