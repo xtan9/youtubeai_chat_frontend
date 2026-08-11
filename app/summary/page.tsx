@@ -2,8 +2,39 @@ import { YouTubeSummarizerApp } from "@/app/summary/components/youtube-summarize
 import { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
+import {
+  EvidenceWorkspacePrototype,
+  type EvidencePrototypeFixture,
+  type EvidencePrototypeVariant,
+} from "@/app/summary/components/evidence-workspace-prototype";
 
-type SearchParams = Promise<{ url?: string }>;
+type SearchParams = Promise<{
+  url?: string;
+  evidencePrototype?: string;
+  variant?: string;
+  fixture?: string;
+}>;
+
+const PROTOTYPE_VARIANTS = new Set<EvidencePrototypeVariant>([
+  "claim-desk",
+  "coverage-ledger",
+  "guided-dossier",
+]);
+const PROTOTYPE_FIXTURES = new Set<EvidencePrototypeFixture>([
+  "request",
+  "progress",
+  "report",
+  "recheck",
+  "corrected",
+  "not-eligible",
+  "waiting",
+  "failed",
+  "expired",
+  "suppressed",
+  "withdrawn",
+  "notices",
+  "comprehension",
+]);
 
 export async function generateMetadata({
   searchParams,
@@ -33,6 +64,28 @@ export default async function SummaryPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
+  const showEvidencePrototype =
+    process.env.NODE_ENV !== "production" && params.evidencePrototype === "1";
+
+  if (showEvidencePrototype) {
+    const variant = PROTOTYPE_VARIANTS.has(
+      params.variant as EvidencePrototypeVariant,
+    )
+      ? (params.variant as EvidencePrototypeVariant)
+      : undefined;
+    const fixture = PROTOTYPE_FIXTURES.has(
+      params.fixture as EvidencePrototypeFixture,
+    )
+      ? (params.fixture as EvidencePrototypeFixture)
+      : undefined;
+
+    return (
+      <EvidenceWorkspacePrototype
+        initialVariant={variant}
+        initialFixture={fixture}
+      />
+    );
+  }
 
   const isResultsView = Boolean(params.url);
 
