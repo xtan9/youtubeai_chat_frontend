@@ -798,6 +798,17 @@ begin
     raise exception 'exact Set model/policy/evidence filters failed: %', rollout;
   end if;
 
+  select public.list_recommendation_reviews(
+    '3a000000-0000-4000-8000-000000000001'::uuid,
+    null, null, null, 'building', null,
+    null, null, null, null, null, null, null
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'listed'
+    or jsonb_array_length(rollout -> 'reviews') <> 0
+  then
+    raise exception 'building Set state filter was not accepted: %', rollout;
+  end if;
+
   select public.set_recommendation_rollout(
     'shadow', false, null, '3a000000-0000-4000-8000-0000000000f1'::uuid,
     'reviewer@example.com'
