@@ -32,7 +32,7 @@ describe("DELETE /api/projects/[projectId]/source-set/[videoId]", () => {
     vi.resetAllMocks();
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "owner-1", isAnonymous: false, projectAvailability: "invited" },
+      principal: { userId: "owner-1", isAnonymous: false },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "resolved", value: SUBJECT });
@@ -68,7 +68,7 @@ describe("DELETE /api/projects/[projectId]/source-set/[videoId]", () => {
   it("rejects an attacker DELETE without revision or membership leakage", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
-      principal: { userId: "attacker-2", isAnonymous: false, projectAvailability: "invited" },
+      principal: { userId: "attacker-2", isAnonymous: false },
     });
     mocks.resolveProjectSubject.mockResolvedValue({ kind: "missing" });
 

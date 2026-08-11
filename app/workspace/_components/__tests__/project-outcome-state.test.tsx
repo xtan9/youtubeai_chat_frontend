@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import { ProjectOutcomeState } from "@/app/workspace/_components/project-outcome-state";
 
 describe("ProjectOutcomeState", () => {
-  it("gives accounts outside the invited beta a non-looping exit", () => {
-    render(<ProjectOutcomeState kind="beta_unavailable" />);
+  it("gives anonymous visitors a direct registration path", () => {
+    render(<ProjectOutcomeState kind="anonymous" />);
 
     expect(
-      screen.getByRole("heading", { name: "Projects are in invited beta" }),
+      screen.getByRole("heading", { name: "Create an account for Projects" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "Back to Dashboard" }).getAttribute("href"),
-    ).toBe("/dashboard");
+      screen.getByRole("link", { name: "Create free account" }).getAttribute("href"),
+    ).toBe("/auth/sign-up?redirect_to=%2Fworkspace");
   });
 });

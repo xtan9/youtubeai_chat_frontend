@@ -24,10 +24,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/contexts/user-context";
 import { Suspense, useState } from "react";
 import { CheckoutActivationGuard } from "./checkout-activation-guard";
-import {
-  hasProjectAvailability,
-  resolveProjectAvailability,
-} from "@/lib/projects/project-availability";
 
 export function Header() {
   const { error: authError, isLoading: isAuthLoading, user } = useUser();
@@ -35,9 +31,6 @@ export function Header() {
   const supabase = createClient();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const projectsAvailable = hasProjectAvailability(
-    resolveProjectAvailability(user),
-  );
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -89,7 +82,7 @@ export function Header() {
               aria-label="Primary"
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
-              {user && !user.is_anonymous && projectsAvailable ? (
+              {user && !user.is_anonymous ? (
                 <Link
                   href="/workspace"
                   className="text-text-muted hover:text-text-primary transition-colors"
@@ -143,17 +136,15 @@ export function Header() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
-                    {projectsAvailable ? (
-                      <DropdownMenuItem asChild>
-                        <Link
-                          href="/workspace"
-                          className="cursor-pointer flex items-center gap-2"
-                        >
-                          <FolderKanban size={16} />
-                          <span>Workspace</span>
-                        </Link>
-                      </DropdownMenuItem>
-                    ) : null}
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/workspace"
+                        className="cursor-pointer flex items-center gap-2"
+                      >
+                        <FolderKanban size={16} />
+                        <span>Workspace</span>
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link
                         href="/account"

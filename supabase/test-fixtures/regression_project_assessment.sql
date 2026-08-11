@@ -280,7 +280,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"a3221000-0000-4000-8000-000000000001","app_metadata":{"project_beta_access":"internal"}}',
+  '{"sub":"a3221000-0000-4000-8000-000000000001","is_anonymous":false,"app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 
@@ -599,7 +599,7 @@ select pg_catalog.set_config(
 );
 select pg_catalog.set_config(
   'request.jwt.claims',
-  '{"sub":"a3221000-0000-4000-8000-000000000001","app_metadata":{"project_beta_access":"internal"}}',
+  '{"sub":"a3221000-0000-4000-8000-000000000001","is_anonymous":false,"app_metadata":{"project_beta_access":"internal"}}',
   true
 );
 

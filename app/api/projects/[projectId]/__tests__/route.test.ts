@@ -42,7 +42,6 @@ describe("/api/projects/[projectId]", () => {
         userId: "user-1",
         isAnonymous: false,
         email: "r@example.test",
-        projectAvailability: "invited",
       },
     });
     mocks.createClient.mockResolvedValue({ fixture: true });

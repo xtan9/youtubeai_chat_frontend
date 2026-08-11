@@ -125,7 +125,6 @@ function resolvedPrincipal(
       email: isAnonymous ? "" : "user@example.com",
       smokeProEntitled,
       businessAnalyticsSuppressed: false,
-      projectAvailability: "unavailable" as const,
     },
   };
 }

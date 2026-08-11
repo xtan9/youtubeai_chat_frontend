@@ -26,7 +26,6 @@ const PRINCIPAL = {
     userId: "user-1",
     isAnonymous: false,
     email: "r@example.test",
-    projectAvailability: "invited" as const,
   },
 };
 const PROJECT = {
@@ -172,26 +171,30 @@ describe("/api/workspace/projects", () => {
     expect(await response.json()).toMatchObject({ outcome: "unavailable" });
   });
 
-  it("keeps uninvited registered Researchers outside the beta before database access", async () => {
+  it("allows a registered Researcher without rollout metadata", async () => {
     mocks.resolveRequestPrincipal.mockResolvedValue({
       kind: "resolved",
       principal: {
         userId: "registered-1",
         isAnonymous: false,
         email: "registered@example.test",
-        projectAvailability: "unavailable",
       },
+    });
+    mocks.listWorkspaceProjects.mockResolvedValue({
+      kind: "resolved",
+      value: { id: "workspace-registered", projects: [] },
     });
 
     const response = await GET();
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      outcome: "unavailable",
-      errorCode: "project_beta_unavailable",
-      message: "Projects are available to invited beta Researchers only.",
+      workspace: { id: "workspace-registered", projects: [] },
     });
-    expect(mocks.createClient).not.toHaveBeenCalled();
-    expect(mocks.listWorkspaceProjects).not.toHaveBeenCalled();
+    expect(mocks.createClient).toHaveBeenCalledOnce();
+    expect(mocks.listWorkspaceProjects).toHaveBeenCalledWith(
+      { fixture: true },
+      "registered-1",
+    );
   });
 });

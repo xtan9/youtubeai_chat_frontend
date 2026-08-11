@@ -6,10 +6,6 @@ import {
   hasSmokeProEntitlement,
   isSmokeAccount,
 } from "@/lib/auth/smoke-account";
-import {
-  resolveProjectAvailability,
-  type ProjectAvailability,
-} from "@/lib/projects/project-availability";
 
 const REQUEST_PRINCIPAL_UNAVAILABLE = "REQUEST_PRINCIPAL_UNAVAILABLE";
 const MISSING_SESSION_STATUSES = new Set([400, 401, 403]);
@@ -38,7 +34,6 @@ export type RequestPrincipal = Readonly<{
   email: string | null;
   smokeProEntitled?: boolean;
   businessAnalyticsSuppressed: boolean;
-  projectAvailability: ProjectAvailability;
 }>;
 
 export type RequestPrincipalResult =
@@ -114,9 +109,6 @@ function resolvedPrincipal(
       app_metadata: user.app_metadata ?? {},
     }),
     businessAnalyticsSuppressed: isSmokeAccount({
-      app_metadata: user.app_metadata ?? {},
-    }),
-    projectAvailability: resolveProjectAvailability({
       app_metadata: user.app_metadata ?? {},
     }),
   };

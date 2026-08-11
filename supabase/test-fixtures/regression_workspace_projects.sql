@@ -413,7 +413,7 @@ select set_config(
 );
 select set_config(
   'request.jwt.claims',
-  '{"sub":"70000000-0000-4000-8000-000000000007","app_metadata":{"is_smoke_account":true,"smoke_entitlement":"pro"}}',
+  '{"sub":"70000000-0000-4000-8000-000000000007","is_anonymous":false,"app_metadata":{"is_smoke_account":true,"smoke_entitlement":"pro"}}',
   true
 );
 
@@ -437,7 +437,7 @@ select set_config(
 );
 select set_config(
   'request.jwt.claims',
-  '{"sub":"80000000-0000-4000-8000-000000000008","app_metadata":{"project_beta_access":"invited"},"user_metadata":{"is_smoke_account":true,"smoke_entitlement":"pro"}}',
+  '{"sub":"80000000-0000-4000-8000-000000000008","is_anonymous":false,"app_metadata":{"project_beta_access":"invited"},"user_metadata":{"is_smoke_account":true,"smoke_entitlement":"pro"}}',
   true
 );
 
