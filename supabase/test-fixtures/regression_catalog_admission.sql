@@ -492,6 +492,52 @@ begin
 end;
 $$;
 
+-- History must keep an Inactive Video's identity alive during any future
+-- catalog purge. This history-only row has no Catalog Nomination, so the
+-- retention assertion exercises the History foreign key rather than the
+-- existing Catalog Admission references.
+insert into public.videos (
+  youtube_url,
+  youtube_video_id,
+  url_hash,
+  title,
+  catalog_state,
+  catalog_inactive_reason
+) values (
+  'https://www.youtube.com/watch?v=histret0356',
+  'histret0356',
+  'histret0356',
+  'History retention fixture',
+  'inactive',
+  'unavailable'
+);
+
+insert into public.user_video_history (user_id, video_id)
+select
+  '34800000-0000-4000-8000-000000000001',
+  id
+from public.videos
+where youtube_video_id = 'histret0356';
+
+do $$
+declare
+  deleted boolean := false;
+begin
+  begin
+    delete from public.videos where youtube_video_id = 'histret0356';
+    deleted := true;
+  exception
+    when foreign_key_violation then
+      null;
+  end;
+
+  if deleted then
+    raise exception
+      'REGRESSION: History-referenced Inactive Video was purged';
+  end if;
+end;
+$$;
+
 -- Retry uses visibility backoff; exhaustion archives the Message only after a
 -- durable dead letter and does not block later work.
 set local role service_role;
