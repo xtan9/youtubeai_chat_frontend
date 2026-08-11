@@ -50,6 +50,17 @@ const RefundResultSchema = z.discriminatedUnion("outcome", [
   }),
 ]);
 
+const CompletionResultSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("completed"),
+    remainingMessages: RemainingMessagesSchema,
+  }),
+  z.object({
+    outcome: z.enum(["already_completed", "invalid"]),
+    remainingMessages: RemainingMessagesSchema,
+  }),
+]);
+
 export type AnonymousTrialReservationResult =
   | z.infer<typeof ReservationResultSchema>
   | { readonly outcome: "unavailable" };
@@ -59,11 +70,17 @@ export type AnonymousTrialStartResult =
 export type AnonymousTrialRefundResult =
   | z.infer<typeof RefundResultSchema>
   | { readonly outcome: "unavailable" };
+export type AnonymousTrialCompletionResult =
+  | z.infer<typeof CompletionResultSchema>
+  | { readonly outcome: "unavailable" };
 export type AnonymousTrialAllowanceResult =
   | z.infer<typeof AllowanceResultSchema>
   | { readonly outcome: "unavailable" };
 
-function logUnavailable(operation: "read" | "reserve" | "start" | "refund", detail: string) {
+function logUnavailable(
+  operation: "read" | "reserve" | "start" | "complete" | "refund",
+  detail: string,
+) {
   logAppEvent("error", "[anonymous-trial] quota boundary unavailable", {
     errorId: "ANONYMOUS_TRIAL_QUOTA_UNAVAILABLE",
     operation,
@@ -72,10 +89,11 @@ function logUnavailable(operation: "read" | "reserve" | "start" | "refund", deta
 }
 
 async function callAnonymousTrialRpc<T>(input: {
-  readonly operation: "reserve" | "start" | "refund";
+  readonly operation: "reserve" | "start" | "complete" | "refund";
   readonly functionName:
     | "reserve_anonymous_trial_chat_message"
     | "mark_anonymous_trial_chat_message_started"
+    | "complete_anonymous_trial_chat_message"
     | "refund_anonymous_trial_chat_message";
   readonly args: Record<string, string>;
   readonly schema: z.ZodType<T>;
@@ -192,5 +210,20 @@ export function refundAnonymousTrialChatMessage(input: {
       p_reservation_id: input.reservationId,
     },
     schema: RefundResultSchema,
+  });
+}
+
+export function completeAnonymousTrialChatMessage(input: {
+  readonly userId: string;
+  readonly reservationId: string;
+}): Promise<AnonymousTrialCompletionResult> {
+  return callAnonymousTrialRpc({
+    operation: "complete",
+    functionName: "complete_anonymous_trial_chat_message",
+    args: {
+      p_user_id: input.userId,
+      p_reservation_id: input.reservationId,
+    },
+    schema: CompletionResultSchema,
   });
 }

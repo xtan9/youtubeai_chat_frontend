@@ -1,12 +1,18 @@
 alter table public.anonymous_trial_reservations
   add column network_key_hash text,
-  add column spend_micros_reserved bigint;
+  add column spend_micros_reserved bigint,
+  add column completed_at timestamptz;
 
 alter table public.anonymous_trial_reservations
   add constraint anonymous_trial_reservations_network_key_hash_check
     check (network_key_hash is null or network_key_hash ~ '^[0-9a-f]{64}$'),
   add constraint anonymous_trial_reservations_spend_micros_check
-    check (spend_micros_reserved is null or spend_micros_reserved > 0);
+    check (spend_micros_reserved is null or spend_micros_reserved > 0),
+  add constraint anonymous_trial_reservations_completion_check
+    check (
+      completed_at is null
+      or (status = 'started' and started_at is not null and completed_at >= started_at)
+    );
 
 create index anonymous_trial_reservations_network_window_idx
   on public.anonymous_trial_reservations (
@@ -108,6 +114,53 @@ begin
     raise exception 'Anonymous Trial global admission lock is unavailable';
   end if;
 
+  -- Reconcile every abandoned pre-provider lease while the global admission
+  -- lock is held. Lock ledgers first, in stable order, to preserve the
+  -- ledger-then-reservation order used by per-identity quota operations.
+  perform 1
+  from public.anonymous_trial_ledgers as ledger
+  where exists (
+    select 1
+    from public.anonymous_trial_reservations as reservation
+    where reservation.user_id = ledger.user_id
+      and reservation.status = 'reserved'
+      and reservation.expires_at <= admission_time
+  )
+  order by ledger.user_id
+  for update;
+
+  if exists (
+    select 1
+    from public.anonymous_trial_ledgers as ledger
+    join (
+      select user_id, count(*)::integer as expired_count
+      from public.anonymous_trial_reservations
+      where status = 'reserved'
+        and expires_at <= admission_time
+      group by user_id
+    ) as expired_counts using (user_id)
+    where ledger.messages_reserved < expired_counts.expired_count
+  ) then
+    raise exception 'Anonymous Trial ledger invariant violated';
+  end if;
+
+  with expired_reservations as (
+    update public.anonymous_trial_reservations
+    set status = 'expired', expired_at = admission_time
+    where status = 'reserved'
+      and expires_at <= admission_time
+    returning user_id
+  ), expired_counts as (
+    select user_id, count(*)::integer as expired_count
+    from expired_reservations
+    group by user_id
+  )
+  update public.anonymous_trial_ledgers as ledger
+  set messages_reserved = ledger.messages_reserved - expired_counts.expired_count,
+      updated_at = admission_time
+  from expired_counts
+  where ledger.user_id = expired_counts.user_id;
+
   insert into public.anonymous_trial_network_prefixes (network_key_hash)
   values (p_network_key_hash)
   on conflict (network_key_hash) do nothing;
@@ -128,7 +181,10 @@ begin
     select 1
     from public.anonymous_trial_reservations
     where user_id = p_user_id
-      and status in ('reserved', 'started')
+      and (
+        status = 'reserved'
+        or (status = 'started' and completed_at is null)
+      )
       and expires_at > admission_time
   ) then
     return jsonb_build_object(
@@ -219,3 +275,53 @@ grant execute on function public.reserve_anonymous_trial_chat_message(
   bigint,
   boolean
 ) to service_role;
+
+create function public.complete_anonymous_trial_chat_message(
+  p_user_id uuid,
+  p_reservation_id uuid
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  current_count integer;
+  reservation public.anonymous_trial_reservations%rowtype;
+begin
+  current_count := public.reconcile_anonymous_trial_chat_reservations(p_user_id);
+  select *
+  into reservation
+  from public.anonymous_trial_reservations
+  where id = p_reservation_id
+    and user_id = p_user_id
+  for update;
+
+  if not found or reservation.status <> 'started' then
+    return jsonb_build_object(
+      'outcome', 'invalid',
+      'remainingMessages', greatest(0, 5 - current_count)
+    );
+  end if;
+  if reservation.completed_at is not null then
+    return jsonb_build_object(
+      'outcome', 'already_completed',
+      'remainingMessages', greatest(0, 5 - current_count)
+    );
+  end if;
+
+  update public.anonymous_trial_reservations
+  set completed_at = clock_timestamp()
+  where id = p_reservation_id;
+
+  return jsonb_build_object(
+    'outcome', 'completed',
+    'remainingMessages', greatest(0, 5 - current_count)
+  );
+end;
+$$;
+
+revoke all on function public.complete_anonymous_trial_chat_message(uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function public.complete_anonymous_trial_chat_message(uuid, uuid)
+  to service_role;

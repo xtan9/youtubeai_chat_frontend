@@ -347,7 +347,7 @@ jobs:
       - name: Verify anonymous passive-control contract
         env:
           PGHOST: localhost
-          PGPORT: 54322
+          PGPORT: 5432
           PGUSER: postgres
           PGPASSWORD: postgres
           PGDATABASE: postgres

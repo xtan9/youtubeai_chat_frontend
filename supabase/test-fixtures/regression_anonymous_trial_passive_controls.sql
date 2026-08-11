@@ -7,21 +7,21 @@ set search_path = public, extensions;
 delete from public.anonymous_trial_reservations
 where user_id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 delete from public.anonymous_trial_ledgers
 where user_id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 delete from auth.users
 where id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 
 insert into auth.users (id, is_anonymous)
 select
   format('78000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
   true
-from generate_series(1, 30) as n;
+from generate_series(1, 60) as n;
 
 set role service_role;
 
@@ -106,6 +106,151 @@ begin
   end if;
 end;
 $$;
+
+-- A started generation owns the one active lease only until its durable
+-- terminal completion. Completion never refunds its charged exposure.
+do $$
+declare
+  first_reservation jsonb;
+  overlap jsonb;
+  completion jsonb;
+  repeated_completion jsonb;
+  sequential jsonb;
+begin
+  first_reservation := public.reserve_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000029', repeat('4', 64),
+    1000000000, 1000, true
+  );
+  perform public.mark_anonymous_trial_chat_message_started(
+    '78000000-0000-4000-8000-000000000029',
+    (first_reservation->>'reservationId')::uuid
+  );
+  overlap := public.reserve_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000029', repeat('4', 64),
+    1000000000, 1000, true
+  );
+  completion := public.complete_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000029',
+    (first_reservation->>'reservationId')::uuid
+  );
+  repeated_completion := public.complete_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000029',
+    (first_reservation->>'reservationId')::uuid
+  );
+  sequential := public.reserve_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000029', repeat('4', 64),
+    1000000000, 1000, true
+  );
+
+  if overlap->>'outcome' <> 'concurrent'
+     or completion->>'outcome' <> 'completed'
+     or repeated_completion->>'outcome' <> 'already_completed'
+     or sequential->>'outcome' <> 'admitted'
+     or sequential->>'remainingMessages' <> '3'
+     or (select completed_at is null
+         from public.anonymous_trial_reservations
+         where id = (first_reservation->>'reservationId')::uuid) then
+    raise exception 'REGRESSION: terminal completion did not release only the active lease: %, %, %, %',
+      overlap, completion, repeated_completion, sequential;
+  end if;
+end;
+$$;
+
+-- Rotating identity cannot turn abandoned pre-provider leases into a 24-hour
+-- network/global denial. The first contender reconciles every expired lease
+-- under the global lock; the second contender serializes behind it.
+insert into public.anonymous_trial_ledgers (user_id, messages_reserved)
+select
+  format('78000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
+  1
+from generate_series(31, 50) as n;
+
+insert into public.anonymous_trial_reservations (
+  user_id,
+  reserved_at,
+  expires_at,
+  network_key_hash,
+  spend_micros_reserved
+)
+select
+  format('78000000-0000-4000-8000-%s', lpad(n::text, 12, '0'))::uuid,
+  clock_timestamp() - interval '10 minutes',
+  clock_timestamp() - interval '5 minutes',
+  repeat('6', 64),
+  1000
+from generate_series(31, 50) as n;
+
+reset role;
+select dblink_connect('passive_expiry_first', format('dbname=%L', current_database()));
+select dblink_connect('passive_expiry_second', format('dbname=%L', current_database()));
+select dblink_exec('passive_expiry_first', 'begin');
+select dblink_exec('passive_expiry_first', 'set local role service_role');
+select dblink_send_query(
+  'passive_expiry_first',
+  $$select public.reserve_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000051', repeat('6', 64),
+    1000000000, 1000, true
+  )::text$$
+);
+
+create temporary table passive_expiry_race_results (
+  contender text primary key,
+  result jsonb not null
+) on commit preserve rows;
+insert into passive_expiry_race_results
+select 'first', result::jsonb
+from dblink_get_result('passive_expiry_first') as raced(result text);
+select result from dblink_get_result('passive_expiry_first') as cleared(result text);
+
+select dblink_exec('passive_expiry_second', 'set role service_role');
+select dblink_send_query(
+  'passive_expiry_second',
+  $$select public.reserve_anonymous_trial_chat_message(
+    '78000000-0000-4000-8000-000000000052', repeat('6', 64),
+    1000000000, 1000, true
+  )::text$$
+);
+do $$
+begin
+  perform pg_sleep(0.1);
+  if dblink_is_busy('passive_expiry_second') <> 1 then
+    raise exception 'REGRESSION: rotated-identity reconciliation did not serialize globally';
+  end if;
+end;
+$$;
+select dblink_exec('passive_expiry_first', 'commit');
+insert into passive_expiry_race_results
+select 'second', result::jsonb
+from dblink_get_result('passive_expiry_second') as raced(result text);
+select result from dblink_get_result('passive_expiry_second') as cleared(result text);
+
+do $$
+begin
+  if (select count(*) from passive_expiry_race_results
+      where result->>'outcome' = 'admitted') <> 2
+     or (select count(*) from public.anonymous_trial_reservations
+         where user_id between
+           '78000000-0000-4000-8000-000000000031'::uuid and
+           '78000000-0000-4000-8000-000000000050'::uuid
+           and status = 'expired') <> 20
+     or exists (
+       select 1 from public.anonymous_trial_ledgers
+       where user_id between
+         '78000000-0000-4000-8000-000000000031'::uuid and
+         '78000000-0000-4000-8000-000000000050'::uuid
+         and messages_reserved <> 0
+     )
+     or (select count(*) from public.anonymous_trial_reservations
+         where network_key_hash = repeat('6', 64)
+           and status in ('reserved', 'started')) <> 2 then
+    raise exception 'REGRESSION: expired rotated identities retained network/global exposure: %',
+      (select jsonb_agg(result order by contender) from passive_expiry_race_results);
+  end if;
+end;
+$$;
+select dblink_disconnect('passive_expiry_first');
+select dblink_disconnect('passive_expiry_second');
+set role service_role;
 
 -- Seed nineteen admitted uses on one /24-/64-derived hash. Two independent
 -- sessions then race for the twentieth slot; global serialization must admit
@@ -323,6 +468,16 @@ begin
        'authenticated',
        'public.reserve_anonymous_trial_chat_message(uuid,text,bigint,bigint,boolean)',
        'execute'
+     )
+     or has_function_privilege(
+       'anon',
+       'public.complete_anonymous_trial_chat_message(uuid,uuid)',
+       'execute'
+     )
+     or has_function_privilege(
+       'authenticated',
+       'public.complete_anonymous_trial_chat_message(uuid,uuid)',
+       'execute'
      ) then
     raise exception 'REGRESSION: passive admission state is exposed to public roles';
   end if;
@@ -348,20 +503,20 @@ $$;
 delete from public.anonymous_trial_reservations
 where user_id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 delete from public.anonymous_trial_ledgers
 where user_id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 delete from public.anonymous_trial_network_prefixes
 where network_key_hash in (
   repeat('a', 64), repeat('b', 64), repeat('c', 64), repeat('9', 64),
   repeat('e', 64), repeat('f', 64), repeat('1', 64), repeat('2', 64),
-  repeat('3', 64)
+  repeat('3', 64), repeat('4', 64), repeat('6', 64)
 );
 delete from auth.users
 where id between
   '78000000-0000-4000-8000-000000000001'::uuid and
-  '78000000-0000-4000-8000-000000000030'::uuid;
+  '78000000-0000-4000-8000-000000000060'::uuid;
 
 reset search_path;

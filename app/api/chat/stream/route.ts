@@ -28,6 +28,7 @@ import {
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 import {
+  completeAnonymousTrialChatMessage,
   markAnonymousTrialChatMessageStarted,
   refundAnonymousTrialChatMessage,
   reserveAnonymousTrialChatMessage,
@@ -614,6 +615,20 @@ export async function POST(request: Request) {
   // `userMessagePersisted` prevents duplicate user-only writes on abort races.
   let closed = false;
   let assistantBuffer = "";
+  let anonymousTrialStarted = false;
+  let anonymousTrialCompletion:
+    | ReturnType<typeof completeAnonymousTrialChatMessage>
+    | undefined;
+  const releaseAnonymousTrialLease = () => {
+    if (!anonymousTrialStarted || !anonymousReservation) {
+      return Promise.resolve();
+    }
+    anonymousTrialCompletion ??= completeAnonymousTrialChatMessage({
+      userId,
+      reservationId: anonymousReservation.reservationId,
+    });
+    return anonymousTrialCompletion;
+  };
   // A subject without retention starts with no persistence work to do.
   let userMessagePersisted = !retainedThread;
 
@@ -720,6 +735,7 @@ export async function POST(request: Request) {
             });
             return;
           }
+          anonymousTrialStarted = true;
           sendEvent({
             type: "anonymous_trial_admitted",
             reservationId: anonymousReservation.reservationId,
@@ -861,6 +877,7 @@ export async function POST(request: Request) {
           });
         }
       } finally {
+        await releaseAnonymousTrialLease();
         // Order matters: flip `closed` BEFORE close(). Any in-flight
         // sendEvent() observes the flag on its next call and short-
         // circuits instead of racing the close().
@@ -890,6 +907,7 @@ export async function POST(request: Request) {
       // appendChatTurn, in which case `userMessagePersisted` is set and
       // the dedupe guard inside persistUserOnly returns immediately.
       closed = true;
+      void releaseAnonymousTrialLease();
       if (!retainedThread || userMessagePersisted) return;
       userMessagePersisted = true;
       try {

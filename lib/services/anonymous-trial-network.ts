@@ -7,6 +7,28 @@ type NetworkKeyResult =
   | { readonly outcome: "ready"; readonly networkKeyHash: string }
   | { readonly outcome: "unavailable" };
 
+type TrustedClientIpResult =
+  | { readonly outcome: "ready"; readonly clientIp: string }
+  | { readonly outcome: "unavailable" };
+
+export function resolveTrustedAnonymousTrialClientIp(
+  request: Request,
+): TrustedClientIpResult {
+  if (
+    process.env.ANONYMOUS_TRIAL_TRUSTED_IP_ADAPTER?.trim() !== "vercel" ||
+    process.env.VERCEL !== "1" ||
+    !request.headers.get("x-vercel-id")?.trim()
+  ) {
+    return { outcome: "unavailable" };
+  }
+
+  const clientIp = request.headers.get("x-vercel-forwarded-for")?.trim();
+  if (!clientIp || clientIp.includes(",") || isIP(clientIp) === 0) {
+    return { outcome: "unavailable" };
+  }
+  return { outcome: "ready", clientIp };
+}
+
 function ipv4Prefix(address: string): string {
   const octets = address.split(".");
   return `${octets[0]}.${octets[1]}.${octets[2]}.0/24`;
@@ -98,8 +120,10 @@ export function resolveAnonymousTrialAdmissionContext(
   const killSwitch = process.env.ANONYMOUS_TRIAL_KILL_SWITCH?.trim();
   if (killSwitch === "true") return { outcome: "global_shutdown" };
   if (killSwitch !== "false") return { outcome: "unavailable" };
+  const trustedClientIp = resolveTrustedAnonymousTrialClientIp(request);
   const network = deriveAnonymousTrialNetworkKey({
-    trustedClientIp: request.headers.get("x-forwarded-for") ?? undefined,
+    trustedClientIp:
+      trustedClientIp.outcome === "ready" ? trustedClientIp.clientIp : undefined,
     hmacSecret: process.env.ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET,
   });
   const spendLimit = Number(

@@ -13,6 +13,7 @@ vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
 vi.mock("server-only", () => ({}));
 
 import {
+  completeAnonymousTrialChatMessage,
   getAnonymousTrialChatAllowance,
   refundAnonymousTrialChatMessage,
   reserveAnonymousTrialChatMessage,
@@ -22,6 +23,8 @@ describe("Anonymous Trial service boundary", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv("ANONYMOUS_TRIAL_KILL_SWITCH", "false");
+    vi.stubEnv("ANONYMOUS_TRIAL_TRUSTED_IP_ADAPTER", "vercel");
+    vi.stubEnv("VERCEL", "1");
     vi.stubEnv(
       "ANONYMOUS_TRIAL_NETWORK_HMAC_SECRET",
       "a-required-server-secret-with-enough-entropy",
@@ -33,9 +36,30 @@ describe("Anonymous Trial service boundary", () => {
 
   function request(): Request {
     return new Request("https://example.test", {
-      headers: { "x-forwarded-for": "203.0.113.42" },
+      headers: {
+        "x-vercel-forwarded-for": "203.0.113.42",
+        "x-vercel-id": "sfo1::abcde-12345",
+      },
     });
   }
+
+  it("ignores spoofable forwarded headers without trusted deployment provenance", async () => {
+    vi.stubEnv("VERCEL", "");
+
+    await expect(
+      reserveAnonymousTrialChatMessage({
+        userId: "74000000-0000-4000-8000-000000000001",
+        request: new Request("https://example.test", {
+          headers: {
+            "x-forwarded-for": "203.0.113.42",
+            "x-vercel-forwarded-for": "203.0.113.42",
+            "x-vercel-id": "client-spoofed",
+          },
+        }),
+      }),
+    ).resolves.toEqual({ outcome: "unavailable" });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
 
   it("reads only the authoritative content-free allowance RPC", async () => {
     mocks.rpc.mockResolvedValue({
@@ -186,5 +210,26 @@ describe("Anonymous Trial service boundary", () => {
         reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
       }),
     ).resolves.toEqual({ outcome: "expired", remainingMessages: 4 });
+  });
+
+  it("releases a started lease through the durable terminal RPC", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: { outcome: "completed", remainingMessages: 4 },
+      error: null,
+    });
+
+    await expect(
+      completeAnonymousTrialChatMessage({
+        userId: "74000000-0000-4000-8000-000000000001",
+        reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+      }),
+    ).resolves.toEqual({ outcome: "completed", remainingMessages: 4 });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "complete_anonymous_trial_chat_message",
+      {
+        p_user_id: "74000000-0000-4000-8000-000000000001",
+        p_reservation_id: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+      },
+    );
   });
 });
