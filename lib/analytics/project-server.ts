@@ -59,8 +59,13 @@ const ActivationAckResultSchema = z
   .strict();
 
 const GenerationRecordResultSchema = z.object({
-  outcome: z.enum(["inserted", "deduplicated", "missing"]),
+  outcome: z.enum(["inserted", "deduplicated", "inactive", "missing"]),
 }).strict();
+
+export type ProjectGenerationUsageRecordStatus =
+  | z.infer<typeof GenerationRecordResultSchema>["outcome"]
+  | "suppressed"
+  | "unavailable";
 
 const RateCardSchema = z.object({
   version: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
@@ -280,11 +285,11 @@ export async function recordProjectGenerationUsage(args: {
   usage?: ProjectTokenUsage;
   durationMs: number;
   businessAnalyticsSuppressed: boolean;
-}): Promise<void> {
-  if (args.businessAnalyticsSuppressed) return;
+}): Promise<ProjectGenerationUsageRecordStatus> {
+  if (args.businessAnalyticsSuppressed) return "suppressed";
   try {
     const service = getServiceRoleClient();
-    if (!service) return;
+    if (!service) return "unavailable";
     const properties = generationProperties(args);
     const measured = properties.cost_status === "measured";
     const { data, error } = await service.rpc("record_project_generation_usage", {
@@ -308,7 +313,8 @@ export async function recordProjectGenerationUsage(args: {
     });
     if (error) throw error;
     const parsed = GenerationRecordResultSchema.safeParse(data);
-    if (!parsed.success || parsed.data.outcome !== "inserted") return;
+    if (!parsed.success) return "unavailable";
+    if (parsed.data.outcome !== "inserted") return parsed.data.outcome;
     await captureProjectActivityEvent(
       args.ownerId,
       "project_generation_cost_recorded",
@@ -316,11 +322,13 @@ export async function recordProjectGenerationUsage(args: {
       false,
       `project-generation:${args.projectId}:${args.operationId}:${args.generationKind}`,
     );
+    return "inserted";
   } catch (error) {
     console.error("[analytics] Project generation usage write failed", {
       errorId: "PROJECT_GENERATION_USAGE_WRITE_FAILED",
       generationKind: args.generationKind,
       error,
     });
+    return "unavailable";
   }
 }

@@ -285,6 +285,11 @@ describe("ProjectSourceSet", () => {
       error_class: "quota",
       http_status: 402,
     });
+    expect(analytics.capture).toHaveBeenCalledWith("project_paywall_viewed", {
+      project_id: PROJECT_ID,
+      paywall_kind: "source_processing",
+      tier: "free",
+    });
   });
 
   it("retries a failed membership in place without adding a duplicate", async () => {

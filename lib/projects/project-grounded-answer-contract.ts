@@ -364,6 +364,7 @@ export const ProjectConversationAssistantMessageSchema =
     // completed answer persists this immutable artifact.
     evidenceSnapshot: ProjectEvidenceSnapshotSchema.optional(),
     citationDiagnostics: z.array(ProjectCitationDiagnosticSchema).max(20),
+    feedbackRating: z.enum(["helpful", "not_helpful"]).optional(),
   }).strict();
 
 export const ProjectConversationMessageSchema = z.discriminatedUnion("role", [

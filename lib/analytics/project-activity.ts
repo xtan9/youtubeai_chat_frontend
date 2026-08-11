@@ -208,17 +208,32 @@ export const ProjectActivityEventSchema = z.discriminatedUnion("event", [
   }).strict(),
   z.object({
     event: z.literal("project_paywall_viewed"),
-    properties: z.object({
-      project_id: ProjectIdSchema,
-      paywall_kind: z.enum(["conversation", "artifact"]),
-      tier: z.literal("free"),
-      used: BoundedCountSchema,
-      limit: z.number().int().min(1).max(1_000_000),
-    }).strict().superRefine((properties, context) => {
-      if (properties.used < properties.limit) {
-        context.addIssue({ code: "custom", message: "Paywall usage must meet its limit." });
-      }
-    }),
+    properties: z.discriminatedUnion("paywall_kind", [
+      z
+        .object({
+          project_id: ProjectIdSchema,
+          paywall_kind: z.enum(["conversation", "artifact"]),
+          tier: z.literal("free"),
+          used: BoundedCountSchema,
+          limit: z.number().int().min(1).max(1_000_000),
+        })
+        .strict()
+        .superRefine((properties, context) => {
+          if (properties.used < properties.limit) {
+            context.addIssue({
+              code: "custom",
+              message: "Paywall usage must meet its limit.",
+            });
+          }
+        }),
+      z
+        .object({
+          project_id: ProjectIdSchema,
+          paywall_kind: z.literal("source_processing"),
+          tier: z.literal("free"),
+        })
+        .strict(),
+    ]),
   }).strict(),
   z.object({ event: z.literal("project_action_failed"), properties: ProjectActionFailedPropertiesSchema }).strict(),
   z.object({

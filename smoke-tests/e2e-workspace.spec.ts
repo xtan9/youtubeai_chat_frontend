@@ -105,6 +105,7 @@ type FixtureConversationMessage = {
   completionState?: "reserved" | "completed" | "cancelled" | null;
   leaseExpiresAt?: number | null;
   messageOrdinal?: number;
+  feedbackRating?: "helpful" | "not_helpful";
 };
 
 type FixtureSourceSetEvent = {
@@ -675,7 +676,8 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByText(/3 citations could not be linked/i)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Useful", exact: true }),
-  ).toBeVisible();
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Feedback recorded.")).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -2857,6 +2859,8 @@ async function handleSourceSetRpc(
     p_rate_card_version?: string | null;
     p_trigger_kind?: string;
     p_occurred_at?: string;
+    p_answer_id?: string;
+    p_rating?: "helpful" | "not_helpful";
   };
   const projectId = body.p_project_id;
 
@@ -2937,6 +2941,39 @@ async function handleSourceSetRpc(
 
   if (url.pathname.endsWith("/claim_project_activation_exports")) {
     return sendJson(response, 200, { outcome: "empty", exports: [] });
+  }
+
+  if (url.pathname.endsWith("/record_project_answer_feedback")) {
+    if (!userId || !projectId || projectOwnerId(projectId) !== userId) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    const answer = conversationThreads(projectId)
+      .flatMap((conversation) => conversation.messages)
+      .find(
+        (message) =>
+          message.role === "assistant" && message.id === body.p_answer_id,
+      );
+    if (
+      !answer ||
+      !answer.messageOrdinal ||
+      (body.p_rating !== "helpful" && body.p_rating !== "not_helpful")
+    ) {
+      return sendJson(response, 200, { outcome: "missing" });
+    }
+    if (answer.feedbackRating) {
+      return sendJson(response, 200, {
+        outcome:
+          answer.feedbackRating === body.p_rating ? "deduplicated" : "conflict",
+        rating: answer.feedbackRating,
+        messageOrdinal: answer.messageOrdinal,
+      });
+    }
+    answer.feedbackRating = body.p_rating;
+    return sendJson(response, 200, {
+      outcome: "recorded",
+      rating: answer.feedbackRating,
+      messageOrdinal: answer.messageOrdinal,
+    });
   }
 
   if (url.pathname.endsWith("/load_project_source_set")) {
@@ -3895,6 +3932,9 @@ function visibleConversationMessage(message: FixtureConversationMessage) {
     completionState: message.role === "user" ? message.completionState : null,
     ...(message.messageOrdinal
       ? { messageOrdinal: message.messageOrdinal }
+      : {}),
+    ...(message.feedbackRating
+      ? { feedbackRating: message.feedbackRating }
       : {}),
   };
 }

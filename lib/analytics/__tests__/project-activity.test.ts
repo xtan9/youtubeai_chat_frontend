@@ -145,4 +145,14 @@ describe("Project activity analytics privacy contract", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("accepts a content-free source-processing paywall view", () => {
+    expect(
+      validateProjectActivityEvent("project_paywall_viewed", {
+        project_id: PROJECT_ID,
+        paywall_kind: "source_processing",
+        tier: "free",
+      }).success,
+    ).toBe(true);
+  });
 });

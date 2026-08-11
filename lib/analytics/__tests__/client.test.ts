@@ -68,6 +68,32 @@ describe("client analytics", () => {
     expect(mocks.capture).toHaveBeenCalledTimes(1);
   });
 
+  it("exposes only the governed capture and suppression decisions to the browser fixture", () => {
+    vi.stubEnv("NEXT_PUBLIC_ANALYTICS_E2E_DIAGNOSTICS", "1");
+    const captures: unknown[] = [];
+    const suppressions: unknown[] = [];
+    window.addEventListener("project-analytics-capture-e2e", (event) => {
+      captures.push((event as CustomEvent).detail);
+    });
+    window.addEventListener("project-analytics-suppression-e2e", (event) => {
+      suppressions.push((event as CustomEvent).detail);
+    });
+
+    setBusinessAnalyticsCaptureSuppressed(false);
+    captureAnalyticsEvent("project_opened", { project_id: PROJECT_ID });
+    setBusinessAnalyticsCaptureSuppressed(true);
+    captureAnalyticsEvent("project_opened", { project_id: PROJECT_ID });
+
+    expect(suppressions).toEqual([false, true]);
+    expect(captures).toEqual([
+      {
+        event: "project_opened",
+        properties: { project_id: PROJECT_ID },
+      },
+    ]);
+    vi.unstubAllEnvs();
+  });
+
   it("captures a schema-validated discovery event with governed attribution", () => {
     captureAnalyticsEvent("subscription_discovery_clicked", {
       source_surface: "global_header",

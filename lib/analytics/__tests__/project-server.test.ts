@@ -213,6 +213,23 @@ describe("Project server analytics", () => {
     );
   });
 
+  it("surfaces an inactive Project outcome without sending cost analytics", async () => {
+    mocks.rpc.mockResolvedValue({ data: { outcome: "inactive" }, error: null });
+
+    await expect(
+      recordProjectGenerationUsage({
+        projectId: PROJECT_ID,
+        ownerId: OWNER_ID,
+        operationId: OPERATION_ID,
+        generationKind: "grounded_answer",
+        durationMs: 150,
+        businessAnalyticsSuppressed: false,
+      }),
+    ).resolves.toBe("inactive");
+
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
   it("uses only a complete, versioned configured rate card", async () => {
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_VERSION", "gateway-2026-08");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_SOURCE", "provider_contract");

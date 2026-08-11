@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   ChartNoAxesCombined,
+  FolderKanban,
   Users,
   Activity,
   Gauge,
@@ -40,6 +41,11 @@ export function buildAdminNav({ usersTotal }: BuildAdminNavOptions): NavSection[
           href: "/admin/subscriptions",
           label: "Subscription funnel",
           icon: <ChartNoAxesCombined className="icon" />,
+        },
+        {
+          href: "/admin/projects",
+          label: "Project adoption",
+          icon: <FolderKanban className="icon" />,
         },
       ],
     },

@@ -463,8 +463,8 @@ export function createProjectArtifactRoute(
     } finally {
       if (generationStartedAt !== null) {
         const durationMs = Math.max(0, Date.now() - generationStartedAt);
-        scheduleAnalyticsAfterResponse(() =>
-          recordProjectGenerationUsage({
+        scheduleAnalyticsAfterResponse(async () => {
+          await recordProjectGenerationUsage({
             projectId: subject.value.projectId,
             ownerId: researcher.principal.userId,
             operationId: reservation.attemptToken,
@@ -473,8 +473,8 @@ export function createProjectArtifactRoute(
             durationMs,
             businessAnalyticsSuppressed:
               researcher.principal.businessAnalyticsSuppressed,
-          }),
-        );
+          });
+        });
       }
     }
   }

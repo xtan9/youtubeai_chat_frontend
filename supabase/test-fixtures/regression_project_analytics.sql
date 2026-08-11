@@ -88,7 +88,8 @@ begin
         'project_analytics_state',
         'project_activation_outbox',
         'project_generation_usage',
-        'project_message_analytics_ordinals'
+        'project_message_analytics_ordinals',
+        'project_answer_feedback'
       )
       and column_name in (
         'project_name', 'project_goal', 'video_title', 'youtube_url', 'query',
@@ -131,6 +132,21 @@ insert into public.project_conversation_messages (
   'ee000000-0000-4000-8000-000000000001',
   'user', 'Fixture turn three', 'f1000000-0000-4000-8000-000000000003',
   'completed', clock_timestamp()
+);
+insert into public.project_conversation_messages (
+  id, conversation_id, in_reply_to_message_id, role, content,
+  answer_classification, source_set_revision, source_manifest,
+  source_coverage, evidence_snapshot, citation_diagnostics,
+  completed_at, created_at
+) values (
+  'ef000000-0000-4000-8000-000000000010',
+  'ee000000-0000-4000-8000-000000000001',
+  'ef000000-0000-4000-8000-000000000003',
+  'assistant', 'Fixture grounded answer', 'supported', 1,
+  '{"projectId":"ea000000-0000-4000-8000-000000000001","sourceSetRevision":1,"sources":[]}'::jsonb,
+  '{"totalVideos":1,"readyVideos":1,"usedVideos":0,"unavailableVideos":[],"passagesExamined":0,"passagesUsed":0}'::jsonb,
+  '{"projectId":"ea000000-0000-4000-8000-000000000001","sourceSetRevision":1,"passages":[]}'::jsonb,
+  '[]'::jsonb, clock_timestamp(), clock_timestamp()
 );
 
 set local role authenticated;
@@ -177,6 +193,7 @@ do $$
 declare
   ordinals bigint[];
   decorated_assistant jsonb;
+  feedback_result jsonb;
 begin
   select array_agg(message_ordinal order by user_message_id)
   into ordinals
@@ -204,6 +221,52 @@ begin
     ) <> jsonb_build_object('id', 'not-a-uuid', 'role', 'assistant') then
     raise exception 'REGRESSION: missing ordinal did not fail soft';
   end if;
+
+  feedback_result := public.record_project_answer_feedback(
+    'ea000000-0000-4000-8000-000000000001',
+    'ef000000-0000-4000-8000-000000000010',
+    'helpful'
+  );
+  if feedback_result ->> 'outcome' <> 'recorded'
+    or feedback_result ->> 'messageOrdinal' <> '3'
+    or feedback_result ->> 'rating' <> 'helpful' then
+    raise exception 'REGRESSION: first feedback decision was not recorded: %',
+      feedback_result;
+  end if;
+
+  feedback_result := public.record_project_answer_feedback(
+    'ea000000-0000-4000-8000-000000000001',
+    'ef000000-0000-4000-8000-000000000010',
+    'helpful'
+  );
+  if feedback_result ->> 'outcome' <> 'deduplicated' then
+    raise exception 'REGRESSION: repeated feedback was not deduplicated: %',
+      feedback_result;
+  end if;
+
+  feedback_result := public.record_project_answer_feedback(
+    'ea000000-0000-4000-8000-000000000001',
+    'ef000000-0000-4000-8000-000000000010',
+    'not_helpful'
+  );
+  if feedback_result ->> 'outcome' <> 'conflict'
+    or feedback_result ->> 'rating' <> 'helpful' then
+    raise exception 'REGRESSION: immutable feedback decision was overwritten: %',
+      feedback_result;
+  end if;
+
+  decorated_assistant :=
+    project_private.with_project_message_analytics_ordinal(
+      jsonb_build_object(
+        'id', 'ef000000-0000-4000-8000-000000000010',
+        'role', 'assistant',
+        'inReplyToMessageId', 'ef000000-0000-4000-8000-000000000003'
+      )
+    );
+  if decorated_assistant ->> 'messageOrdinal' <> '3'
+    or decorated_assistant ->> 'feedbackRating' <> 'helpful' then
+    raise exception 'REGRESSION: feedback did not reload on its durable answer';
+  end if;
 end;
 $$;
 
@@ -215,6 +278,7 @@ declare
   immediate jsonb;
   reordered jsonb;
   readiness_only jsonb;
+  inactive_usage jsonb;
   message_occurred_at timestamptz := clock_timestamp();
 begin
   delayed := public.record_project_analytics_transition(
@@ -263,10 +327,44 @@ begin
   if readiness_only ->> 'outcome' <> 'recorded' then
     raise exception 'REGRESSION: readiness without a qualifying action activated';
   end if;
+
+  inactive_usage := public.record_project_generation_usage(
+    'ea000000-0000-4000-8000-000000000003',
+    'e3000000-0000-4000-8000-000000000003',
+    'ec000000-0000-4000-8000-000000000003',
+    'grounded_answer', 'gpt-5.3-codex-spark', 'cliproxyapi',
+    'unavailable', null, null, null, null, 125,
+    null, null, null, 'usage_unavailable'
+  );
+  if inactive_usage ->> 'outcome' <> 'inactive' then
+    raise exception
+      'REGRESSION: inactive Project generation usage was persisted: %',
+      inactive_usage;
+  end if;
 end;
 $$;
 
 reset role;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.project_generation_usage
+    where project_id = 'ea000000-0000-4000-8000-000000000003'
+  ) then
+    raise exception 'REGRESSION: inactive Project generation usage row exists';
+  end if;
+  if (
+    select (rating, message_ordinal)
+    from public.project_answer_feedback
+    where answer_id = 'ef000000-0000-4000-8000-000000000010'
+  ) is distinct from row('helpful'::text, 3::bigint) then
+    raise exception 'REGRESSION: durable Project feedback identity drifted';
+  end if;
+end;
+$$;
+
 update public.project_videos
 set status = 'ready',
   status_updated_at = clock_timestamp(),
