@@ -172,6 +172,12 @@ Server-side subscription events use that registered Supabase ID as PostHog's
 `distinctId`, linking paid activation to the same person. Logout and a switch
 between registered accounts reset the client identity.
 
+A delayed Anonymous Trial conversion captured at the Auth callback is a
+separate privacy boundary: the server derives its PostHog identity with a
+domain-separated HMAC under the required Anonymous Trial network secret. The
+raw Supabase user UUID is never sent to PostHog, and capture fails closed when
+that secret is missing or shorter than 32 characters.
+
 ## Privacy rules
 
 Never add any of the following to general product analytics:
