@@ -130,6 +130,8 @@ jobs:
             fi
             if [[ "$(basename "$f")" == "20260809232600_project_message_analytics_ordinals.sql" ]]; then
               bash supabase/test-fixtures/regression_project_message_ordinal_rollout.sh "$f"
+            elif [[ "$(basename "$f")" == "20260811055120_enforce_project_beta_access_at_database_boundary.sql" ]]; then
+              bash supabase/test-fixtures/regression_project_beta_owner_transfer_rollout.sh "$f"
             else
               psql -v ON_ERROR_STOP=1 -f "$f"
             fi
@@ -361,6 +363,8 @@ jobs:
             echo "::group::Applying $f to fresh database"
             if [[ "$(basename "$f")" == "20260809232600_project_message_analytics_ordinals.sql" ]]; then
               PGDATABASE=workspace_fresh bash supabase/test-fixtures/regression_project_message_ordinal_rollout.sh "$f"
+            elif [[ "$(basename "$f")" == "20260811055120_enforce_project_beta_access_at_database_boundary.sql" ]]; then
+              PGDATABASE=workspace_fresh bash supabase/test-fixtures/regression_project_beta_owner_transfer_rollout.sh "$f"
             else
               PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f "$f"
             fi

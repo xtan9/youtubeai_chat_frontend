@@ -44,6 +44,7 @@ reset role;
 -- by the four public wrappers whose ownership is transferred by the rollout.
 do $$
 declare
+  claim_helper_signature text;
   helper_signature text;
 begin
   if project_private.project_beta_metadata_is_trusted(
@@ -52,16 +53,145 @@ begin
     raise exception 'REGRESSION: string smoke marker gained beta access';
   end if;
 
+  if (
+    select count(*)
+    from pg_proc as procedure
+    join pg_namespace as namespace
+      on namespace.oid = procedure.pronamespace
+    join pg_roles as owner_role on owner_role.oid = procedure.proowner
+    where namespace.nspname = 'project_private'
+      and procedure.proname in (
+        'has_trusted_project_beta_access',
+        'project_beta_request_uid',
+        'project_beta_request_jwt'
+      )
+      and procedure.pronargs = 0
+      and procedure.prosecdef
+      and owner_role.rolname <> 'project_beta_rpc_owner'
+  ) <> 3 then
+    raise exception
+      'REGRESSION: trusted beta predicate lost its managed-auth execution boundary';
+  end if;
+
+  foreach claim_helper_signature in array array[
+    'project_private.project_beta_request_uid()',
+    'project_private.project_beta_request_jwt()'
+  ]
+  loop
+    if not has_function_privilege(
+      'project_beta_rpc_owner',
+      claim_helper_signature,
+      'EXECUTE'
+    )
+      or has_function_privilege(
+        'authenticated',
+        claim_helper_signature,
+        'EXECUTE'
+      )
+      or has_function_privilege(
+        'anon',
+        claim_helper_signature,
+        'EXECUTE'
+      )
+      or has_function_privilege(
+        'service_role',
+        claim_helper_signature,
+        'EXECUTE'
+      )
+    then
+      raise exception
+        'REGRESSION: unsafe Project request-claim helper grant for %',
+        claim_helper_signature;
+    end if;
+  end loop;
+
+  if exists (
+    select 1
+    from pg_proc as procedure
+    join pg_namespace as namespace
+      on namespace.oid = procedure.pronamespace
+    join pg_roles as owner_role on owner_role.oid = procedure.proowner
+    where namespace.nspname = 'public'
+      and owner_role.rolname = 'project_beta_rpc_owner'
+      and (
+        procedure.prosrc like '%auth.uid()%'
+        or procedure.prosrc like '%auth.jwt()%'
+      )
+  ) then
+    raise exception
+      'REGRESSION: Project RPC owner still calls a managed auth helper directly';
+  end if;
+
+  if exists (
+    select 1
+    from pg_namespace as namespace
+    cross join lateral aclexplode(
+      coalesce(
+        namespace.nspacl,
+        acldefault('n', namespace.nspowner)
+      )
+    ) as privilege
+    join pg_roles as grantee on grantee.oid = privilege.grantee
+    where namespace.nspname = 'auth'
+      and grantee.rolname = 'project_beta_rpc_owner'
+  )
+    or exists (
+      select 1
+      from pg_proc as procedure
+      join pg_namespace as namespace
+        on namespace.oid = procedure.pronamespace
+      cross join lateral aclexplode(
+        coalesce(
+          procedure.proacl,
+          acldefault('f', procedure.proowner)
+        )
+      ) as privilege
+      join pg_roles as grantee on grantee.oid = privilege.grantee
+      where namespace.nspname = 'auth'
+        and procedure.proname in ('uid', 'jwt')
+        and procedure.pronargs = 0
+        and grantee.rolname = 'project_beta_rpc_owner'
+    )
+  then
+    raise exception
+      'REGRESSION: RPC owner received a managed-auth privilege grant';
+  end if;
+
   if (select rolcanlogin from pg_roles where rolname = 'project_beta_rpc_owner')
     or pg_has_role('authenticated', 'project_beta_rpc_owner', 'MEMBER')
     or pg_has_role('anon', 'project_beta_rpc_owner', 'MEMBER')
+    or exists (
+      select 1
+      from pg_auth_members as membership
+      join pg_roles as member_role
+        on member_role.oid = membership.member
+      join pg_roles as granted_role
+        on granted_role.oid = membership.roleid
+      where member_role.rolname = current_user
+        and granted_role.rolname = 'project_beta_rpc_owner'
+    )
     or pg_has_role(
       'project_beta_rpc_owner',
       'authenticated',
       'MEMBER'
     )
+    or exists (
+      select 1
+      from pg_namespace as namespace
+      cross join lateral aclexplode(
+        coalesce(
+          namespace.nspacl,
+          acldefault('n', namespace.nspowner)
+        )
+      ) as privilege
+      join pg_roles as grantee on grantee.oid = privilege.grantee
+      where namespace.nspname = 'public'
+        and grantee.rolname = 'project_beta_rpc_owner'
+        and privilege.privilege_type = 'CREATE'
+    )
   then
-    raise exception 'REGRESSION: browser role can assume the Project RPC owner';
+    raise exception
+      'REGRESSION: Project RPC owner retained a role or schema escalation path';
   end if;
 
   foreach helper_signature in array array[

@@ -22,11 +22,39 @@ as $$
     )
 $$;
 
+-- Supabase owns the auth schema and its helpers with supabase_auth_admin, so a
+-- managed migration role cannot delegate those privileges to a new role. Keep
+-- claim access behind two minimal migration-owned functions instead.
+create or replace function project_private.project_beta_request_uid()
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select auth.uid()
+$$;
+
+create or replace function project_private.project_beta_request_jwt()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select auth.jwt()
+$$;
+
+revoke all on function project_private.project_beta_request_uid()
+  from public, anon, authenticated, service_role;
+revoke all on function project_private.project_beta_request_jwt()
+  from public, anon, authenticated, service_role;
+
 create or replace function project_private.has_trusted_project_beta_access()
 returns boolean
 language sql
 stable
-security invoker
+security definer
 set search_path = ''
 as $$
   select
@@ -34,10 +62,14 @@ as $$
       'authenticated',
       'project_beta_rpc_owner'
     )
-    and auth.uid() is not null
-    and auth.jwt() ->> 'sub' = auth.uid()::text
+    and project_private.project_beta_request_uid() is not null
+    and project_private.project_beta_request_jwt() ->> 'sub'
+      = project_private.project_beta_request_uid()::text
     and project_private.project_beta_metadata_is_trusted(
-      coalesce(auth.jwt() -> 'app_metadata', '{}'::jsonb)
+      coalesce(
+        project_private.project_beta_request_jwt() -> 'app_metadata',
+        '{}'::jsonb
+      )
     )
 $$;
 
@@ -117,11 +149,22 @@ begin
 end;
 $$;
 
-revoke authenticated from project_beta_rpc_owner;
-grant usage on schema auth, public, project_private
-  to project_beta_rpc_owner;
-grant execute on function auth.uid(), auth.jwt()
-  to project_beta_rpc_owner;
+-- The trusted-access and request-claim helpers are SECURITY DEFINER with empty
+-- search paths, so the NOLOGIN owner needs no grants on Supabase's managed auth
+-- schema. Avoid attempting auth grants the managed migration role cannot issue.
+do $$
+begin
+  if pg_has_role(
+    'project_beta_rpc_owner',
+    'authenticated',
+    'MEMBER'
+  ) then
+    revoke authenticated from project_beta_rpc_owner;
+  end if;
+end;
+$$;
+
+grant usage on schema public, project_private to project_beta_rpc_owner;
 grant execute on all functions in schema project_private
   to project_beta_rpc_owner;
 grant execute on function public.load_project_conversation_legacy(uuid, uuid)
@@ -250,8 +293,24 @@ create trigger projects_00_beta_access_guard
 before insert or update or delete on public.projects
 for each row execute function project_private.guard_project_beta_write();
 
+-- PostgreSQL requires the migration caller to be able to SET ROLE to a
+-- function's new owner, and requires that owner to have CREATE on the
+-- function's schema. Grant both capabilities only for this transactional
+-- ownership transfer; neither privilege survives the migration.
+do $$
+begin
+  execute format(
+    'grant project_beta_rpc_owner to %I',
+    current_user
+  );
+end;
+$$;
+
+grant create on schema public to project_beta_rpc_owner;
+
 do $$
 declare
+  function_definition text;
   function_signature text;
 begin
   foreach function_signature in array array[
@@ -282,11 +341,40 @@ begin
     'public.start_project_video_processing(uuid,text,bigint)'
   ]
   loop
+    -- Existing Project RPCs read auth.uid()/auth.jwt() directly. Route only
+    -- those two stable claim reads through the minimal migration-owned helpers
+    -- before moving the function under the least-privileged NOLOGIN owner.
+    function_definition := pg_get_functiondef(
+      to_regprocedure(function_signature)
+    );
+    function_definition := replace(
+      function_definition,
+      'auth.uid()',
+      'project_private.project_beta_request_uid()'
+    );
+    function_definition := replace(
+      function_definition,
+      'auth.jwt()',
+      'project_private.project_beta_request_jwt()'
+    );
+    execute function_definition;
+
     execute format(
       'alter function %s owner to project_beta_rpc_owner',
       function_signature
     );
   end loop;
+end;
+$$;
+
+revoke create on schema public from project_beta_rpc_owner;
+
+do $$
+begin
+  execute format(
+    'revoke project_beta_rpc_owner from %I',
+    current_user
+  );
 end;
 $$;
 
