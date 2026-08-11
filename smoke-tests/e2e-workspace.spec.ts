@@ -2479,14 +2479,14 @@ async function handleSupabaseRequest(
 ## Source claims
 
 - Inspiration: Climate adaptation exact local evidence [S1 @ 00:42].
-- Inspiration: Regional interviews conflicting adaptation priorities [S2 @ 00:42].
+- Inspiration: no evidencia comparaciones sin [S2 @ 00:42].
 
 ## Proposed ideas
 
 - Gap: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Show which local climate adaptation choices still lack exact evidence [S1 @ 00:42].
-- Combination: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Compare exact evidence with regional interviews for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
+- Combination: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Compare exact evidence with comparaciones regionales for local climate adaptation choices [S1 @ 00:42-00:48] [S2 @ 00:42-00:48].
 - Counterargument: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Ask when exact evidence gives local climate adaptation false certainty [S1 @ 00:42].
-- Original angle: Evidence basis: regional interviews; Goal fit: local climate adaptation; Original move: Map regional interviews into revisable local climate adaptation choices [S2 @ 00:42].
+- Original angle: Evidence basis: comparaciones regionales; Goal fit: local climate adaptation; Original move: Map comparaciones regionales into revisable local climate adaptation choices [S2 @ 00:42].
 
 ## Originality plan
 
@@ -2495,7 +2495,7 @@ async function handleSupabaseRequest(
 
 ## Video direction
 
-- Proposed beat: Evidence basis: exact evidence and regional interviews; Goal fit: local climate adaptation; Original move: Contrast exact evidence and regional interviews, then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
+- Proposed beat: Evidence basis: exact evidence comparaciones regionales; Goal fit: local climate adaptation; Original move: Contrast exact evidence and comparaciones regionales then map a decision framework for local climate adaptation [S1 @ 00:42] [S2 @ 00:42].`
       : `# Creator Brief
 
 ## Source claims
@@ -2937,6 +2937,10 @@ async function handleSourceSetRpc(
         (membership) => membership.status === "ready",
       ).length,
     });
+  }
+
+  if (url.pathname.endsWith("/record_project_activated_generation_usage")) {
+    return sendJson(response, 200, { outcome: "inserted" });
   }
 
   if (url.pathname.endsWith("/claim_project_activation_exports")) {

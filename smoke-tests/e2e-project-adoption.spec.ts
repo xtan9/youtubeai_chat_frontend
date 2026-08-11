@@ -84,7 +84,7 @@ test.beforeAll(async () => {
     POSTHOG_PROJECT_ID: "fixture-project",
     POSTHOG_QUERY_HOST: fixtureUrl,
     SUPABASE_SERVICE_ROLE_KEY: "fixture-service-role-key",
-    WORKSPACE_E2E_DIST_DIR: ".next-workspace-e2e",
+    WORKSPACE_E2E_DIST_DIR: ".next-project-adoption-e2e",
   };
 
   appProcess = spawn(

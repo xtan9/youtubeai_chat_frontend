@@ -21,6 +21,7 @@
 # next.js
 /.next/
 /.next-workspace-e2e/
+/.next-project-adoption-e2e/
 /out/
 
 # production
