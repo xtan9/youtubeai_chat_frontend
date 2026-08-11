@@ -37,6 +37,7 @@ import {
   admitRegisteredFreeHeroDemoChatMessage,
   type RegisteredFreeHeroDemoAdmissionResult,
 } from "@/lib/services/registered-free-hero-demo";
+import { validateAnonymousTrialChatResult } from "@/lib/services/anonymous-trial-chat-result";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -470,7 +471,13 @@ export async function POST(request: Request) {
     history,
     userMessage: message,
     cacheStablePrefix,
+    anonymousTrialStructuredResult: anonymousTrialEnabled,
   });
+  const anonymousTrialAvailableCitations = new Set(
+    grounding.transcript.segments.map((segment) =>
+      formatTimestamp(segment.start),
+    ),
+  );
 
   let anonymousReservation: Extract<
     AnonymousTrialReservationResult,
@@ -624,7 +631,9 @@ export async function POST(request: Request) {
             if (request.signal.aborted) break;
             if (evt.type === "delta") {
               assistantBuffer += evt.text;
-              sendEvent({ type: "delta", text: evt.text });
+              if (!anonymousTrialEnabled) {
+                sendEvent({ type: "delta", text: evt.text });
+              }
             }
             // We don't forward the generator's `done` here — the inline
             // persist below sends the terminal `done` event so the
@@ -662,6 +671,30 @@ export async function POST(request: Request) {
           persistUserOnly("CHAT_LLM_FAILED_PERSIST_FAILED");
           sendEvent({ type: "error", message: USER_ERROR_GENERIC });
           return;
+        }
+
+        if (anonymousTrialEnabled) {
+          const validated = validateAnonymousTrialChatResult(
+            assistantBuffer,
+            anonymousTrialAvailableCitations,
+          );
+          if (validated.outcome === "rejected") {
+            logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
+              errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+              userId,
+              videoId,
+              requestId,
+            });
+            sendEvent({
+              type: "error",
+              message:
+                "We couldn't validate that answer against the selected video. Try another question.",
+              errorCode: "anonymous_trial_invalid_answer",
+            });
+            return;
+          }
+          assistantBuffer = validated.text;
+          sendEvent({ type: "delta", text: validated.text });
         }
 
         if (assistantBuffer.length === 0) {
