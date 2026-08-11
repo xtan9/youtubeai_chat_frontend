@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
-import { generateSemanticProfile } from "./semantic-profile";
+import {
+  generateSemanticProfile,
+  SEMANTIC_PROFILE_PROMPT_VERSION,
+} from "./semantic-profile";
 import { SPARK } from "@/lib/services/models";
 
 const ClaimedWorkSchema = z
@@ -169,7 +172,7 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
         p_difficulty: profile.difficulty,
         p_generator_model:
           GENERATOR_MODEL,
-        p_prompt_version: "semantic-profile-prompt-v1",
+        p_prompt_version: SEMANTIC_PROFILE_PROMPT_VERSION,
       });
       if (completion.error) {
         await fail(raw, "worker_error");

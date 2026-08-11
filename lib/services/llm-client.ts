@@ -210,6 +210,19 @@ export interface CallLlmJsonOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface LlmJsonTokenUsage {
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
+export interface LlmJsonResultWithUsage {
+  readonly content: string;
+  readonly responseModel: string;
+  readonly usage: LlmJsonTokenUsage;
+}
+
 // Default ceiling for non-streaming calls. A forgotten `timeoutMs` shouldn't
 // let a classifier hang indefinitely and block the summarize stream —
 // 30 seconds is a generous cap for a ~1K-token prompt.
@@ -220,7 +233,9 @@ const DEFAULT_CALL_TIMEOUT_MS = 30_000;
  * callers parse and schema-validate. Kept separate from streamLlmSummary
  * because streaming plumbing is overkill for short classification calls.
  */
-export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> {
+async function fetchLlmJsonResponse(
+  options: CallLlmJsonOptions,
+): Promise<unknown> {
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
   if (!gatewayUrl || !gatewayKey) {
@@ -288,11 +303,72 @@ export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> 
     throw new Error(`LLM gateway error (${response.status}): ${text}`);
   }
 
-  const raw: unknown = await response.json();
+  return response.json();
+}
+
+function readLlmJsonContent(raw: unknown): string {
   const content = (raw as { choices?: Array<{ message?: { content?: unknown } }> })
     ?.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
     throw new Error("LLM gateway response missing choices[0].message.content");
   }
   return content;
+}
+
+export async function callLlmJson(options: CallLlmJsonOptions): Promise<string> {
+  return readLlmJsonContent(await fetchLlmJsonResponse(options));
+}
+
+/**
+ * Evaluation-only non-streaming call that requires the Gateway's measured
+ * token usage. Production JSON callers retain the content-only helper above;
+ * benchmark evidence fails closed when usage or the resolved model is absent.
+ */
+export async function callLlmJsonWithUsage(
+  options: CallLlmJsonOptions,
+): Promise<LlmJsonResultWithUsage> {
+  const raw = await fetchLlmJsonResponse(options);
+  const responseModel = (raw as { model?: unknown })?.model;
+  const rawUsage = (raw as {
+    usage?: {
+      prompt_tokens?: unknown;
+      completion_tokens?: unknown;
+      total_tokens?: unknown;
+      prompt_tokens_details?: { cached_tokens?: unknown } | null;
+    };
+  })?.usage;
+  const inputTokens = nonnegativeTokenCount(rawUsage?.prompt_tokens);
+  const outputTokens = nonnegativeTokenCount(rawUsage?.completion_tokens);
+  const totalTokens = nonnegativeTokenCount(rawUsage?.total_tokens);
+  const cachedInputTokens = nonnegativeTokenCount(
+    rawUsage?.prompt_tokens_details?.cached_tokens ?? 0,
+  );
+  if (
+    typeof responseModel !== "string" ||
+    responseModel.trim() === "" ||
+    inputTokens === null ||
+    outputTokens === null ||
+    totalTokens === null ||
+    cachedInputTokens === null ||
+    cachedInputTokens > inputTokens ||
+    totalTokens < inputTokens + outputTokens
+  ) {
+    throw new Error("LLM gateway response missing valid model or token usage");
+  }
+  return {
+    content: readLlmJsonContent(raw),
+    responseModel,
+    usage: {
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      totalTokens,
+    },
+  };
+}
+
+function nonnegativeTokenCount(value: unknown): number | null {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? (value as number)
+    : null;
 }

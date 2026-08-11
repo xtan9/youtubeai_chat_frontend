@@ -1,8 +1,13 @@
 import { z } from "zod";
-import { callLlmJson } from "@/lib/services/llm-client";
+import {
+  callLlmJson,
+  callLlmJsonWithUsage,
+} from "@/lib/services/llm-client";
 import { SPARK } from "@/lib/services/models";
 
-const PROFILE_SCHEMA_VERSION = "semantic-profile-v1" as const;
+export const SEMANTIC_PROFILE_SCHEMA_VERSION = "semantic-profile-v1" as const;
+export const SEMANTIC_PROFILE_PROMPT_VERSION =
+  "semantic-profile-prompt-v1" as const;
 const MAX_PROFILE_RESPONSE_CHARS = 12_000;
 const MAX_TRANSCRIPT_CHARS = 32_000;
 const PROFILE_TIMEOUT_MS = 30_000;
@@ -49,7 +54,7 @@ const ConceptKeyArraySchema = z
 
 export const SemanticProfileSchema = z
   .object({
-    schemaVersion: z.literal(PROFILE_SCHEMA_VERSION),
+    schemaVersion: z.literal(SEMANTIC_PROFILE_SCHEMA_VERSION),
     sourceLanguage: z
       .string()
       .min(2)
@@ -128,7 +133,7 @@ function buildSemanticProfilePrompt(
     "Do not add facts that are not supported by the evidence.",
     "Required schema:",
     JSON.stringify({
-      schemaVersion: PROFILE_SCHEMA_VERSION,
+      schemaVersion: SEMANTIC_PROFILE_SCHEMA_VERSION,
       sourceLanguage: "BCP-47 language tag from the evidence",
       topics: [{ key: "canonical-topic", label: "short learner-readable label" }],
       coreConcepts: [
@@ -156,4 +161,15 @@ export async function generateSemanticProfile(
   });
 
   return parseSemanticProfile(raw);
+}
+
+export async function requestSemanticProfileWithUsage(
+  options: GenerateSemanticProfileOptions & Readonly<{ model: string }>,
+) {
+  return callLlmJsonWithUsage({
+    model: options.model,
+    prompt: buildSemanticProfilePrompt(options),
+    timeoutMs: PROFILE_TIMEOUT_MS,
+    signal: options.signal,
+  });
 }

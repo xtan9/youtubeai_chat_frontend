@@ -44,6 +44,10 @@ so switching or retiring a model cannot run stale work.
 | `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 
+The dormant 56-call Semantic Profile evidence command and mandatory
+human-review handoff are documented in
+[`docs/semantic-profile-evaluation.md`](docs/semantic-profile-evaluation.md).
+
 ## Local development
 
 ```bash

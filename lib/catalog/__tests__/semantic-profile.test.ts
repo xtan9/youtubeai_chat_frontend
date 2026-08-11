@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { callLlmJson } = vi.hoisted(() => ({ callLlmJson: vi.fn() }));
+const { callLlmJson, callLlmJsonWithUsage } = vi.hoisted(() => ({
+  callLlmJson: vi.fn(),
+  callLlmJsonWithUsage: vi.fn(),
+}));
 
-vi.mock("@/lib/services/llm-client", () => ({ callLlmJson }));
+vi.mock("@/lib/services/llm-client", () => ({
+  callLlmJson,
+  callLlmJsonWithUsage,
+}));
 
 import {
   generateSemanticProfile,
   parseSemanticProfile,
+  requestSemanticProfileWithUsage,
 } from "../semantic-profile";
 
 const VALID_PROFILE = {
@@ -124,5 +131,37 @@ describe("generateSemanticProfile", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("returns bounded Gateway usage before the caller validates the profile", async () => {
+    callLlmJsonWithUsage.mockResolvedValue({
+      content: "not valid profile JSON",
+      responseModel: "configured-gateway-model",
+      usage: {
+        inputTokens: 10,
+        cachedInputTokens: 0,
+        outputTokens: 3,
+        totalTokens: 13,
+      },
+    });
+
+    await expect(
+      requestSemanticProfileWithUsage({
+        model: "configured-gateway-model",
+        title: "Gradient descent",
+        sourceLanguage: "en",
+        transcript: "A bounded transcript.",
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({
+      content: "not valid profile JSON",
+      responseModel: "configured-gateway-model",
+      usage: {
+        inputTokens: 10,
+        cachedInputTokens: 0,
+        outputTokens: 3,
+        totalTokens: 13,
+      },
+    });
   });
 });
