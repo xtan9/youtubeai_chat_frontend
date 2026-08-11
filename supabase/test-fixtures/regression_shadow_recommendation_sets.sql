@@ -764,6 +764,102 @@ begin
   end if;
   quality_report_id := (quality_report ->> 'qualityReportId')::uuid;
 
+  -- The reader may serve only the exact approved Set policy/report. This
+  -- fixture supplies the existing successful Summary row, then verifies that
+  -- retiring either the source Profile or its approved semantic model makes
+  -- the previously current Set non-retrievable without changing the Set.
+  set local role postgres;
+  insert into public.summaries (
+    video_id, summary, transcript_source
+  ) values (
+    '3a000000-0000-4000-8000-000000000001'::uuid,
+    'Set reader fixture summary', 'auto_captions'
+  );
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'shadow', false, null,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'shadow' then
+    raise exception 'reader fixture could not enter shadow: %', rollout;
+  end if;
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'pilot' then
+    raise exception 'reader fixture could not enter pilot: %', rollout;
+  end if;
+  select public.set_recommendation_rollout(
+    'on', false, quality_report_id,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'on' then
+    raise exception 'eligible quality report did not permit on: %', rollout;
+  end if;
+
+  select public.read_continue_learning_recommendations(
+    '3a000000-0000-4000-8000-0000000000f2'::uuid,
+    'setsource01', 4
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'ready'
+    or jsonb_array_length(rollout -> 'items') not between 1 and 4
+  then
+    raise exception 'approved current Set was not readable: %', rollout;
+  end if;
+
+  set local role postgres;
+  update catalog_private.semantic_profile_versions
+  set status = 'superseded', superseded_at = statement_timestamp()
+  where video_id = '3a000000-0000-4000-8000-000000000001'::uuid
+    and status = 'active';
+  set local role service_role;
+  select public.read_continue_learning_recommendations(
+    '3a000000-0000-4000-8000-0000000000f2'::uuid,
+    'setsource01', 4
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'unavailable'
+    or rollout ->> 'reason' <> 'source_not_ready'
+  then
+    raise exception 'superseded source Profile remained readable: %', rollout;
+  end if;
+
+  set local role postgres;
+  update catalog_private.semantic_profile_versions
+  set status = 'active', superseded_at = null
+  where video_id = '3a000000-0000-4000-8000-000000000001'::uuid;
+  update catalog_private.semantic_profile_model_registry
+  set status = 'retired', retired_at = statement_timestamp()
+  where model_identifier = 'fixture-set-semantic-model'
+    and profile_schema_version = 'semantic-profile-v1'
+    and prompt_version = 'semantic-profile-prompt-v1'
+    and status = 'active';
+  set local role service_role;
+  select public.read_continue_learning_recommendations(
+    '3a000000-0000-4000-8000-0000000000f2'::uuid,
+    'setsource01', 4
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'unavailable'
+    or rollout ->> 'reason' <> 'source_not_ready'
+  then
+    raise exception 'retired semantic model remained readable: %', rollout;
+  end if;
+
+  set local role postgres;
+  update catalog_private.semantic_profile_model_registry
+  set status = 'active', retired_at = null
+  where model_identifier = 'fixture-set-semantic-model'
+    and profile_schema_version = 'semantic-profile-v1'
+    and prompt_version = 'semantic-profile-prompt-v1';
+  set local role service_role;
+  select public.set_recommendation_rollout(
+    'off', true, null, '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+
   select public.list_recommendation_reviews(
     '3a000000-0000-4000-8000-000000000001'::uuid,
     null, null, null, 'current', null
