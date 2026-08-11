@@ -158,6 +158,7 @@ test("captures the content-private admission, exhaustion, registration, and conv
   });
 
   await page.goto(appUrl + "/");
+  await waitForAuthCookie(context);
   const input = page.getByLabel("Chat message");
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill("What is the main argument?");
@@ -248,6 +249,7 @@ test("the kill switch denies without consuming or leaking output", async ({
   );
 
   await page.goto(appUrl + "/");
+  await waitForAuthCookie(context);
   const input = page.getByLabel("Chat message");
   await expect(input).toBeVisible({ timeout: 30_000 });
   const responsePromise = page.waitForResponse(
@@ -276,6 +278,7 @@ test("Pro chat remains unlimited without trial or upgrade controls", async ({
   context,
   page,
 }) => {
+  let completed = false;
   await context.route("**/auth/v1/signup*", (route) =>
     fulfillJson(route, registeredSession()),
   );
@@ -283,7 +286,24 @@ test("Pro chat remains unlimited without trial or upgrade controls", async ({
     fulfillJson(route, registeredUser()),
   );
   await context.route("**/api/chat/messages?*", (route) =>
-    fulfillJson(route, { messages: [] }),
+    fulfillJson(route, {
+      messages: completed
+        ? [
+            {
+              id: "37900000-0000-4000-8000-000000000001",
+              role: "user",
+              content: "What is the main argument?",
+              createdAt: "2026-08-11T00:00:00.000Z",
+            },
+            {
+              id: "37900000-0000-4000-8000-000000000002",
+              role: "assistant",
+              content: "Pro grounded answer",
+              createdAt: "2026-08-11T00:00:01.000Z",
+            },
+          ]
+        : [],
+    }),
   );
   await context.route("**/api/me/entitlements*", (route) =>
     fulfillJson(route, {
@@ -301,26 +321,34 @@ test("Pro chat remains unlimited without trial or upgrade controls", async ({
       },
     }),
   );
-  await context.route("**/api/chat/stream", (route) =>
-    route.fulfill({
+  await context.route("**/api/chat/stream", (route) => {
+    completed = true;
+    return route.fulfill({
       status: 200,
       contentType: "text/event-stream",
       body: [
         `data: ${JSON.stringify({ type: "delta", text: "Pro grounded answer" })}\n\n`,
         `data: ${JSON.stringify({ type: "done" })}\n\n`,
       ].join(""),
-    }),
-  );
+    });
+  });
 
   await page.goto(appUrl + "/");
+  await waitForAuthCookie(context);
   const input = page.getByLabel("Chat message");
   await expect(input).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Anonymous Trial messages remaining/i)).toHaveCount(0);
   await expect(page.getByText(/free messages used|5\/5 free chat messages/i)).toHaveCount(0);
   await expect(page.getByRole("link", { name: /create account|upgrade to pro/i })).toHaveCount(0);
 
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/chat/stream") &&
+      response.request().method() === "POST",
+  );
   await input.fill("What is the main argument?");
   await page.getByLabel("Send message").click();
+  expect((await responsePromise).status()).toBe(200);
   await expect(page.getByText("Pro grounded answer")).toBeVisible();
 });
 
@@ -374,6 +402,20 @@ function registeredUser() {
 
 function registeredSession() {
   return { ...anonymousSession(), user: registeredUser() };
+}
+
+async function waitForAuthCookie(
+  context: import("@playwright/test").BrowserContext,
+) {
+  await expect
+    .poll(
+      async () =>
+        (await context.cookies()).some((cookie) =>
+          /^sb-.*-auth-token$/.test(cookie.name),
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
 }
 
 async function listenOnAvailablePort(server: Server) {
