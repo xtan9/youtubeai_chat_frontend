@@ -692,8 +692,9 @@ export async function POST(request: Request) {
       };
 
       const rejectInvalidAnonymousAnswer = () => {
-        logAppEvent("warn", "[chat/stream] anonymous answer rejected", {
+        logAppEvent("warn", "[chat/stream] anonymous trial terminal outcome", {
           errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+          outcome: "invalid_grounding",
           userId,
           videoId,
           requestId,

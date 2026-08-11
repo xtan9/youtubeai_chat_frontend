@@ -570,7 +570,7 @@ describe("POST /api/chat/stream", () => {
       mocks.resolveRequestPrincipal.mockResolvedValue(
         resolvedPrincipal("anonymous-trial-user", true),
       );
-      mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+      mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
       mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
       mocks.reserveAnonymousTrialChatMessage.mockResolvedValue({
         outcome,
@@ -756,7 +756,7 @@ describe("POST /api/chat/stream", () => {
     mocks.resolveRequestPrincipal.mockResolvedValue(
       resolvedPrincipal("anonymous-trial-user", true),
     );
-    mocks.resolveVideoChatSubject.mockResolvedValue(statelessSubject());
+    mocks.resolveVideoChatSubject.mockResolvedValue(heroDemoSubject());
     mocks.loadGrounding.mockResolvedValue(heroReadyGrounding());
     const abortController = new AbortController();
     mocks.streamChatCompletion.mockImplementation(async function* () {
@@ -801,6 +801,7 @@ describe("POST /api/chat/stream", () => {
       };
       yield { type: "done" as const };
     });
+    const logSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { POST } = await import("../route");
     const response = await POST(
@@ -823,6 +824,18 @@ describe("POST /api/chat/stream", () => {
       heroDemoSubject().subject.retainedThread,
       "What does the speaker recommend?",
     );
+    expect(mocks.completeAnonymousTrialChatMessage).toHaveBeenCalledWith({
+      userId: "anonymous-trial-user",
+      reservationId: "018f3f4e-8454-7e8b-a98d-f319b5c32291",
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      "[chat/stream] anonymous trial terminal outcome",
+      expect.objectContaining({
+        errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
+        outcome: "invalid_grounding",
+      }),
+    );
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("Leaked fabrication");
   });
 
   it("stops consuming fragmented Anonymous Trial output as soon as the buffer bound is exceeded", async () => {

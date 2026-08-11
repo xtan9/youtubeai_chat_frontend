@@ -12,7 +12,11 @@ set local role service_role;
 
 -- Establish retained Anonymous Trial usage before touching visible history.
 select public.reserve_anonymous_trial_chat_message(
-  '37600000-0000-4000-8000-000000000001'
+  '37600000-0000-4000-8000-000000000001',
+  repeat('7', 64),
+  1000000000,
+  1000,
+  true
 );
 
 select public.append_hero_demo_chat_turn(
