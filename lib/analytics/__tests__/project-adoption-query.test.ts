@@ -34,6 +34,9 @@ const METRIC_COLUMNS = [
   "grounded_passages_used",
   "citation_diagnostics",
   "answers_with_citation_diagnostics",
+  "citation_candidates",
+  "resolved_citations",
+  "citation_measured_answers",
   "processing_succeeded",
   "processing_failed",
   "generation_events",
@@ -60,6 +63,9 @@ describe("Project adoption PostHog query", () => {
     expect(query.metricsHogql).toContain("project_message_sent");
     expect(query.metricsHogql).toContain("properties['rating'] = 'helpful'");
     expect(query.metricsHogql).toContain("properties['cost_usd_micros']");
+    expect(query.metricsHogql).toContain("properties['citation_candidates']");
+    expect(query.metricsHogql).toContain("properties['resolved_citations']");
+    expect(query.metricsHogql).toContain("properties['citation_measurement_status']");
     expect(query.metricsHogql).toContain("analytics_subject");
     expect(query.returnHogql).toContain("argMax(");
     expect(query.returnHogql).toContain("properties['activation_revision']");
@@ -114,13 +120,16 @@ describe("Project adoption PostHog query", () => {
       readySourcesAdded: 15,
       processingSourcesAdded: 16,
       answersWithCitationDiagnostics: 28,
-      processingSucceeded: 29,
-      processingFailed: 30,
-      generationEvents: 31,
-      measuredGenerations: 32,
-      costEligibleActivatedProjects: 33,
-      generationDurationMs: 34,
-      costUsdMicros: 35,
+      citationCandidates: 29,
+      resolvedCitations: 30,
+      citationMeasuredAnswers: 31,
+      processingSucceeded: 32,
+      processingFailed: 33,
+      generationEvents: 34,
+      measuredGenerations: 35,
+      costEligibleActivatedProjects: 36,
+      generationDurationMs: 37,
+      costUsdMicros: 38,
     });
   });
 

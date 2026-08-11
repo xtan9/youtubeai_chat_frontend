@@ -85,6 +85,14 @@ export default async function AdminProjectsPage({
           <Metric label="Citation clicks" value={metrics.citationClicks} />
           <Metric label="Citation diagnostics" value={metrics.citationDiagnostics} />
           <Metric
+            label="Citation resolution"
+            value={formatPct(ratios.citationResolutionPct)}
+          />
+          <Metric
+            label="Citation measurement coverage"
+            value={formatPct(ratios.citationMeasurementCoveragePct)}
+          />
+          <Metric
             label="Answers with citation diagnostics"
             value={formatPct(ratios.answersWithCitationDiagnosticsPct)}
           />

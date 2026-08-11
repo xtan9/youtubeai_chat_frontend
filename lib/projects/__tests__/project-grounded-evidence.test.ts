@@ -96,6 +96,111 @@ describe("Project Grounded Answer evidence selection", () => {
     });
   });
 
+  it("keeps every Video identifiable in a five-Video Project with long bounded passages", () => {
+    const passages = Array.from({ length: 5 }, (_, index) => {
+      const ordinal = index + 1;
+      const text = `${`evidence-${ordinal} `.repeat(70)}`.slice(0, 600);
+      return passage({
+        videoId: `20000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`,
+        youtubeVideoId: `aaaaaaa000${ordinal}`,
+        title: `Long source ${ordinal}`,
+        segmentOrdinal: ordinal,
+        text,
+        startSeconds: ordinal * 10,
+        endSeconds: ordinal * 10 + 5,
+      });
+    });
+
+    const artifacts = buildProjectAnswerArtifacts({
+      projectId: PROJECT_ID,
+      goal: "Compare evidence across every source.",
+      balanceSources: true,
+      search: {
+        status: "ready",
+        sourceSetRevision: 8,
+        coverage: {
+          totalVideos: 5,
+          readyVideos: 5,
+          unavailableVideos: [],
+          passagesExamined: 125,
+        },
+        passages,
+      },
+    });
+
+    expect(artifacts.sourceManifest.sources).toHaveLength(5);
+    expect(artifacts.evidenceSnapshot.passages.map(({ text }) => text)).toEqual(
+      passages.map(({ text }) => text),
+    );
+    expect(artifacts.evidenceSnapshot.passages.every(({ text }) => text.length === 600)).toBe(
+      true,
+    );
+    expect(artifacts.sourceCoverage).toMatchObject({
+      totalVideos: 5,
+      readyVideos: 5,
+      usedVideos: 5,
+      passagesExamined: 125,
+      passagesUsed: 5,
+    });
+  });
+
+  it("represents the material match from every Video in a five-source retrieval fixture", () => {
+    const materialPassages = Array.from({ length: 5 }, (_, index) => {
+      const ordinal = index + 1;
+      return passage({
+        videoId: `21000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`,
+        youtubeVideoId: `material00${ordinal}`,
+        title: `Material source ${ordinal}`,
+        segmentOrdinal: 2,
+        text: `Launch evidence position ${ordinal} is material to readiness.`,
+        startSeconds: ordinal * 30,
+        endSeconds: ordinal * 30 + 5,
+      });
+    });
+    const irrelevantFirstPassages = materialPassages.map((material, index) =>
+      passage({
+        videoId: material.videoId,
+        youtubeVideoId: material.youtubeVideoId,
+        title: material.title,
+        segmentOrdinal: 1,
+        text: `Unrelated introduction ${index + 1}.`,
+        startSeconds: index * 30,
+        endSeconds: index * 30 + 5,
+      }),
+    );
+
+    const artifacts = buildProjectAnswerArtifacts({
+      projectId: PROJECT_ID,
+      goal: "Compare every material launch evidence position.",
+      balanceSources: true,
+      search: {
+        status: "ready",
+        sourceSetRevision: 9,
+        coverage: {
+          totalVideos: 5,
+          readyVideos: 5,
+          unavailableVideos: [],
+          passagesExamined: 50,
+        },
+        passages: [...irrelevantFirstPassages, ...materialPassages],
+      },
+    });
+
+    expect(artifacts.sourceManifest.sources.map(({ videoId }) => videoId)).toEqual(
+      materialPassages.map(({ videoId }) => videoId),
+    );
+    expect(
+      artifacts.evidenceSnapshot.passages.filter(({ text }) =>
+        text.includes("is material to readiness"),
+      ),
+    ).toHaveLength(5);
+    expect(artifacts.sourceCoverage).toMatchObject({
+      totalVideos: 5,
+      readyVideos: 5,
+      usedVideos: 5,
+    });
+  });
+
   it("reports exact readiness with no evidence for a not-ready Project", () => {
     const artifacts = buildProjectAnswerArtifacts({
       projectId: PROJECT_ID,

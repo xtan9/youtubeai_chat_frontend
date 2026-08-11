@@ -25,6 +25,7 @@ import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { logAppEvent } from "@/lib/observability";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
+import { inspectProjectCitations } from "@/lib/projects/project-grounded-citations";
 
 export type ProjectConversationDraft = Readonly<{
   user: string;
@@ -103,7 +104,9 @@ function captureCompletion(input: {
   readonly manifest: ProjectAnswerSourceManifest;
   readonly coverage: ProjectAnswerCoverage;
   readonly diagnosticCount: number;
+  readonly content: string;
 }) {
+  const citationInspection = inspectProjectCitations(input.content, input.manifest);
   captureAnalyticsEvent("project_grounded_answer_completed", {
     project_id: input.projectId,
     classification: input.classification,
@@ -118,6 +121,10 @@ function captureCompletion(input: {
     passages_examined: input.coverage.passagesExamined,
     passages_used: input.coverage.passagesUsed,
     citation_diagnostics: input.diagnosticCount,
+    citation_candidates:
+      citationInspection.validCitationCount + input.diagnosticCount,
+    resolved_citations: citationInspection.validCitationCount,
+    citation_measurement_status: "measured",
   });
 }
 
@@ -870,6 +877,7 @@ export function useProjectGroundedConversation(args: {
                     manifest: currentDraft.manifest,
                     coverage: currentDraft.coverage,
                     diagnosticCount: currentDraft.diagnostics.length,
+                    content: currentDraft.assistant,
                   });
                 }
                 break;
@@ -935,6 +943,7 @@ export function useProjectGroundedConversation(args: {
                 coverage: terminal.assistant.sourceCoverage,
                 diagnosticCount:
                   terminal.assistant.citationDiagnostics.length,
+                content: terminal.assistant.content,
               });
             } else if (terminal?.state === "cancelled") {
               if (sendEpochRef.current === epoch) {

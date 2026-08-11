@@ -659,10 +659,10 @@ test("invited Free Researcher completes the controlled Project beta journey @inv
   const rankedSearchPassages = page.getByTestId("project-search-passage");
   await expect(rankedSearchPassages).toHaveCount(6);
   await expect(rankedSearchPassages.nth(0)).toContainText(
-    "气候适应需要准确的本地证据",
+    "Climate adaptation depends on exact local evidence",
   );
   await expect(rankedSearchPassages.nth(1)).toContainText(
-    "Climate adaptation depends on exact local evidence",
+    "La adaptación climática no debe depender solo de evidencia local exacta",
   );
   await expect(rankedSearchPassages.nth(2)).toContainText(
     "气候适应，气候适应，气候适应",
@@ -3008,6 +3008,46 @@ async function handleSupabaseRequest(
 ## Video direction
 
 - Proposed beat: Evidence basis: exact evidence; Goal fit: local climate adaptation; Original move: Open with exact evidence, then map a decision framework for local climate adaptation [S1 @ 00:42].`;
+    const assessmentEvidence = `ASSESSMENT_EVIDENCE ${JSON.stringify({
+      evidence: [
+        {
+          positionId: "local_evidence",
+          sourceId: "S1",
+          issueKey: "adaptation_evidence",
+          relation: "supports",
+          citation: "[S1 @ 00:42]",
+          exactQuote:
+            "Climate adaptation depends on exact local evidence gathered across seasons and rejects a single dramatic anecdote. The neighborhood heat survey, drainage inspection, and resident interviews all point to the same blocks, while the speaker carefully separates measured observations from forecasts. Transparent evidence strengthens public trust because residents can inspect the timestamps, methods, and limits before funding a response.",
+          supportWeight: 2,
+        },
+        {
+          positionId: "regional_comparison",
+          sourceId: "S2",
+          issueKey: "adaptation_evidence",
+          relation: "opposes",
+          citation: "[S2 @ 00:42]",
+          exactQuote:
+            "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La evidencia transparente ayuda a generar confianza. La date exacte du lancement reste à déterminer.",
+          supportWeight: 1,
+        },
+      ],
+      candidate: {
+        kind: "assessment",
+        positions: [
+          {
+            positionId: "local_evidence",
+            relation: "supports",
+            citation: "[S1 @ 00:42]",
+          },
+          {
+            positionId: "regional_comparison",
+            relation: "opposes",
+            citation: "[S2 @ 00:42]",
+          },
+        ],
+        winnerPositionId: "local_evidence",
+      },
+    })}`;
     const responseContent = projectBriefResponse ??
       (prompt.includes("originality-safe Markdown Creator Brief")
         ? creatorBriefContent
@@ -3026,7 +3066,7 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
 
 1. What does climate adaptation depend on [S1 @ 00:42]?`
       : prompt.includes("GUIDED_SYNTHESIS_MODE: PROJECT_ASSESSMENT")
-        ? "SUPPORTED\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported by the first position [S1 @ 00:42]. The second position emphasizes exact local evidence [S2 @ 00:42].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:42].\n\nConfidence: medium"
+        ? `SUPPORTED\n${assessmentEvidence}\nProject Assessment\n\nCompeting positions\nClimate adaptation is supported by the first position [S1 @ 00:42]. The second position emphasizes regional comparisons [S2 @ 00:42].\n\nCriteria\nDirectness and relevance support comparing both positions [S1 @ 00:42] [S2 @ 00:42].\n\nConfidence: medium`
         : prompt.includes("GUIDED_SYNTHESIS_MODE: FIND_GAPS")
           ? "SUPPORTED\nSource-supported observations\nClimate adaptation is supported [S1 @ 00:42].\n\nProposed questions and creative opportunities\nWhat local evidence would challenge this finding [S1 @ 00:42]?"
           : "SUPPORTED\nClimate adaptation is supported despite diagnostic examples [S9 @ 00:10], [S1 @ 00:43], and [S1 at 00:42] [S1 @ 00:42].");
@@ -4220,7 +4260,7 @@ async function handleSourceSetRpc(
     const transcriptCandidates = ready.flatMap((membership, sourceIndex) => {
       const relevantText = sourceIndex === 0
         ? "Climate adaptation depends on exact local evidence gathered across seasons and rejects a single dramatic anecdote. The neighborhood heat survey, drainage inspection, and resident interviews all point to the same blocks, while the speaker carefully separates measured observations from forecasts. Transparent evidence strengthens public trust because residents can inspect the timestamps, methods, and limits before funding a response."
-        : "Community evidence（社区证据）：气候适应需要准确的本地证据，并且要把夏季热浪记录、排水检查和居民访谈放在同一条可核查的时间线上。讲者明确说明，区域平均值只能提供背景，不能替代这个社区的实测结果；每一项结论都应保留时间戳、方法和不确定性。公开透明的证据能增强公众信任，也能让决策者比较不同措施，而不会把预测误当成已经发生的事实。";
+        : "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales. La evidencia transparente ayuda a generar confianza. La date exacte du lancement reste à déterminer.";
       const repeatedCompetitor = sourceIndex === 0
         ? "Climate adaptation climate adaptation climate adaptation is repeated by a conference sponsor while the segment discusses logo placement, ticket pricing, catering vendors, and a competing event. It contains the popular phrase many times but offers no local measurement, no timestamped observation, and no support for a community decision."
         : "气候适应，气候适应，气候适应，这段竞争者广告不断重复热门词语，却只比较品牌口号、会场餐饮和票务安排。它没有本地测量、没有居民证词，也没有任何能够支持社区决策的可核查证据。";
@@ -4228,7 +4268,7 @@ async function handleSourceSetRpc(
         ? "The closing segment compares camera batteries, editing shortcuts, sponsor messages, and travel schedules for several competing channels. None of these production notes describes climate conditions, local evidence, or adaptation outcomes."
         : "结尾部分比较了几个竞争频道的相机、电池、剪辑流程和旅行日程。这些制作笔记与当地气候证据、适应措施及其结果无关。";
       return [
-        { membership, text: relevantText, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 1, startSeconds: 42.75 },
+        { membership, text: relevantText, language: sourceIndex === 0 ? "en" : "es", segmentOrdinal: 1, startSeconds: 42.75 },
         { membership, text: repeatedCompetitor, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 2, startSeconds: 118.25 },
         { membership, text: irrelevantText, language: sourceIndex === 0 ? "en" : "zh-Hans", segmentOrdinal: 3, startSeconds: 204.5 },
       ];
@@ -4276,6 +4316,7 @@ async function handleSourceSetRpc(
     );
     if (queryTerms.has("climate") || queryTerms.has("adaptation")) {
       ["气候", "适应", "本地", "证据"].forEach((term) => queryTerms.add(term));
+      ["adaptación", "climática"].forEach((term) => queryTerms.add(term));
     }
     const ranked = transcriptCandidates
       .map((candidate) => {
@@ -4284,7 +4325,10 @@ async function handleSourceSetRpc(
         const exactEvidenceBoost =
           candidate.segmentOrdinal === 1 &&
           (/climate adaptation depends on exact local evidence/u.test(normalizedText) ||
-            normalizedText.includes("气候适应需要准确的本地证据"))
+            normalizedText.includes("气候适应需要准确的本地证据") ||
+            normalizedText.includes(
+              "la adaptación climática no debe depender solo de evidencia local exacta",
+            ))
             ? 100
             : 0;
         return { candidate, score: exactEvidenceBoost + matchedTerms.length };

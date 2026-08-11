@@ -30,6 +30,8 @@ export interface ProjectAdoptionReport {
     sourceCoverageIntegrityPct: number;
     processingFailurePct: number;
     answersWithCitationDiagnosticsPct: number;
+    citationResolutionPct: number;
+    citationMeasurementCoveragePct: number;
     measuredCostCoveragePct: number;
     averageGenerationDurationMs: number;
     costPerActiveProjectUsdMicros: number;
@@ -92,6 +94,14 @@ export async function loadProjectAdoptionReport(
       ),
       answersWithCitationDiagnosticsPct: percentage(
         metrics.answersWithCitationDiagnostics,
+        metrics.groundedAnswers,
+      ),
+      citationResolutionPct: percentage(
+        metrics.resolvedCitations,
+        metrics.citationCandidates,
+      ),
+      citationMeasurementCoveragePct: percentage(
+        metrics.citationMeasuredAnswers,
         metrics.groundedAnswers,
       ),
       measuredCostCoveragePct: percentage(

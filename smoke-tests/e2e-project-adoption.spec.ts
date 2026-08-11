@@ -44,6 +44,9 @@ const METRIC_COLUMNS = [
   "grounded_passages_used",
   "citation_diagnostics",
   "answers_with_citation_diagnostics",
+  "citation_candidates",
+  "resolved_citations",
+  "citation_measured_answers",
   "processing_succeeded",
   "processing_failed",
   "generation_events",
@@ -209,6 +212,8 @@ test("protects and switches the complete 7d and 30d Project report", async ({
   await expect(page.getByText("Seven-day return")).toBeVisible();
   await expect(page.getByText("75.0%")).toBeVisible();
   await expect(page.getByText("Source Coverage integrity")).toBeVisible();
+  await expect(page.getByText("Citation resolution")).toBeVisible();
+  await expect(page.getByText("Citation measurement coverage")).toBeVisible();
   await expect(page.getByText("Processing failure rate")).toBeVisible();
   await expect(page.getByText("Sources added")).toBeVisible();
   await expect(page.getByText("Ready when added")).toBeVisible();
@@ -372,7 +377,7 @@ async function handleFixtureRequest(
         columns: METRIC_COLUMNS,
         results: [[
           10, 6, 20, 12, 4, 8, 5, 7, 8, 2, 3, 20, 8, 12, 7, 13, 30, 100, 10, 9,
-          25, 20, 15, 5, 80, 25, 4, 3, 18, 2, 6, 5, 4, 2400, 120000,
+          25, 20, 15, 5, 80, 25, 4, 3, 10, 9, 10, 18, 2, 6, 5, 4, 2400, 120000,
         ]],
         is_cached: false,
       });
@@ -398,6 +403,7 @@ function authUser(id: string, email: string) {
     is_anonymous: false,
     app_metadata: {
       provider: "email",
+      project_beta_access: id === OWNER_ID ? "internal" : "invited",
       ...(id === SMOKE_ID ? { is_smoke_account: true } : {}),
     },
     user_metadata: {},

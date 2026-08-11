@@ -15,6 +15,9 @@ const SAFE_PROPERTIES = {
   passages_examined: 48,
   passages_used: 8,
   citation_diagnostics: 2,
+  citation_candidates: 10,
+  resolved_citations: 8,
+  citation_measurement_status: "measured",
 };
 
 describe("Project Grounded Answer analytics privacy contract", () => {
@@ -83,6 +86,12 @@ describe("Project Grounded Answer analytics privacy contract", () => {
       ProjectGroundedAnswerEventSchema.safeParse({
         event: "project_grounded_answer_completed",
         properties: { ...SAFE_PROPERTIES, citation_diagnostics: 21 },
+      }).success,
+    ).toBe(false);
+    expect(
+      ProjectGroundedAnswerEventSchema.safeParse({
+        event: "project_grounded_answer_completed",
+        properties: { ...SAFE_PROPERTIES, resolved_citations: 9 },
       }).success,
     ).toBe(false);
   });

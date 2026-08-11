@@ -55,6 +55,9 @@ const report: ProjectAdoptionReport = {
     groundedPassagesUsed: 25,
     citationDiagnostics: 4,
     answersWithCitationDiagnostics: 3,
+    citationCandidates: 10,
+    resolvedCitations: 9,
+    citationMeasuredAnswers: 10,
     processingSucceeded: 18,
     processingFailed: 2,
     generationEvents: 6,
@@ -71,6 +74,8 @@ const report: ProjectAdoptionReport = {
     sourceCoverageIntegrityPct: 90,
     processingFailurePct: 10,
     answersWithCitationDiagnosticsPct: 30,
+    citationResolutionPct: 90,
+    citationMeasurementCoveragePct: 100,
     measuredCostCoveragePct: 83.3,
     averageGenerationDurationMs: 400,
     costPerActiveProjectUsdMicros: 30000,
@@ -108,6 +113,8 @@ describe("AdminProjectsPage", () => {
     expect(screen.getByText("Seven-day return")).toBeTruthy();
     expect(screen.getByText("75.0%")).toBeTruthy();
     expect(screen.getByText("Source Coverage integrity")).toBeTruthy();
+    expect(screen.getByText("Citation resolution")).toBeTruthy();
+    expect(screen.getByText("Citation measurement coverage")).toBeTruthy();
     expect(screen.getByText("Processing failure rate")).toBeTruthy();
     expect(screen.getByText("Sources added")).toBeTruthy();
     expect(screen.getByText("Ready when added")).toBeTruthy();

@@ -109,6 +109,8 @@ describe("Project guided synthesis contract", () => {
     expect(assessment).toContain("calibrated confidence");
     expect(assessment).toContain("not externally verified truth");
     expect(assessment).toContain("ABSTAINED");
+    expect(assessment).toContain("ASSESSMENT_EVIDENCE");
+    expect(assessment).toContain("equal strongest support");
 
     expect(buildProjectSynthesisAbstention("find_gaps", "no_supported_gaps")).toContain(
       "identify gaps",
