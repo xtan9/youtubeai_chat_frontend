@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveRequestPrincipal: vi.fn(),
   getServiceRoleClient: vi.fn(),
   readContinueLearningRecommendations: vi.fn(),
+  registerContinueLearningTokenBindings: vi.fn(),
   recordContinueLearningReadyReads: vi.fn(),
 }));
 
@@ -18,6 +19,8 @@ vi.mock("@/lib/supabase/service-role", () => ({
 vi.mock("@/lib/services/continue-learning-reader", () => ({
   readContinueLearningRecommendations:
     mocks.readContinueLearningRecommendations,
+  registerContinueLearningTokenBindings:
+    mocks.registerContinueLearningTokenBindings,
   recordContinueLearningReadyReads: mocks.recordContinueLearningReadyReads,
 }));
 
@@ -57,6 +60,7 @@ describe("GET /api/continue-learning", () => {
       principal: PRINCIPAL,
     });
     mocks.getServiceRoleClient.mockReturnValue({ rpc: vi.fn() });
+    mocks.registerContinueLearningTokenBindings.mockResolvedValue(undefined);
     mocks.recordContinueLearningReadyReads.mockResolvedValue(undefined);
   });
 
@@ -168,6 +172,17 @@ describe("GET /api/continue-learning", () => {
     expect(mocks.recordContinueLearningReadyReads).toHaveBeenCalledWith(
       expect.anything(),
       [ITEM],
+    );
+    expect(mocks.registerContinueLearningTokenBindings).toHaveBeenCalledWith(
+      expect.anything(),
+      PRINCIPAL.userId,
+      [
+        {
+          token: body.items[0].token,
+          setId: ITEM.setId,
+          ordinal: ITEM.ordinal,
+        },
+      ],
     );
     expect(mocks.readContinueLearningRecommendations).toHaveBeenCalledWith(
       expect.anything(),

@@ -4,6 +4,8 @@ vi.mock("server-only", () => ({}));
 
 import {
   readContinueLearningRecommendations,
+  registerContinueLearningTokenBindings,
+  recordContinueLearningFeedback,
   recordContinueLearningReadyReads,
 } from "../continue-learning-reader";
 
@@ -83,6 +85,51 @@ describe("continue-learning reader service", () => {
     expect(rpc).toHaveBeenNthCalledWith(2, "record_recommendation_ready_read", {
       p_recommendation_set_id: ITEM.setId,
       p_recommendation_ordinal: 2,
+    });
+  });
+
+  it("registers opaque token bindings without exposing the private identity", async () => {
+    rpc.mockResolvedValue({ data: { outcome: "registered" }, error: null });
+
+    await expect(
+      registerContinueLearningTokenBindings(
+        client,
+        "10000000-0000-4000-8000-000000000001",
+        [{ ...ITEM, token: `cl1.${"a".repeat(43)}` }],
+      ),
+    ).resolves.toBeUndefined();
+    expect(rpc).toHaveBeenCalledWith(
+      "register_continue_learning_token_binding",
+      {
+        p_learner_id: "10000000-0000-4000-8000-000000000001",
+        p_token: `cl1.${"a".repeat(43)}`,
+        p_recommendation_set_id: ITEM.setId,
+        p_recommendation_ordinal: ITEM.ordinal,
+      },
+    );
+  });
+
+  it("accepts only the private feedback result contract", async () => {
+    rpc.mockResolvedValue({
+      data: { outcome: "recorded", judgment: "useful", ordinal: 1 },
+      error: null,
+    });
+
+    await expect(
+      recordContinueLearningFeedback(client, {
+        learnerId: "10000000-0000-4000-8000-000000000001",
+        token: `cl1.${"a".repeat(43)}`,
+        judgment: "useful",
+      }),
+    ).resolves.toEqual({
+      outcome: "recorded",
+      judgment: "useful",
+      ordinal: 1,
+    });
+    expect(rpc).toHaveBeenCalledWith("record_continue_learning_feedback", {
+      p_learner_id: "10000000-0000-4000-8000-000000000001",
+      p_token: `cl1.${"a".repeat(43)}`,
+      p_judgment: "useful",
     });
   });
 });

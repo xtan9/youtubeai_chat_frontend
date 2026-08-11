@@ -17,6 +17,7 @@ const REQUEST_PRINCIPAL_SOURCES = [
   "chat_messages",
   "chat_suggestions",
   "continue_learning_reader",
+  "continue_learning_feedback",
   "entitlements",
   "billing_checkout",
   "billing_portal",

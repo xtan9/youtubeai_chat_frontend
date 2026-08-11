@@ -2,6 +2,7 @@ import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   readContinueLearningRecommendations,
+  registerContinueLearningTokenBindings,
   recordContinueLearningReadyReads,
 } from "@/lib/services/continue-learning-reader";
 import {
@@ -119,11 +120,24 @@ export async function GET(request: Request): Promise<Response> {
     return jsonError(503, "Recommendation reader unavailable.");
   }
 
+  const signedItems = items.map((item) => ({
+    ...item,
+    token: item.token as string,
+  }));
+  await registerContinueLearningTokenBindings(
+    serviceClient,
+    principalResult.principal.userId,
+    signedItems.map((item, index) => ({
+      token: item.token,
+      setId: result.items[index].setId,
+      ordinal: result.items[index].ordinal,
+    })),
+  );
   await recordContinueLearningReadyReads(serviceClient, result.items);
 
   return Response.json({
     outcome: "ready",
     setVersionToken,
-    items: items.map((item) => ({ ...item, token: item.token as string })),
+    items: signedItems,
   });
 }
