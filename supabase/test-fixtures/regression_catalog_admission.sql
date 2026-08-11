@@ -39,8 +39,23 @@ begin
       'EXECUTE'
     )
     or has_function_privilege(
+      'anon',
+      'public.schedule_catalog_admission_refresh(integer)',
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'authenticated',
+      'public.schedule_catalog_admission_refresh(integer)',
+      'EXECUTE'
+    )
+    or has_function_privilege(
       'authenticated',
       'public.claim_catalog_admission_work(integer,integer)',
+      'EXECUTE'
+    )
+    or not has_function_privilege(
+      'service_role',
+      'public.schedule_catalog_admission_refresh(integer)',
       'EXECUTE'
     )
     or not has_function_privilege(
@@ -244,6 +259,122 @@ begin
     or not exists (select 1 from pgmq.a_catalog_admission)
   then
     raise exception 'REGRESSION: Admission commit/archive/redelivery drifted';
+  end if;
+end;
+$$;
+
+-- Expired evidence suppresses the Video before any provider refresh. The
+-- scheduler reuses the existing Nomination and ordinary admission queue, and
+-- repeated scheduling cannot duplicate the refresh Message.
+update public.videos
+set provider_evidence_expires_at = clock_timestamp() - interval '1 second'
+where youtube_video_id = 'aaaaaaa0348';
+
+set local role service_role;
+create temporary table scheduled_catalog_refresh as
+select public.schedule_catalog_admission_refresh(4) as result;
+create temporary table repeated_catalog_refresh as
+select public.schedule_catalog_admission_refresh(4) as result;
+reset role;
+
+do $$
+declare
+  payload jsonb;
+  expected_idempotency_key text;
+begin
+  select message into payload
+  from pgmq.q_catalog_admission
+  order by msg_id
+  limit 1;
+
+  select nomination.id::text || ':catalog-admission-v1:refresh:' || admission.id::text
+  into expected_idempotency_key
+  from catalog_private.catalog_nominations as nomination
+  join lateral (
+    select id
+    from catalog_private.catalog_admissions
+    where video_id = nomination.video_id
+    order by decided_at desc, id desc
+    limit 1
+  ) as admission on true
+  join public.videos as video on video.id = nomination.video_id
+  where video.youtube_video_id = 'aaaaaaa0348';
+
+  if ((select result ->> 'scheduled' from scheduled_catalog_refresh)::integer) <> 1
+    or ((select result ->> 'scheduled' from repeated_catalog_refresh)::integer) <> 0
+    or (select count(*) from pgmq.q_catalog_admission) <> 1
+    or (select count(*) from catalog_private.catalog_nominations) <> 1
+    or not exists (
+      select 1
+      from public.videos as video
+      join catalog_private.catalog_nominations as nomination
+        on nomination.video_id = video.id
+      where video.youtube_video_id = 'aaaaaaa0348'
+        and video.catalog_state = 'inactive'
+        and video.catalog_inactive_reason = 'stale_evidence'
+        and nomination.status = 'pending'
+        and nomination.decided_at is null
+    )
+    or payload ->> 'idempotency_key' <> expected_idempotency_key
+    or payload ->> 'policy_version' <> 'catalog-admission-v1'
+    or payload ->> 'priority' <> 'high'
+    or payload ->> 'trace_id' !~ '^catalog-refresh:[0-9a-f-]{36}$'
+    or payload ?| array[
+      'user_id', 'session_id', 'history_id', 'youtube_url',
+      'output_language', 'transcript', 'summary', 'request_content'
+    ]
+  then
+    raise exception 'REGRESSION: stale Catalog refresh is not suppress-first/idempotent: %, %',
+      payload, expected_idempotency_key;
+  end if;
+end;
+$$;
+
+-- The refresh is ordinary Catalog Admission work and creates a successor
+-- decision without mutating the prior Admission or provider evidence.
+set local role service_role;
+create temporary table refresh_catalog_work as
+select * from public.claim_catalog_admission_work(1, 60);
+select public.complete_catalog_admission_work(
+  (select msg_id from refresh_catalog_work),
+  (select nomination_id from refresh_catalog_work),
+  (select idempotency_key from refresh_catalog_work),
+  'verified',
+  'youtube_data_api_v3_videos_list',
+  'Verified title refreshed again',
+  'channel-348',
+  'Verified channel refreshed again',
+  'https://i.ytimg.com/vi/aaaaaaa0348/maxresdefault.jpg',
+  'en-US',
+  123::double precision,
+  '2025-01-02T03:04:05Z',
+  'public',
+  true,
+  'none',
+  false,
+  clock_timestamp(),
+  clock_timestamp() + interval '24 hours',
+  'catalog-admission-v1'
+);
+reset role;
+
+do $$
+begin
+  if (select count(*) from refresh_catalog_work) <> 1
+    or (select count(*) from catalog_private.catalog_admissions) <> 2
+    or (select count(*) from catalog_private.youtube_provider_evidence) <> 2
+    or not exists (
+      select 1
+      from public.videos as video
+      join catalog_private.catalog_nominations as nomination
+        on nomination.video_id = video.id
+      where video.youtube_video_id = 'aaaaaaa0348'
+        and video.catalog_state = 'active'
+        and video.catalog_inactive_reason is null
+        and nomination.status = 'admitted'
+    )
+  then
+    raise exception 'REGRESSION: stale Catalog refresh bypassed versioned Admission';
   end if;
 end;
 $$;

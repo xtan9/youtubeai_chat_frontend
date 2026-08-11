@@ -14,6 +14,10 @@ const ClaimedWorkSchema = z.object({
   trace_id: z.string().min(1),
 });
 
+const RefreshScheduleSchema = z.object({
+  scheduled: z.number().int().nonnegative(),
+});
+
 type WorkerResult = Readonly<{
   claimed: number;
   completed: number;
@@ -21,11 +25,36 @@ type WorkerResult = Readonly<{
   exhausted: number;
 }>;
 
+type MaintenanceResult = WorkerResult & Readonly<{ scheduled: number }>;
+
 const BATCH_SIZE = 4;
 const VISIBILITY_TIMEOUT_SECONDS = 120;
 const MAX_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_SECONDS = 30;
 const PROVIDER_TIMEOUT_MS = 8_000;
+
+export async function runCatalogAdmissionMaintenance(): Promise<MaintenanceResult> {
+  const supabase = getServiceRoleClient();
+  if (!supabase) throw new Error("Catalog Admission worker is not configured");
+
+  const schedule = await supabase.rpc("schedule_catalog_admission_refresh", {
+    p_batch_size: BATCH_SIZE,
+  });
+  if (schedule.error) {
+    throw new Error("Catalog Admission refresh schedule failed", {
+      cause: schedule.error,
+    });
+  }
+  const parsedSchedule = RefreshScheduleSchema.safeParse(schedule.data);
+  if (!parsedSchedule.success) {
+    throw new Error("Catalog Admission refresh schedule returned invalid data");
+  }
+
+  return {
+    scheduled: parsedSchedule.data.scheduled,
+    ...(await runCatalogAdmissionWorker()),
+  };
+}
 
 export async function runCatalogAdmissionWorker(): Promise<WorkerResult> {
   const supabase = getServiceRoleClient();
