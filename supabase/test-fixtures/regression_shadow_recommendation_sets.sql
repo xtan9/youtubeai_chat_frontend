@@ -693,6 +693,154 @@ begin
 end;
 $materialization$;
 
+do $review_rollout$
+declare
+  current_set_id uuid;
+  review_id uuid;
+  quality_report_id uuid;
+  quality_report jsonb;
+  rollout jsonb;
+begin
+  -- The fixture uses one current two-item Set. Lowering only the fixture
+  -- policy's minimum corpus keeps the positive gate deterministic without
+  -- weakening the production default (20).
+  set local role postgres;
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 1
+  where review_policy_version = 'recommendation-review-policy-v1';
+  select id into current_set_id
+  from catalog_private.recommendation_sets
+  where source_video_id = '3a000000-0000-4000-8000-000000000001'
+    and status = 'current';
+  if current_set_id is null then
+    raise exception 'Review fixture current Set is missing';
+  end if;
+
+  set local role service_role;
+  select public.submit_recommendation_review(
+    current_set_id,
+    1,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com',
+    true, true, true, true, true, null
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'stored'
+    or rollout ->> 'failureClass' is not null
+  then
+    raise exception 'valid Review was not stored: %', rollout;
+  end if;
+  review_id := (rollout ->> 'reviewId')::uuid;
+
+  select public.record_recommendation_ready_read(current_set_id, 1)
+  into rollout;
+  if rollout ->> 'outcome' <> 'recorded' then
+    raise exception 'ready-read observation was not recorded: %', rollout;
+  end if;
+
+  select public.compute_recommendation_quality_report(
+    'recommendation-review-policy-v1'
+  ) into quality_report;
+  if quality_report ->> 'outcome' <> 'computed'
+    or quality_report ->> 'eligible' <> 'true'
+    or (quality_report ->> 'reviewSampleSize')::integer <> 1
+  then
+    raise exception 'valid Review did not produce an eligible report: %',
+      quality_report;
+  end if;
+  quality_report_id := (quality_report ->> 'qualityReportId')::uuid;
+
+  select public.list_recommendation_reviews(
+    '3a000000-0000-4000-8000-000000000001'::uuid,
+    null, null, null, 'current', null
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'listed'
+    or jsonb_array_length(rollout -> 'reviews') <> 1
+    or (rollout -> 'reviews' -> 0 ->> 'reviewerId')::uuid
+      <> '3a000000-0000-4000-8000-0000000000f1'::uuid
+  then
+    raise exception 'Review list/detail contract failed: %', rollout;
+  end if;
+
+  select public.set_recommendation_rollout(
+    'shadow', false, null, '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'shadow' then
+    raise exception 'shadow rollout was not explicitly enabled: %', rollout;
+  end if;
+
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'pilot' then
+    raise exception 'eligible quality report did not permit pilot: %', rollout;
+  end if;
+
+  select public.submit_recommendation_review(
+    current_set_id,
+    2,
+    '3a000000-0000-4000-8000-0000000000f2'::uuid,
+    'second-reviewer@example.com',
+    false, false, false, false, false, 'multiple'
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'stored'
+    or rollout ->> 'failureClass' <> 'multiple'
+  then
+    raise exception 'failing Review was not stored with server failure class: %',
+      rollout;
+  end if;
+
+  select public.compute_recommendation_quality_report(
+    'recommendation-review-policy-v1'
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'computed'
+    or rollout ->> 'eligible' <> 'false'
+    or (rollout ->> 'unsupportedOrUnsafeCount')::integer <> 1
+  then
+    raise exception 'quality gates did not fail closed: %', rollout;
+  end if;
+
+  select public.get_recommendation_rollout() into rollout;
+  if rollout ->> 'effectiveState' <> 'off'
+    or rollout ->> 'qualityCurrent' <> 'false'
+  then
+    raise exception 'stale quality report did not fail closed: %', rollout;
+  end if;
+
+  select public.set_recommendation_rollout(
+    'pilot', false, quality_report_id,
+    '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'outcome' <> 'rejected'
+    or rollout ->> 'reason' <> 'quality_report_inputs_stale'
+  then
+    raise exception 'stale quality report was accepted: %', rollout;
+  end if;
+
+  select public.set_recommendation_rollout(
+    'off', true, null, '3a000000-0000-4000-8000-0000000000f1'::uuid,
+    'reviewer@example.com'
+  ) into rollout;
+  if rollout ->> 'effectiveState' <> 'off'
+    or rollout ->> 'killSwitch' <> 'true'
+  then
+    raise exception 'kill switch did not force rollout off: %', rollout;
+  end if;
+
+  set local role postgres;
+  if not exists (
+    select 1 from public.admin_audit_log
+    where action = 'submit_recommendation_review'
+      and resource_id = review_id::text
+  ) then
+    raise exception 'Review audit row is missing';
+  end if;
+end;
+$review_rollout$;
+
 reset role;
 
 rollback;

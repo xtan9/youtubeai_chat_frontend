@@ -4,6 +4,28 @@ create schema if not exists extensions;
 create extension if not exists dblink with schema extensions;
 set search_path = public, extensions;
 
+delete from catalog_private.recommendation_ready_read_events
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+delete from catalog_private.recommendation_reviews
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
 delete from catalog_private.recommendations
 where recommendation_set_id in (
   select id from catalog_private.recommendation_sets
@@ -539,6 +561,141 @@ begin
   end if;
 end;
 $set_concurrency$;
+
+do $review_concurrency$
+declare
+  connection_string text := format(
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
+  );
+  connection_names text[] := array[
+    'recommendation_review_race_1',
+    'recommendation_review_race_2',
+    'recommendation_review_race_3',
+    'recommendation_review_race_4'
+  ];
+  connection_name text;
+  current_set_id uuid;
+  reviewer_id uuid := '39000000-0000-4000-8000-0000000000f1'::uuid;
+  review_result jsonb;
+  review_results jsonb[] := array[]::jsonb[];
+  ready_result jsonb;
+  ready_results jsonb[] := array[]::jsonb[];
+  review_count integer;
+  ready_read_count integer;
+begin
+  update catalog_private.recommendation_review_policies
+  set minimum_review_corpus = 1
+  where review_policy_version = 'recommendation-review-policy-v1';
+  select id into current_set_id
+  from catalog_private.recommendation_sets
+  where source_video_id =
+    '39000000-0000-4000-8000-000000000001'::uuid
+    and status = 'current';
+  if current_set_id is null then
+    raise exception 'Review concurrency current Set is missing';
+  end if;
+
+  foreach connection_name in array connection_names loop
+    perform extensions.dblink_connect(connection_name, connection_string);
+    perform extensions.dblink_exec(connection_name, 'set role service_role');
+    perform extensions.dblink_send_query(
+      connection_name,
+      format(
+        $query$
+          select public.submit_recommendation_review(
+            %L::uuid, 1, %L::uuid, 'race-reviewer@example.com',
+            true, true, true, true, true, null
+          )
+        $query$,
+        current_set_id, reviewer_id
+      )
+    );
+  end loop;
+
+  foreach connection_name in array connection_names loop
+    select result into review_result
+    from extensions.dblink_get_result(connection_name) as result(result jsonb);
+    if review_result ->> 'outcome' not in ('stored', 'reused') then
+      raise exception 'concurrent Review submission failed: %', review_result;
+    end if;
+    review_results := array_append(review_results, review_result);
+    perform result
+    from extensions.dblink_get_result(connection_name) as cleared(result jsonb);
+    perform extensions.dblink_disconnect(connection_name);
+  end loop;
+
+  select count(*) into review_count
+  from catalog_private.recommendation_reviews as review
+  where review.recommendation_set_id = current_set_id
+    and review.recommendation_ordinal = 1
+    and review.reviewer_id = reviewer_id;
+  if review_count <> 1
+    or (select count(*) from unnest(review_results) where value ->> 'outcome' = 'stored') <> 1
+  then
+    raise exception 'concurrent Review submission diverged: %, %',
+      review_count, review_results;
+  end if;
+
+  foreach connection_name in array connection_names loop
+    perform extensions.dblink_connect(connection_name, connection_string);
+    perform extensions.dblink_exec(connection_name, 'set role service_role');
+    perform extensions.dblink_send_query(
+      connection_name,
+      format(
+        $query$
+          select public.record_recommendation_ready_read(%L::uuid, 1)
+        $query$,
+        current_set_id
+      )
+    );
+  end loop;
+
+  foreach connection_name in array connection_names loop
+    select result into ready_result
+    from extensions.dblink_get_result(connection_name) as result(result jsonb);
+    if ready_result ->> 'outcome' <> 'recorded' then
+      raise exception 'concurrent ready-read observation failed: %', ready_result;
+    end if;
+    ready_results := array_append(ready_results, ready_result);
+    perform result
+    from extensions.dblink_get_result(connection_name) as cleared(result jsonb);
+    perform extensions.dblink_disconnect(connection_name);
+  end loop;
+
+  select count(*) into ready_read_count
+  from catalog_private.recommendation_ready_read_events
+  where recommendation_set_id = current_set_id
+    and recommendation_ordinal = 1;
+  if ready_read_count <> 4 then
+    raise exception 'concurrent ready-read observations diverged: %, %',
+      ready_read_count, ready_results;
+  end if;
+end;
+$review_concurrency$;
+
+delete from catalog_private.recommendation_ready_read_events
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
+delete from catalog_private.recommendation_reviews
+where recommendation_set_id in (
+  select id from catalog_private.recommendation_sets
+  where source_profile_id in (
+    select id from catalog_private.semantic_profile_versions
+    where video_id in (
+      '39000000-0000-4000-8000-000000000001',
+      '39000000-0000-4000-8000-000000000002'
+    )
+  )
+);
 
 delete from catalog_private.recommendations
 where recommendation_set_id in (
