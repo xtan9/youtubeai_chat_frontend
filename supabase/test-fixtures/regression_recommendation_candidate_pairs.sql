@@ -30,7 +30,8 @@ from (values
   ('36000000-0000-4000-8000-000000000005'::uuid, 'pairfix0005', 'Expired evidence', 'de', false),
   ('36000000-0000-4000-8000-000000000006'::uuid, 'pairfix0006', 'Failed admission', 'pt', false),
   ('36000000-0000-4000-8000-000000000007'::uuid, 'pairfix0007', 'Unsafe now', 'it', true),
-  ('36000000-0000-4000-8000-000000000008'::uuid, 'pairfix0008', 'Metadata only', 'nl', false)
+  ('36000000-0000-4000-8000-000000000008'::uuid, 'pairfix0008', 'Metadata only', 'nl', false),
+  ('36000000-0000-4000-8000-000000000009'::uuid, 'pairfix0009', 'Retired model profile', 'ko', false)
 ) as fixture(id, youtube_video_id, title, language, age_restricted);
 
 insert into catalog_private.catalog_nominations (video_id, status, decided_at)
@@ -44,7 +45,7 @@ select
 from public.videos as video
 where video.id between
   '36000000-0000-4000-8000-000000000001'
-  and '36000000-0000-4000-8000-000000000008';
+  and '36000000-0000-4000-8000-000000000009';
 
 insert into catalog_private.youtube_provider_evidence (
   nomination_id,
@@ -95,7 +96,7 @@ from catalog_private.catalog_nominations as nomination
 join public.videos as video on video.id = nomination.video_id
 where video.id between
   '36000000-0000-4000-8000-000000000001'
-  and '36000000-0000-4000-8000-000000000008';
+  and '36000000-0000-4000-8000-000000000009';
 
 insert into catalog_private.catalog_admissions (
   nomination_id,
@@ -135,7 +136,7 @@ from catalog_private.youtube_provider_evidence as evidence
 where evidence.video_id = video.id
   and video.id between
     '36000000-0000-4000-8000-000000000001'
-    and '36000000-0000-4000-8000-000000000008';
+    and '36000000-0000-4000-8000-000000000009';
 
 insert into catalog_private.semantic_profile_versions (
   video_id,
@@ -159,9 +160,17 @@ select
   video.id,
   'semantic-profile-v1',
   md5(video.id::text) || md5('issue-350:' || video.id::text),
-  'fixture-semantic-v1',
+  case
+    when video.id = '36000000-0000-4000-8000-000000000009'
+      then 'fixture-semantic-retired'
+    else 'fixture-semantic-v1'
+  end,
   'semantic-profile-prompt-v1',
-  repeat('e', 64),
+  case
+    when video.id = '36000000-0000-4000-8000-000000000009'
+      then repeat('d', 64)
+    else repeat('e', 64)
+  end,
   video.default_language,
   jsonb_build_array(jsonb_build_object('key', 'machine-learning', 'label', 'Machine learning')),
   case
@@ -203,9 +212,11 @@ select
   'intermediate',
   jsonb_build_object('schemaVersion', 'semantic-profile-v1')
 from public.videos as video
-where video.id between
-  '36000000-0000-4000-8000-000000000001'
-  and '36000000-0000-4000-8000-000000000007';
+where (
+  video.id between
+    '36000000-0000-4000-8000-000000000001'
+    and '36000000-0000-4000-8000-000000000007'
+) or video.id = '36000000-0000-4000-8000-000000000009';
 
 do $$
 declare
@@ -240,6 +251,24 @@ insert into catalog_private.semantic_profile_evaluations (
   status,
   evaluated_at
 ) values (
+  repeat('d', 64),
+  'fixture-semantic-retired',
+  'semantic-profile-v1',
+  'semantic-profile-prompt-v1',
+  'fixture-gateway',
+  jsonb_build_object(
+    'schema_validity_rate', 1,
+    'multilingual_concept_normalization', 1,
+    'useful_neighbor_recall', 1,
+    'false_neighbor_rejection', 1,
+    'latency_ms_p95', 1,
+    'token_cost_totals', jsonb_build_object('microUsd', 1),
+    'retry_dead_letter_behavior', 'bounded',
+    'representative_source_coverage', 1
+  ),
+  'passed',
+  statement_timestamp()
+), (
   repeat('e', 64),
   'fixture-semantic-v1',
   'semantic-profile-v1',
@@ -269,6 +298,15 @@ insert into catalog_private.semantic_profile_human_approvals (
   decision,
   approved_at
 ) values (
+  'issue-350-retired-fixture-approval',
+  repeat('d', 64),
+  'fixture-semantic-retired',
+  'semantic-profile-v1',
+  'semantic-profile-prompt-v1',
+  'fixture-human-reviewer',
+  'approved',
+  statement_timestamp()
+), (
   'issue-350-fixture-approval',
   repeat('e', 64),
   'fixture-semantic-v1',
@@ -281,6 +319,7 @@ insert into catalog_private.semantic_profile_human_approvals (
 
 do $$
 declare
+  retired_activation jsonb;
   activation jsonb;
   first_prepared jsonb;
   second_prepared jsonb;
@@ -291,6 +330,19 @@ declare
   forbidden_columns text[];
 begin
   set local role service_role;
+  -- Preserve an active Profile from the first tuple, then switch the registry.
+  -- Candidate preparation must use registry provenance, not Profile status alone.
+  select public.activate_semantic_profile_model(
+    'fixture-semantic-retired',
+    'semantic-profile-v1',
+    'semantic-profile-prompt-v1',
+    repeat('d', 64),
+    'issue-350-retired-fixture-approval'
+  ) into retired_activation;
+  if retired_activation ->> 'outcome' <> 'active' then
+    raise exception 'retired fixture activation failed: %', retired_activation;
+  end if;
+
   select public.activate_semantic_profile_model(
     'fixture-semantic-v1',
     'semantic-profile-v1',
@@ -302,6 +354,23 @@ begin
     raise exception 'fixture activation failed: %', activation;
   end if;
 
+  set local role postgres;
+  if not exists (
+    select 1
+    from catalog_private.semantic_profile_model_registry
+    where model_identifier = 'fixture-semantic-retired'
+      and evaluation_fingerprint = repeat('d', 64)
+      and status = 'retired'
+  ) or (
+    select status
+    from catalog_private.semantic_profile_versions
+    where video_id = '36000000-0000-4000-8000-000000000009'
+  ) <> 'active'
+  then
+    raise exception 'fixture did not preserve an active Profile across activation switch';
+  end if;
+
+  set local role service_role;
   select public.prepare_recommendation_candidate_pairs(
     '36000000-0000-4000-8000-000000000001'
   ) into first_prepared;
@@ -343,10 +412,11 @@ begin
       '36000000-0000-4000-8000-000000000004',
       '36000000-0000-4000-8000-000000000005',
       '36000000-0000-4000-8000-000000000006',
-      '36000000-0000-4000-8000-000000000007'
+      '36000000-0000-4000-8000-000000000007',
+      '36000000-0000-4000-8000-000000000009'
     )
   ) then
-    raise exception 'a below-floor, stale, failed, or unsafe candidate passed gates';
+    raise exception 'a below-floor, stale, failed, unsafe, or incompatible candidate passed gates';
   end if;
   if (select catalog_state from public.videos
       where id = '36000000-0000-4000-8000-000000000008') <> 'active'
