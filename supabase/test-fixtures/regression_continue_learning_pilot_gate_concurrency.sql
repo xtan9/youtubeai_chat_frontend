@@ -21,8 +21,8 @@ set email = excluded.email,
 do $race$
 declare
   connection_string text := format(
-    'host=127.0.0.1 port=5432 dbname=%I user=supabase_admin password=postgres',
-    current_database()
+    'host=127.0.0.1 port=5432 dbname=%I user=%I password=postgres',
+    current_database(), current_user
   );
   first_result jsonb;
   second_result jsonb;
