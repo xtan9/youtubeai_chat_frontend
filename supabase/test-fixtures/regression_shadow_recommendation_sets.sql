@@ -309,6 +309,9 @@ declare
   set_count integer;
   recommendation_count integer;
   current_set_id uuid;
+  member_insert_denied boolean := false;
+  member_update_denied boolean := false;
+  member_delete_denied boolean := false;
 begin
   set local role postgres;
   select id into source_profile_id
@@ -443,6 +446,64 @@ begin
   then
     raise exception 'published Set lost exact order/configuration: %, %',
       to_jsonb(stored_set), stored_order;
+  end if;
+
+  begin
+    insert into catalog_private.recommendations (
+      recommendation_set_id,
+      ordinal,
+      recommendation_assessment_id,
+      candidate_pair_evidence_id,
+      candidate_video_id,
+      candidate_profile_id,
+      candidate_catalog_admission_id,
+      continuation_relationship,
+      explanation,
+      evidence_references
+    )
+    select
+      recommendation_set_id,
+      3,
+      recommendation_assessment_id,
+      candidate_pair_evidence_id,
+      candidate_video_id,
+      candidate_profile_id,
+      candidate_catalog_admission_id,
+      continuation_relationship,
+      explanation,
+      evidence_references
+    from catalog_private.recommendations
+    where recommendation_set_id = first_set_id
+      and ordinal = 1;
+  exception when others then
+    member_insert_denied :=
+      sqlerrm = 'Published Recommendation Set members are immutable';
+  end;
+  begin
+    update catalog_private.recommendations
+    set ordinal = 3
+    where recommendation_set_id = first_set_id
+      and ordinal = 1;
+  exception when others then
+    member_update_denied :=
+      sqlerrm = 'Published Recommendation Set members are immutable';
+  end;
+  begin
+    delete from catalog_private.recommendations
+    where recommendation_set_id = first_set_id
+      and ordinal = 1;
+  exception when others then
+    member_delete_denied :=
+      sqlerrm = 'Published Recommendation Set members are immutable';
+  end;
+  if not member_insert_denied
+    or not member_update_denied
+    or not member_delete_denied
+  then
+    raise exception
+      'published Set member mutation was not denied '
+      '(insert %, update %, delete %)',
+      member_insert_denied, member_update_denied, member_delete_denied;
   end if;
 
   set local role service_role;

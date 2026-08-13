@@ -54,17 +54,41 @@ end;
 $cleanup_fixture_reviews$;
 delete from auth.users
 where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
-delete from catalog_private.recommendations
-where recommendation_set_id in (
-  select id from catalog_private.recommendation_sets
-  where source_profile_id in (
-    select id from catalog_private.semantic_profile_versions
-    where video_id in (
-      '39000000-0000-4000-8000-000000000001',
-      '39000000-0000-4000-8000-000000000002'
-    )
-  )
-);
+-- Published Set members are immutable in production. This non-transactional
+-- fixture disables only that guard while removing its own rows.
+do $cleanup_fixture_recommendations$
+begin
+  alter table catalog_private.recommendations
+    disable trigger published_recommendation_members_immutable_trg;
+  begin
+    delete from catalog_private.recommendations
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendations
+      enable trigger published_recommendation_members_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendations
+    enable trigger published_recommendation_members_immutable_trg;
+  if not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'catalog_private.recommendations'::regclass
+      and tgname = 'published_recommendation_members_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable Set member trigger';
+  end if;
+end;
+$cleanup_fixture_recommendations$;
 delete from catalog_private.recommendation_sets
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
@@ -1169,17 +1193,39 @@ $cleanup_fixture_reviews_final$;
 delete from auth.users
 where id = '39000000-0000-4000-8000-0000000000f1'::uuid;
 
-delete from catalog_private.recommendations
-where recommendation_set_id in (
-  select id from catalog_private.recommendation_sets
-  where source_profile_id in (
-    select id from catalog_private.semantic_profile_versions
-    where video_id in (
-      '39000000-0000-4000-8000-000000000001',
-      '39000000-0000-4000-8000-000000000002'
-    )
-  )
-);
+do $cleanup_fixture_recommendations_final$
+begin
+  alter table catalog_private.recommendations
+    disable trigger published_recommendation_members_immutable_trg;
+  begin
+    delete from catalog_private.recommendations
+    where recommendation_set_id in (
+      select id from catalog_private.recommendation_sets
+      where source_profile_id in (
+        select id from catalog_private.semantic_profile_versions
+        where video_id in (
+          '39000000-0000-4000-8000-000000000001',
+          '39000000-0000-4000-8000-000000000002'
+        )
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendations
+      enable trigger published_recommendation_members_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendations
+    enable trigger published_recommendation_members_immutable_trg;
+  if not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'catalog_private.recommendations'::regclass
+      and tgname = 'published_recommendation_members_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'fixture cleanup did not restore immutable Set member trigger';
+  end if;
+end;
+$cleanup_fixture_recommendations_final$;
 delete from catalog_private.recommendation_sets
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
