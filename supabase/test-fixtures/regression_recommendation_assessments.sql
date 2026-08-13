@@ -284,6 +284,8 @@ declare
   valid_supported jsonb;
   pair_evidence_id uuid;
   stored record;
+  update_denied boolean := false;
+  delete_denied boolean := false;
   assessment_count integer;
   relationship_case record;
   relationship_result jsonb;
@@ -349,6 +351,27 @@ begin
   then
     raise exception 'stored Assessment lost its versioned evidence: %',
       to_jsonb(stored);
+  end if;
+
+  begin
+    update catalog_private.recommendation_assessments
+    set explanation = 'Mutated after validation.'
+    where id = stored.id;
+  exception when raise_exception then
+    update_denied := sqlerrm = 'Recommendation Assessments are immutable';
+  end;
+
+  begin
+    delete from catalog_private.recommendation_assessments
+    where id = stored.id;
+  exception when raise_exception then
+    delete_denied := sqlerrm = 'Recommendation Assessments are immutable';
+  end;
+
+  if not update_denied or not delete_denied then
+    raise exception
+      'stored Assessment mutation was not denied (update %, delete %)',
+      update_denied, delete_denied;
   end if;
 
   set local role service_role;
