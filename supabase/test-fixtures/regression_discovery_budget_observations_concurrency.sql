@@ -9,8 +9,22 @@ drop trigger if exists fixture_discovery_observation_insert_barrier
   on catalog_private.discovery_observations;
 drop function if exists catalog_private.fixture_discovery_observation_insert_barrier();
 
-delete from catalog_private.discovery_demand
-where topic_key = 'fixture-discovery-race';
+do $cleanup_discovery_demand$
+begin
+  alter table catalog_private.discovery_demand
+    disable trigger discovery_demand_aggregation_history_trg;
+  begin
+    delete from catalog_private.discovery_demand
+    where topic_key = 'fixture-discovery-race';
+  exception when others then
+    alter table catalog_private.discovery_demand
+      enable trigger discovery_demand_aggregation_history_trg;
+    raise;
+  end;
+  alter table catalog_private.discovery_demand
+    enable trigger discovery_demand_aggregation_history_trg;
+end;
+$cleanup_discovery_demand$;
 
 insert into catalog_private.discovery_demand (
   topic_key,
@@ -345,5 +359,19 @@ drop trigger fixture_discovery_observation_insert_barrier
   on catalog_private.discovery_observations;
 drop function catalog_private.fixture_discovery_observation_insert_barrier();
 
-delete from catalog_private.discovery_demand
-where topic_key = 'fixture-discovery-race';
+do $cleanup_discovery_demand_final$
+begin
+  alter table catalog_private.discovery_demand
+    disable trigger discovery_demand_aggregation_history_trg;
+  begin
+    delete from catalog_private.discovery_demand
+    where topic_key = 'fixture-discovery-race';
+  exception when others then
+    alter table catalog_private.discovery_demand
+      enable trigger discovery_demand_aggregation_history_trg;
+    raise;
+  end;
+  alter table catalog_private.discovery_demand
+    enable trigger discovery_demand_aggregation_history_trg;
+end;
+$cleanup_discovery_demand_final$;
