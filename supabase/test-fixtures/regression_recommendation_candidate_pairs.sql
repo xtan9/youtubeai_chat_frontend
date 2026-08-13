@@ -475,6 +475,85 @@ begin
   if demand_count <> 1 then
     raise exception 'sparse Discovery Demand was not aggregated: %', demand_count;
   end if;
+  begin
+    insert into catalog_private.discovery_demand (
+      topic_key,
+      language_bucket,
+      candidate_pair_policy_version,
+      observation_count
+    ) values (
+      'fabricated-demand',
+      'en',
+      'candidate-pair-policy-v1',
+      2
+    );
+    raise exception 'Discovery Demand began with fabricated observations';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand must begin with one observation' then
+      raise;
+    end if;
+  end;
+  begin
+    update catalog_private.discovery_demand
+    set topic_key = 'rewritten-topic'
+    where topic_key = 'machine-learning'
+      and language_bucket = 'en'
+      and candidate_pair_policy_version = 'candidate-pair-policy-v1';
+    raise exception 'Discovery Demand aggregation identity could be rewritten';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand aggregation identity and history are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    update catalog_private.discovery_demand
+    set first_observed_at = first_observed_at + interval '1 second'
+    where topic_key = 'machine-learning'
+      and language_bucket = 'en'
+      and candidate_pair_policy_version = 'candidate-pair-policy-v1';
+    raise exception 'Discovery Demand first-observed history could be rewritten';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand aggregation identity and history are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    update catalog_private.discovery_demand
+    set observation_count = observation_count + 2,
+        last_observed_at = statement_timestamp()
+    where topic_key = 'machine-learning'
+      and language_bucket = 'en'
+      and candidate_pair_policy_version = 'candidate-pair-policy-v1';
+    raise exception 'Discovery Demand accepted a non-atomic count rewrite';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand may only record one new observation' then
+      raise;
+    end if;
+  end;
+  begin
+    update catalog_private.discovery_demand
+    set observation_count = observation_count + 1,
+        last_observed_at = last_observed_at - interval '1 second'
+    where topic_key = 'machine-learning'
+      and language_bucket = 'en'
+      and candidate_pair_policy_version = 'candidate-pair-policy-v1';
+    raise exception 'Discovery Demand last-observed history moved backwards';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand observation history cannot move backwards' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from catalog_private.discovery_demand
+    where topic_key = 'machine-learning'
+      and language_bucket = 'en'
+      and candidate_pair_policy_version = 'candidate-pair-policy-v1';
+    raise exception 'Discovery Demand aggregation could be deleted';
+  exception when check_violation then
+    if sqlerrm <> 'Discovery Demand aggregates cannot be deleted' then
+      raise;
+    end if;
+  end;
   select array_agg(column_name order by ordinal_position)
   into forbidden_columns
   from information_schema.columns

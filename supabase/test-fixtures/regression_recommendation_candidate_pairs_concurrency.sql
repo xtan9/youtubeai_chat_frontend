@@ -26,8 +26,22 @@ begin
     enable trigger recommendation_candidate_pair_evidence_immutable_trg;
 end;
 $cleanup_fixture_pair_evidence$;
-delete from catalog_private.discovery_demand
-where topic_key = 'concurrency-topic' and language_bucket = 'en';
+do $cleanup_discovery_demand$
+begin
+  alter table catalog_private.discovery_demand
+    disable trigger discovery_demand_aggregation_history_trg;
+  begin
+    delete from catalog_private.discovery_demand
+    where topic_key = 'concurrency-topic' and language_bucket = 'en';
+  exception when others then
+    alter table catalog_private.discovery_demand
+      enable trigger discovery_demand_aggregation_history_trg;
+    raise;
+  end;
+  alter table catalog_private.discovery_demand
+    enable trigger discovery_demand_aggregation_history_trg;
+end;
+$cleanup_discovery_demand$;
 delete from catalog_private.semantic_profile_versions
 where video_id in (
   '37000000-0000-4000-8000-000000000001',
@@ -292,8 +306,22 @@ begin
     enable trigger recommendation_candidate_pair_evidence_immutable_trg;
 end;
 $cleanup_fixture_pair_evidence_final$;
-delete from catalog_private.discovery_demand
-where topic_key = 'concurrency-topic' and language_bucket = 'en';
+do $cleanup_discovery_demand_final$
+begin
+  alter table catalog_private.discovery_demand
+    disable trigger discovery_demand_aggregation_history_trg;
+  begin
+    delete from catalog_private.discovery_demand
+    where topic_key = 'concurrency-topic' and language_bucket = 'en';
+  exception when others then
+    alter table catalog_private.discovery_demand
+      enable trigger discovery_demand_aggregation_history_trg;
+    raise;
+  end;
+  alter table catalog_private.discovery_demand
+    enable trigger discovery_demand_aggregation_history_trg;
+end;
+$cleanup_discovery_demand_final$;
 delete from catalog_private.semantic_profile_versions
 where video_id in (
   '37000000-0000-4000-8000-000000000001',

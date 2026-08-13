@@ -30,7 +30,7 @@ insert into catalog_private.discovery_demand (
     'fixture-discovery-a',
     'en',
     'candidate-pair-policy-v1',
-    2,
+    1,
     statement_timestamp() - interval '2 hours',
     statement_timestamp() - interval '2 hours'
   ),
@@ -42,6 +42,13 @@ insert into catalog_private.discovery_demand (
     statement_timestamp() - interval '1 hour',
     statement_timestamp() - interval '1 hour'
   );
+
+update catalog_private.discovery_demand
+set observation_count = observation_count + 1,
+    last_observed_at = statement_timestamp() - interval '90 minutes'
+where topic_key = 'fixture-discovery-a'
+  and language_bucket = 'en'
+  and candidate_pair_policy_version = 'candidate-pair-policy-v1';
 
 -- Explicit fixture configuration.  Production has no row until an operator
 -- configures a real Discovery Budget through a separately governed path.
