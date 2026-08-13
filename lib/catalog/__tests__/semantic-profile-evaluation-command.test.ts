@@ -4,8 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { runSemanticProfileEvaluation } = vi.hoisted(() => ({
+const {
+  runSemanticProfileEvaluation,
+  verifySemanticProfileEvaluationFingerprint,
+} = vi.hoisted(() => ({
   runSemanticProfileEvaluation: vi.fn(),
+  verifySemanticProfileEvaluationFingerprint: vi.fn(() => true),
 }));
 
 vi.mock("../semantic-profile-evaluation-runner", async (importOriginal) => ({
@@ -13,6 +17,7 @@ vi.mock("../semantic-profile-evaluation-runner", async (importOriginal) => ({
     typeof import("../semantic-profile-evaluation-runner")
   >()),
   runSemanticProfileEvaluation,
+  verifySemanticProfileEvaluationFingerprint,
 }));
 
 import {
@@ -68,6 +73,23 @@ async function createCommittedFixture(directory: string): Promise<{
   };
 }
 
+async function configureCommittedCommandFixture(
+  temporaryDirectories: string[],
+): Promise<{ readonly directory: string; readonly outputPath: string }> {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "semantic-profile-evaluation-"),
+  );
+  temporaryDirectories.push(directory);
+  const { revision } = await createCommittedFixture(directory);
+  const outputPath = path.join(directory, "evidence.json");
+  const env = environment();
+  env.SEMANTIC_PROFILE_SOURCE_REVISION = revision;
+  env.SEMANTIC_PROFILE_EVALUATION_OUTPUT = outputPath;
+  for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+  process.chdir(directory);
+  return { directory, outputPath };
+}
+
 describe("readSemanticProfileEvaluationCommandConfig", () => {
   it("requires an explicit 56-call acknowledgement before exposing live configuration", () => {
     const env = environment();
@@ -100,6 +122,8 @@ describe("executeSemanticProfileEvaluationCommand", () => {
   afterEach(async () => {
     process.chdir(ORIGINAL_WORKING_DIRECTORY);
     runSemanticProfileEvaluation.mockReset();
+    verifySemanticProfileEvaluationFingerprint.mockReset();
+    verifySemanticProfileEvaluationFingerprint.mockReturnValue(true);
     vi.unstubAllEnvs();
     await Promise.all(
       temporaryDirectories.splice(0).map((directory) =>
@@ -113,11 +137,14 @@ describe("executeSemanticProfileEvaluationCommand", () => {
       path.join(os.tmpdir(), "semantic-profile-evaluation-"),
     );
     temporaryDirectories.push(directory);
+    const { revision } = await createCommittedFixture(directory);
     const outputPath = path.join(directory, "evidence.json");
     await writeFile(outputPath, "existing evidence", "utf8");
     const env = environment();
+    env.SEMANTIC_PROFILE_SOURCE_REVISION = revision;
     env.SEMANTIC_PROFILE_EVALUATION_OUTPUT = outputPath;
     for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+    process.chdir(directory);
 
     await expect(executeSemanticProfileEvaluationCommand()).rejects.toMatchObject({
       code: "EEXIST",
@@ -165,27 +192,37 @@ describe("executeSemanticProfileEvaluationCommand", () => {
   });
 
   it("allows untracked files that cannot change the committed evaluation source", async () => {
-    const directory = await mkdtemp(
-      path.join(os.tmpdir(), "semantic-profile-evaluation-"),
+    const { directory } = await configureCommittedCommandFixture(
+      temporaryDirectories,
     );
-    temporaryDirectories.push(directory);
-    const { revision } = await createCommittedFixture(directory);
     await writeFile(path.join(directory, "operator-notes.txt"), "untracked\n");
-    const outputPath = path.join(directory, "evidence.json");
-    const env = environment();
-    env.SEMANTIC_PROFILE_SOURCE_REVISION = revision;
-    env.SEMANTIC_PROFILE_EVALUATION_OUTPUT = outputPath;
-    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
     runSemanticProfileEvaluation.mockResolvedValue({
       evaluationFingerprint: "a".repeat(64),
       requestCount: 56,
       automatedGate: { outcome: "passed", failedGates: [] },
     });
-    process.chdir(directory);
 
     await expect(executeSemanticProfileEvaluationCommand()).resolves.toEqual(
       expect.objectContaining({ requestCount: 56 }),
     );
     expect(runSemanticProfileEvaluation).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to persist evidence whose fingerprint does not verify", async () => {
+    const { outputPath } = await configureCommittedCommandFixture(
+      temporaryDirectories,
+    );
+    runSemanticProfileEvaluation.mockResolvedValue({
+      evaluationFingerprint: "a".repeat(64),
+      requestCount: 56,
+      automatedGate: { outcome: "passed", failedGates: [] },
+    });
+    verifySemanticProfileEvaluationFingerprint.mockReturnValue(false);
+
+    await expect(executeSemanticProfileEvaluationCommand()).rejects.toThrow(
+      /fingerprint verification failed/,
+    );
+    expect(verifySemanticProfileEvaluationFingerprint).toHaveBeenCalledOnce();
+    await expect(stat(outputPath)).resolves.toMatchObject({ size: 0 });
   });
 });
