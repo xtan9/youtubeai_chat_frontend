@@ -517,9 +517,6 @@ begin
       evidence_count, demand_count;
   end if;
 
-  update catalog_private.youtube_provider_evidence
-  set evidence_expires_at = statement_timestamp() - interval '1 minute'
-  where video_id = '36000000-0000-4000-8000-000000000001';
   update public.videos
   set provider_evidence_expires_at = statement_timestamp() - interval '1 minute'
   where id = '36000000-0000-4000-8000-000000000001';

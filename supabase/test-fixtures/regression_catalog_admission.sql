@@ -383,6 +383,42 @@ begin
 end;
 $$;
 
+-- Admission decisions and normalized provider evidence are historical facts.
+-- Refresh records successors, so even a database owner must not rewrite an
+-- accepted row in place. Retention remains free to delete expired rows later.
+do $$
+declare
+  admission_update_denied boolean := false;
+  evidence_update_denied boolean := false;
+begin
+  begin
+    update catalog_private.catalog_admissions
+    set policy_version = policy_version
+    where id = (select id from catalog_private.catalog_admissions limit 1);
+  exception
+    when others then
+      admission_update_denied :=
+        sqlerrm = 'Catalog Admissions are immutable';
+  end;
+
+  begin
+    update catalog_private.youtube_provider_evidence
+    set provider_path = provider_path
+    where id = (select id from catalog_private.youtube_provider_evidence limit 1);
+  exception
+    when others then
+      evidence_update_denied :=
+        sqlerrm = 'YouTube provider evidence is immutable';
+  end;
+
+  if not admission_update_denied or not evidence_update_denied then
+    raise exception
+      'REGRESSION: accepted Catalog facts were mutable (admission %, evidence %)',
+      admission_update_denied, evidence_update_denied;
+  end if;
+end;
+$$;
+
 -- A gate that changes between Nomination and the worker refresh records a
 -- versioned inactive decision without deleting the learner's History identity.
 set local role service_role;
