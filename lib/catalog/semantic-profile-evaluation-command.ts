@@ -72,6 +72,19 @@ export async function executeSemanticProfileEvaluationCommand() {
       "SEMANTIC_PROFILE_SOURCE_REVISION must match the checkout HEAD",
     );
   }
+  const trackedChanges = execFileSync(
+    "git",
+    ["status", "--porcelain", "--untracked-files=no"],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  ).trim();
+  if (trackedChanges !== "") {
+    throw new Error(
+      "Semantic Profile evaluation requires a clean tracked checkout",
+    );
+  }
   const evidenceFile = await open(config.outputPath, "wx", 0o600);
   const artifact = await (async () => {
     try {
