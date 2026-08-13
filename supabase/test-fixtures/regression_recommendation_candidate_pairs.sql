@@ -447,6 +447,95 @@ begin
       raise;
     end if;
   end;
+  insert into catalog_private.semantic_profile_versions (
+    video_id,
+    profile_schema_version,
+    content_fingerprint,
+    generator_model,
+    prompt_version,
+    evaluation_fingerprint,
+    source_language,
+    topics,
+    core_concepts,
+    topic_keys,
+    core_concept_keys,
+    prerequisite_concept_keys,
+    application_concept_keys,
+    counterpoint_concept_keys,
+    difficulty,
+    profile,
+    status,
+    superseded_at
+  )
+  select
+    profile.video_id,
+    profile.profile_schema_version,
+    repeat('a', 64),
+    profile.generator_model,
+    profile.prompt_version,
+    profile.evaluation_fingerprint,
+    profile.source_language,
+    profile.topics,
+    profile.core_concepts,
+    profile.topic_keys,
+    profile.core_concept_keys,
+    profile.prerequisite_concept_keys,
+    profile.application_concept_keys,
+    profile.counterpoint_concept_keys,
+    profile.difficulty,
+    profile.profile,
+    'superseded',
+    statement_timestamp()
+  from catalog_private.semantic_profile_versions as profile
+  where profile.video_id = '36000000-0000-4000-8000-000000000001'
+    and profile.status = 'active';
+  begin
+    insert into catalog_private.recommendation_candidate_pair_evidence (
+      source_profile_id,
+      candidate_profile_id,
+      source_catalog_admission_id,
+      candidate_catalog_admission_id,
+      model_identifier,
+      profile_schema_version,
+      prompt_version,
+      evaluation_fingerprint,
+      candidate_pair_policy_version,
+      evidence_level,
+      relationship_score,
+      matched_topic_keys,
+      matched_core_concept_keys,
+      matched_source_application_candidate_prerequisite_keys,
+      matched_source_prerequisite_candidate_application_keys,
+      matched_source_counterpoint_candidate_core_keys
+    )
+    select
+      pair.source_profile_id,
+      same_video_profile.id,
+      pair.source_catalog_admission_id,
+      pair.source_catalog_admission_id,
+      pair.model_identifier,
+      pair.profile_schema_version,
+      pair.prompt_version,
+      pair.evaluation_fingerprint,
+      pair.candidate_pair_policy_version,
+      pair.evidence_level,
+      pair.relationship_score,
+      pair.matched_topic_keys,
+      pair.matched_core_concept_keys,
+      pair.matched_source_application_candidate_prerequisite_keys,
+      pair.matched_source_prerequisite_candidate_application_keys,
+      pair.matched_source_counterpoint_candidate_core_keys
+    from catalog_private.recommendation_candidate_pair_evidence as pair
+    join catalog_private.semantic_profile_versions as same_video_profile
+      on same_video_profile.video_id = '36000000-0000-4000-8000-000000000001'
+     and same_video_profile.status = 'superseded'
+    limit 1;
+    raise exception 'candidate-pair evidence accepted the source Video as its own candidate';
+  exception when check_violation then
+    if sqlerrm <> 'Candidate-pair evidence must reference distinct Videos' then
+      raise;
+    end if;
+  end;
   begin
     update catalog_private.recommendation_candidate_pair_policies
     set minimum_relationship_score = minimum_relationship_score + 1
