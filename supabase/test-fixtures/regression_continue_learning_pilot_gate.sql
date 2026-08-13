@@ -131,6 +131,7 @@ begin
   if readiness->>'decision' <> 'hold'
     or readiness->>'pilotFlag' <> 'off'
     or readiness->>'configuredState' <> 'off'
+    or readiness->>'effectiveState' <> 'off'
     or readiness->>'killSwitch' <> 'true'
   then
     raise exception 'pilot readiness did not remain off/hold: %', readiness;
