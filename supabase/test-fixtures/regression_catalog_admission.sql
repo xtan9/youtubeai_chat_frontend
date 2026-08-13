@@ -265,7 +265,14 @@ $$;
 
 -- Expired evidence suppresses the Video before any provider refresh. The
 -- scheduler reuses the existing Nomination and ordinary admission queue, and
--- repeated scheduling cannot duplicate the refresh Message.
+-- repeated scheduling cannot duplicate the refresh Message. Maintenance must
+-- not disturb an existing learner-owned History reference.
+insert into auth.users (id, is_anonymous)
+values ('34800000-0000-4000-8000-000000000001', false);
+insert into public.user_video_history (user_id, video_id)
+select '34800000-0000-4000-8000-000000000001', id
+from public.videos where youtube_video_id = 'aaaaaaa0348';
+
 update public.videos
 set provider_evidence_expires_at = clock_timestamp() - interval '1 second'
 where youtube_video_id = 'aaaaaaa0348';
@@ -318,6 +325,13 @@ begin
         and video.catalog_inactive_reason = 'stale_evidence'
         and nomination.status = 'pending'
         and nomination.decided_at is null
+    )
+    or not exists (
+      select 1
+      from public.user_video_history as history
+      join public.videos as video on video.id = history.video_id
+      where history.user_id = '34800000-0000-4000-8000-000000000001'
+        and video.youtube_video_id = 'aaaaaaa0348'
     )
     or payload ->> 'idempotency_key' <> expected_idempotency_key
     or payload ->> 'policy_version' <> 'catalog-admission-v1'
@@ -377,6 +391,13 @@ begin
         and video.catalog_inactive_reason is null
         and nomination.status = 'admitted'
     )
+    or not exists (
+      select 1
+      from public.user_video_history as history
+      join public.videos as video on video.id = history.video_id
+      where history.user_id = '34800000-0000-4000-8000-000000000001'
+        and video.youtube_video_id = 'aaaaaaa0348'
+    )
   then
     raise exception 'REGRESSION: stale Catalog refresh bypassed versioned Admission';
   end if;
@@ -431,8 +452,6 @@ select public.request_catalog_nomination(
 );
 reset role;
 
-insert into auth.users (id, is_anonymous)
-values ('34800000-0000-4000-8000-000000000001', false);
 insert into public.user_video_history (user_id, video_id)
 select '34800000-0000-4000-8000-000000000001', id
 from public.videos where youtube_video_id = 'bbbbbbb0348';
