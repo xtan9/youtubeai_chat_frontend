@@ -18,6 +18,7 @@ jobs:
           scripts/vercel-deploy-workflow.policy.mjs
           scripts/production-smoke-workflow.policy.mjs
           scripts/payment-e2e-workflow.policy.mjs
+          scripts/continue-learning-pilot-ci.policy.mjs
 
   lint:
     runs-on: ubuntu-latest
