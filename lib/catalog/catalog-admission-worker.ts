@@ -15,6 +15,7 @@ const ClaimedWorkSchema = z.object({
 });
 
 const RefreshScheduleSchema = z.object({
+  invalidated: z.number().int().nonnegative(),
   scheduled: z.number().int().nonnegative(),
 });
 
@@ -25,7 +26,8 @@ type WorkerResult = Readonly<{
   exhausted: number;
 }>;
 
-type MaintenanceResult = WorkerResult & Readonly<{ scheduled: number }>;
+type MaintenanceResult = WorkerResult &
+  Readonly<{ invalidated: number; scheduled: number }>;
 
 const BATCH_SIZE = 4;
 const VISIBILITY_TIMEOUT_SECONDS = 120;
@@ -51,6 +53,7 @@ export async function runCatalogAdmissionMaintenance(): Promise<MaintenanceResul
   }
 
   return {
+    invalidated: parsedSchedule.data.invalidated,
     scheduled: parsedSchedule.data.scheduled,
     ...(await runCatalogAdmissionWorker()),
   };
