@@ -404,6 +404,25 @@ begin
     raise exception 'ineligible or duplicate pair evidence persisted: %', evidence_count;
   end if;
   begin
+    update catalog_private.recommendation_candidate_pair_policies
+    set minimum_relationship_score = minimum_relationship_score + 1
+    where policy_version = 'candidate-pair-policy-v1';
+    raise exception 'versioned candidate-pair policy semantics could be updated';
+  exception when raise_exception then
+    if sqlerrm <> 'Recommendation Candidate pair policy semantics are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from catalog_private.recommendation_candidate_pair_policies
+    where policy_version = 'candidate-pair-policy-v1';
+    raise exception 'versioned candidate-pair policy could be deleted';
+  exception when raise_exception then
+    if sqlerrm <> 'Recommendation Candidate pair policies cannot be deleted' then
+      raise;
+    end if;
+  end;
+  begin
     update catalog_private.recommendation_candidate_pair_evidence
     set created_at = created_at + interval '1 second';
     raise exception 'versioned candidate-pair evidence could be updated';
@@ -576,6 +595,20 @@ begin
   ) into retired;
   if retired ->> 'reason' <> 'model_inactive' then
     raise exception 'revoked evaluation remained usable for preparation: %', retired;
+  end if;
+
+  set local role postgres;
+  update catalog_private.recommendation_candidate_pair_policies
+  set status = 'retired', retired_at = statement_timestamp()
+  where policy_version = 'candidate-pair-policy-v1';
+  if not exists (
+    select 1
+    from catalog_private.recommendation_candidate_pair_policies
+    where policy_version = 'candidate-pair-policy-v1'
+      and status = 'retired'
+      and retired_at is not null
+  ) then
+    raise exception 'candidate-pair policy retirement was rejected';
   end if;
 end;
 $$;
