@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -238,5 +238,27 @@ describe("executeSemanticProfileEvaluationCommand", () => {
       /synthetic evaluation failure/,
     );
     await expect(stat(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a replaced evidence path without deleting the replacement", async () => {
+    const { outputPath } = await configureCommittedCommandFixture(
+      temporaryDirectories,
+    );
+    runSemanticProfileEvaluation.mockImplementation(async () => {
+      await rm(outputPath);
+      await writeFile(outputPath, "replacement evidence", "utf8");
+      return {
+        evaluationFingerprint: "a".repeat(64),
+        requestCount: 56,
+        automatedGate: { outcome: "passed", failedGates: [] },
+      };
+    });
+
+    await expect(executeSemanticProfileEvaluationCommand()).rejects.toThrow(
+      /reserved evidence path was replaced/,
+    );
+    await expect(readFile(outputPath, "utf8")).resolves.toBe(
+      "replacement evidence",
+    );
   });
 });

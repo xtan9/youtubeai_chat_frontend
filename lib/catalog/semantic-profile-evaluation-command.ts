@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import type { Stats } from "node:fs";
 import { lstat, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { CHAT_GATEWAY_PROVIDER } from "@/lib/services/models";
@@ -109,17 +110,18 @@ export async function executeSemanticProfileEvaluationCommand() {
         await evidenceFile.writeFile(`${JSON.stringify(generated, null, 2)}\n`, {
           encoding: "utf8",
         });
+        if (!(await pathIdentifiesFile(config.outputPath, reservedEvidence))) {
+          throw new Error(
+            "Semantic Profile evaluation reserved evidence path was replaced",
+          );
+        }
         return generated;
       } finally {
         await evidenceFile.close();
       }
     })();
   } catch (error) {
-    const currentEvidence = await lstat(config.outputPath).catch(() => null);
-    if (
-      currentEvidence?.dev === reservedEvidence.dev &&
-      currentEvidence.ino === reservedEvidence.ino
-    ) {
+    if (await pathIdentifiesFile(config.outputPath, reservedEvidence)) {
       await rm(config.outputPath, { force: true });
     }
     throw error;
@@ -132,6 +134,14 @@ export async function executeSemanticProfileEvaluationCommand() {
     activationPerformed: false,
     humanApprovalRequired: true,
   } as const;
+}
+
+async function pathIdentifiesFile(
+  outputPath: string,
+  expected: Pick<Stats, "dev" | "ino">,
+): Promise<boolean> {
+  const current = await lstat(outputPath).catch(() => null);
+  return current?.dev === expected.dev && current.ino === expected.ino;
 }
 
 function requireEnvironmentValue(
