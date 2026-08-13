@@ -607,6 +607,69 @@ begin
   ) then
     raise exception 'candidate-pair policy retirement was rejected';
   end if;
+
+  begin
+    insert into catalog_private.recommendation_candidate_pair_evidence (
+      source_profile_id,
+      candidate_profile_id,
+      source_catalog_admission_id,
+      candidate_catalog_admission_id,
+      model_identifier,
+      profile_schema_version,
+      prompt_version,
+      evaluation_fingerprint,
+      candidate_pair_policy_version,
+      evidence_level,
+      relationship_score,
+      matched_topic_keys,
+      matched_core_concept_keys,
+      matched_source_application_candidate_prerequisite_keys,
+      matched_source_prerequisite_candidate_application_keys,
+      matched_source_counterpoint_candidate_core_keys
+    )
+    select
+      candidate_profile_id,
+      source_profile_id,
+      candidate_catalog_admission_id,
+      source_catalog_admission_id,
+      model_identifier,
+      profile_schema_version,
+      prompt_version,
+      evaluation_fingerprint,
+      candidate_pair_policy_version,
+      evidence_level,
+      relationship_score,
+      matched_topic_keys,
+      matched_core_concept_keys,
+      matched_source_application_candidate_prerequisite_keys,
+      matched_source_prerequisite_candidate_application_keys,
+      matched_source_counterpoint_candidate_core_keys
+    from catalog_private.recommendation_candidate_pair_evidence
+    where candidate_pair_policy_version = 'candidate-pair-policy-v1'
+    limit 1;
+    raise exception 'retired candidate-pair policy accepted new pair evidence';
+  exception when check_violation then
+    null;
+  end;
+
+  begin
+    insert into catalog_private.discovery_demand (
+      topic_key,
+      language_bucket,
+      candidate_pair_policy_version
+    ) values (
+      'machine-learning',
+      'en',
+      'candidate-pair-policy-v1'
+    )
+    on conflict (topic_key, language_bucket, candidate_pair_policy_version)
+    do update set
+      observation_count = catalog_private.discovery_demand.observation_count + 1,
+      last_observed_at = statement_timestamp();
+    raise exception 'retired candidate-pair policy accepted new Discovery Demand';
+  exception when check_violation then
+    null;
+  end;
 end;
 $$;
 
