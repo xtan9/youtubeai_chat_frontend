@@ -73,14 +73,30 @@ where source_profile_id in (
     '39000000-0000-4000-8000-000000000002'
   )
 );
-delete from catalog_private.recommendation_assessments
-where source_profile_id in (
-  select id from catalog_private.semantic_profile_versions
-  where video_id in (
-    '39000000-0000-4000-8000-000000000001',
-    '39000000-0000-4000-8000-000000000002'
-  )
-);
+-- Assessments are immutable in production. Disable the guard only while this
+-- non-transactional fixture removes its own rows.
+do $cleanup_fixture_assessments$
+begin
+  alter table catalog_private.recommendation_assessments
+    disable trigger recommendation_assessments_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_assessments
+    where source_profile_id in (
+      select id from catalog_private.semantic_profile_versions
+      where video_id in (
+        '39000000-0000-4000-8000-000000000001',
+        '39000000-0000-4000-8000-000000000002'
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_assessments
+      enable trigger recommendation_assessments_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_assessments
+    enable trigger recommendation_assessments_immutable_trg;
+end;
+$cleanup_fixture_assessments$;
 delete from catalog_private.recommendation_candidate_pair_evidence
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
@@ -1172,14 +1188,28 @@ where source_profile_id in (
     '39000000-0000-4000-8000-000000000002'
   )
 );
-delete from catalog_private.recommendation_assessments
-where source_profile_id in (
-  select id from catalog_private.semantic_profile_versions
-  where video_id in (
-    '39000000-0000-4000-8000-000000000001',
-    '39000000-0000-4000-8000-000000000002'
-  )
-);
+do $cleanup_fixture_assessments_final$
+begin
+  alter table catalog_private.recommendation_assessments
+    disable trigger recommendation_assessments_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_assessments
+    where source_profile_id in (
+      select id from catalog_private.semantic_profile_versions
+      where video_id in (
+        '39000000-0000-4000-8000-000000000001',
+        '39000000-0000-4000-8000-000000000002'
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_assessments
+      enable trigger recommendation_assessments_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_assessments
+    enable trigger recommendation_assessments_immutable_trg;
+end;
+$cleanup_fixture_assessments_final$;
 delete from catalog_private.recommendation_candidate_pair_evidence
 where source_profile_id in (
   select id from catalog_private.semantic_profile_versions
