@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const themeMock = vi.fn();
 const useContinueLearningMock = vi.fn();
+const fetchMock = vi.fn();
 
 vi.mock("next-themes", () => ({
   useTheme: () => themeMock(),
@@ -38,6 +39,13 @@ const READY = {
 beforeEach(() => {
   themeMock.mockReturnValue({ resolvedTheme: "light" });
   useContinueLearningMock.mockReturnValue(READY);
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({ outcome: "recorded", judgment: "useful", ordinal: 1 }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
 });
 
 afterEach(() => {
@@ -96,5 +104,46 @@ describe("ContinueLearningSection", () => {
     const watch = screen.getByRole("link", { name: /watch on youtube/i });
     expect(watch.getAttribute("rel")).toBe("noopener noreferrer");
     fireEvent.click(screen.getByRole("link", { name: /summarize next/i }));
+  });
+
+  it("submits a governed judgment through the opaque Recommendation token", async () => {
+    render(<ContinueLearningSection sourceUrl={SOURCE_URL} enabled />);
+
+    const useful = screen.getByRole("button", { name: "Useful recommendation" });
+    const notUseful = screen.getByRole("button", {
+      name: "Not useful recommendation",
+    });
+    expect(useful.getAttribute("aria-pressed")).toBe("false");
+    expect(notUseful.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(useful);
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/continue-learning/feedback",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: READY.data.items[0].token,
+            judgment: "useful",
+          }),
+        }),
+      );
+      expect(useful.getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  it("keeps Recommendation actions usable when Feedback fails", async () => {
+    fetchMock.mockRejectedValue(new Error("feedback transport unavailable"));
+    render(<ContinueLearningSection sourceUrl={SOURCE_URL} enabled />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Not useful recommendation" }),
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(screen.getByRole("link", { name: /summarize next/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /watch on youtube/i })).toBeTruthy();
   });
 });
