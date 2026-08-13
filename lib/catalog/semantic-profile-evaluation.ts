@@ -260,6 +260,7 @@ type ValidObservation = SemanticProfileEvaluationObservation & Readonly<{
 
 export function evaluateSemanticProfileEvidence(input: Readonly<{
   observations: readonly SemanticProfileEvaluationObservation[];
+  expectedResponseModel: string;
   pricing: SemanticProfileEvaluationPricing;
 }>) {
   const observations = validateObservationMatrix(input.observations);
@@ -394,7 +395,7 @@ export function evaluateSemanticProfileEvidence(input: Readonly<{
     }
   }
   const responseModelConsistency = ratio(
-    Math.max(0, ...responseModelCounts.values()),
+    responseModelCounts.get(input.expectedResponseModel) ?? 0,
     observations.length,
   );
   const metrics = {

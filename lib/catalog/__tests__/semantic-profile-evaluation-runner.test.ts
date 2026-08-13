@@ -130,6 +130,43 @@ describe("runSemanticProfileEvaluation", () => {
     expect(artifact.activation.performed).toBe(false);
   });
 
+  it("fails closed when every Gateway call consistently resolves to the wrong model", async () => {
+    requestSemanticProfileWithUsage.mockImplementation(async (options) => ({
+      content: JSON.stringify(
+        profileFor(options.sourceLanguage, options.transcript),
+      ),
+      responseModel: "unexpected-model",
+      usage: {
+        inputTokens: 10,
+        cachedInputTokens: 0,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    }));
+
+    const artifact = await runSemanticProfileEvaluation({
+      modelIdentifier: "configured-gateway-model",
+      gatewayProvider: "configured-backend-gateway",
+      sourceRevision: "9b09883f41cb2ae3c6dfde192f227963c0bd54a1",
+      evaluatedAt: new Date("2026-08-11T18:00:00.000Z"),
+      pricing: {
+        inputMicroUsdPerMillionTokens: 1_000_000,
+        cachedInputMicroUsdPerMillionTokens: 500_000,
+        outputMicroUsdPerMillionTokens: 2_000_000,
+      },
+    });
+
+    expect(requestSemanticProfileWithUsage).toHaveBeenCalledTimes(56);
+    expect(artifact.metrics.response_models).toEqual(["unexpected-model"]);
+    expect(artifact.automatedGate).toEqual(
+      expect.objectContaining({
+        outcome: "failed",
+        failedGates: expect.arrayContaining(["response_model_consistency"]),
+      }),
+    );
+    expect(artifact.activation.performed).toBe(false);
+  });
+
   it("retains measured usage but not raw content when schema validation fails", async () => {
     requestSemanticProfileWithUsage.mockImplementationOnce(async () => ({
       content: "not valid profile JSON",

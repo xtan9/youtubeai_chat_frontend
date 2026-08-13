@@ -74,6 +74,7 @@ describe("evaluateSemanticProfileEvidence", () => {
   it("produces activation-ledger metrics from the complete fixed evaluation", () => {
     const evidence = evaluateSemanticProfileEvidence({
       observations: completeObservations(),
+      expectedResponseModel: "fixture-model",
       pricing: {
         inputMicroUsdPerMillionTokens: 1_000_000,
         cachedInputMicroUsdPerMillionTokens: 500_000,
@@ -120,6 +121,7 @@ describe("evaluateSemanticProfileEvidence", () => {
 
     const evidence = evaluateSemanticProfileEvidence({
       observations,
+      expectedResponseModel: "fixture-model",
       pricing: {
         inputMicroUsdPerMillionTokens: 1_000_000,
         cachedInputMicroUsdPerMillionTokens: 500_000,
@@ -164,6 +166,7 @@ describe("evaluateSemanticProfileEvidence", () => {
 
     const evidence = evaluateSemanticProfileEvidence({
       observations,
+      expectedResponseModel: "fixture-model",
       pricing: {
         inputMicroUsdPerMillionTokens: 1_000_000,
         cachedInputMicroUsdPerMillionTokens: 500_000,
