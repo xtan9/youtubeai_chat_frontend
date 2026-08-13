@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { CHAT_GATEWAY_PROVIDER } from "@/lib/services/models";
-import { runSemanticProfileEvaluation } from "./semantic-profile-evaluation-runner";
+import {
+  runSemanticProfileEvaluation,
+  verifySemanticProfileEvaluationFingerprint,
+} from "./semantic-profile-evaluation-runner";
 
 const LIVE_CALL_ACKNOWLEDGEMENT =
   "I_UNDERSTAND_THIS_MAKES_56_GATEWAY_CALLS";
@@ -95,6 +98,11 @@ export async function executeSemanticProfileEvaluationCommand() {
         evaluatedAt: new Date(),
         pricing: config.pricing,
       });
+      if (!verifySemanticProfileEvaluationFingerprint(generated)) {
+        throw new Error(
+          "Semantic Profile evaluation fingerprint verification failed",
+        );
+      }
       await evidenceFile.writeFile(`${JSON.stringify(generated, null, 2)}\n`, {
         encoding: "utf8",
       });
