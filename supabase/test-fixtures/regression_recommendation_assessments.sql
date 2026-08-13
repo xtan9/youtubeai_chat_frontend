@@ -599,9 +599,32 @@ begin
 end;
 $happy_path$;
 
-update catalog_private.youtube_provider_evidence
-set evidence_expires_at = statement_timestamp() - interval '1 minute'
-where video_id = '38000000-0000-4000-8000-000000000002';
+-- Simulate elapsed wall time without weakening the production UPDATE guard.
+do $age_provider_evidence$
+begin
+  alter table catalog_private.youtube_provider_evidence
+    disable trigger youtube_provider_evidence_immutable_trg;
+  begin
+    update catalog_private.youtube_provider_evidence
+    set evidence_expires_at = statement_timestamp() - interval '1 minute'
+    where video_id = '38000000-0000-4000-8000-000000000002';
+  exception when others then
+    alter table catalog_private.youtube_provider_evidence
+      enable trigger youtube_provider_evidence_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.youtube_provider_evidence
+    enable trigger youtube_provider_evidence_immutable_trg;
+  if not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'catalog_private.youtube_provider_evidence'::regclass
+      and tgname = 'youtube_provider_evidence_immutable_trg'
+      and tgenabled = 'O'
+  ) then
+    raise exception 'provider evidence immutability trigger was not restored';
+  end if;
+end;
+$age_provider_evidence$;
 update public.videos
 set provider_evidence_expires_at = statement_timestamp() - interval '1 minute'
 where id = '38000000-0000-4000-8000-000000000002';
