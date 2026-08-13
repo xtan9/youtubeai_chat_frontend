@@ -300,7 +300,11 @@ begin
   join public.videos as video on video.id = nomination.video_id
   where video.youtube_video_id = 'aaaaaaa0348';
 
-  if ((select result ->> 'scheduled' from scheduled_catalog_refresh)::integer) <> 1
+  if ((select result ->> 'invalidated' from scheduled_catalog_refresh)::integer
+      is distinct from 1)
+    or ((select result ->> 'invalidated' from repeated_catalog_refresh)::integer
+        is distinct from 0)
+    or ((select result ->> 'scheduled' from scheduled_catalog_refresh)::integer) <> 1
     or ((select result ->> 'scheduled' from repeated_catalog_refresh)::integer) <> 0
     or (select count(*) from pgmq.q_catalog_admission) <> 1
     or (select count(*) from catalog_private.catalog_nominations) <> 1
