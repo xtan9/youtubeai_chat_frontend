@@ -207,6 +207,51 @@ begin
     raise exception 'duplicate Observation did not converge: %', duplicate_observation;
   end if;
 
+  -- Reservations are immutable cost-accounting records, and Observations are
+  -- immutable provider-evidence records. The database owner must not be able
+  -- to rewrite or erase either ledger after the RPC has recorded it.
+  set local role postgres;
+  begin
+    update catalog_private.discovery_budget_reservations
+    set provider_quota_units = provider_quota_units + 1
+    where reservation_fingerprint = repeat('a', 64);
+    raise exception 'Discovery Budget reservation was mutable';
+  exception when raise_exception then
+    if sqlerrm <> 'Discovery Budget reservations are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from catalog_private.discovery_budget_reservations
+    where reservation_fingerprint = repeat('a', 64);
+    raise exception 'Discovery Budget reservation was deletable';
+  exception when raise_exception then
+    if sqlerrm <> 'Discovery Budget reservations are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    update catalog_private.discovery_observations as stored_observation
+    set evidence_expires_at = stored_observation.evidence_expires_at
+      + interval '1 day'
+    where stored_observation.observation_fingerprint = repeat('b', 64);
+    raise exception 'Discovery Observation was mutable';
+  exception when raise_exception then
+    if sqlerrm <> 'Discovery Observations are immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from catalog_private.discovery_observations
+    where observation_fingerprint = repeat('b', 64);
+    raise exception 'Discovery Observation was deletable';
+  exception when raise_exception then
+    if sqlerrm <> 'Discovery Observations are immutable' then
+      raise;
+    end if;
+  end;
+  set local role service_role;
+
   conflict_observation := public.record_discovery_observation(
     repeat('a', 64),
     repeat('b', 64),

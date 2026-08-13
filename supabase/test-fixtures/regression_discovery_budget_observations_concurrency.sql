@@ -9,14 +9,6 @@ drop trigger if exists fixture_discovery_observation_insert_barrier
   on catalog_private.discovery_observations;
 drop function if exists catalog_private.fixture_discovery_observation_insert_barrier();
 
-delete from catalog_private.discovery_observations
-where observation_fingerprint like 'f%'
-   or observation_fingerprint = repeat('d', 64);
-delete from catalog_private.discovery_budget_reservations
-where reservation_fingerprint like 'f%'
-   or reservation_fingerprint in (repeat('d', 64), repeat('e', 64));
-delete from catalog_private.discovery_budgets
-where budget_day = current_date;
 delete from catalog_private.discovery_demand
 where topic_key = 'fixture-discovery-race';
 
@@ -108,16 +100,9 @@ begin
 end;
 $fixture$;
 
-delete from catalog_private.discovery_budget_reservations
-where reservation_fingerprint like 'f%'
-   or reservation_fingerprint = repeat('e', 64);
-delete from catalog_private.discovery_budgets
+update catalog_private.discovery_budgets
+set max_provider_quota_units = 3
 where budget_day = current_date;
-insert into catalog_private.discovery_budgets (
-  budget_day,
-  max_provider_quota_units,
-  max_micro_usd
-) values (current_date, 1, 1000);
 
 do $idempotency$
 declare
@@ -175,24 +160,16 @@ begin
 
   if (select reserved_provider_quota_units
       from catalog_private.discovery_budgets
-      where budget_day = current_date) <> 1
+      where budget_day = current_date) <> 3
   then
     raise exception 'concurrent duplicate reservation consumed budget twice';
   end if;
 end;
 $idempotency$;
 
-delete from catalog_private.discovery_budget_reservations
-where reservation_fingerprint like 'f%'
-   or reservation_fingerprint = repeat('e', 64);
-delete from catalog_private.discovery_budgets
+update catalog_private.discovery_budgets
+set max_provider_quota_units = 4
 where budget_day = current_date;
-
-insert into catalog_private.discovery_budgets (
-  budget_day,
-  max_provider_quota_units,
-  max_micro_usd
-) values (current_date, 1, 1000);
 
 do $observation_reservation$
 declare
@@ -368,11 +345,5 @@ drop trigger fixture_discovery_observation_insert_barrier
   on catalog_private.discovery_observations;
 drop function catalog_private.fixture_discovery_observation_insert_barrier();
 
-delete from catalog_private.discovery_observations
-where observation_fingerprint = repeat('d', 64);
-delete from catalog_private.discovery_budget_reservations
-where reservation_fingerprint = repeat('d', 64);
-delete from catalog_private.discovery_budgets
-where budget_day = current_date;
 delete from catalog_private.discovery_demand
 where topic_key = 'fixture-discovery-race';
