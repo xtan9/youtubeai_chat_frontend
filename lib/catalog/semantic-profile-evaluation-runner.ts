@@ -106,6 +106,7 @@ export async function runSemanticProfileEvaluation(
   );
   const evaluated = evaluateSemanticProfileEvidence({
     observations,
+    expectedResponseModel: modelIdentifier,
     pricing: options.pricing,
   });
   const body = {
