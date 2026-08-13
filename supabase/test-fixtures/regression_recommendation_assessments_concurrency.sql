@@ -121,14 +121,28 @@ begin
     enable trigger recommendation_assessments_immutable_trg;
 end;
 $cleanup_fixture_assessments$;
-delete from catalog_private.recommendation_candidate_pair_evidence
-where source_profile_id in (
-  select id from catalog_private.semantic_profile_versions
-  where video_id in (
-    '39000000-0000-4000-8000-000000000001',
-    '39000000-0000-4000-8000-000000000002'
-  )
-);
+do $cleanup_fixture_pair_evidence$
+begin
+  alter table catalog_private.recommendation_candidate_pair_evidence
+    disable trigger recommendation_candidate_pair_evidence_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_candidate_pair_evidence
+    where source_profile_id in (
+      select id from catalog_private.semantic_profile_versions
+      where video_id in (
+        '39000000-0000-4000-8000-000000000001',
+        '39000000-0000-4000-8000-000000000002'
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_candidate_pair_evidence
+      enable trigger recommendation_candidate_pair_evidence_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_candidate_pair_evidence
+    enable trigger recommendation_candidate_pair_evidence_immutable_trg;
+end;
+$cleanup_fixture_pair_evidence$;
 delete from catalog_private.discovery_demand
 where topic_key = 'assessment-race' and language_bucket = 'en';
 delete from catalog_private.semantic_profile_versions
@@ -1256,14 +1270,28 @@ begin
     enable trigger recommendation_assessments_immutable_trg;
 end;
 $cleanup_fixture_assessments_final$;
-delete from catalog_private.recommendation_candidate_pair_evidence
-where source_profile_id in (
-  select id from catalog_private.semantic_profile_versions
-  where video_id in (
-    '39000000-0000-4000-8000-000000000001',
-    '39000000-0000-4000-8000-000000000002'
-  )
-);
+do $cleanup_fixture_pair_evidence_final$
+begin
+  alter table catalog_private.recommendation_candidate_pair_evidence
+    disable trigger recommendation_candidate_pair_evidence_immutable_trg;
+  begin
+    delete from catalog_private.recommendation_candidate_pair_evidence
+    where source_profile_id in (
+      select id from catalog_private.semantic_profile_versions
+      where video_id in (
+        '39000000-0000-4000-8000-000000000001',
+        '39000000-0000-4000-8000-000000000002'
+      )
+    );
+  exception when others then
+    alter table catalog_private.recommendation_candidate_pair_evidence
+      enable trigger recommendation_candidate_pair_evidence_immutable_trg;
+    raise;
+  end;
+  alter table catalog_private.recommendation_candidate_pair_evidence
+    enable trigger recommendation_candidate_pair_evidence_immutable_trg;
+end;
+$cleanup_fixture_pair_evidence_final$;
 delete from catalog_private.discovery_demand
 where topic_key = 'assessment-race' and language_bucket = 'en';
 delete from catalog_private.semantic_profile_versions
