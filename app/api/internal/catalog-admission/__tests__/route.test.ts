@@ -23,6 +23,7 @@ describe("GET /api/internal/catalog-admission", () => {
     mocks.runCatalogAdmissionMaintenance.mockReset();
     vi.stubEnv("CRON_SECRET", "worker-secret");
     mocks.runCatalogAdmissionMaintenance.mockResolvedValue({
+      invalidated: 2,
       scheduled: 1,
       claimed: 1,
       completed: 1,
@@ -48,6 +49,7 @@ describe("GET /api/internal/catalog-admission", () => {
     const response = await GET(request("worker-secret"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      invalidated: 2,
       scheduled: 1,
       claimed: 1,
       completed: 1,

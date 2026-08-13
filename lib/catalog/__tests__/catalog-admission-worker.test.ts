@@ -80,7 +80,7 @@ describe("runCatalogAdmissionWorker", () => {
   it("schedules a bounded stale-evidence refresh before draining admission work", async () => {
     mocks.rpc.mockImplementation(async (name: string) => {
       if (name === "schedule_catalog_admission_refresh") {
-        return { data: { scheduled: 1 }, error: null };
+        return { data: { invalidated: 2, scheduled: 1 }, error: null };
       }
       if (name === "claim_catalog_admission_work") {
         return { data: [], error: null };
@@ -89,6 +89,7 @@ describe("runCatalogAdmissionWorker", () => {
     });
 
     await expect(runCatalogAdmissionMaintenance()).resolves.toEqual({
+      invalidated: 2,
       scheduled: 1,
       claimed: 0,
       completed: 0,
