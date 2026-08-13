@@ -411,8 +411,17 @@ test("opt-in Summary seam polls Continue Learning and enters Summarize Next", as
   await mockSuccessfulJourney(page, CAPTION_SUCCESS, {
     acceptedVideoUrls: [VIDEO_URL, NEXT_VIDEO_URL],
   });
-  await page.route("**/api/continue-learning*", (route) =>
-    fulfillJson(route, {
+  let feedbackBody: unknown;
+  await page.route("**/api/continue-learning*", async (route) => {
+    if (route.request().url().endsWith("/feedback")) {
+      feedbackBody = route.request().postDataJSON();
+      return fulfillJson(route, {
+        outcome: "recorded",
+        judgment: "useful",
+        ordinal: 1,
+      });
+    }
+    return fulfillJson(route, {
       outcome: "ready",
       setVersionToken: "cl1s.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       items: [
@@ -427,8 +436,8 @@ test("opt-in Summary seam polls Continue Learning and enters Summarize Next", as
           explanation: "Builds on the source concept.",
         },
       ],
-    }),
-  );
+    });
+  });
   await submitVideoUrl(page);
 
   const section = page.getByTestId("continue-learning-section");
@@ -439,6 +448,14 @@ test("opt-in Summary seam polls Continue Learning and enters Summarize Next", as
     "href",
     `/summary?url=${encodeURIComponent(NEXT_VIDEO_URL)}`,
   );
+  const useful = section.getByRole("button", { name: "Useful recommendation" });
+  await expect(useful).toHaveAttribute("aria-pressed", "false");
+  await useful.click();
+  await expect(useful).toHaveAttribute("aria-pressed", "true");
+  expect(feedbackBody).toEqual({
+    token: "cl1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    judgment: "useful",
+  });
   await Promise.all([
     page.waitForURL(/\/summary\?url=/),
     next.click(),

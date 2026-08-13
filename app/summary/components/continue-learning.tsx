@@ -1,6 +1,13 @@
 "use client";
 
-import { ArrowUpRight, BookOpen, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import {
+  ArrowUpRight,
+  BookOpen,
+  ExternalLink,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import { useContinueLearning } from "@/lib/hooks/useContinueLearning";
 
@@ -14,6 +21,65 @@ const RELATIONSHIP_LABELS = {
 interface ContinueLearningSectionProps {
   readonly sourceUrl: string;
   readonly enabled: boolean;
+}
+
+type FeedbackJudgment = "useful" | "not_useful";
+
+function RecommendationFeedback({ token }: { readonly token: string }) {
+  const [judgment, setJudgment] = useState<FeedbackJudgment | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(nextJudgment: FeedbackJudgment) {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/continue-learning/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, judgment: nextJudgment }),
+      });
+      if (response.ok) setJudgment(nextJudgment);
+    } catch {
+      // Recommendation Feedback is deliberately fail-soft.
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const buttonClass = (pressed: boolean) =>
+    `inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ${
+      pressed
+        ? "border-accent-brand bg-accent-brand/15 text-accent-brand"
+        : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/10"
+    }`;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" aria-label="Recommendation feedback">
+      <span className="text-xs text-slate-500 dark:text-gray-400">Was this useful?</span>
+      <button
+        type="button"
+        aria-label="Useful recommendation"
+        aria-pressed={judgment === "useful"}
+        disabled={submitting}
+        className={buttonClass(judgment === "useful")}
+        onClick={() => void submit("useful")}
+      >
+        <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
+        Useful
+      </button>
+      <button
+        type="button"
+        aria-label="Not useful recommendation"
+        aria-pressed={judgment === "not_useful"}
+        disabled={submitting}
+        className={buttonClass(judgment === "not_useful")}
+        onClick={() => void submit("not_useful")}
+      >
+        <ThumbsDown className="h-3.5 w-3.5" aria-hidden="true" />
+        Not useful
+      </button>
+    </div>
+  );
 }
 
 export function ContinueLearningSection({
@@ -128,6 +194,7 @@ export function ContinueLearningSection({
               <p className={`text-sm leading-6 ${isDark ? "text-gray-200" : "text-slate-700"}`}>
                 {item.explanation}
               </p>
+              <RecommendationFeedback token={item.token} />
               <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
                 <a
                   href={`/summary?url=${encodeURIComponent(item.canonicalUrl)}`}
