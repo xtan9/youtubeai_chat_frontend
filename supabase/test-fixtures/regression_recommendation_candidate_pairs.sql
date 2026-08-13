@@ -403,6 +403,23 @@ begin
   if evidence_count <> 2 then
     raise exception 'ineligible or duplicate pair evidence persisted: %', evidence_count;
   end if;
+  begin
+    update catalog_private.recommendation_candidate_pair_evidence
+    set created_at = created_at + interval '1 second';
+    raise exception 'versioned candidate-pair evidence could be updated';
+  exception when raise_exception then
+    if sqlerrm <> 'Recommendation Candidate pair evidence is immutable' then
+      raise;
+    end if;
+  end;
+  begin
+    delete from catalog_private.recommendation_candidate_pair_evidence;
+    raise exception 'versioned candidate-pair evidence could be deleted';
+  exception when raise_exception then
+    if sqlerrm <> 'Recommendation Candidate pair evidence is immutable' then
+      raise;
+    end if;
+  end;
   if exists (
     select 1
     from catalog_private.recommendation_candidate_pair_evidence as pair
