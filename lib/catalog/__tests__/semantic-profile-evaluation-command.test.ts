@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -26,8 +27,11 @@ function environment(): Record<string, string> {
     LLM_GATEWAY_URL: "https://gateway.example.com/v1",
     LLM_GATEWAY_API_KEY: "gateway-key",
     LLM_MODEL: "configured-gateway-model",
-    SEMANTIC_PROFILE_SOURCE_REVISION:
-      "9b09883f41cb2ae3c6dfde192f227963c0bd54a1",
+    SEMANTIC_PROFILE_SOURCE_REVISION: execFileSync(
+      "git",
+      ["rev-parse", "HEAD"],
+      { encoding: "utf8" },
+    ).trim(),
     SEMANTIC_PROFILE_EVALUATION_OUTPUT: OUTPUT_PATH,
     SEMANTIC_PROFILE_INPUT_MICRO_USD_PER_MILLION_TOKENS: "1000000",
     SEMANTIC_PROFILE_CACHED_INPUT_MICRO_USD_PER_MILLION_TOKENS: "500000",
@@ -48,10 +52,11 @@ describe("readSemanticProfileEvaluationCommandConfig", () => {
   });
 
   it("uses only the configured backend Gateway and explicit pricing", () => {
-    expect(readSemanticProfileEvaluationCommandConfig(environment())).toEqual({
+    const env = environment();
+    expect(readSemanticProfileEvaluationCommandConfig(env)).toEqual({
       modelIdentifier: "configured-gateway-model",
       gatewayProvider: "cliproxyapi",
-      sourceRevision: "9b09883f41cb2ae3c6dfde192f227963c0bd54a1",
+      sourceRevision: env.SEMANTIC_PROFILE_SOURCE_REVISION,
       outputPath: OUTPUT_PATH,
       pricing: {
         inputMicroUsdPerMillionTokens: 1_000_000,
@@ -89,6 +94,24 @@ describe("executeSemanticProfileEvaluationCommand", () => {
     await expect(executeSemanticProfileEvaluationCommand()).rejects.toMatchObject({
       code: "EEXIST",
     });
+    expect(runSemanticProfileEvaluation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a source revision mismatch before reserving evidence or making a Gateway call", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "semantic-profile-evaluation-"),
+    );
+    temporaryDirectories.push(directory);
+    const outputPath = path.join(directory, "evidence.json");
+    const env = environment();
+    env.SEMANTIC_PROFILE_SOURCE_REVISION = "0".repeat(40);
+    env.SEMANTIC_PROFILE_EVALUATION_OUTPUT = outputPath;
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+
+    await expect(executeSemanticProfileEvaluationCommand()).rejects.toThrow(
+      /must match the checkout HEAD/,
+    );
+    await expect(stat(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
     expect(runSemanticProfileEvaluation).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { CHAT_GATEWAY_PROVIDER } from "@/lib/services/models";
@@ -62,6 +63,15 @@ export function readSemanticProfileEvaluationCommandConfig(
 
 export async function executeSemanticProfileEvaluationCommand() {
   const config = readSemanticProfileEvaluationCommandConfig(process.env);
+  const checkoutRevision = execFileSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+  if (config.sourceRevision !== checkoutRevision) {
+    throw new Error(
+      "SEMANTIC_PROFILE_SOURCE_REVISION must match the checkout HEAD",
+    );
+  }
   const evidenceFile = await open(config.outputPath, "wx", 0o600);
   const artifact = await (async () => {
     try {
