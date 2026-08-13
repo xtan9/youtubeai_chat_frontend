@@ -41,6 +41,33 @@ function environment(): Record<string, string> {
   };
 }
 
+async function createCommittedFixture(directory: string): Promise<{
+  readonly revision: string;
+  readonly trackedPath: string;
+}> {
+  execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: directory,
+  });
+  execFileSync("git", ["config", "user.name", "Semantic Profile Test"], {
+    cwd: directory,
+  });
+  const trackedPath = path.join(directory, "semantic-profile.ts");
+  await writeFile(trackedPath, "committed\n", "utf8");
+  execFileSync("git", ["add", "semantic-profile.ts"], { cwd: directory });
+  execFileSync("git", ["commit", "-m", "fixture"], {
+    cwd: directory,
+    stdio: "ignore",
+  });
+  return {
+    revision: execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: directory,
+      encoding: "utf8",
+    }).trim(),
+    trackedPath,
+  };
+}
+
 describe("readSemanticProfileEvaluationCommandConfig", () => {
   it("requires an explicit 56-call acknowledgement before exposing live configuration", () => {
     const env = environment();
@@ -121,24 +148,7 @@ describe("executeSemanticProfileEvaluationCommand", () => {
       path.join(os.tmpdir(), "semantic-profile-evaluation-"),
     );
     temporaryDirectories.push(directory);
-    execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "test@example.com"], {
-      cwd: directory,
-    });
-    execFileSync("git", ["config", "user.name", "Semantic Profile Test"], {
-      cwd: directory,
-    });
-    const trackedPath = path.join(directory, "semantic-profile.ts");
-    await writeFile(trackedPath, "committed\n", "utf8");
-    execFileSync("git", ["add", "semantic-profile.ts"], { cwd: directory });
-    execFileSync("git", ["commit", "-m", "fixture"], {
-      cwd: directory,
-      stdio: "ignore",
-    });
-    const revision = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: directory,
-      encoding: "utf8",
-    }).trim();
+    const { revision, trackedPath } = await createCommittedFixture(directory);
     await writeFile(trackedPath, "modified\n", "utf8");
     const outputPath = path.join(directory, "evidence.json");
     const env = environment();
@@ -159,23 +169,7 @@ describe("executeSemanticProfileEvaluationCommand", () => {
       path.join(os.tmpdir(), "semantic-profile-evaluation-"),
     );
     temporaryDirectories.push(directory);
-    execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "test@example.com"], {
-      cwd: directory,
-    });
-    execFileSync("git", ["config", "user.name", "Semantic Profile Test"], {
-      cwd: directory,
-    });
-    await writeFile(path.join(directory, "semantic-profile.ts"), "committed\n");
-    execFileSync("git", ["add", "semantic-profile.ts"], { cwd: directory });
-    execFileSync("git", ["commit", "-m", "fixture"], {
-      cwd: directory,
-      stdio: "ignore",
-    });
-    const revision = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: directory,
-      encoding: "utf8",
-    }).trim();
+    const { revision } = await createCommittedFixture(directory);
     await writeFile(path.join(directory, "operator-notes.txt"), "untracked\n");
     const outputPath = path.join(directory, "evidence.json");
     const env = environment();
