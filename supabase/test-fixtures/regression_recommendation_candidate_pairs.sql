@@ -404,6 +404,50 @@ begin
     raise exception 'ineligible or duplicate pair evidence persisted: %', evidence_count;
   end if;
   begin
+    insert into catalog_private.recommendation_candidate_pair_evidence (
+      source_profile_id,
+      candidate_profile_id,
+      source_catalog_admission_id,
+      candidate_catalog_admission_id,
+      model_identifier,
+      profile_schema_version,
+      prompt_version,
+      evaluation_fingerprint,
+      candidate_pair_policy_version,
+      evidence_level,
+      relationship_score,
+      matched_topic_keys,
+      matched_core_concept_keys,
+      matched_source_application_candidate_prerequisite_keys,
+      matched_source_prerequisite_candidate_application_keys,
+      matched_source_counterpoint_candidate_core_keys
+    )
+    select
+      pair.source_profile_id,
+      pair.candidate_profile_id,
+      pair.candidate_catalog_admission_id,
+      pair.source_catalog_admission_id,
+      pair.model_identifier,
+      pair.profile_schema_version,
+      pair.prompt_version,
+      pair.evaluation_fingerprint,
+      pair.candidate_pair_policy_version,
+      pair.evidence_level,
+      pair.relationship_score,
+      pair.matched_topic_keys,
+      pair.matched_core_concept_keys,
+      pair.matched_source_application_candidate_prerequisite_keys,
+      pair.matched_source_prerequisite_candidate_application_keys,
+      pair.matched_source_counterpoint_candidate_core_keys
+    from catalog_private.recommendation_candidate_pair_evidence as pair
+    limit 1;
+    raise exception 'candidate-pair evidence accepted cross-wired Catalog Admissions';
+  exception when check_violation then
+    if sqlerrm <> 'Candidate-pair evidence Admissions must match Profile Videos' then
+      raise;
+    end if;
+  end;
+  begin
     update catalog_private.recommendation_candidate_pair_policies
     set minimum_relationship_score = minimum_relationship_score + 1
     where policy_version = 'candidate-pair-policy-v1';
