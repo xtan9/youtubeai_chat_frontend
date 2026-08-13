@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { open } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { CHAT_GATEWAY_PROVIDER } from "@/lib/services/models";
 import {
@@ -89,28 +89,41 @@ export async function executeSemanticProfileEvaluationCommand() {
     );
   }
   const evidenceFile = await open(config.outputPath, "wx", 0o600);
-  const artifact = await (async () => {
-    try {
-      const generated = await runSemanticProfileEvaluation({
-        modelIdentifier: config.modelIdentifier,
-        gatewayProvider: config.gatewayProvider,
-        sourceRevision: config.sourceRevision,
-        evaluatedAt: new Date(),
-        pricing: config.pricing,
-      });
-      if (!verifySemanticProfileEvaluationFingerprint(generated)) {
-        throw new Error(
-          "Semantic Profile evaluation fingerprint verification failed",
-        );
+  const reservedEvidence = await evidenceFile.stat();
+  let artifact: Awaited<ReturnType<typeof runSemanticProfileEvaluation>>;
+  try {
+    artifact = await (async () => {
+      try {
+        const generated = await runSemanticProfileEvaluation({
+          modelIdentifier: config.modelIdentifier,
+          gatewayProvider: config.gatewayProvider,
+          sourceRevision: config.sourceRevision,
+          evaluatedAt: new Date(),
+          pricing: config.pricing,
+        });
+        if (!verifySemanticProfileEvaluationFingerprint(generated)) {
+          throw new Error(
+            "Semantic Profile evaluation fingerprint verification failed",
+          );
+        }
+        await evidenceFile.writeFile(`${JSON.stringify(generated, null, 2)}\n`, {
+          encoding: "utf8",
+        });
+        return generated;
+      } finally {
+        await evidenceFile.close();
       }
-      await evidenceFile.writeFile(`${JSON.stringify(generated, null, 2)}\n`, {
-        encoding: "utf8",
-      });
-      return generated;
-    } finally {
-      await evidenceFile.close();
+    })();
+  } catch (error) {
+    const currentEvidence = await lstat(config.outputPath).catch(() => null);
+    if (
+      currentEvidence?.dev === reservedEvidence.dev &&
+      currentEvidence.ino === reservedEvidence.ino
+    ) {
+      await rm(config.outputPath, { force: true });
     }
-  })();
+    throw error;
+  }
   return {
     outputPath: config.outputPath,
     evaluationFingerprint: artifact.evaluationFingerprint,

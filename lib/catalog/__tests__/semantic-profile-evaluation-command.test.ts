@@ -223,6 +223,20 @@ describe("executeSemanticProfileEvaluationCommand", () => {
       /fingerprint verification failed/,
     );
     expect(verifySemanticProfileEvaluationFingerprint).toHaveBeenCalledOnce();
-    await expect(stat(outputPath)).resolves.toMatchObject({ size: 0 });
+    await expect(stat(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes its incomplete reservation when evaluation fails", async () => {
+    const { outputPath } = await configureCommittedCommandFixture(
+      temporaryDirectories,
+    );
+    runSemanticProfileEvaluation.mockRejectedValue(
+      new Error("synthetic evaluation failure"),
+    );
+
+    await expect(executeSemanticProfileEvaluationCommand()).rejects.toThrow(
+      /synthetic evaluation failure/,
+    );
+    await expect(stat(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
