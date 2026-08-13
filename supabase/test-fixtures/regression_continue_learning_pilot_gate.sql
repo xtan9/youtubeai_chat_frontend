@@ -97,7 +97,25 @@ reset role;
 set local role service_role;
 do $dormant_defaults$
 declare
+  actual_gate_ids text[];
   eligibility jsonb;
+  expected_gate_ids constant text[] := array[
+    'assessment_sets',
+    'browser_verification',
+    'candidate_pairs',
+    'catalog_maintenance',
+    'cohort',
+    'concurrency',
+    'delivery',
+    'discovery',
+    'feedback_analytics',
+    'migration_security',
+    'operations_cost',
+    'performance',
+    'quality_report',
+    'semantic_evaluation',
+    'semantic_human_approval'
+  ];
   readiness jsonb;
 begin
   select public.get_continue_learning_pilot_eligibility(
@@ -117,6 +135,16 @@ begin
   then
     raise exception 'pilot readiness did not remain off/hold: %', readiness;
   end if;
+
+  select array_agg(gate->>'id' order by gate->>'id')
+  into actual_gate_ids
+  from jsonb_array_elements(readiness->'gates') as gate;
+
+  if actual_gate_ids is distinct from expected_gate_ids then
+    raise exception 'pilot readiness gate catalog drifted: expected %, got %',
+      expected_gate_ids, actual_gate_ids;
+  end if;
+
   if not exists (
     select 1
     from jsonb_array_elements(readiness->'gates') as gate
