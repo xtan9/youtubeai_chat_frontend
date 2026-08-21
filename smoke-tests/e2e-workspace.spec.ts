@@ -761,7 +761,11 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await page
     .getByRole("link", { name: "Open Multilingual climate research" })
     .click();
-  await page.getByRole("button", { name: /Artifact choices 0 messages/iu }).click();
+  const artifactChoicesConversation = page.getByRole("button", {
+    name: /Artifact choices 0 messages/iu,
+  });
+  await artifactChoicesConversation.click();
+  await expect(artifactChoicesConversation).toHaveAttribute("aria-pressed", "true");
   const gatewayRequestsBeforeRetrievalFailure = gatewayRequests;
   retrievalOutcome = "failure";
   await page
