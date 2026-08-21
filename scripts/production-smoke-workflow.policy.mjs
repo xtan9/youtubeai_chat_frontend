@@ -197,6 +197,14 @@ test("requires a distinct verified live Summary Smoke Account", () => {
   assert.match(liveSummaryJob, /TEST_LIVE_SUMMARY_PASSWORD:/);
   assert.match(
     liveSummaryJob,
+    /TEST_ADMIN_EMAIL:\s*\$\{\{\s*secrets\.TEST_ADMIN_EMAIL\s*\}\}/,
+  );
+  assert.match(
+    liveSummaryJob,
+    /TEST_NON_ADMIN_EMAIL:\s*\$\{\{\s*secrets\.TEST_NON_ADMIN_EMAIL\s*\}\}/,
+  );
+  assert.match(
+    liveSummaryJob,
     /pnpm exec tsx smoke-tests\/verify-live-summary-account\.ts/,
   );
 });
