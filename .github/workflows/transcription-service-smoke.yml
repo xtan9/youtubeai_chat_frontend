@@ -1,8 +1,11 @@
 name: Transcription Service Contract Smoke
 
-# This is a paid, live post-deployment check. Keep it explicitly dispatched;
-# it must not join pull_request, push, schedule, or the Vercel deploy chain.
+# This is a paid, live post-deployment check. Run it once daily so the
+# captionless -> media download -> Whisper fallback cannot silently rot.
+# It remains outside pull_request, push, and the Vercel deploy chain.
 on:
+  schedule:
+    - cron: "43 16 * * *"
   workflow_dispatch:
     inputs:
       service_url:

@@ -1,5 +1,5 @@
 /**
- * Manual post-deployment smoke for the public transcription-service contract.
+ * Production smoke for the public transcription-service contract.
  *
  * The command intentionally reports only endpoint/status/schema metadata. It
  * never writes request bodies, response bodies, bearer keys, or Transcript
@@ -19,6 +19,8 @@ const DEFAULT_MULTILINGUAL_VIDEO =
 const DEFAULT_MULTILINGUAL_LANGUAGE = "zh";
 const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
 const ALLOWED_ERROR_FIELDS = new Set(["error", "errorId", "requestId"]);
+
+type SmokeProfile = "full" | "caption-egress";
 
 type CheckName =
   | "health"
@@ -49,6 +51,7 @@ type SmokeReport = {
 };
 
 type Config = {
+  profile: SmokeProfile;
   baseUrl: string;
   apiKey: string;
   captionedVideo: string;
@@ -95,6 +98,14 @@ function parseTimeout(value: string | undefined): number {
   return parsed;
 }
 
+function parseProfile(value: string | undefined): SmokeProfile {
+  const profile = value?.trim() || "full";
+  if (profile !== "full" && profile !== "caption-egress") {
+    throw new Error("SMOKE_PROFILE must be full or caption-egress");
+  }
+  return profile;
+}
+
 function loadConfig(): Config {
   const baseUrl = requiredEnv("VPS_API_URL").replace(/\/$/, "");
   const parsedBaseUrl = new URL(baseUrl);
@@ -103,6 +114,7 @@ function loadConfig(): Config {
   }
 
   return {
+    profile: parseProfile(process.env.SMOKE_PROFILE),
     baseUrl,
     apiKey: requiredEnv("VPS_API_KEY"),
     captionedVideo:
@@ -471,6 +483,46 @@ async function executeSmoke(config: Config): Promise<SmokeReport> {
     return { httpStatus: response.status, detail: "status=ok" };
   });
 
+  const runCaptionedVideoCheck = () =>
+    runCheck(
+      config,
+      results,
+      "captioned-video",
+      "/captions",
+      async (requestId) => {
+        const response = await requestJson(config, "/captions", requestId, {
+          method: "POST",
+          authenticated: true,
+          body: { youtube_url: config.captionedVideo },
+        });
+        const { language, segmentCount } = requireTranscriptResponse(
+          response,
+          "captioned-video",
+          "auto_captions"
+        );
+        return {
+          httpStatus: response.status,
+          detail: `source=auto_captions; language=${language}; segments=${segmentCount}`,
+        };
+      }
+    );
+
+  // The hourly profile is intentionally small and uncached. Calling the VPS
+  // Caption Track endpoint proves that the residential exit route, YouTube,
+  // and the caption provider all work; a process-only /health response cannot.
+  if (config.profile === "caption-egress") {
+    await runCaptionedVideoCheck();
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      targetOrigin: new URL(config.baseUrl).origin,
+      status: results.every((result) => result.status === "passed")
+        ? "passed"
+        : "failed",
+      checks: results,
+    };
+  }
+
   await runCheck(
     config,
     results,
@@ -490,28 +542,7 @@ async function executeSmoke(config: Config): Promise<SmokeReport> {
     }
   );
 
-  await runCheck(
-    config,
-    results,
-    "captioned-video",
-    "/captions",
-    async (requestId) => {
-      const response = await requestJson(config, "/captions", requestId, {
-        method: "POST",
-        authenticated: true,
-        body: { youtube_url: config.captionedVideo },
-      });
-      const { language, segmentCount } = requireTranscriptResponse(
-        response,
-        "captioned-video",
-        "auto_captions"
-      );
-      return {
-        httpStatus: response.status,
-        detail: `source=auto_captions; language=${language}; segments=${segmentCount}`,
-      };
-    }
-  );
+  await runCaptionedVideoCheck();
 
   await runCheck(
     config,

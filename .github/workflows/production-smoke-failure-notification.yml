@@ -6,7 +6,7 @@ name: Production smoke failure notification
 # into a visible, actionable incident.
 on:
   workflow_run:
-    workflows: ["production-smoke"]
+    workflows: ["production-smoke", "Transcription Service Contract Smoke"]
     types: [completed]
 
 concurrency:
@@ -23,7 +23,10 @@ jobs:
     if: >-
       ${{
         github.event.workflow_run.conclusion == 'failure' ||
-        github.event.workflow_run.conclusion == 'timed_out'
+        github.event.workflow_run.conclusion == 'cancelled' ||
+        github.event.workflow_run.conclusion == 'timed_out' ||
+        github.event.workflow_run.conclusion == 'action_required' ||
+        github.event.workflow_run.conclusion == 'stale'
       }}
     runs-on: ubuntu-latest
     steps:

@@ -37,6 +37,22 @@ jobs:
       - run: pnpm smoke:api
         env:
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      - name: Verify uncached YouTube caption egress
+        env:
+          VPS_API_URL: ${{ vars.VPS_API_URL }}
+          VPS_API_KEY: ${{ secrets.VPS_API_KEY }}
+          SMOKE_PROFILE: caption-egress
+          SMOKE_REQUEST_TIMEOUT_MS: 60000
+          SMOKE_REPORT_PATH: test-results/caption-egress-smoke.json
+        run: pnpm smoke:caption-egress
+      - name: Preserve caption egress evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-caption-egress-evidence
+          path: test-results/caption-egress-smoke.json
+          if-no-files-found: warn
+          retention-days: 30
 
   e2e-smoke:
     runs-on: ubuntu-latest
@@ -108,7 +124,7 @@ jobs:
           --workers=1
           --retries=0
       - uses: actions/upload-artifact@v6
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         with:
           name: playwright-report-e2e
           path: |
@@ -154,7 +170,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@v6
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         with:
           name: playwright-report-session-policy
           path: |

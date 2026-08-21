@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:api": "tsx smoke-tests/api-smoke.ts",
+    "smoke:caption-egress": "tsx smoke-tests/transcription-service-smoke.ts",
     "smoke:e2e": "playwright test",
     "smoke:payment:preflight": "tsx smoke-tests/verify-payment-e2e-config.ts",
     "smoke:payment:e2e": "playwright test smoke-tests/e2e-payment.spec.ts --workers=1 --retries=0",

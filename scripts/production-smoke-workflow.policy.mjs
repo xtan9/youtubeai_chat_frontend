@@ -6,6 +6,20 @@ const workflow = readFileSync(
   new URL("../.github/workflows/production-smoke.yml", import.meta.url),
   "utf8",
 );
+const notificationWorkflow = readFileSync(
+  new URL(
+    "../.github/workflows/production-smoke-failure-notification.yml",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const transcriptionWorkflow = readFileSync(
+  new URL(
+    "../.github/workflows/transcription-service-smoke.yml",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 function sectionBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -28,6 +42,33 @@ test("keeps hourly API checks while limiting browser smoke to daily or manual ru
   assert.match(
     browserJobHeader,
     /if:\s*\$\{\{\s*github\.event_name\s*==\s*'workflow_dispatch'\s*\|\|\s*github\.event\.schedule\s*==\s*'17 15 \* \* \*'\s*\}\}/,
+  );
+});
+
+test("runs an uncached Caption Track egress probe on every API smoke", () => {
+  const apiJob = sectionBetween(workflow, "  api-smoke:", "\n  e2e-smoke:");
+
+  assert.match(apiJob, /name: Verify uncached YouTube caption egress/);
+  assert.match(apiJob, /VPS_API_URL:\s*\$\{\{\s*vars\.VPS_API_URL\s*\}\}/);
+  assert.match(apiJob, /VPS_API_KEY:\s*\$\{\{\s*secrets\.VPS_API_KEY\s*\}\}/);
+  assert.match(apiJob, /SMOKE_PROFILE:\s*caption-egress/);
+  assert.match(apiJob, /run:\s*pnpm smoke:caption-egress/);
+  assert.match(apiJob, /name:\s*production-caption-egress-evidence/);
+});
+
+test("alerts on cancelled smoke runs and watches the full transcription smoke", () => {
+  assert.match(
+    notificationWorkflow,
+    /workflows:\s*\["production-smoke", "Transcription Service Contract Smoke"\]/,
+  );
+  assert.match(
+    notificationWorkflow,
+    /workflow_run\.conclusion\s*==\s*'cancelled'/,
+  );
+  assert.match(transcriptionWorkflow, /cron:\s*"43 16 \* \* \*"/);
+  assert.match(
+    transcriptionWorkflow,
+    /run:\s*pnpm exec tsx smoke-tests\/transcription-service-smoke\.ts/,
   );
 });
 
