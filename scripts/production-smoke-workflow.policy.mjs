@@ -43,10 +43,23 @@ test("keeps hourly API checks while limiting browser smoke to daily or manual ru
     browserJobHeader,
     /if:\s*\$\{\{\s*github\.event_name\s*==\s*'workflow_dispatch'\s*\|\|\s*github\.event\.schedule\s*==\s*'17 15 \* \* \*'\s*\}\}/,
   );
+  const liveSummaryJobHeader = sectionBetween(
+    workflow,
+    "  live-summary-smoke:",
+    "\n    env:",
+  );
+  assert.match(
+    liveSummaryJobHeader,
+    /if:\s*\$\{\{\s*github\.event_name\s*==\s*'workflow_dispatch'\s*\|\|\s*github\.event\.schedule\s*==\s*'17 15 \* \* \*'\s*\}\}/,
+  );
 });
 
 test("runs an uncached Caption Track egress probe on every API smoke", () => {
-  const apiJob = sectionBetween(workflow, "  api-smoke:", "\n  e2e-smoke:");
+  const apiJob = sectionBetween(
+    workflow,
+    "  api-smoke:",
+    "\n  live-summary-smoke:",
+  );
 
   assert.match(apiJob, /name: Verify uncached YouTube caption egress/);
   assert.match(apiJob, /VPS_API_URL:\s*\$\{\{\s*secrets\.VPS_API_URL\s*\}\}/);
@@ -116,6 +129,11 @@ test("keeps the Anonymous Trial rollout probe manual, bounded, and two-phase", (
 });
 
 test("isolates live Summary checks with a bounded retry budget", () => {
+  const liveSummaryJob = sectionBetween(
+    workflow,
+    "  live-summary-smoke:",
+    "\n  e2e-smoke:",
+  );
   const browserJob = sectionBetween(
     workflow,
     "  e2e-smoke:",
@@ -124,22 +142,20 @@ test("isolates live Summary checks with a bounded retry budget", () => {
   const nonMutatingStep = sectionBetween(
     browserJob,
     "      - name: Run non-mutating browser smoke",
-    "\n      - name: Run live Summary browser smoke",
+    "\n      - name: Run Project Conversation production smoke",
   );
   const liveSummaryStep = sectionBetween(
-    browserJob,
+    liveSummaryJob,
     "      - name: Run live Summary browser smoke",
-    "\n      - name: Run Project Conversation production smoke",
+    "\n      - uses: actions/upload-artifact@v6",
   );
 
   assert.match(
     nonMutatingStep,
     /playwright test\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"\s+--workers=1\s+--retries=0/,
   );
-  assert.match(
-    liveSummaryStep,
-    /if:\s*\$\{\{\s*!cancelled\(\)\s*\}\}/,
-  );
+  assert.match(liveSummaryJob, /needs:\s*api-smoke/);
+  assert.match(liveSummaryJob, /timeout-minutes:\s*10/);
   assert.match(
     liveSummaryStep,
     /pnpm exec playwright test\s+--grep "@live-summary"\s+--workers=1\s+--retries=0/,
@@ -148,6 +164,11 @@ test("isolates live Summary checks with a bounded retry budget", () => {
     liveSummaryStep,
     /smoke-tests\//,
     "the @live-summary tag must be the single source of live-suite membership",
+  );
+  assert.doesNotMatch(
+    browserJob,
+    /name: Run live Summary browser smoke/,
+    "the broad serial suite must not own or delay the live detector",
   );
 
   const projectConversationStep = sectionBetween(
@@ -166,21 +187,21 @@ test("isolates live Summary checks with a bounded retry budget", () => {
 });
 
 test("requires a distinct verified live Summary Smoke Account", () => {
-  const browserJob = sectionBetween(
+  const liveSummaryJob = sectionBetween(
     workflow,
-    "  e2e-smoke:",
-    "\n  session-policy-smoke:",
+    "  live-summary-smoke:",
+    "\n  e2e-smoke:",
   );
 
-  assert.match(browserJob, /TEST_LIVE_SUMMARY_EMAIL:/);
-  assert.match(browserJob, /TEST_LIVE_SUMMARY_PASSWORD:/);
+  assert.match(liveSummaryJob, /TEST_LIVE_SUMMARY_EMAIL:/);
+  assert.match(liveSummaryJob, /TEST_LIVE_SUMMARY_PASSWORD:/);
   assert.match(
-    browserJob,
+    liveSummaryJob,
     /pnpm exec tsx smoke-tests\/verify-live-summary-account\.ts/,
   );
 });
 
-test("budgets the serial browser suite through its live production phases", () => {
+test("budgets the broad serial browser suite independently", () => {
   const browserJob = sectionBetween(
     workflow,
     "  e2e-smoke:",
@@ -218,10 +239,13 @@ test("runs the session-policy journey after browser smoke in its own job budget"
     "\n      - name: Preserve redacted session-policy evidence",
   );
 
-  assert.match(sessionJobHeader, /needs:\s*\[api-smoke, e2e-smoke\]/);
   assert.match(
     sessionJobHeader,
-    /if:\s*\$\{\{\s*always\(\)\s*&&\s*!cancelled\(\)\s*&&\s*needs\.api-smoke\.result\s*==\s*'success'\s*&&\s*needs\.e2e-smoke\.result\s*!=\s*'skipped'\s*\}\}/,
+    /needs:\s*\[api-smoke, live-summary-smoke, e2e-smoke\]/,
+  );
+  assert.match(
+    sessionJobHeader,
+    /if:\s*\$\{\{\s*always\(\)\s*&&\s*!cancelled\(\)\s*&&\s*needs\.api-smoke\.result\s*==\s*'success'\s*&&\s*needs\.live-summary-smoke\.result\s*!=\s*'skipped'\s*&&\s*needs\.e2e-smoke\.result\s*!=\s*'skipped'\s*\}\}/,
     "hourly API-only runs must not trigger the browser session-policy journey",
   );
   assert.doesNotMatch(

@@ -54,6 +54,48 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Keep the user-critical live Summary path independent from the broad
+  # non-mutating suite. That suite is intentionally serial and can take more
+  # than 15 minutes; it must never consume the live detector's budget or stop
+  # it from starting.
+  live-summary-smoke:
+    runs-on: ubuntu-latest
+    needs: api-smoke
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '17 15 * * *' }}
+    timeout-minutes: 10
+    env:
+      BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
+      TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
+      TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify dedicated live Summary account
+        run: pnpm exec tsx smoke-tests/verify-live-summary-account.ts
+      - name: Run live Summary browser smoke
+        run: >-
+          pnpm exec playwright test
+          --grep "@live-summary"
+          --workers=1
+          --retries=0
+      - uses: actions/upload-artifact@v6
+        if: ${{ failure() || cancelled() }}
+        with:
+          name: playwright-report-live-summary
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
   e2e-smoke:
     runs-on: ubuntu-latest
     needs: api-smoke
@@ -71,8 +113,6 @@ jobs:
       # separate from the account used for successful live Summary requests.
       TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
       TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
-      TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
-      TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
       TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -85,27 +125,16 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Verify dedicated live Summary account
-        run: pnpm exec tsx smoke-tests/verify-live-summary-account.ts
       # BASE_URL retargets local-default specs at prod and disables
       # playwright.config's auto-started webServer (pnpm dev would fail
-      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). Live Summary journeys
-      # use a separate smoke-Pro-entitled non-admin Smoke Account. The Free
-      # TEST_NON_ADMIN account remains available to quota/paywall coverage and
-      # session-policy checks. Live Summary journeys run without retry: one
-      # full live timeout is already strong outage evidence and must not spend
-      # the job budget twice.
+      # in CI without NEXT_PUBLIC_SUPABASE_URL etc.). The Free TEST_NON_ADMIN
+      # account remains available to quota/paywall coverage and session-policy
+      # checks. The live Summary detector has a separate job so this broad
+      # serial suite cannot delay or starve it.
       - name: Run non-mutating browser smoke
         run: >-
           pnpm exec playwright test
           --grep-invert "@session-policy|@account-mutating|@account-recovery|@live-summary|@payment-e2e"
-          --workers=1
-          --retries=0
-      - name: Run live Summary browser smoke
-        if: ${{ !cancelled() }}
-        run: >-
-          pnpm exec playwright test
-          --grep "@live-summary"
           --workers=1
           --retries=0
       - name: Run Project Conversation production smoke
@@ -141,8 +170,8 @@ jobs:
   # when a real live Summary check correctly reports a production failure.
   session-policy-smoke:
     runs-on: ubuntu-latest
-    needs: [api-smoke, e2e-smoke]
-    if: ${{ always() && !cancelled() && needs.api-smoke.result == 'success' && needs.e2e-smoke.result != 'skipped' }}
+    needs: [api-smoke, live-summary-smoke, e2e-smoke]
+    if: ${{ always() && !cancelled() && needs.api-smoke.result == 'success' && needs.live-summary-smoke.result != 'skipped' && needs.e2e-smoke.result != 'skipped' }}
     timeout-minutes: 10
     env:
       BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
