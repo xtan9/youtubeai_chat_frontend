@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const BASE_URL = (process.env.BASE_URL ?? "http://127.0.0.1:3000").replace(
+const BASE_URL = (process.env.BASE_URL ?? "http://localhost:3000").replace(
   /\/$/,
   "",
 );

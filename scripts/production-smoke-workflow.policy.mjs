@@ -20,6 +20,10 @@ const transcriptionWorkflow = readFileSync(
   ),
   "utf8",
 );
+const productionPlaywrightConfig = readFileSync(
+  new URL("../playwright.production.config.ts", import.meta.url),
+  "utf8",
+);
 
 function sectionBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -152,7 +156,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
 
   assert.match(
     nonMutatingStep,
-    /playwright test\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"\s+--workers=1\s+--retries=0/,
+    /playwright test\s+--config=playwright\.production\.config\.ts\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"\s+--workers=1\s+--retries=0/,
   );
   assert.match(liveSummaryJob, /needs:\s*api-smoke/);
   assert.match(liveSummaryJob, /timeout-minutes:\s*10/);
@@ -184,6 +188,24 @@ test("isolates live Summary checks with a bounded retry budget", () => {
     projectConversationStep,
     /--grep "@project-grounded"/,
   );
+});
+
+test("production browser smoke excludes local fixtures and development prototypes", () => {
+  for (const localOnlySpec of [
+    "e2e-admin-report-completeness",
+    "e2e-anonymous-trial-analytics",
+    "e2e-evidence-workspace-prototype",
+    "e2e-global-plan-control",
+    "e2e-project-adoption",
+    "e2e-subscription-funnel-report",
+    "e2e-workspace",
+  ]) {
+    assert.ok(
+      productionPlaywrightConfig.includes(`${localOnlySpec}\\.spec\\.ts$`),
+      `${localOnlySpec} must stay out of the deployed-app suite`,
+    );
+  }
+  assert.match(productionPlaywrightConfig, /webServer:\s*undefined/);
 });
 
 test("requires a distinct verified live Summary Smoke Account", () => {

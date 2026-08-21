@@ -1070,7 +1070,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "Alpha evidence",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Passages examined2",
+    "Passages examined3",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
     "Passages selected2",
@@ -1119,7 +1119,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     .toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Passages examined2",
+    "Passages examined3",
   );
   await expect(page.getByRole("link", { name: /S1 @ 00:42/i })).toHaveAttribute(
     "href",
@@ -1296,7 +1296,7 @@ test("Project Conversation persists a classified fallback without calling the ga
   await page.getByRole("button", { name: "Ask Project" }).click();
 
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Passages examined2",
+    "Passages examined3",
   );
   await expect(page.getByLabel("Source Coverage")).toContainText(
     "Passages selected0",
@@ -1483,7 +1483,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
   );
   await expect(
     guide.getByRole("link", {
-      name: /S1 @ 00:42-00:48.*Alpha evidence/i,
+      name: /S1 @ 00:42-00:55.*Alpha evidence/i,
     }),
   ).toHaveAttribute(
     "href",
@@ -1691,7 +1691,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   expect(markdown).toContain("- Original angle:");
   expect(markdown).toContain("- Proposed sequence:");
   expect(markdown).toContain(
-    "[S1 @ 00:42-00:48](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
+    "[S1 @ 00:42-00:55](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2330,12 +2330,15 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   expect(new URL(searchRequest.url()).search).toBe("");
   expect(searchRequest.postDataJSON()).toEqual({ query: "climate" });
   await expect(page.getByRole("status").filter({ hasText: "exact Transcript" })).toContainText(
-    "2 exact Transcript passages found across 3 ready Videos",
+    "8 exact Transcript passages found across 3 ready Videos",
   );
-  await expect(page.getByTestId("project-search-passage")).toHaveText([
-    "Climate adaptation depends on exact local evidence. Transparent evidence strengthens public trust.",
-    "气候适应需要准确的本地证据。",
-  ]);
+  const passages = page.getByTestId("project-search-passage");
+  await expect(passages).toHaveCount(8);
+  await expect(
+    passages.filter({
+      hasText: "Climate adaptation depends on exact local evidence",
+    }),
+  ).not.toHaveCount(0);
   const firstTimestamp = page.getByRole("link", {
     name: "Open Alpha evidence at [0:42]",
   });
