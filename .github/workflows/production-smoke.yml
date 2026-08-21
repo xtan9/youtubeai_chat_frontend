@@ -39,7 +39,7 @@ jobs:
           PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
       - name: Verify uncached YouTube caption egress
         env:
-          VPS_API_URL: ${{ vars.VPS_API_URL }}
+          VPS_API_URL: ${{ secrets.VPS_API_URL }}
           VPS_API_KEY: ${{ secrets.VPS_API_KEY }}
           SMOKE_PROFILE: caption-egress
           SMOKE_REQUEST_TIMEOUT_MS: 60000
