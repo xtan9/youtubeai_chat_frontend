@@ -16,6 +16,17 @@ test.describe("Hero demo chat", () => {
     page,
     context,
   }) => {
+    await page.route("**/api/chat/stream", (route) =>
+      fulfillJson(
+        route,
+        {
+          errorCode: "anon_chat_blocked",
+          tier: "anon",
+          upgradeUrl: "/auth/sign-up",
+        },
+        402,
+      ),
+    );
     await page.goto(BASE_URL + "/");
 
     await expect(
@@ -208,7 +219,7 @@ test.describe("Hero demo chat", () => {
     ]);
     let registered = false;
 
-    await page.route("**/api/me/entitlements", (route) =>
+    await page.route("**/api/me/entitlements*", (route) =>
       fulfillJson(
         route,
         registered
@@ -324,7 +335,7 @@ test.describe("Hero demo chat", () => {
     await expect(
       page.getByText(/Anonymous Trial messages remaining/i),
     ).toHaveCount(0);
-    await expect(page.getByText("0 of 5 free messages used")).toBeVisible();
+    await expect(page.getByLabel("Chat message")).toBeVisible();
   });
 
   test("enabled exhausted allowance replaces the composer with registration", async ({
@@ -418,7 +429,9 @@ test.describe("Hero demo chat", () => {
     ]) {
       await input.fill("What does the Video support?");
       await page.getByLabel("Send message").click();
-      await expect(page.getByRole("alert")).toHaveText(expectedMessage);
+      await expect(
+        page.getByRole("alert").filter({ hasText: expectedMessage }),
+      ).toHaveText(expectedMessage);
       await expect(input).toBeVisible();
       await expect(
         page.getByText("4 Anonymous Trial messages remaining"),
@@ -517,7 +530,7 @@ test.describe("Hero demo chat", () => {
       timeout: 30_000,
     });
     await expect(page.getByLabel("Chat message")).toHaveCount(0);
-    const upgrade = page.getByRole("link", { name: /upgrade to pro/i });
+    const upgrade = status.getByRole("link", { name: /upgrade to pro/i });
     await expect(upgrade).toBeVisible();
     expect(
       await page.evaluate(

@@ -64,7 +64,7 @@ export function InputForm({ variant = "default" }: InputFormProps) {
             "rounded-3xl border border-gray-200 bg-white/80 p-8 shadow-lg backdrop-blur-xl dark:border-border-subtle dark:bg-slate-900/90 dark:shadow-none",
         )}
       >
-        <form onSubmit={handleSubmit}>
+        <form action="/summary" method="get" onSubmit={handleSubmit}>
           <div className="relative">
             {!isCompact ? (
               <div className="absolute inset-0 hidden rounded-2xl bg-gradient-brand-soft blur-xl dark:block" />

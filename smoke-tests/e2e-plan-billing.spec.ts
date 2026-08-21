@@ -74,7 +74,9 @@ test.describe("/account/billing", () => {
       }),
     ).toBeVisible();
 
-    const upgrade = page.getByRole("link", { name: "Upgrade to Pro" });
+    const upgrade = page
+      .getByRole("main")
+      .getByRole("link", { name: "Upgrade to Pro" });
     await expect(upgrade).toHaveCount(1);
     await page.screenshot({
       path: testInfo.outputPath("plan-billing-desktop-free.png"),

@@ -136,6 +136,7 @@ jobs:
       - name: Run non-mutating browser smoke
         run: >-
           pnpm exec playwright test
+          --config=playwright.production.config.ts
           --grep-invert "@session-policy|@account-mutating|@account-recovery|@live-summary|@payment-e2e"
           --workers=1
           --retries=0

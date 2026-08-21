@@ -12,6 +12,7 @@ import { expect, test } from "@playwright/test";
 const ADMIN_EMAIL = "admin@example.test";
 const ADMIN_USER_ID = "11111111-1111-4111-8111-111111111111";
 const LEARNER_USER_ID = "22222222-2222-4222-8222-222222222222";
+const AUTH_COOKIE_NAME = "sb-admin-report-e2e-auth-token";
 
 let appProcess: ChildProcess | undefined;
 let appUrl = "";
@@ -50,6 +51,7 @@ test.beforeAll(async () => {
         ADMIN_EMAILS: ADMIN_EMAIL,
         NEXT_PUBLIC_SITE_URL: appUrl,
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "fixture-anon-key",
+        NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME: AUTH_COOKIE_NAME,
         NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,
         NEXT_TELEMETRY_DISABLED: "1",
         SUPABASE_SERVICE_ROLE_KEY: "fixture-service-role-key",
@@ -82,7 +84,7 @@ test("admin report exposes its degraded completeness status", async ({
 }) => {
   await context.addCookies([
     {
-      name: "sb-127-auth-token",
+      name: AUTH_COOKIE_NAME,
       value: sessionCookieValue(),
       domain: "127.0.0.1",
       path: "/",
