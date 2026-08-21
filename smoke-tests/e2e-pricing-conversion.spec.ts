@@ -19,7 +19,7 @@ async function fulfillAnonymousEntitlements(page: Page) {
 }
 
 test.describe("public Pricing conversion", () => {
-  test("desktop comparison preserves yearly signup intent and captures the visual journey", async ({
+  test("@production-critical desktop comparison preserves yearly signup intent and captures the visual journey", async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });

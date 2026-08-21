@@ -66,7 +66,7 @@ test.describe("Hero demo widget", () => {
     });
   });
 
-  test("InputForm is still rendered below the widget", async ({ page }) => {
+  test("@production-critical InputForm is still rendered below the widget", async ({ page }) => {
     await page.goto(BASE_URL + "/");
     await expect(
       page.getByRole("heading", { name: /Will Nvidia.*moat persist/i }),
