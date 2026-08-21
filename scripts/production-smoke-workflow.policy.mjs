@@ -24,6 +24,14 @@ const productionPlaywrightConfig = readFileSync(
   new URL("../playwright.production.config.ts", import.meta.url),
   "utf8",
 );
+const productionCriticalSpecs = [
+  "e2e-hero-demo.spec.ts",
+  "e2e-pricing-conversion.spec.ts",
+  "e2e-subscription-funnel-production.spec.ts",
+].map((filename) => ({
+  filename,
+  source: readFileSync(new URL(`../smoke-tests/${filename}`, import.meta.url), "utf8"),
+}));
 
 function sectionBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -56,6 +64,53 @@ test("keeps hourly API checks while limiting browser smoke to daily or manual ru
     liveSummaryJobHeader,
     /if:\s*\$\{\{\s*github\.event_name\s*==\s*'workflow_dispatch'\s*\|\|\s*github\.event\.schedule\s*==\s*'17 15 \* \* \*'\s*\}\}/,
   );
+});
+
+test("serializes production smoke runs and cancels superseded executions", () => {
+  assert.match(
+    workflow,
+    /concurrency:\s*\n\s*group:\s*production-smoke\s*\n\s*cancel-in-progress:\s*true/,
+  );
+});
+
+test("defaults production browser smoke to an explicit critical allowlist", () => {
+  assert.match(workflow, /browser_smoke_scope:/);
+  assert.match(workflow, /default:\s*critical/);
+  assert.match(workflow, /options:\s*\n\s*- critical\s*\n\s*- full/);
+
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+  const criticalStep = sectionBetween(
+    browserJob,
+    "      - name: Run critical non-mutating browser smoke",
+    "\n      - name: Run full non-mutating browser smoke",
+  );
+  const fullStep = sectionBetween(
+    browserJob,
+    "      - name: Run full non-mutating browser smoke",
+    "\n      - name: Run Project Conversation production smoke",
+  );
+
+  assert.match(
+    criticalStep,
+    /--config=playwright\.production\.config\.ts\s+--grep "@production-critical"\s+--workers=1\s+--retries=0/,
+  );
+  assert.match(
+    criticalStep,
+    /if:\s*\$\{\{\s*github\.event_name\s*!=\s*'workflow_dispatch'\s*\|\|\s*inputs\.browser_smoke_scope\s*!=\s*'full'\s*\}\}/,
+  );
+  assert.match(
+    fullStep,
+    /if:\s*\$\{\{\s*!cancelled\(\)\s*&&\s*github\.event_name\s*==\s*'workflow_dispatch'\s*&&\s*inputs\.browser_smoke_scope\s*==\s*'full'\s*\}\}/,
+  );
+  assert.match(fullStep, /--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"/);
+
+  for (const { filename, source } of productionCriticalSpecs) {
+    assert.match(source, /@production-critical/, `${filename} must remain in the critical suite`);
+  }
 });
 
 test("runs an uncached Caption Track egress probe on every API smoke", () => {
@@ -145,8 +200,8 @@ test("isolates live Summary checks with a bounded retry budget", () => {
   );
   const nonMutatingStep = sectionBetween(
     browserJob,
-    "      - name: Run non-mutating browser smoke",
-    "\n      - name: Run Project Conversation production smoke",
+    "      - name: Run critical non-mutating browser smoke",
+    "\n      - name: Run full non-mutating browser smoke",
   );
   const liveSummaryStep = sectionBetween(
     liveSummaryJob,
@@ -156,7 +211,7 @@ test("isolates live Summary checks with a bounded retry budget", () => {
 
   assert.match(
     nonMutatingStep,
-    /playwright test\s+--config=playwright\.production\.config\.ts\s+--grep-invert "@session-policy\|@account-mutating\|@account-recovery\|@live-summary\|@payment-e2e"\s+--workers=1\s+--retries=0/,
+    /playwright test\s+--config=playwright\.production\.config\.ts\s+--grep "@production-critical"\s+--workers=1\s+--retries=0/,
   );
   assert.match(liveSummaryJob, /needs:\s*api-smoke/);
   assert.match(liveSummaryJob, /timeout-minutes:\s*10/);

@@ -8,7 +8,7 @@ const PROD_URL = (
   process.env.PROD_URL?.trim() || "https://www.youtubeai.chat"
 ).replace(/\/$/, "");
 
-test("real admin report completes the production subscription funnel path", async ({
+test("@production-critical real admin report completes the production subscription funnel path", async ({
   page,
 }) => {
   const email = process.env.TEST_ADMIN_EMAIL?.trim();
