@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       service_url:
-        description: Optional HTTPS service URL override (defaults to VPS_API_URL variable)
+        description: Optional HTTPS service URL override (defaults to VPS_API_URL secret)
         required: false
         type: string
       captioned_video_url:
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      VPS_API_URL: ${{ inputs.service_url || vars.VPS_API_URL }}
+      VPS_API_URL: ${{ inputs.service_url || secrets.VPS_API_URL }}
       VPS_API_KEY: ${{ secrets.VPS_API_KEY }}
       SMOKE_CAPTIONED_VIDEO_URL: ${{ inputs.captioned_video_url }}
       SMOKE_CAPTIONLESS_VIDEO_URL: ${{ inputs.captionless_video_url }}

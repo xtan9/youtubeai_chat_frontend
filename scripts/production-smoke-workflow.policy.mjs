@@ -49,7 +49,7 @@ test("runs an uncached Caption Track egress probe on every API smoke", () => {
   const apiJob = sectionBetween(workflow, "  api-smoke:", "\n  e2e-smoke:");
 
   assert.match(apiJob, /name: Verify uncached YouTube caption egress/);
-  assert.match(apiJob, /VPS_API_URL:\s*\$\{\{\s*vars\.VPS_API_URL\s*\}\}/);
+  assert.match(apiJob, /VPS_API_URL:\s*\$\{\{\s*secrets\.VPS_API_URL\s*\}\}/);
   assert.match(apiJob, /VPS_API_KEY:\s*\$\{\{\s*secrets\.VPS_API_KEY\s*\}\}/);
   assert.match(apiJob, /SMOKE_PROFILE:\s*caption-egress/);
   assert.match(apiJob, /run:\s*pnpm smoke:caption-egress/);
@@ -66,6 +66,14 @@ test("alerts on cancelled smoke runs and watches the full transcription smoke", 
     /workflow_run\.conclusion\s*==\s*'cancelled'/,
   );
   assert.match(transcriptionWorkflow, /cron:\s*"43 16 \* \* \*"/);
+  assert.match(
+    transcriptionWorkflow,
+    /VPS_API_URL:\s*\$\{\{\s*inputs\.service_url\s*\|\|\s*secrets\.VPS_API_URL\s*\}\}/,
+  );
+  assert.match(
+    transcriptionWorkflow,
+    /VPS_API_KEY:\s*\$\{\{\s*secrets\.VPS_API_KEY\s*\}\}/,
+  );
   assert.match(
     transcriptionWorkflow,
     /run:\s*pnpm exec tsx smoke-tests\/transcription-service-smoke\.ts/,
