@@ -180,6 +180,17 @@ test("requires a distinct verified live Summary Smoke Account", () => {
   );
 });
 
+test("budgets the serial browser suite through its live production phases", () => {
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+
+  assert.match(browserJob, /timeout-minutes:\s*20/);
+  assert.doesNotMatch(browserJob, /timeout-minutes:\s*10/);
+});
+
 test("runs the session-policy journey after browser smoke in its own job budget", () => {
   const browserSmoke = workflow.indexOf("  e2e-smoke:");
   const sessionJob = workflow.indexOf("  session-policy-smoke:");
