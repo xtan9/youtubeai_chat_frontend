@@ -100,10 +100,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: api-smoke
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '17 15 * * *' }}
-    # The serial non-mutating suite alone currently takes about 9.5 minutes
-    # on GitHub-hosted runners. Leave headroom for the live Summary and
-    # Project Conversation phases instead of cancelling before they start.
-    timeout-minutes: 20
+    # The serial non-mutating suite exceeded 19 minutes on a real hosted
+    # runner. Give the broad suite and Project Conversation phase realistic
+    # headroom; the critical live Summary detector has its own bounded job.
+    timeout-minutes: 30
     env:
       BASE_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}
       PROD_URL: ${{ vars.PROD_URL || 'https://www.youtubeai.chat' }}

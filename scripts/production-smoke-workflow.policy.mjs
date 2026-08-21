@@ -208,8 +208,8 @@ test("budgets the broad serial browser suite independently", () => {
     "\n  session-policy-smoke:",
   );
 
-  assert.match(browserJob, /timeout-minutes:\s*20/);
-  assert.doesNotMatch(browserJob, /timeout-minutes:\s*10/);
+  assert.match(browserJob, /timeout-minutes:\s*30/);
+  assert.doesNotMatch(browserJob, /timeout-minutes:\s*(?:10|20)/);
 });
 
 test("runs the session-policy journey after browser smoke in its own job budget", () => {
