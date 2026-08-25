@@ -153,6 +153,15 @@ jobs:
           --grep "@production-critical"
           --workers=1
           --retries=0
+      - name: Preserve critical browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-e2e-critical
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
       - name: Run full non-mutating browser smoke
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.browser_smoke_scope == 'full' }}
         run: >-

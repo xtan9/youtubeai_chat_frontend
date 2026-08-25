@@ -113,6 +113,28 @@ test("defaults production browser smoke to an explicit critical allowlist", () =
   }
 });
 
+test("preserves critical browser failure evidence before later Playwright probes", () => {
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+  const criticalPhase = sectionBetween(
+    browserJob,
+    "      - name: Run critical non-mutating browser smoke",
+    "\n      - name: Run full non-mutating browser smoke",
+  );
+
+  assert.match(
+    criticalPhase,
+    /- name: Preserve critical browser failure evidence\s+if: failure\(\)\s+uses: actions\/upload-artifact@v6/,
+  );
+  assert.match(
+    criticalPhase,
+    /name: playwright-report-e2e-critical\s+path:\s*\|\s+playwright-report\/\s+test-results\//,
+  );
+});
+
 test("runs an uncached Caption Track egress probe on every API smoke", () => {
   const apiJob = sectionBetween(
     workflow,
