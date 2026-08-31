@@ -25,6 +25,7 @@ const REQUEST_PRINCIPAL_SOURCES = [
   "account",
   "workspace_projects",
   "project",
+  "comment_moderation",
 ] as const;
 
 export type RequestPrincipalSource =

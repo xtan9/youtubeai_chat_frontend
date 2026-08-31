@@ -5,6 +5,7 @@ import {
   CreditCard,
   FolderKanban,
   LogOut,
+  ShieldCheck,
   User as UserIcon,
 } from "lucide-react";
 import { YtAiMark } from "@/components/brand/yt-ai-mark";
@@ -83,12 +84,20 @@ export function Header() {
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
               {user && !user.is_anonymous ? (
-                <Link
-                  href="/workspace"
-                  className="text-text-muted hover:text-text-primary transition-colors"
-                >
-                  Workspace
-                </Link>
+                <>
+                  <Link
+                    href="/workspace"
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    Workspace
+                  </Link>
+                  <Link
+                    href="/moderation"
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    Comment Shield
+                  </Link>
+                </>
               ) : null}
             </nav>
           </div>
@@ -136,6 +145,15 @@ export function Header() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/moderation"
+                        className="cursor-pointer flex items-center gap-2"
+                      >
+                        <ShieldCheck size={16} />
+                        <span>Comment Shield</span>
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link
                         href="/workspace"

@@ -49,6 +49,10 @@ export default function PrivacyPolicy() {
           <li>YouTube video URLs you submit for summarization</li>
           <li>Generated summaries and analysis</li>
           <li>
+            If you use Comment Shield: your connected YouTube channel identity,
+            comments selected for moderation, classifications, and reply drafts
+          </li>
+          <li>
             Technical information (IP address, browser type, device information)
           </li>
         </ul>
@@ -60,6 +64,10 @@ export default function PrivacyPolicy() {
         </h2>
         <ul className="list-disc pl-6 space-y-2">
           <li>To provide and improve our video summarization service</li>
+          <li>
+            To scan YouTube comments you request, prepare moderation drafts, and
+            publish only replies you approve or enable under your saved guardrail
+          </li>
           <li>To personalize your experience</li>
           <li>To communicate with you about your account or our service</li>
           <li>To analyze usage patterns and improve our website</li>
@@ -75,6 +83,12 @@ export default function PrivacyPolicy() {
           We implement appropriate technical and organizational measures to
           protect your personal information. However, no method of transmission
           over the Internet or electronic storage is 100% secure.
+        </p>
+        <p className="mb-4">
+          Google access and refresh tokens used by Comment Shield are encrypted
+          before storage and are not exposed to the browser. Disconnecting
+          YouTube requests token revocation and removes the stored connection and
+          moderation queue.
         </p>
       </section>
 
@@ -122,7 +136,7 @@ export default function PrivacyPolicy() {
       </section>
 
       <footer className="text-sm text-text-muted">
-        Last updated: {new Date().toLocaleDateString()}
+        Last updated: August 31, 2026
       </footer>
     </div>
   );

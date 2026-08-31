@@ -43,6 +43,11 @@ never activates a model. Durable queue requests bind that exact activation,
 so switching or retiring a model cannot run stale work.
 | `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
+| `GOOGLE_YOUTUBE_CLIENT_ID` | server only | Google OAuth web client used by Comment Shield. |
+| `GOOGLE_YOUTUBE_CLIENT_SECRET` | server only | Secret for the Comment Shield OAuth client. |
+| `YOUTUBE_OAUTH_REDIRECT_URI` | server only | Exact registered callback; defaults to the current origin plus `/api/youtube/oauth/callback`. |
+| `YOUTUBE_OAUTH_STATE_SECRET` | server only | 32+ character HMAC key that binds OAuth callbacks to a signed-in user. |
+| `YOUTUBE_TOKEN_ENCRYPTION_KEY` | server only | 32+ character key material for AES-GCM encryption of Google provider tokens. |
 
 The dormant 56-call Semantic Profile evidence command and mandatory
 human-review handoff are documented in
@@ -175,3 +180,16 @@ supabase/migrations/                DB schema + RPCs
 ## Feedback
 
 File issues against this repo. The frontend hits same-origin `/api/*` — no backend pointer is required anymore.
+
+## Comment Shield
+
+Authenticated users can connect a YouTube channel at `/moderation`, scan recent
+comments on their own channel, or scan replies under a comment they left on a
+specific video. The classifier deliberately separates personal attacks from
+ordinary criticism. Replies require approval by default; an explicit setting
+can publish only high-confidence `hostile` results, with a cap of three replies
+per manual scan.
+
+Setup, API quota costs, storage boundaries, and the Google OAuth verification
+requirement are documented in
+[`docs/comment-shield.md`](docs/comment-shield.md).
