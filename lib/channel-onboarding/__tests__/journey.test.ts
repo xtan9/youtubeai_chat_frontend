@@ -4,6 +4,7 @@ import { type ChannelAccessContext } from "../access";
 import {
   beginChannelOnboarding,
   completeChannelOnboarding,
+  planChannelOnboardingAuthorization,
   type ChannelConnectionPersistence,
 } from "../journey";
 import {
@@ -132,6 +133,30 @@ describe("Channel onboarding journey", () => {
     expect(beginChannelOnboarding(ACCESS)).toEqual({
       kind: "blocked",
       reason: "compliance_clearance_required",
+    });
+  });
+
+  it("binds the onboarding authorization request to the read-only scope", () => {
+    expect(
+      planChannelOnboardingAuthorization({
+        access: ACCESS,
+        gates: GATES,
+        userInitiated: true,
+      }),
+    ).toEqual({
+      kind: "authorization_required",
+      action: "connect",
+      scopes: [YOUTUBE_READONLY_SCOPE],
+    });
+    expect(
+      planChannelOnboardingAuthorization({
+        access: ACCESS,
+        gates: GATES,
+        userInitiated: false,
+      }),
+    ).toEqual({
+      kind: "blocked",
+      reason: "explicit_user_action_required",
     });
   });
 

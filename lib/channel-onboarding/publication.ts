@@ -4,8 +4,21 @@ import {
   type ChannelAccessDecision,
   type ConnectedChannelReference,
 } from "./access";
+import {
+  authorizeChannelLifecycleAction,
+  authorizeProductReplyDeletion,
+  type ChannelLifecycleRecord,
+  type ChannelReplyControl,
+} from "../channel/lifecycle";
+import { hashCommentText as hashCanonicalCommentText } from "../channel/publication";
+import {
+  authorizePublicReplyGovernance,
+  type PublicReplyPublicationGovernance,
+} from "./publication-gates";
 import type { ChannelWorkBinding } from "./records";
 import { z } from "zod";
+
+export const PUBLIC_REPLY_DAILY_LIMIT = 10 as const;
 
 export type ChannelPublicationPreflight = Readonly<{
   access: ChannelAccessContext;
@@ -18,6 +31,7 @@ export type ChannelPublicationPreflight = Readonly<{
   finalTextValidated: boolean;
   remainingDailyPublications: number | null;
   exclusiveItemClaimed: boolean;
+  lifecycle?: ChannelLifecycleRecord;
 }>;
 
 type PublicationDeniedReason =
@@ -49,6 +63,10 @@ export type ChannelPublicationDecision =
 
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function denied(
@@ -125,7 +143,8 @@ export function authorizeChannelPublication(
   if (
     typeof remainingDailyPublications !== "number" ||
     !Number.isInteger(remainingDailyPublications) ||
-    remainingDailyPublications < 1
+    remainingDailyPublications < 1 ||
+    remainingDailyPublications > PUBLIC_REPLY_DAILY_LIMIT
   ) {
     return denied("publication_allowance_unavailable");
   }
@@ -158,12 +177,29 @@ const ReplyFailureSchema = z
   .refine((value) => value.trim().length > 0);
 const ReplyInstantSchema = z.string().datetime({ offset: true });
 
+export const PublicReplyNestedIdentitySchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("verified"),
+      providerAuthorId: ReplyIdSchema,
+      displayName: z.string().trim().min(1).max(100),
+    })
+    .strict(),
+  z.object({ status: z.literal("missing") }).strict(),
+  z.object({ status: z.literal("ambiguous") }).strict(),
+]);
+export type PublicReplyNestedIdentity = z.infer<
+  typeof PublicReplyNestedIdentitySchema
+>;
+
 export const PublicReplyTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("top_level") }).strict(),
   z
     .object({
       kind: z.literal("nested"),
       parentCommentId: ReplyIdSchema,
+      /** Provider author identity is never part of model input. */
+      identity: PublicReplyNestedIdentitySchema.optional(),
     })
     .strict(),
 ]);
@@ -366,10 +402,16 @@ export type PublicReplyDeletionProviderResult = z.infer<
 
 export type PublicReplyProviderRequest = Readonly<{
   controlId: string;
+  ownerId: string;
+  channelId: string;
+  connectedChannelId: string;
+  grantId: string;
   providerReplyId: string | null;
   commentId: string;
   parentCommentId: string;
   videoId: string;
+  /** Non-null only for the single insert attempt. */
+  text: string | null;
 }>;
 
 /**
@@ -378,10 +420,14 @@ export type PublicReplyProviderRequest = Readonly<{
  * is suitable for contract tests and cannot access real comments.
  */
 export interface PublicReplyLifecycleProvider {
-  readonly kind: "synthetic" | "separately_governed";
+  readonly kind: "synthetic" | "youtube";
+  insert?(request: PublicReplyProviderRequest): Promise<unknown>;
   recheck?(request: PublicReplyProviderRequest): Promise<unknown>;
   read?(request: PublicReplyProviderRequest): Promise<unknown>;
   delete?(request: PublicReplyProviderRequest): Promise<unknown>;
+  isAvailable?(
+    operation: "publish" | "reconcile" | "open" | "delete",
+  ): boolean;
 }
 
 export interface PublicReplyLifecycleStore {
@@ -418,6 +464,46 @@ export type PublicReplyDeletionAuthorization = Readonly<{
   grantStatus: "active" | "revoked";
   provenanceRefreshed: boolean;
 }>;
+
+export type PublicReplyPublishingIdentity = Readonly<{
+  provider: "youtube";
+  connectedChannelId: string;
+  grantId: string;
+  providerChannelId: string;
+  displayName: string;
+}>;
+
+export type PublicReplyTargetPlan = Readonly<{
+  kind: "normal_thread_reply" | "sibling_thread_reply";
+  parentCommentId: string;
+  prefix: string | null;
+  publishedText: string;
+}>;
+
+export type PublicReplyTargetResolution =
+  | Readonly<{ kind: "publish"; plan: PublicReplyTargetPlan }>
+  | Readonly<{
+      kind: "open_in_youtube";
+      reason: "nested_identity_unavailable";
+      url: string;
+    }>;
+
+export type PublicReplyPublicationConfirmation =
+  | Readonly<{
+      kind: "confirmation";
+      currentComment: Readonly<{
+        id: string;
+        text: string;
+        hash: string;
+      }>;
+      video: PublicReplyVideo;
+      publishingIdentity: PublicReplyPublishingIdentity;
+      finalText: string;
+      publishedText: string;
+      target: Omit<PublicReplyTargetPlan, "publishedText">;
+      explicitConfirmation: true;
+    }>
+  | Extract<PublicReplyTargetResolution, { kind: "open_in_youtube" }>;
 
 export type BeginPublicReplyPublicationResult =
   | Readonly<{
@@ -464,6 +550,60 @@ export type CompletePublicReplyPublicationResult =
         | "already_deleted";
     }>;
 
+export type PublishPublicReplyResult =
+  | Readonly<{
+      outcome: "published";
+      record: PublicReplyControlRecord;
+      reply: PublicReplyProviderReply;
+      retryAllowed: false;
+      confirmation: Extract<
+        PublicReplyPublicationConfirmation,
+        { kind: "confirmation" }
+      >;
+    }>
+  | Readonly<{
+      outcome: "publication_uncertain";
+      reason: string;
+      retryAllowed: false;
+      confirmation: Extract<
+        PublicReplyPublicationConfirmation,
+        { kind: "confirmation" }
+      >;
+    }>
+  | Readonly<{
+      outcome: "rejected";
+      reason: string;
+      retryAllowed: true;
+      confirmation: Extract<
+        PublicReplyPublicationConfirmation,
+        { kind: "confirmation" }
+      >;
+    }>
+  | Readonly<{
+      outcome: "open_in_youtube";
+      reason: "nested_identity_unavailable";
+      url: string;
+    }>
+  | Readonly<{
+      outcome: "blocked";
+      reason:
+        | "reply_not_found"
+        | "publication_not_in_flight"
+        | "publication_reconciliation_required"
+        | "already_published"
+        | "already_deleted"
+        | "publication_in_flight"
+        | "publication_not_retryable"
+        | "publication_claim_lost"
+        | "publication_authorization_failed"
+        | "external_integration_blocked"
+        | "lifecycle_blocked"
+        | "publication_governance_failed";
+      governanceReason?: string;
+      lifecycleReason?: string;
+      authorization?: ChannelPublicationDecision;
+    }>;
+
 export type ReconcilePublicReplyResult =
   | Readonly<{
       outcome: "verified_presence";
@@ -488,7 +628,8 @@ export type ReconcilePublicReplyResult =
       reason:
         | "reply_not_found"
         | "reconciliation_not_required"
-        | "provider_unavailable";
+        | "provider_unavailable"
+        | "lifecycle_blocked";
     }>;
 
 export type OpenPublishedPublicReplyResult =
@@ -515,7 +656,8 @@ export type OpenPublishedPublicReplyResult =
       reason:
         | "reply_not_found"
         | "published_reply_required"
-        | "provider_unavailable";
+        | "provider_unavailable"
+        | "lifecycle_blocked";
     }>;
 
 export type DeletePublicReplyResult =
@@ -572,10 +714,12 @@ function isProviderReplyForRecord(
 function isProviderReplyIdentityCompatible(
   reply: PublicReplyProviderReply,
   record: PublicReplyControlRecord,
+  expectedText?: string,
 ): boolean {
   return (
     isProviderReplyForRecord(reply, record) &&
-    (!record.providerReplyId || record.providerReplyId === reply.replyId)
+    (!record.providerReplyId || record.providerReplyId === reply.replyId) &&
+    (expectedText === undefined || reply.text === expectedText)
   );
 }
 
@@ -630,7 +774,7 @@ function buildObservedFields(
   | "lastObservedAt"
   | "externallyEdited"
 > {
-  const originalText = record.publishedText ?? record.finalText;
+  const originalText = intendedPublishedText(record);
   return {
     providerReplyId: reply.replyId,
     lastObservedText: reply.text,
@@ -643,6 +787,10 @@ function buildObservedFields(
 function providerRequest(record: PublicReplyControlRecord): PublicReplyProviderRequest {
   return {
     controlId: record.id,
+    ownerId: record.ownerId,
+    channelId: record.channelId,
+    connectedChannelId: record.connectedChannelId,
+    grantId: record.grantId,
     providerReplyId: record.providerReplyId,
     commentId: record.source.commentId,
     parentCommentId:
@@ -650,33 +798,163 @@ function providerRequest(record: PublicReplyControlRecord): PublicReplyProviderR
         ? record.source.target.parentCommentId
         : record.source.commentId,
     videoId: record.source.video.id,
+    text: null,
   };
 }
 
+function intendedPublishedText(record: PublicReplyControlRecord): string {
+  if (record.publishedText) return record.publishedText;
+  const target = resolvePublicReplyTarget({ record });
+  return target.kind === "publish" ? target.plan.publishedText : record.finalText;
+}
+
+function currentDate(now: (() => Date) | undefined): Date | null {
+  try {
+    const value = now?.() ?? new Date();
+    return value instanceof Date && Number.isFinite(value.getTime())
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function currentTimestamp(now: (() => Date) | undefined): string | null {
-  const value = now?.() ?? new Date();
-  return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  return currentDate(now)?.toISOString() ?? null;
 }
 
 /**
- * A small deterministic hash used only for synthetic provenance comparisons.
- * Production adapters must supply the provider's policy-approved comment
- * hash; this helper never contacts a provider or acts as a write credential.
+ * Use the same exact-text SHA-256 provenance hash as review decisions. This
+ * helper never contacts a provider or acts as a write credential.
  */
-export function hashCommentText(value: string): string {
-  const text = value;
-  let hash = 2_166_136_261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, "0")}`;
-}
+export const hashCommentText = hashCanonicalCommentText;
 
 export function buildYouTubeReplyUrl(videoId: string, replyId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(
     videoId,
   )}&lc=${encodeURIComponent(replyId)}`;
+}
+
+function isProviderAvailable(
+  provider: PublicReplyLifecycleProvider,
+  operation: "publish" | "reconcile" | "open" | "delete",
+): boolean {
+  try {
+    return provider.kind === "synthetic"
+      ? true
+      : provider.kind === "youtube" &&
+          provider.isAvailable?.(operation) === true;
+  } catch {
+    return false;
+  }
+}
+
+function hasUsableNestedIdentity(
+  identity: PublicReplyNestedIdentity | undefined,
+): identity is Extract<PublicReplyNestedIdentity, { status: "verified" }> {
+  const parsed = PublicReplyNestedIdentitySchema.safeParse(identity);
+  return Boolean(
+    parsed.success &&
+      parsed.data.status === "verified" &&
+      hasText(parsed.data.providerAuthorId) &&
+      hasText(parsed.data.displayName),
+  );
+}
+
+function isPublishingIdentityCompatible(
+  record: PublicReplyControlRecord,
+  identity: PublicReplyPublishingIdentity,
+): boolean {
+  return (
+    isRecord(identity) &&
+    identity.provider === "youtube" &&
+    hasText(identity.connectedChannelId) &&
+    hasText(identity.grantId) &&
+    hasText(identity.providerChannelId) &&
+    hasText(identity.displayName) &&
+    identity.connectedChannelId === record.connectedChannelId &&
+    identity.grantId === record.grantId
+  );
+}
+
+function isLifecycleBoundToRecord(
+  record: PublicReplyControlRecord,
+  lifecycle: ChannelLifecycleRecord,
+): boolean {
+  return (
+    isRecord(lifecycle) &&
+    lifecycle.ownerId === record.ownerId &&
+    lifecycle.channelId === record.channelId &&
+    lifecycle.connectedChannelId === record.connectedChannelId &&
+    lifecycle.grantId === record.grantId
+  );
+}
+
+/**
+ * Resolve the target only after model generation. A missing or ambiguous
+ * nested identity is deliberately an Open-in-YouTube outcome, never a guess.
+ */
+export function resolvePublicReplyTarget(input: Readonly<{
+  record: PublicReplyControlRecord;
+}>): PublicReplyTargetResolution {
+  const { record } = input;
+  if (record.source.target.kind === "top_level") {
+    return {
+      kind: "publish",
+      plan: {
+        kind: "normal_thread_reply",
+        parentCommentId: record.source.commentId,
+        prefix: null,
+        publishedText: record.finalText,
+      },
+    };
+  }
+
+  if (!hasUsableNestedIdentity(record.source.target.identity)) {
+    return {
+      kind: "open_in_youtube",
+      reason: "nested_identity_unavailable",
+      url: buildYouTubeReplyUrl(record.source.video.id, record.source.commentId),
+    };
+  }
+
+  const prefix = `@${record.source.target.identity.displayName} `;
+  return {
+    kind: "publish",
+    plan: {
+      kind: "sibling_thread_reply",
+      parentCommentId: record.source.target.parentCommentId,
+      prefix,
+      publishedText: `${prefix}${record.finalText}`,
+    },
+  };
+}
+
+export function buildPublicReplyPublicationConfirmation(input: Readonly<{
+  record: PublicReplyControlRecord;
+  publishingIdentity: PublicReplyPublishingIdentity;
+}>): PublicReplyPublicationConfirmation {
+  const target = resolvePublicReplyTarget({ record: input.record });
+  if (target.kind === "open_in_youtube") return target;
+
+  return {
+    kind: "confirmation",
+    currentComment: {
+      id: input.record.source.commentId,
+      text: input.record.source.commentText,
+      hash: input.record.source.commentHash,
+    },
+    video: input.record.source.video,
+    publishingIdentity: input.publishingIdentity,
+    finalText: input.record.finalText,
+    publishedText: target.plan.publishedText,
+    target: {
+      kind: target.plan.kind,
+      parentCommentId: target.plan.parentCommentId,
+      prefix: target.plan.prefix,
+    },
+    explicitConfirmation: true,
+  };
 }
 
 export function isPublicReplyPublicationRetryable(
@@ -780,6 +1058,7 @@ export async function completePublicReplyPublication(input: Readonly<{
   store: PublicReplyLifecycleStore;
   replyId: string;
   providerResult: unknown;
+  expectedPublishedText?: string;
   now?: () => Date;
 }>): Promise<CompletePublicReplyPublicationResult> {
   const record = await input.store.get(input.replyId);
@@ -863,11 +1142,18 @@ export async function completePublicReplyPublication(input: Readonly<{
 
   if (
     !timestamp ||
-    !isProviderReplyIdentityCompatible(parsed.data.reply, record)
+    !isProviderReplyIdentityCompatible(
+      parsed.data.reply,
+      record,
+      input.expectedPublishedText,
+    )
   ) {
     const reason = !timestamp
       ? "publication completion timestamp was invalid"
-      : "provider reply identity did not match the requested comment";
+      : input.expectedPublishedText !== undefined &&
+          parsed.data.reply.text !== input.expectedPublishedText
+        ? "provider reply text did not match the confirmed publication"
+        : "provider reply identity did not match the requested comment";
     try {
       await savePublicationUncertainty(input.store, record, reason, timestamp);
     } catch {
@@ -876,10 +1162,16 @@ export async function completePublicReplyPublication(input: Readonly<{
     return { outcome: "publication_uncertain", reason, retryAllowed: false };
   }
 
-  const observed = buildObservedFields(record, parsed.data.reply, timestamp);
+  const publishedText =
+    input.expectedPublishedText ?? intendedPublishedText(record);
+  const observed = buildObservedFields(
+    { ...record, publishedText },
+    parsed.data.reply,
+    timestamp,
+  );
   const published = advanceRecord(record, {
     status: "published",
-    publishedText: record.finalText,
+    publishedText,
     publishedAt: timestamp,
     ...observed,
     publicationFailure: null,
@@ -917,6 +1209,150 @@ export async function completePublicReplyPublication(input: Readonly<{
   };
 }
 
+/**
+ * Publish one user-confirmed reply through the governed YouTube adapter. The
+ * lifecycle claim is the last local step before the single `insert` call; a
+ * missing gate, lifecycle, review, safety, or exact-text check returns before
+ * the claim and therefore cannot spend an allowance or contact a provider.
+ */
+export async function publishPublicReply(input: Readonly<{
+  store: PublicReplyLifecycleStore;
+  provider: PublicReplyLifecycleProvider;
+  replyId: string;
+  preflight: ChannelPublicationPreflight;
+  governance: PublicReplyPublicationGovernance | null | undefined;
+  lifecycle: ChannelLifecycleRecord;
+  publishingIdentity: PublicReplyPublishingIdentity;
+  now?: () => Date;
+}>): Promise<PublishPublicReplyResult> {
+  if (
+    input.provider.kind !== "youtube" ||
+    !isProviderAvailable(input.provider, "publish") ||
+    typeof input.provider.insert !== "function"
+  ) {
+    return { outcome: "blocked", reason: "external_integration_blocked" };
+  }
+
+  const now = currentDate(input.now);
+  if (!now) {
+    return { outcome: "blocked", reason: "publication_authorization_failed" };
+  }
+
+  const current = await input.store.get(input.replyId);
+  if (!current) return { outcome: "blocked", reason: "reply_not_found" };
+  if (!isCoherentPublicReplyControlRecord(current)) {
+    return {
+      outcome: "blocked",
+      reason: "publication_authorization_failed",
+    };
+  }
+  if (!isLifecycleBoundToRecord(current, input.lifecycle)) {
+    return {
+      outcome: "blocked",
+      reason: "lifecycle_blocked",
+      lifecycleReason: "lifecycle identity does not match the reply control",
+    };
+  }
+  const lifecycleDecision = authorizeChannelLifecycleAction({
+    action: "publication",
+    access: input.preflight.access,
+    lifecycle: input.lifecycle,
+    now,
+  });
+  if (!lifecycleDecision.allowed) {
+    return {
+      outcome: "blocked",
+      reason: "lifecycle_blocked",
+      lifecycleReason: lifecycleDecision.reason,
+    };
+  }
+  if (!isPublishingIdentityCompatible(current, input.publishingIdentity)) {
+    return {
+      outcome: "blocked",
+      reason: "publication_governance_failed",
+      governanceReason: "publishing identity is not bound to this grant",
+    };
+  }
+  if (
+    !input.governance ||
+    current.finalText !== input.governance.finalText
+  ) {
+    return {
+      outcome: "blocked",
+      reason: "publication_governance_failed",
+      governanceReason: "confirmed final text no longer matches the draft",
+    };
+  }
+
+  const confirmation = buildPublicReplyPublicationConfirmation({
+    record: current,
+    publishingIdentity: input.publishingIdentity,
+  });
+  if (confirmation.kind === "open_in_youtube") {
+    return {
+      outcome: "open_in_youtube",
+      reason: confirmation.reason,
+      url: confirmation.url,
+    };
+  }
+
+  const governanceDecision = authorizePublicReplyGovernance({
+    governance: input.governance,
+    binding: current.work,
+    renderedText: confirmation.publishedText,
+    now,
+  });
+  if (!governanceDecision.allowed) {
+    return {
+      outcome: "blocked",
+      reason: "publication_governance_failed",
+      governanceReason: governanceDecision.reason,
+    };
+  }
+
+  const begun = await beginPublicReplyPublication({
+    store: input.store,
+    replyId: input.replyId,
+    preflight: input.preflight,
+  });
+  if (begun.outcome !== "attempt_started") {
+    return begun;
+  }
+
+  const request: PublicReplyProviderRequest = {
+    ...providerRequest(begun.record),
+    parentCommentId: confirmation.target.parentCommentId,
+    text: confirmation.publishedText,
+  };
+  let providerResult: unknown;
+  try {
+    providerResult = await input.provider.insert(request);
+  } catch {
+    providerResult = {
+      kind: "ambiguous",
+      reason: "provider insert was unavailable",
+    };
+  }
+
+  const completed = await completePublicReplyPublication({
+    store: input.store,
+    replyId: input.replyId,
+    providerResult,
+    expectedPublishedText: confirmation.publishedText,
+    now: () => now,
+  });
+  if (completed.outcome === "published") {
+    return { ...completed, confirmation };
+  }
+  if (completed.outcome === "rejected") {
+    return { ...completed, confirmation };
+  }
+  if (completed.outcome === "publication_uncertain") {
+    return { ...completed, confirmation };
+  }
+  return completed;
+}
+
 async function continuedUncertainty(
   store: PublicReplyLifecycleStore,
   record: PublicReplyControlRecord,
@@ -947,6 +1383,9 @@ export async function reconcilePublicReply(input: Readonly<{
   store: PublicReplyLifecycleStore;
   provider: PublicReplyLifecycleProvider;
   replyId: string;
+  /** Required for the governed YouTube path; synthetic reads remain offline. */
+  access?: ChannelAccessContext;
+  lifecycle?: ChannelLifecycleRecord;
   now?: () => Date;
 }>): Promise<ReconcilePublicReplyResult> {
   const record = await input.store.get(input.replyId);
@@ -961,7 +1400,25 @@ export async function reconcilePublicReply(input: Readonly<{
   if (record.status !== "publication_uncertain") {
     return { outcome: "blocked", reason: "reconciliation_not_required" };
   }
-  if (input.provider.kind !== "synthetic" || typeof input.provider.recheck !== "function") {
+  if (input.provider.kind === "youtube") {
+    const now = currentDate(input.now);
+    if (!input.access || !input.lifecycle || !now || !isLifecycleBoundToRecord(record, input.lifecycle)) {
+      return { outcome: "blocked", reason: "lifecycle_blocked" };
+    }
+    const lifecycleDecision = authorizeChannelLifecycleAction({
+      action: "inspect",
+      access: input.access,
+      lifecycle: input.lifecycle,
+      now,
+    });
+    if (!lifecycleDecision.allowed) {
+      return { outcome: "blocked", reason: "lifecycle_blocked" };
+    }
+  }
+  if (
+    !isProviderAvailable(input.provider, "reconcile") ||
+    typeof input.provider.recheck !== "function"
+  ) {
     return { outcome: "blocked", reason: "provider_unavailable" };
   }
 
@@ -1054,7 +1511,7 @@ export async function reconcilePublicReply(input: Readonly<{
   const published = advanceRecord(record, {
     status: "published",
     ...observed,
-    publishedText: record.publishedText ?? record.finalText,
+    publishedText: record.publishedText ?? intendedPublishedText(record),
     publishedAt: record.publishedAt ?? timestamp,
     publicationFailure: null,
     publicationRetryAuthorizedBy: null,
@@ -1088,6 +1545,9 @@ export async function openPublishedPublicReply(input: Readonly<{
   store: PublicReplyLifecycleStore;
   provider: PublicReplyLifecycleProvider;
   replyId: string;
+  /** Required for the governed YouTube path; synthetic reads remain offline. */
+  access?: ChannelAccessContext;
+  lifecycle?: ChannelLifecycleRecord;
   now?: () => Date;
 }>): Promise<OpenPublishedPublicReplyResult> {
   const record = await input.store.get(input.replyId);
@@ -1098,7 +1558,25 @@ export async function openPublishedPublicReply(input: Readonly<{
   if (record.status !== "published" || !record.providerReplyId) {
     return { outcome: "blocked", reason: "published_reply_required" };
   }
-  if (input.provider.kind !== "synthetic" || typeof input.provider.read !== "function") {
+  if (input.provider.kind === "youtube") {
+    const now = currentDate(input.now);
+    if (!input.access || !input.lifecycle || !now) {
+      return { outcome: "blocked", reason: "lifecycle_blocked" };
+    }
+    const lifecycleDecision = authorizeProductReplyDeletion({
+      access: input.access,
+      lifecycle: input.lifecycle,
+      replyControl: channelReplyControlFromRecord(record),
+      now,
+    });
+    if (!lifecycleDecision.allowed) {
+      return { outcome: "blocked", reason: "lifecycle_blocked" };
+    }
+  }
+  if (
+    !isProviderAvailable(input.provider, "open") ||
+    typeof input.provider.read !== "function"
+  ) {
     return { outcome: "blocked", reason: "provider_unavailable" };
   }
 
@@ -1171,7 +1649,7 @@ export async function openPublishedPublicReply(input: Readonly<{
       externallyEdited: false,
     };
   }
-  const originalText = record.publishedText ?? record.finalText;
+  const originalText = intendedPublishedText(record);
   return {
     outcome: "opened",
     url: buildYouTubeReplyUrl(record.source.video.id, parsed.data.reply.replyId),
@@ -1198,6 +1676,31 @@ function deletionAuthorizationMatches(
   );
 }
 
+function channelReplyControlFromRecord(
+  record: PublicReplyControlRecord,
+): ChannelReplyControl | null {
+  if (
+    record.status !== "published" ||
+    !record.providerReplyId ||
+    !record.publishedAt
+  ) {
+    return null;
+  }
+  return {
+    id: record.id,
+    ownerId: record.ownerId,
+    channelId: record.channelId,
+    connectedChannelId: record.connectedChannelId,
+    grantId: record.grantId,
+    providerReplyId: record.providerReplyId,
+    commentId: record.source.commentId,
+    commentHash: record.source.commentHash,
+    publishedAt: record.publishedAt,
+    lastRefreshedAt: record.lastObservedAt ?? record.publishedAt,
+    status: "active",
+  };
+}
+
 async function saveDeletionUncertainty(
   store: PublicReplyLifecycleStore,
   record: PublicReplyControlRecord,
@@ -1222,6 +1725,9 @@ export async function deletePublicReply(input: Readonly<{
   provider: PublicReplyLifecycleProvider;
   replyId: string;
   authorization: PublicReplyDeletionAuthorization;
+  /** Required when the provider is the governed YouTube adapter. */
+  access?: ChannelAccessContext;
+  lifecycle?: ChannelLifecycleRecord;
   confirmation: boolean;
   now?: () => Date;
 }>): Promise<DeletePublicReplyResult> {
@@ -1265,7 +1771,33 @@ export async function deletePublicReply(input: Readonly<{
       completionReported: false,
     };
   }
-  if (input.provider.kind !== "synthetic" || typeof input.provider.delete !== "function") {
+  if (input.provider.kind === "youtube") {
+    const now = currentDate(input.now);
+    if (!input.lifecycle || !input.access || !now) {
+      return {
+        outcome: "blocked",
+        reason: "deletion_authorization_required",
+        completionReported: false,
+      };
+    }
+    const lifecycleDecision = authorizeProductReplyDeletion({
+      access: input.access,
+      lifecycle: input.lifecycle,
+      replyControl: channelReplyControlFromRecord(record),
+      now,
+    });
+    if (!lifecycleDecision.allowed) {
+      return {
+        outcome: "blocked",
+        reason: "deletion_authorization_required",
+        completionReported: false,
+      };
+    }
+  }
+  if (
+    !isProviderAvailable(input.provider, "delete") ||
+    typeof input.provider.delete !== "function"
+  ) {
     return {
       outcome: "blocked",
       reason: "provider_unavailable",
@@ -1485,9 +2017,12 @@ export function createInMemoryPublicReplyLifecycleStore(input: Readonly<{
 }>): InMemoryPublicReplyLifecycleStore {
   if (
     !Number.isInteger(input.remainingDailyPublications) ||
-    input.remainingDailyPublications < 0
+    input.remainingDailyPublications < 0 ||
+    input.remainingDailyPublications > PUBLIC_REPLY_DAILY_LIMIT
   ) {
-    throw new Error("remainingDailyPublications must be a non-negative integer");
+    throw new Error(
+      `remainingDailyPublications must be an integer from 0 to ${PUBLIC_REPLY_DAILY_LIMIT}`,
+    );
   }
   const records = new Map<string, PublicReplyControlRecord>();
   let remainingDailyPublications = input.remainingDailyPublications;
