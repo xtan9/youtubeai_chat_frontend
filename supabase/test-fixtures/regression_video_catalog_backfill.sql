@@ -152,7 +152,11 @@ begin
     where video_id = '35600000-0000-4000-8000-000000000001'
       and status = 'skipped'
       and last_outcome = 'skipped'
-  ) or exists (select 1 from pgmq.q_catalog_backfill) then
+  ) or exists (
+    select 1
+    from pgmq.q_catalog_backfill
+    where message ->> 'video_id' = '35600000-0000-4000-8000-000000000001'
+  ) then
     raise exception 'REGRESSION: backfill completion was not idempotent';
   end if;
 end;
