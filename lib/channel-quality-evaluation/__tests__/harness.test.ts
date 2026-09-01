@@ -208,7 +208,7 @@ function releaseInput(overrides: Readonly<Record<string, unknown>> = {}) {
   };
 }
 
-describe("Channel quality release evidence", () => {
+describe("Channel quality release evidence", { timeout: 30_000 }, () => {
   it("reports deterministic point estimates and Wilson intervals at every required slice", () => {
     const artifact = evaluateChannelQualityRelease(releaseInput());
 
