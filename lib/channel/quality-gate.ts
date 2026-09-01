@@ -2,6 +2,21 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import {
+  CHANNEL_QUALITY_CLASSIFICATIONS,
+  CHANNEL_QUALITY_EVALUATION_ARTIFACT_VERSION,
+  CHANNEL_QUALITY_EVALUATOR_VERSION,
+  CHANNEL_QUALITY_GATE_THRESHOLDS,
+  CHANNEL_QUALITY_MINIMUMS,
+  CHANNEL_QUALITY_REQUIRED_CROSS_CUTS,
+  CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
+  CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
+  ChannelQualityVersionTupleSchema,
+  canonicalChannelQualityJson as canonicalJson,
+  verifyChannelQualityEvaluationFingerprint,
+} from "../channel-quality-evaluation";
+import type { ChannelQualityEvaluationArtifact } from "../channel-quality-evaluation";
+
+import {
   ADVERSARIAL_ITEM_KINDS,
   CHANNEL_ENGLISH_BLIND_CORPUS_ID,
   CHANNEL_EVALUATION_POLICY_VERSION,
@@ -26,12 +41,7 @@ export const CHANNEL_QUALITY_GATE_INPUT_VERSION =
 export const CHANNEL_QUALITY_GATE_REPORT_VERSION =
   "channel-quality-gate-report-v1" as const;
 
-export const CHANNEL_EVALUATION_LANGUAGES = [
-  "english",
-  "simplified_chinese",
-  "traditional_chinese",
-  "chinese_english_code_switch",
-] as const;
+export const CHANNEL_EVALUATION_LANGUAGES = CHANNEL_QUALITY_SUPPORTED_LANGUAGES;
 export type ChannelQualityLanguage = (typeof CHANNEL_EVALUATION_LANGUAGES)[number];
 export const ChannelQualityLanguageSchema = z.enum(CHANNEL_EVALUATION_LANGUAGES);
 
@@ -51,19 +61,19 @@ export const CHANNEL_EVALUATION_CORPORA = [
     corpusId: "channel-simplified-chinese-blind-v1",
     corpusVersion: "v1",
     manifestPath:
-      "docs/channel-evaluation/simplified-chinese-blind-corpus-manifest.json",
+      "docs/evaluation/channel/simplified-chinese-blind-corpus.manifest.json",
     approvalEvidencePath:
-      "docs/compliance/channel-simplified-chinese-blind-corpus-approval.json",
+      "docs/evaluation/channel/simplified-chinese-blind-corpus-approval-freeze-evidence.json",
   },
   {
     issueNumber: 485,
     language: "traditional_chinese",
     corpusId: "channel-traditional-chinese-blind-v1",
-    corpusVersion: "v1",
+    corpusVersion: "traditional-chinese-blind-evaluation-v1",
     manifestPath:
-      "docs/channel-evaluation/traditional-chinese-blind-corpus-manifest.json",
+      "test-fixtures/channel-evaluation-corpus/traditional-chinese-blind.manifest.json",
     approvalEvidencePath:
-      "docs/compliance/channel-traditional-chinese-blind-corpus-approval.json",
+      "test-fixtures/channel-evaluation-corpus/traditional-chinese-blind.manifest.json",
   },
   {
     issueNumber: 486,
@@ -80,16 +90,36 @@ export const CHANNEL_EVALUATION_CORPORA = [
 const HashSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const RevisionSchema = z.string().regex(/^[a-f0-9]{40,64}$/u);
 const NonEmptyStringSchema = z.string().trim().min(1).max(500);
+const ConcreteVersionSchema = NonEmptyStringSchema.refine(
+  (value) =>
+    !["latest", "current", "unknown", "unversioned", "pending", "todo"].includes(
+      value.toLowerCase(),
+    ),
+  "version must be concrete and non-placeholder",
+);
+const InstantSchema = z.string().datetime({ offset: true });
+const NonnegativeIntegerSchema = z.number().int().nonnegative();
+const ProportionSchema = z.number().min(0).max(1);
+
+const strictKeyedObject = (
+  keys: readonly string[],
+  valueSchema: z.ZodTypeAny,
+) =>
+  z
+    .object(
+      Object.fromEntries(keys.map((key) => [key, valueSchema])),
+    )
+    .strict();
 
 export const ChannelQualityGateTupleSchema = z
   .object({
-    modelIdentifier: NonEmptyStringSchema,
-    assessmentPromptVersion: NonEmptyStringSchema,
-    assessmentSchemaVersion: NonEmptyStringSchema,
-    taxonomyVersion: NonEmptyStringSchema,
-    draftPromptVersion: NonEmptyStringSchema,
-    draftSchemaVersion: NonEmptyStringSchema,
-    draftValidatorVersion: NonEmptyStringSchema,
+    modelIdentifier: ConcreteVersionSchema,
+    assessmentPromptVersion: ConcreteVersionSchema,
+    assessmentSchemaVersion: ConcreteVersionSchema,
+    taxonomyVersion: ConcreteVersionSchema,
+    draftPromptVersion: ConcreteVersionSchema,
+    draftSchemaVersion: ConcreteVersionSchema,
+    draftValidatorVersion: ConcreteVersionSchema,
     tupleFingerprint: HashSchema,
   })
   .strict();
@@ -99,6 +129,247 @@ export type ChannelQualityGateTuple = z.infer<
 export type ChannelQualityGateTupleFields = Omit<
   ChannelQualityGateTuple,
   "tupleFingerprint"
+>;
+
+const HarnessRateSchema = z
+  .object({
+    successes: NonnegativeIntegerSchema,
+    trials: z.number().int().positive(),
+    estimate: ProportionSchema,
+    interval95: z
+      .object({
+        lower: ProportionSchema,
+        upper: ProportionSchema,
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((rate, context) => {
+    if (rate.successes > rate.trials) {
+      context.addIssue({
+        code: "custom",
+        path: ["successes"],
+        message: "successes cannot exceed trials",
+      });
+    }
+    if (rate.interval95.lower > rate.interval95.upper) {
+      context.addIssue({
+        code: "custom",
+        path: ["interval95"],
+        message: "the Wilson lower bound cannot exceed the upper bound",
+      });
+    }
+  });
+const HarnessValidatorRateSchema = HarnessRateSchema.extend({
+  acceptedUnsafeCount: NonnegativeIntegerSchema,
+  missingExpectedRejectionCount: NonnegativeIntegerSchema,
+}).strict();
+const HarnessMetricSetSchema = z
+  .object({
+    actionableAbusePrecision: HarnessRateSchema.nullable(),
+    allowedCriticismFalsePositiveRate: HarnessRateSchema.nullable(),
+    safetyFlagRecall: HarnessRateSchema.nullable(),
+    safetyFlagDraftSuppression: HarnessRateSchema.nullable(),
+    draftValidator: strictKeyedObject(
+      CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
+      HarnessValidatorRateSchema.nullable(),
+    ),
+  })
+  .strict();
+const HarnessMetricsSchema = z
+  .object({
+    overall: HarnessMetricSetSchema,
+    byLanguage: strictKeyedObject(
+      CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
+      HarnessMetricSetSchema,
+    ),
+    byCrossCut: strictKeyedObject(
+      CHANNEL_QUALITY_REQUIRED_CROSS_CUTS,
+      HarnessMetricSetSchema,
+    ),
+  })
+  .strict();
+const HarnessCompositionPerLanguageSchema = z
+  .object({
+    classification: NonnegativeIntegerSchema,
+    classificationByLabel: strictKeyedObject(
+      CHANNEL_QUALITY_CLASSIFICATIONS,
+      NonnegativeIntegerSchema,
+    ),
+    adversarial: NonnegativeIntegerSchema,
+    validator: NonnegativeIntegerSchema,
+    validatorByCategory: strictKeyedObject(
+      CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
+      NonnegativeIntegerSchema,
+    ),
+    totalClassificationAndAdversarial: NonnegativeIntegerSchema,
+  })
+  .strict();
+const HarnessCompositionSchema = z
+  .object({
+    itemCount: NonnegativeIntegerSchema,
+    perLanguage: strictKeyedObject(
+      CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
+      HarnessCompositionPerLanguageSchema,
+    ),
+    crossCuts: strictKeyedObject(
+      CHANNEL_QUALITY_REQUIRED_CROSS_CUTS,
+      NonnegativeIntegerSchema,
+    ),
+  })
+  .strict();
+const HarnessCorpusReferenceSchema = z
+  .object({
+    manifestVersion: ConcreteVersionSchema,
+    corpusVersion: ConcreteVersionSchema,
+    split: z.enum(["development", "blind"]),
+    state: z.enum(["open", "frozen"]),
+    frozenAt: InstantSchema.nullable(),
+    manifestHash: HashSchema,
+    itemCount: NonnegativeIntegerSchema,
+    dataGovernance: z.enum(["synthetic", "separately_governed"]),
+    governanceReference: NonEmptyStringSchema.nullable(),
+    reviewerProvenance: z
+      .object({
+        protocol: z.literal(
+          "two_independent_reviewers_third_resolves_disagreements",
+        ),
+        reviewerIds: z.array(NonEmptyStringSchema).min(1),
+      })
+      .strict(),
+  })
+  .strict();
+const HarnessThresholdsSchema = z
+  .object({
+    actionableAbusePrecision: z
+      .object({
+        overallPointMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .overallPointMinimum,
+        ),
+        overallLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .overallLowerWilsonMinimum,
+        ),
+        languagePointMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .languagePointMinimum,
+        ),
+        languageLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .languageLowerWilsonMinimum,
+        ),
+      })
+      .strict(),
+    allowedCriticismFalsePositiveRate: z
+      .object({
+        overallPointMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .overallPointMaximum,
+        ),
+        overallUpperWilsonMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .overallUpperWilsonMaximum,
+        ),
+        languagePointMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languagePointMaximum,
+        ),
+        languageUpperWilsonMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languageUpperWilsonMaximum,
+        ),
+      })
+      .strict(),
+    safetyFlagRecall: z
+      .object({
+        overallPointMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+            .overallPointMinimum,
+        ),
+        overallLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+            .overallLowerWilsonMinimum,
+        ),
+        languageLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+            .languageLowerWilsonMinimum,
+        ),
+      })
+      .strict(),
+    safetyFlagDraftSuppression: z
+      .object({
+        minimumSuccessRate: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagDraftSuppression
+            .minimumSuccessRate,
+        ),
+      })
+      .strict(),
+    draftValidator: z
+      .object({
+        minimumRejectionRate: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.draftValidator.minimumRejectionRate,
+        ),
+        maximumAcceptedUnsafeCount: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.draftValidator
+            .maximumAcceptedUnsafeCount,
+        ),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const ChannelQualityHarnessArtifactSchema = z
+  .object({
+    artifactVersion: z.literal(CHANNEL_QUALITY_EVALUATION_ARTIFACT_VERSION),
+    evaluatorVersion: z.literal(CHANNEL_QUALITY_EVALUATOR_VERSION),
+    thresholds: HarnessThresholdsSchema,
+    outcome: z.enum(["passed", "failed"]),
+    evaluatedAt: InstantSchema.nullable(),
+    tupleSelectedAt: InstantSchema.nullable(),
+    sourceRevision: RevisionSchema.nullable(),
+    policyVersion: ConcreteVersionSchema.nullable(),
+    versions: ChannelQualityVersionTupleSchema.nullable(),
+    corpora: z
+      .object({
+        development: HarnessCorpusReferenceSchema.nullable(),
+        blind: HarnessCorpusReferenceSchema.nullable(),
+      })
+      .strict(),
+    composition: z
+      .object({
+        development: HarnessCompositionSchema.nullable(),
+        blind: HarnessCompositionSchema.nullable(),
+      })
+      .strict(),
+    resultSetHash: HashSchema.nullable(),
+    metrics: HarnessMetricsSchema.nullable(),
+    reproducibility: z
+      .object({
+        status: z.enum(["verified", "not_verified"]),
+        inputFingerprint: HashSchema.nullable(),
+      })
+      .strict(),
+    gate: z
+      .object({
+        outcome: z.enum(["passed", "failed"]),
+        failures: z.array(
+          z
+            .object({
+              code: NonEmptyStringSchema,
+              scope: NonEmptyStringSchema,
+              detail: NonEmptyStringSchema,
+              category: NonEmptyStringSchema.optional(),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    evaluationFingerprint: HashSchema,
+  })
+  .strict();
+export type ChannelQualityHarnessArtifact = z.infer<
+  typeof ChannelQualityHarnessArtifactSchema
 >;
 
 export const ChannelQualityGateHarnessEvidenceSchema = z.discriminatedUnion(
@@ -116,10 +387,7 @@ export const ChannelQualityGateHarnessEvidenceSchema = z.discriminatedUnion(
         issueNumber: z.literal(482),
         status: z.literal("available"),
         sourceRevision: RevisionSchema,
-        artifactVersion: NonEmptyStringSchema,
-        reproducible: z.literal(true),
-        blindDataSeparated: z.literal(true),
-        evaluatedOffline: z.literal(true),
+        artifact: ChannelQualityHarnessArtifactSchema,
       })
       .strict(),
   ],
@@ -196,8 +464,48 @@ export const ChannelQualityGateSampleSchema = z
       PROTECTED_GROUP_CROSS_CUTS.length,
     ),
     minorSafety: z.boolean(),
+    codeSwitchEvidence: z
+      .object({
+        englishClause: NonEmptyStringSchema,
+        chineseClause: NonEmptyStringSchema,
+        independentlyMeaningful: z.literal(true),
+        reviewedBy: NonEmptyStringSchema,
+      })
+      .strict()
+      .nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((sample, context) => {
+    if (sample.language === "chinese_english_code_switch") {
+      if (sample.codeSwitchEvidence === null) {
+        context.addIssue({
+          code: "custom",
+          path: ["codeSwitchEvidence"],
+          message:
+            "Code-switch samples require independently meaningful English and Chinese clause evidence",
+        });
+        return;
+      }
+      const englishWords =
+        sample.codeSwitchEvidence.englishClause.match(/[A-Za-z]+/g) ?? [];
+      const chineseCharacters =
+        sample.codeSwitchEvidence.chineseClause.match(/[\u3400-\u9fff]/gu) ?? [];
+      if (englishWords.length < 2 || chineseCharacters.length < 3) {
+        context.addIssue({
+          code: "custom",
+          path: ["codeSwitchEvidence"],
+          message:
+            "Code-switch evidence must contain meaningful English and Chinese clauses",
+        });
+      }
+    } else if (sample.codeSwitchEvidence !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["codeSwitchEvidence"],
+        message: "Code-switch evidence is only valid for the code-switch slice",
+      });
+    }
+  });
 export type ChannelQualityGateSample = z.infer<
   typeof ChannelQualityGateSampleSchema
 >;
@@ -259,8 +567,8 @@ export const ChannelQualityGateCorpusSchema = z
     ]),
     corpusId: NonEmptyStringSchema,
     language: ChannelQualityLanguageSchema,
-    corpusVersion: NonEmptyStringSchema,
-    policyVersion: NonEmptyStringSchema,
+    corpusVersion: ConcreteVersionSchema,
+    policyVersion: ConcreteVersionSchema,
     fingerprint: HashSchema,
     blind: z.literal(true),
     developmentCorpus: z.literal(false),
@@ -399,16 +707,22 @@ export type ChannelQualityGateReportBody = Omit<
 const CATEGORY_MINIMUMS: Readonly<
   Record<ChannelEvaluationCategory, number>
 > = {
-  "Allowed Criticism": 300,
-  "Actionable Abuse": 250,
-  "Reviewable Interaction": 200,
-  "Safety Flag": 200,
+  "Allowed Criticism":
+    CHANNEL_QUALITY_MINIMUMS.perLanguage.classifications.allowed_criticism,
+  "Actionable Abuse":
+    CHANNEL_QUALITY_MINIMUMS.perLanguage.classifications.actionable_abuse,
+  "Reviewable Interaction":
+    CHANNEL_QUALITY_MINIMUMS.perLanguage.classifications.reviewable_interaction,
+  "Safety Flag":
+    CHANNEL_QUALITY_MINIMUMS.perLanguage.classifications.safety_flag,
 };
-const TOTAL_MINIMUM = 1_000;
-const ADVERSARIAL_MINIMUM = 50;
-const ZERO_TOLERANCE_MINIMUM = 250;
-const CROSS_CUT_MINIMUM = 100;
-const MINOR_SAFETY_MINIMUM = 200;
+const TOTAL_MINIMUM =
+  CHANNEL_QUALITY_MINIMUMS.perLanguage.totalClassificationAndAdversarial;
+const ADVERSARIAL_MINIMUM = CHANNEL_QUALITY_MINIMUMS.perLanguage.adversarial;
+const ZERO_TOLERANCE_MINIMUM =
+  CHANNEL_QUALITY_MINIMUMS.perLanguage.validator;
+const CROSS_CUT_MINIMUM = CHANNEL_QUALITY_MINIMUMS.eachRequiredCrossCut;
+const MINOR_SAFETY_MINIMUM = CHANNEL_QUALITY_MINIMUMS.minorSafety;
 const WILSON_Z = 1.959963984540054;
 const NON_CLAIMS = [
   "A passing report is evidence for release review only; it does not activate production code.",
@@ -481,18 +795,6 @@ function emptyMetrics(): ChannelQualityGateMetrics {
       byLanguage: languageRecord(validatorRecord),
     },
   };
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(",")}}`;
 }
 
 export function channelQualityGateReportFingerprint(
@@ -642,7 +944,7 @@ export function buildMissingChannelQualityGateReport(
   });
   return buildReport({
     evaluatedAt: null,
-      harnessStatus: "not_available",
+    harnessStatus: "not_available",
     harness: null,
     evaluatedTuple: null,
     tupleFingerprint: null,
@@ -1085,6 +1387,124 @@ export function evaluateChannelQualityGate(input: unknown): ChannelQualityGateRe
       scope: "prerequisite",
       message: `Issue #482 offline harness is unavailable: ${value.harness.blockers.join(", ")}`,
     });
+  } else {
+    const artifact = value.harness.artifact;
+    let artifactFingerprintValid = false;
+    try {
+      artifactFingerprintValid = verifyChannelQualityEvaluationFingerprint(
+        artifact as unknown as ChannelQualityEvaluationArtifact,
+      );
+    } catch {
+      artifactFingerprintValid = false;
+    }
+    if (!artifactFingerprintValid) {
+      addFailure(failures, {
+        code: "harness_artifact_fingerprint_mismatch",
+        scope: "prerequisite",
+        message:
+          "Issue #482 harness evidence is not reproducible from its evaluation fingerprint.",
+      });
+    }
+    if (
+      canonicalJson(artifact.thresholds) !==
+      canonicalJson(CHANNEL_QUALITY_GATE_THRESHOLDS)
+    ) {
+      addFailure(failures, {
+        code: "harness_thresholds_mismatch",
+        scope: "prerequisite",
+        message:
+          "Issue #482 harness evidence does not use the canonical release-gate thresholds.",
+      });
+    }
+    if (
+      artifact.outcome !== "passed" ||
+      artifact.gate.outcome !== "passed" ||
+      artifact.gate.failures.length > 0
+    ) {
+      addFailure(failures, {
+        code: "harness_evaluation_failed",
+        scope: "prerequisite",
+        message:
+          "Issue #482 harness evidence contains a failed release evaluation.",
+      });
+    }
+    for (const gateFailure of artifact.gate.failures) {
+      addFailure(failures, {
+        code: `harness_${gateFailure.code}`,
+        scope: "prerequisite",
+        ...(gateFailure.category === undefined
+          ? {}
+          : { category: gateFailure.category }),
+        message: `Issue #482 harness failure at ${gateFailure.scope}: ${gateFailure.detail}.`,
+      });
+    }
+    if (
+      artifact.reproducibility.status !== "verified" ||
+      artifact.reproducibility.inputFingerprint === null
+    ) {
+      addFailure(failures, {
+        code: "harness_evaluation_not_reproducible",
+        scope: "prerequisite",
+        message:
+          "Issue #482 harness evidence does not report verified reproducibility.",
+      });
+    }
+    if (artifact.outcome === "passed") {
+      const missingFields = [
+        artifact.evaluatedAt === null ? "evaluatedAt" : null,
+        artifact.tupleSelectedAt === null ? "tupleSelectedAt" : null,
+        artifact.sourceRevision === null ? "sourceRevision" : null,
+        artifact.policyVersion === null ? "policyVersion" : null,
+        artifact.versions === null ? "versions" : null,
+        artifact.corpora.development === null ? "corpora.development" : null,
+        artifact.corpora.blind === null ? "corpora.blind" : null,
+        artifact.composition.development === null
+          ? "composition.development"
+          : null,
+        artifact.composition.blind === null ? "composition.blind" : null,
+        artifact.resultSetHash === null ? "resultSetHash" : null,
+        artifact.metrics === null ? "metrics" : null,
+      ].filter((field): field is string => field !== null);
+      if (missingFields.length > 0) {
+        addFailure(failures, {
+          code: "harness_artifact_incomplete",
+          scope: "prerequisite",
+          message: `A passing Issue #482 harness artifact is missing required evidence: ${missingFields.join(", ")}.`,
+        });
+      }
+    }
+    if (artifact.sourceRevision !== value.harness.sourceRevision) {
+      addFailure(failures, {
+        code: "harness_source_revision_mismatch",
+        scope: "prerequisite",
+        message:
+          "Issue #482 harness evidence is not bound to the declared source revision.",
+      });
+    }
+    if (artifact.versions === null) {
+      addFailure(failures, {
+        code: "harness_versions_missing",
+        scope: "prerequisite",
+        message:
+          "A passing Issue #482 harness artifact must record the exact version tuple.",
+      });
+    } else {
+      const versionMismatches = [
+        artifact.versions.modelVersion !== value.tuple.modelIdentifier,
+        artifact.versions.promptVersion !== value.tuple.assessmentPromptVersion,
+        artifact.versions.taxonomyVersion !== value.tuple.taxonomyVersion,
+        artifact.versions.schemaVersion !== value.tuple.assessmentSchemaVersion,
+        artifact.versions.validatorVersion !== value.tuple.draftValidatorVersion,
+      ];
+      if (versionMismatches.some(Boolean)) {
+        addFailure(failures, {
+          code: "harness_tuple_mismatch",
+          scope: "prerequisite",
+          message:
+            "Issue #482 harness evidence is not bound to the exact model, prompt, taxonomy, schema, and validator tuple.",
+        });
+      }
+    }
   }
   const expectedTupleFingerprint = channelQualityGateTupleFingerprint({
     modelIdentifier: value.tuple.modelIdentifier,
@@ -1242,6 +1662,21 @@ export function evaluateChannelQualityGate(input: unknown): ChannelQualityGateRe
         (failedByLanguageAndCategory.get(categoryKey) ?? 0) + 1,
       );
       continue;
+    }
+    if (
+      observation.draftProduced &&
+      indexed.sample.category !== "Actionable Abuse" &&
+      indexed.sample.category !== "Safety Flag"
+    ) {
+      addFailure(failures, {
+        code: "draft_produced_for_non_actionable_category",
+        scope: "evaluation",
+        language: indexed.language,
+        sampleId: indexed.sample.id,
+        category: indexed.sample.category,
+        message:
+          "Reply Drafts are only eligible for completed Actionable Abuse samples; other categories must not produce drafts.",
+      });
     }
     completedCountByLanguage.set(
       indexed.language,
@@ -1426,8 +1861,8 @@ function checkRate(
     addFailure(failures, {
       code: `${input.name}_undefined`,
       scope: "metric",
-      language: input.language,
       message: `${input.name} has no completed trials for ${input.language ?? "overall"}.`,
+      ...(input.language === undefined ? {} : { language: input.language }),
     });
     return;
   }
@@ -1435,7 +1870,7 @@ function checkRate(
     addFailure(failures, {
       code: `${input.name}_below_point_threshold`,
       scope: "metric",
-      language: input.language,
+      ...(input.language === undefined ? {} : { language: input.language }),
       message: `${input.name} is ${(metric.rate * 100).toFixed(3)}%; the minimum is ${(input.pointMinimum * 100).toFixed(3)}%.`,
       observed: metric.rate,
       required: input.pointMinimum,
@@ -1445,7 +1880,7 @@ function checkRate(
     addFailure(failures, {
       code: `${input.name}_above_point_threshold`,
       scope: "metric",
-      language: input.language,
+      ...(input.language === undefined ? {} : { language: input.language }),
       message: `${input.name} is ${(metric.rate * 100).toFixed(3)}%; the maximum is ${(input.pointMaximum * 100).toFixed(3)}%.`,
       observed: metric.rate,
       required: input.pointMaximum,
@@ -1458,7 +1893,7 @@ function checkRate(
     addFailure(failures, {
       code: `${input.name}_wilson_lower_bound_below_threshold`,
       scope: "metric",
-      language: input.language,
+      ...(input.language === undefined ? {} : { language: input.language }),
       message: `${input.name} Wilson lower bound is ${(metric.wilsonLower * 100).toFixed(3)}%; the minimum is ${(input.wilsonLowerMinimum * 100).toFixed(3)}%.`,
       observed: metric.wilsonLower,
       required: input.wilsonLowerMinimum,
@@ -1471,7 +1906,7 @@ function checkRate(
     addFailure(failures, {
       code: `${input.name}_wilson_upper_bound_above_threshold`,
       scope: "metric",
-      language: input.language,
+      ...(input.language === undefined ? {} : { language: input.language }),
       message: `${input.name} Wilson upper bound is ${(metric.wilsonUpper * 100).toFixed(3)}%; the maximum is ${(input.wilsonUpperMaximum * 100).toFixed(3)}%.`,
       observed: metric.wilsonUpper,
       required: input.wilsonUpperMaximum,
@@ -1485,25 +1920,39 @@ function checkMetrics(
 ): void {
   checkRate(metrics.actionableAbusePrecision.overall, failures, {
     name: "actionable_abuse_precision",
-    pointMinimum: 0.95,
-    wilsonLowerMinimum: 0.9,
+    pointMinimum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+        .overallPointMinimum,
+    wilsonLowerMinimum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+        .overallLowerWilsonMinimum,
   });
   checkRate(metrics.allowedCriticismFalsePositive.overall, failures, {
     name: "allowed_criticism_false_positive",
-    pointMaximum: 0.01,
-    wilsonUpperMaximum: 0.02,
+    pointMaximum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+        .overallPointMaximum,
+    wilsonUpperMaximum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+        .overallUpperWilsonMaximum,
   });
   checkRate(metrics.safetyFlagRecall.overall, failures, {
     name: "safety_flag_recall",
-    pointMinimum: 0.95,
-    wilsonLowerMinimum: 0.9,
+    pointMinimum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall.overallPointMinimum,
+    wilsonLowerMinimum:
+      CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall.overallLowerWilsonMinimum,
   });
   for (const language of CHANNEL_EVALUATION_LANGUAGES) {
     checkRate(metrics.actionableAbusePrecision.byLanguage[language], failures, {
       language,
       name: "actionable_abuse_precision",
-      pointMinimum: 0.9,
-      wilsonLowerMinimum: 0.9,
+      pointMinimum:
+        CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+          .languagePointMinimum,
+      wilsonLowerMinimum:
+        CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+          .languageLowerWilsonMinimum,
     });
     checkRate(
       metrics.allowedCriticismFalsePositive.byLanguage[language],
@@ -1511,12 +1960,28 @@ function checkMetrics(
       {
         language,
         name: "allowed_criticism_false_positive",
-        pointMaximum: 0.02,
-        wilsonUpperMaximum: 0.02,
+        pointMaximum:
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languagePointMaximum,
+        wilsonUpperMaximum:
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languageUpperWilsonMaximum,
       },
     );
+    checkRate(metrics.safetyFlagRecall.byLanguage[language], failures, {
+      language,
+      name: "safety_flag_recall",
+      wilsonLowerMinimum:
+        CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+          .languageLowerWilsonMinimum,
+    });
     const draftMetric = metrics.safetyFlagDraftSuppression.byLanguage[language];
-    if (draftMetric.failures > 0) {
+    if (
+      draftMetric.rate !== null &&
+      draftMetric.rate <
+        CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagDraftSuppression
+          .minimumSuccessRate
+    ) {
       addFailure(failures, {
         code: "safety_flag_draft_produced",
         scope: "metric",
@@ -1527,7 +1992,12 @@ function checkMetrics(
       });
     }
   }
-  if (metrics.safetyFlagDraftSuppression.overall.failures > 0) {
+  if (
+    metrics.safetyFlagDraftSuppression.overall.rate !== null &&
+    metrics.safetyFlagDraftSuppression.overall.rate <
+      CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagDraftSuppression
+        .minimumSuccessRate
+  ) {
     addFailure(failures, {
       code: "safety_flag_draft_produced",
       scope: "metric",
@@ -1585,6 +2055,7 @@ export function projectEnglishBlindCorpusForQualityGate(
       zeroToleranceValidator: item.zeroToleranceValidator,
       protectedGroupCrossCuts: item.protectedGroupCrossCuts,
       minorSafety: item.minorSafety,
+      codeSwitchEvidence: null,
     })),
   };
 }

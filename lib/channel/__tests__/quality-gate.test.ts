@@ -3,14 +3,27 @@ import { describe, expect, it } from "vitest";
 import {
   CHANNEL_EVALUATION_CORPORA,
   ChannelQualityGateInputSchema,
+  ChannelQualityGateTupleSchema,
   channelQualityGateTupleFingerprint,
   channelQualityGateReportFingerprint,
   evaluateChannelQualityGate,
   projectEnglishBlindCorpusForQualityGate,
 } from "../quality-gate";
+import type { ChannelQualityHarnessArtifact } from "../quality-gate";
 import {
   createEnglishBlindEvaluationCorpus,
 } from "../evaluation-corpus-governance";
+import {
+  CHANNEL_QUALITY_CLASSIFICATIONS,
+  CHANNEL_QUALITY_EVALUATION_ARTIFACT_VERSION,
+  CHANNEL_QUALITY_EVALUATOR_VERSION,
+  CHANNEL_QUALITY_GATE_THRESHOLDS,
+  CHANNEL_QUALITY_REQUIRED_CROSS_CUTS,
+  CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
+  CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
+  hashChannelQualityValue,
+} from "../../channel-quality-evaluation";
+>>>>>>> ff6c11f (feat(channel): harden multilingual quality gate)
 
 const CATEGORIES = [
   "Allowed Criticism",
@@ -48,6 +61,115 @@ function buildTuple() {
   } as const;
 }
 
+function buildHarnessArtifact(): ChannelQualityHarnessArtifact {
+  const rate = {
+    successes: 1,
+    trials: 1,
+    estimate: 1,
+    interval95: { lower: 1, upper: 1 },
+  };
+  const validatorRate = {
+    ...rate,
+    acceptedUnsafeCount: 0,
+    missingExpectedRejectionCount: 0,
+  };
+  const metricSet = {
+    actionableAbusePrecision: rate,
+    allowedCriticismFalsePositiveRate: rate,
+    safetyFlagRecall: rate,
+    safetyFlagDraftSuppression: rate,
+    draftValidator: Object.fromEntries(
+      CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES.map(
+        (category) => [category, validatorRate],
+      ),
+    ),
+  };
+  const metrics = {
+    overall: metricSet,
+    byLanguage: Object.fromEntries(
+      CHANNEL_QUALITY_SUPPORTED_LANGUAGES.map((language) => [language, metricSet]),
+    ),
+    byCrossCut: Object.fromEntries(
+      CHANNEL_QUALITY_REQUIRED_CROSS_CUTS.map((crossCut) => [crossCut, metricSet]),
+    ),
+  };
+  const compositionPerLanguage = {
+    classification: 1,
+    classificationByLabel: Object.fromEntries(
+      CHANNEL_QUALITY_CLASSIFICATIONS.map((classification) => [classification, 1]),
+    ),
+    adversarial: 1,
+    validator: 1,
+    validatorByCategory: Object.fromEntries(
+      CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES.map(
+        (category) => [category, 1],
+      ),
+    ),
+    totalClassificationAndAdversarial: 2,
+  };
+  const composition = {
+    itemCount: 1,
+    perLanguage: Object.fromEntries(
+      CHANNEL_QUALITY_SUPPORTED_LANGUAGES.map((language) => [
+        language,
+        compositionPerLanguage,
+      ]),
+    ),
+    crossCuts: Object.fromEntries(
+      CHANNEL_QUALITY_REQUIRED_CROSS_CUTS.map((crossCut) => [crossCut, 1]),
+    ),
+  };
+  const corpusReference = {
+    manifestVersion: "channel-quality-corpus-manifest-v1",
+    corpusVersion: "channel-comment-assistance-v1",
+    split: "blind" as const,
+    state: "frozen" as const,
+    frozenAt: "2026-09-01T13:00:00.000Z",
+    manifestHash: "c".repeat(64),
+    itemCount: 1,
+    dataGovernance: "synthetic" as const,
+    governanceReference: null,
+    reviewerProvenance: {
+      protocol:
+        "two_independent_reviewers_third_resolves_disagreements" as const,
+      reviewerIds: ["reviewer-primary", "reviewer-secondary"],
+    },
+  };
+  const body = {
+    artifactVersion: CHANNEL_QUALITY_EVALUATION_ARTIFACT_VERSION,
+    evaluatorVersion: CHANNEL_QUALITY_EVALUATOR_VERSION,
+    thresholds: CHANNEL_QUALITY_GATE_THRESHOLDS,
+    outcome: "passed" as const,
+    evaluatedAt: "2026-09-01T15:00:00.000Z",
+    tupleSelectedAt: "2026-09-01T14:00:00.000Z",
+    sourceRevision: "a".repeat(40),
+    policyVersion: "channel-comment-assistance-d74-v1",
+    versions: {
+      modelVersion: TUPLE.modelIdentifier,
+      promptVersion: TUPLE.assessmentPromptVersion,
+      taxonomyVersion: TUPLE.taxonomyVersion,
+      schemaVersion: TUPLE.assessmentSchemaVersion,
+      validatorVersion: TUPLE.draftValidatorVersion,
+    },
+    corpora: {
+      development: { ...corpusReference, split: "development" as const },
+      blind: corpusReference,
+    },
+    composition: { development: composition, blind: composition },
+    resultSetHash: "d".repeat(64),
+    metrics,
+    reproducibility: {
+      status: "verified" as const,
+      inputFingerprint: "e".repeat(64),
+    },
+    gate: { outcome: "passed" as const, failures: [] },
+  };
+  return {
+    ...body,
+    evaluationFingerprint: hashChannelQualityValue(body),
+  };
+}
+
 function buildHarness(status: "available" | "not_available" = "available") {
   if (status === "not_available") {
     return {
@@ -60,10 +182,7 @@ function buildHarness(status: "available" | "not_available" = "available") {
     issueNumber: 482 as const,
     status: "available" as const,
     sourceRevision: "a".repeat(40),
-    artifactVersion: "channel-offline-quality-harness-v1",
-    reproducible: true as const,
-    blindDataSeparated: true as const,
-    evaluatedOffline: true as const,
+    artifact: buildHarnessArtifact(),
   };
 }
 
@@ -76,6 +195,12 @@ function buildSamples(language: TestLanguage) {
     zeroToleranceValidator: (typeof VALIDATORS)[number] | null;
     protectedGroupCrossCuts: string[];
     minorSafety: boolean;
+    codeSwitchEvidence: {
+      englishClause: string;
+      chineseClause: string;
+      independentlyMeaningful: true;
+      reviewedBy: string;
+    } | null;
   }> = [];
   const counts = [300, 250, 200, 250];
   let index = 0;
@@ -103,6 +228,15 @@ function buildSamples(language: TestLanguage) {
           ][index % 9]!,
         ],
         minorSafety: category === "Safety Flag" && offset < 200,
+        codeSwitchEvidence:
+          language === "chinese_english_code_switch"
+            ? {
+                englishClause: "This comment needs more context",
+                chineseClause: "这个评论需要更多背景",
+                independentlyMeaningful: true,
+                reviewedBy: "reviewer-primary",
+              }
+            : null,
       });
       index += 1;
     }
@@ -161,7 +295,7 @@ function buildCorpus(language: TestLanguage) {
     issueNumber: definition.issueNumber,
     corpusId: definition.corpusId,
     language,
-    corpusVersion: "v1",
+    corpusVersion: definition.corpusVersion,
     policyVersion: "channel-comment-assistance-d74-v1",
     fingerprint,
     blind: true as const,
@@ -233,7 +367,6 @@ function buildInput(options: Readonly<{
 describe("Channel quality and release gate", () => {
   it("passes complete frozen evidence for review without activating production", () => {
     const report = evaluateChannelQualityGate(buildInput());
-
     expect(report.decision).toBe("passed");
     expect(report.releaseReviewEligible).toBe(true);
     expect(report.productionActivationPerformed).toBe(false);
@@ -245,7 +378,7 @@ describe("Channel quality and release gate", () => {
     expect(report.evaluatedTuple).toEqual(buildTuple());
     expect(
       report.harness?.status === "available"
-        ? report.harness.sourceRevision
+        ? report.harness.artifact.sourceRevision
         : null,
     ).toBe("a".repeat(40));
     expect(report.failures).toEqual([]);
@@ -331,6 +464,33 @@ describe("Channel quality and release gate", () => {
       report.metrics.zeroToleranceFailures.byLanguage.chinese_english_code_switch
         .privacy,
     ).toBeGreaterThan(0);
+  });
+
+  it("blocks drafts produced for Allowed Criticism or Reviewable samples", () => {
+    const report = evaluateChannelQualityGate(
+      buildInput({
+        mutateObservation: (observation, sample) => {
+          if (
+            sample.language === "english" &&
+            sample.category === "Allowed Criticism" &&
+            sample.id.endsWith("0001")
+          ) {
+            observation.draftProduced = true;
+          }
+        },
+      }),
+    );
+
+    expect(report.decision).toBe("blocked");
+    expect(report.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "draft_produced_for_non_actionable_category",
+          language: "english",
+          category: "Allowed Criticism",
+        }),
+      ]),
+    );
   });
 
   it("does not pass with missing observations or a tuple fingerprint mismatch", () => {
@@ -453,8 +613,101 @@ describe("Channel quality and release gate", () => {
 
   it("rejects malformed gate records at the public input seam", () => {
     expect(ChannelQualityGateInputSchema.safeParse({}).success).toBe(false);
+    expect(
+      ChannelQualityGateTupleSchema.safeParse({
+        ...buildTuple(),
+        modelIdentifier: "pending",
+      }).success,
+    ).toBe(false);
     const report = evaluateChannelQualityGate({});
     expect(report.decision).toBe("blocked");
     expect(report.failures[0]?.code).toBe("quality_gate_input_schema_invalid");
+  });
+
+  it("rejects a passing harness artifact with incomplete evidence", () => {
+    const harness = buildHarness("available");
+    if (harness.status !== "available") {
+      throw new Error("expected an available harness fixture");
+    }
+    const input = buildInput({ harness });
+    const artifact = harness.artifact;
+    const incompleteArtifact = { ...artifact, metrics: null };
+    const body = { ...incompleteArtifact };
+    Reflect.deleteProperty(body, "evaluationFingerprint");
+    harness.artifact = {
+      ...artifact,
+      metrics: null,
+      evaluationFingerprint: hashChannelQualityValue(body),
+    };
+
+    const report = evaluateChannelQualityGate(input);
+
+    expect(report.decision).toBe("blocked");
+    expect(report.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "harness_artifact_incomplete" }),
+      ]),
+    );
+  });
+
+  it("preserves each failed slice reported by the upstream harness", () => {
+    const harness = buildHarness("available");
+    if (harness.status !== "available") {
+      throw new Error("expected an available harness fixture");
+    }
+    const failedArtifact = {
+      ...harness.artifact,
+      outcome: "failed" as const,
+      gate: {
+        outcome: "failed" as const,
+        failures: [
+          {
+            code: "safety_flag_recall",
+            scope: "language:traditional_chinese",
+            detail: "the Wilson lower bound is below the release threshold",
+            category: "safety_flag_recall",
+          },
+        ],
+      },
+    };
+    const body = { ...failedArtifact };
+    Reflect.deleteProperty(body, "evaluationFingerprint");
+    harness.artifact = {
+      ...failedArtifact,
+      evaluationFingerprint: hashChannelQualityValue(body),
+    };
+
+    const report = evaluateChannelQualityGate(buildInput({ harness }));
+
+    expect(report.decision).toBe("blocked");
+    expect(report.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "harness_safety_flag_recall",
+          category: "safety_flag_recall",
+          message: expect.stringContaining("traditional_chinese"),
+        }),
+      ]),
+    );
+  });
+
+  it("requires meaningful clause evidence for the code-switch slice", () => {
+    const corpus = buildCorpus("chinese_english_code_switch");
+    const invalidSamples = corpus.samples.map((sample, index) =>
+      index === 0 ? { ...sample, codeSwitchEvidence: null } : sample,
+    );
+
+    expect(
+      ChannelQualityGateInputSchema.safeParse(
+        buildInput({
+          corpora: [
+            buildCorpus("english"),
+            buildCorpus("simplified_chinese"),
+            buildCorpus("traditional_chinese"),
+            { ...corpus, samples: invalidSamples },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
   });
 });
