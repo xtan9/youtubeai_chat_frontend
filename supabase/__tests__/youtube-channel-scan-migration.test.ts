@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const MIGRATION_PATH = path.resolve(
   __dirname,
-  "../migrations/20260901000000_youtube_channel_scan_foundation.sql",
+  "../migrations/20260901015000_youtube_channel_scan_foundation.sql",
 );
 
 function migration(): string {
