@@ -341,6 +341,10 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission.sql
       - name: Catalog Admission concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission_concurrency.sql
+      - name: Video Catalog backfill and maintenance - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_catalog_backfill.sql
+      - name: Video Catalog backfill concurrency - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_catalog_backfill_concurrency.sql
       - name: Structured Semantic Profile activation gate - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_structured_semantic_profiles.sql
       - name: Structured Semantic Profile activation concurrency - representative legacy
@@ -440,6 +444,8 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_identity_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_catalog_admission_concurrency.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_catalog_backfill.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_video_catalog_backfill_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_structured_semantic_profiles.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_structured_semantic_profiles_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_recommendation_candidate_pairs.sql
