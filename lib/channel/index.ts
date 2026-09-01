@@ -236,7 +236,7 @@ export type {
   ChannelDraftReviewDecision,
   ChannelInteractionLanguage,
   ChannelReplyDraftModelCaller,
-  ChannelReplyDraft as ChannelPublicationDraft,
+  ChannelReplyDraft,
   ChannelReplyDraftContext,
   ChannelReplyDraftModelInput,
   ChannelReplyDraftModelOutput,
@@ -265,7 +265,7 @@ export {
 export type {
   ChannelPublicationStore,
   ChannelPublicReplyProvider,
-  ChannelReplyDraft,
+  ChannelReplyDraft as ChannelPublicationDraft,
   ChannelReplyDraftStatus,
   ConnectedPublicationChannel,
   CreateInMemoryChannelPublicationStoreInput,
