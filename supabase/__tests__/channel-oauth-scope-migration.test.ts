@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const MIGRATION_PATH = path.resolve(
   __dirname,
-  "../migrations/20260901000000_channel_oauth_scope_contract.sql",
+  "../migrations/20260901005000_channel_oauth_scope_contract.sql",
 );
 
 function migration(): string {
