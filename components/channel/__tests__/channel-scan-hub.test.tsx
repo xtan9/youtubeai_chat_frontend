@@ -82,6 +82,8 @@ describe("ChannelHub", () => {
     render(<ChannelHub />);
 
     expect(screen.getByRole("heading", { name: /see the signal/i })).not.toBeNull();
+    expect(screen.getByText(/Reply Drafts are private assistance/i)).not.toBeNull();
+    expect(screen.getByText(/per-item final review/i)).not.toBeNull();
     expect(screen.getByText("7 days / 200 threads")).not.toBeNull();
     expect((await screen.findAllByText("Partial")).length).toBeGreaterThan(0);
     expect(screen.getByText("4 pages")).not.toBeNull();

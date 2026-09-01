@@ -1,7 +1,30 @@
 {
   "recordType": "youtube-channel-oauth-verification",
   "recordVersion": 1,
-  "provider": "youtube",
+  "issueNumber": 490,
   "status": "pending_external_verification",
-  "reason": "No external OAuth verification evidence has been provided."
+  "contract": {
+    "provider": "google",
+    "applicationName": "YouTubeAI",
+    "productSurface": "Channel Hub",
+    "authorizedDomains": [
+      "youtubeai.chat"
+    ],
+    "redirectUris": [
+      "https://youtubeai.chat/api/channel/oauth/callback"
+    ],
+    "requestedScopes": {
+      "readIdentity": [
+        "https://www.googleapis.com/auth/youtube.readonly"
+      ],
+      "writeReply": [
+        "https://www.googleapis.com/auth/youtube.force-ssl"
+      ]
+    },
+    "consentScreenText": {
+      "readIdentity": "Connect one public YouTube Channel to YouTube AI Chat so we can verify that you own it. This read-only permission is used only for Channel identity verification. It does not allow YouTubeAI to publish, edit, delete, moderate, or access held-for-review or likely-spam comments.",
+      "writeReply": "Allow YouTube AI Chat to publish or delete one reply only after you explicitly confirm that action. This permission is requested separately from Channel connection. YouTubeAI never publishes automatically or in bulk, and you can review and edit the exact reply before publication."
+    }
+  },
+  "verificationEvidence": null
 }

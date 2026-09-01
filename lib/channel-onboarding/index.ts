@@ -82,6 +82,39 @@ export type {
 } from "./identity";
 
 export {
+  YOUTUBE_CHANNEL_OAUTH_CALLBACK_PATH,
+  YOUTUBE_CHANNEL_OAUTH_CALLBACK_URI,
+  YOUTUBE_CHANNEL_OAUTH_CONSENT_TEXT,
+  YOUTUBE_CHANNEL_OAUTH_CONTRACT,
+  YOUTUBE_CHANNEL_OAUTH_SCOPES,
+  YOUTUBE_CHANNEL_OAUTH_START_PATH,
+  hasYouTubeWriteAuthorizationScopes,
+  isValidYouTubeReadAuthorization,
+  toYouTubeReadAuthorization,
+  validateYouTubeOAuthCallback,
+} from "../channel-oauth";
+export type {
+  YouTubeOAuthAuthorization,
+  YouTubeOAuthCallbackBlockedReason,
+  YouTubeOAuthCallbackInput,
+  YouTubeOAuthCallbackResult,
+  YouTubeOAuthIntent,
+  YouTubeOAuthScope as YouTubeChannelOAuthScope,
+  YouTubeReadAuthorization,
+} from "../channel-oauth";
+
+export {
+  CURRENT_YOUTUBE_CHANNEL_OAUTH_VERIFICATION,
+  YouTubeChannelOAuthVerificationSchema,
+  evaluateYouTubeChannelOAuthVerificationGate,
+  parseYouTubeChannelOAuthVerification,
+} from "../compliance/youtube-channel-oauth-verification";
+export type {
+  YouTubeChannelOAuthVerification,
+  YouTubeChannelOAuthVerificationGate,
+} from "../compliance/youtube-channel-oauth-verification";
+
+export {
   beginChannelOnboarding,
   completeChannelOnboarding,
 } from "./journey";
