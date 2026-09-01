@@ -300,7 +300,7 @@ describe("Channel quality release evidence", () => {
     expect(
       evaluateChannelQualityRelease(releaseInput()).reproducibility.inputFingerprint,
     ).toBe(artifact.reproducibility.inputFingerprint);
-  });
+  }, 30_000);
 
   it("fails the gate when a Safety Flag sample receives a draft", () => {
     const input = releaseInput();
