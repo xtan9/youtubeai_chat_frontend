@@ -202,9 +202,9 @@ begin
     perform extensions.dblink_send_query(
       connection_name,
       format(
-        $$select catalog_private.reserve_catalog_processing_budget(
+        $budget$select catalog_private.reserve_catalog_processing_budget(
           'recommendation_assessment', current_date, %L, 1, 0
-        )$$,
+        )$budget$,
         fingerprint
       )
     );
