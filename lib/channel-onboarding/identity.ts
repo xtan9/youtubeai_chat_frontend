@@ -2,6 +2,21 @@ import { z } from "zod";
 
 const ProviderTextSchema = z.string().trim().min(1).max(240);
 
+export const NATIVE_YOUTUBE_TOOLS_GUIDANCE =
+  "This Channel type is not supported here; use native YouTube tools for multi-host organizations or delegated Studio permissions." as const;
+
+const ProviderOwnershipModeSchema = z.enum([
+  "account_owned",
+  "multi_host_organization",
+  "delegated_studio",
+]);
+const ProviderAuthorizationModeSchema = z.enum([
+  "direct_owner",
+  "delegated_studio",
+]);
+const ProviderVisibilitySchema = z.enum(["public", "not_public"]);
+const ProviderPersonaSchema = z.enum(["creator", "other"]);
+
 /**
  * The normalized result produced by a provider adapter after it has queried
  * the provider's owned-channel identity endpoint. `mine` is retained in the
@@ -15,6 +30,10 @@ export const ProviderChannelIdentitySchema = z
     providerChannelId: ProviderTextSchema,
     displayName: ProviderTextSchema,
     mine: z.literal(true),
+    ownership: z.literal("account_owned"),
+    authorization: z.literal("direct_owner"),
+    visibility: z.literal("public"),
+    persona: z.literal("creator"),
   })
   .strict();
 
@@ -25,6 +44,10 @@ const RawProviderChannelIdentitySchema = z
     providerChannelId: ProviderTextSchema,
     displayName: ProviderTextSchema,
     mine: z.boolean(),
+    ownership: ProviderOwnershipModeSchema,
+    authorization: ProviderAuthorizationModeSchema,
+    visibility: ProviderVisibilitySchema,
+    persona: ProviderPersonaSchema,
   })
   .strict();
 
@@ -43,7 +66,11 @@ export type ProviderIdentityResolution =
         | "no_provider_identity"
         | "multiple_provider_identities"
         | "invalid_provider_identity"
-        | "unverified_provider_identity";
+        | "unverified_provider_identity"
+        | "multi_host_organization_not_supported"
+        | "delegated_studio_not_supported"
+        | "not_public_creator_persona";
+      guidance?: typeof NATIVE_YOUTUBE_TOOLS_GUIDANCE;
     }>;
 
 /**
@@ -77,6 +104,30 @@ export function resolveSupportedCreatorChannel(
   }
   if (rawResult.data.mine !== true) {
     return { kind: "rejected", reason: "unverified_provider_identity" };
+  }
+
+  if (rawResult.data.ownership === "multi_host_organization") {
+    return {
+      kind: "rejected",
+      reason: "multi_host_organization_not_supported",
+      guidance: NATIVE_YOUTUBE_TOOLS_GUIDANCE,
+    };
+  }
+  if (
+    rawResult.data.ownership === "delegated_studio" ||
+    rawResult.data.authorization === "delegated_studio"
+  ) {
+    return {
+      kind: "rejected",
+      reason: "delegated_studio_not_supported",
+      guidance: NATIVE_YOUTUBE_TOOLS_GUIDANCE,
+    };
+  }
+  if (
+    rawResult.data.visibility !== "public" ||
+    rawResult.data.persona !== "creator"
+  ) {
+    return { kind: "rejected", reason: "not_public_creator_persona" };
   }
 
   const verifiedResult = ProviderChannelIdentitySchema.safeParse(

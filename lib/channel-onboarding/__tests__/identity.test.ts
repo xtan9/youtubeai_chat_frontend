@@ -8,6 +8,10 @@ const IDENTITY = {
   providerChannelId: "UC_verified",
   displayName: "Verified creator channel",
   mine: true as const,
+  ownership: "account_owned" as const,
+  authorization: "direct_owner" as const,
+  visibility: "public" as const,
+  persona: "creator" as const,
 };
 
 describe("resolveSupportedCreatorChannel", () => {
@@ -66,6 +70,48 @@ describe("resolveSupportedCreatorChannel", () => {
     expect(resolveSupportedCreatorChannel(null)).toEqual({
       kind: "rejected",
       reason: "invalid_provider_identity",
+    });
+  });
+
+  it("rejects multi-host and delegated identities with native YouTube guidance", () => {
+    expect(
+      resolveSupportedCreatorChannel([
+        { ...IDENTITY, ownership: "multi_host_organization" },
+      ]),
+    ).toEqual({
+      kind: "rejected",
+      reason: "multi_host_organization_not_supported",
+      guidance:
+        "This Channel type is not supported here; use native YouTube tools for multi-host organizations or delegated Studio permissions.",
+    });
+    expect(
+      resolveSupportedCreatorChannel([
+        { ...IDENTITY, authorization: "delegated_studio" },
+      ]),
+    ).toEqual({
+      kind: "rejected",
+      reason: "delegated_studio_not_supported",
+      guidance:
+        "This Channel type is not supported here; use native YouTube tools for multi-host organizations or delegated Studio permissions.",
+    });
+  });
+
+  it("requires a public creator persona rather than inferring one from a Channel ID", () => {
+    expect(
+      resolveSupportedCreatorChannel([
+        { ...IDENTITY, visibility: "not_public" },
+      ]),
+    ).toEqual({
+      kind: "rejected",
+      reason: "not_public_creator_persona",
+    });
+    expect(
+      resolveSupportedCreatorChannel([
+        { ...IDENTITY, persona: "other" },
+      ]),
+    ).toEqual({
+      kind: "rejected",
+      reason: "not_public_creator_persona",
     });
   });
 });

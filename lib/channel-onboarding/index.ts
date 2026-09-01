@@ -10,6 +10,7 @@ export type {
   ChannelAction,
   ChannelEntitlement,
   ChannelEntitlementState,
+  ChannelGrantReference,
   ChannelPrincipal,
   ConnectedChannelReference,
   PublishingAuthorization,
@@ -19,7 +20,60 @@ export { selectActiveConnectedChannel } from "./active";
 export type { ActiveChannelSelectionResult } from "./active";
 
 export {
+  beginSupportedCreatorChannelOAuth,
+  ChannelOAuthStateSchema,
+  completeSupportedCreatorChannelOAuth,
+  validateChannelOAuthCallbackState,
+} from "./oauth";
+export type {
+  ChannelOAuthAuthorizationRequest,
+  ChannelOAuthCallbackResult,
+  ChannelOAuthStartResult,
+  ChannelOAuthState,
+  ChannelOAuthStateIssue,
+  ChannelOAuthStateStore,
+  ChannelOAuthStateValidationResult,
+  YouTubeChannelOAuthProvider,
+} from "./oauth";
+
+export {
+  CURRENT_YOUTUBE_OAUTH_VERIFICATION,
+  evaluateYouTubeOAuthVerificationGate,
+  YouTubeOAuthVerificationSchema,
+} from "./oauth-verification";
+export type {
+  YouTubeOAuthVerification,
+  YouTubeOAuthVerificationGate,
+} from "./oauth-verification";
+
+export {
+  EncryptedOAuthTokenEnvelopeSchema,
+  OAuthCredentialReferenceSchema,
+  YouTubeOAuthTokenSetSchema,
+  createEnvironmentOAuthTokenEncryptor,
+  decryptYouTubeOAuthTokenSet,
+  encryptYouTubeOAuthTokenSet,
+} from "./credentials";
+export type {
+  EncryptedOAuthTokenEnvelope,
+  OAuthCredentialReference,
+  OAuthCredentialStore,
+  OAuthTokenEncryptor,
+  YouTubeOAuthTokenSet,
+} from "./credentials";
+
+export {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_OAUTH_SCOPES,
+  YOUTUBE_READONLY_SCOPE,
+  YOUTUBE_READONLY_SCOPE_SET,
+  YouTubeOAuthScopeSchema,
+} from "./scopes";
+export type { YouTubeOAuthScope } from "./scopes";
+
+export {
   ProviderChannelIdentitySchema,
+  NATIVE_YOUTUBE_TOOLS_GUIDANCE,
   resolveSupportedCreatorChannel,
 } from "./identity";
 export type {
@@ -32,12 +86,15 @@ export {
   completeChannelOnboarding,
 } from "./journey";
 export type {
+  ChannelOnboardingGates,
   ChannelConnectionPersistence,
   ChannelOnboardingIds,
   ChannelOnboardingResult,
   ChannelOnboardingStartResult,
   ReadAuthorizationState,
 } from "./journey";
+export { evaluateChannelOnboardingGates } from "./gates";
+export type { ChannelOnboardingGateResult } from "./gates";
 
 export {
   authorizeChannelPublication,

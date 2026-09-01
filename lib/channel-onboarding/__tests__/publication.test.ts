@@ -5,6 +5,10 @@ import {
   authorizeChannelPublication,
   type ChannelPublicationPreflight,
 } from "../publication";
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "../scopes";
 
 const ACTIVE_CHANNEL = {
   ownerId: "researcher-1",
@@ -25,6 +29,18 @@ const CONTEXT: ChannelAccessContext = {
     policyVersion: "channel-adult-v1",
   },
   connectedChannel: ACTIVE_CHANNEL,
+  grant: {
+    ownerId: ACTIVE_CHANNEL.ownerId,
+    channelId: ACTIVE_CHANNEL.channelId,
+    connectedChannelId: ACTIVE_CHANNEL.connectedChannelId,
+    grantId: ACTIVE_CHANNEL.grantId,
+    credentialReferenceId: "credential-reference-1",
+    provider: "youtube",
+    scopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+    readScopeGranted: true,
+    writeScopeGranted: true,
+    status: "active",
+  },
   publishingAuthorization: {
     grantId: ACTIVE_CHANNEL.grantId,
     granted: true,

@@ -5,6 +5,10 @@ import {
   ChannelRecordSchema,
   isCoherentChannelConnection,
 } from "../records";
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "../scopes";
 
 const CONNECTION = {
   channel: {
@@ -18,6 +22,8 @@ const CONNECTION = {
     channelId: "channel-1",
     provider: "youtube" as const,
     providerSubject: "google-subject-1",
+    credentialReferenceId: "credential-reference-1",
+    oauthScopes: [YOUTUBE_READONLY_SCOPE],
     readScopeGranted: true as const,
     writeScopeGranted: false,
     status: "active" as const,
@@ -71,5 +77,34 @@ describe("Channel onboarding records", () => {
         activeConnectedChannelId: "connected-old",
       }),
     ).toBe(false);
+  });
+
+  it("keeps the grant scope inventory aligned with its read/write flags", () => {
+    expect(
+      ChannelGrantRecordSchema.safeParse({
+        ...CONNECTION.grant,
+        oauthScopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_READONLY_SCOPE],
+      }).success,
+    ).toBe(false);
+    expect(
+      ChannelGrantRecordSchema.safeParse({
+        ...CONNECTION.grant,
+        oauthScopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+      }).success,
+    ).toBe(false);
+    expect(
+      ChannelGrantRecordSchema.safeParse({
+        ...CONNECTION.grant,
+        writeScopeGranted: true,
+        oauthScopes: [YOUTUBE_READONLY_SCOPE],
+      }).success,
+    ).toBe(false);
+    expect(
+      ChannelGrantRecordSchema.safeParse({
+        ...CONNECTION.grant,
+        writeScopeGranted: true,
+        oauthScopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+      }).success,
+    ).toBe(true);
   });
 });
