@@ -19,6 +19,7 @@
     "benchmark:semantic-profiles": "tsx scripts/benchmark-semantic-profiles.ts",
     "evaluate:channel-quality": "tsx scripts/channel-quality-evaluation.ts",
     "validate:channel-code-switch-blind-corpus": "tsx scripts/validate-channel-code-switch-blind-corpus.ts",
+    "gate:channel-quality": "tsx scripts/run-channel-quality-gate.ts",
     "smoke": "pnpm smoke:api && pnpm smoke:e2e"
   },
   "dependencies": {

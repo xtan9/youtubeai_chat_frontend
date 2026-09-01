@@ -423,6 +423,52 @@ export type {
   ChannelObservationReport,
 } from "./audit-metrics";
 export {
+  CHANNEL_EVALUATION_CORPORA,
+  CHANNEL_EVALUATION_LANGUAGES,
+  CHANNEL_QUALITY_GATE_INPUT_VERSION,
+  CHANNEL_QUALITY_GATE_REPORT_VERSION,
+  ChannelQualityGateAdversarialKindSchema,
+  ChannelQualityGateCategorySchema,
+  ChannelQualityGateCrossCutSchema,
+  ChannelQualityCorpusCoverageSchema,
+  ChannelQualityGateHarnessEvidenceSchema,
+  ChannelQualityGateInputSchema,
+  ChannelQualityGateObservationSchema,
+  ChannelQualityGateSampleSchema,
+  ChannelQualityGateTupleSchema,
+  ChannelQualityGateValidatorSchema,
+  ChannelQualityGateCorpusSchema,
+  ChannelQualityLanguageSchema,
+  buildChannelQualityGateInputErrorReport,
+  buildMissingChannelQualityGateReport,
+  channelQualityGateReportFingerprint,
+  channelQualityGateTupleFingerprint,
+  evaluateChannelQualityGate,
+  projectEnglishBlindCorpusForQualityGate,
+} from "./quality-gate";
+export type {
+  ChannelQualityGateCorpus,
+  ChannelQualityCorpusCoverage,
+  ChannelQualityGateCorpusSummary,
+  ChannelQualityGateFailure,
+  ChannelQualityGateHarnessEvidence,
+  ChannelQualityGateInput,
+  ChannelQualityGateMetrics,
+  ChannelQualityGateObservation,
+  ChannelQualityGateReport,
+  ChannelQualityGateReportBody,
+  ChannelQualityGateSample,
+  ChannelQualityGateTuple,
+  ChannelQualityGateTupleFields,
+  ChannelQualityRateMetric,
+  ChannelQualityLanguage,
+} from "./quality-gate";
+export {
+  CHANNEL_QUALITY_GATE_INPUT_PATH,
+  executeChannelQualityGateCommand,
+} from "./quality-gate-command";
+export type { ChannelQualityGateCommandOptions } from "./quality-gate-command";
+export {
   ADVERSARIAL_ITEM_KINDS,
   CHANNEL_ENGLISH_BLIND_CORPUS_ID,
   CHANNEL_ENGLISH_BLIND_CORPUS_VERSION,
