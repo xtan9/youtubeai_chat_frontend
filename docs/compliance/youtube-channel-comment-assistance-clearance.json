@@ -1,0 +1,16 @@
+{
+  "recordType": "youtube-channel-comment-assistance-compliance-clearance",
+  "recordVersion": 1,
+  "issueNumber": 470,
+  "sourceSpec": {
+    "path": "docs/specs/2026-08-31-comment-assistance-discovery.md",
+    "url": "https://github.com/xtan9/youtubeai_chat_frontend/blob/main/docs/specs/2026-08-31-comment-assistance-discovery.md"
+  },
+  "decision": "pending_external_determination",
+  "packet": {
+    "issueNumber": 469,
+    "status": "not_available",
+    "reason": "Issue #469 has not yet produced the reviewed submission-ready packet."
+  },
+  "determination": null
+}
