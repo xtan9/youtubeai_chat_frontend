@@ -6,7 +6,7 @@ import {
   hashCommentText,
   publishPublicReply,
   validateFinalPublicReplyText,
-  type ChannelReplyDraft,
+  type ChannelReplyDraft as ChannelPublicationDraft,
   type ConnectedPublicationChannel,
   type PublicationAccount,
   type PublishingAuthorization,
@@ -51,7 +51,7 @@ const SOURCE: PublicReplySourceContext = {
   target: { kind: "top_level" },
 };
 
-const DRAFT: ChannelReplyDraft = {
+const DRAFT: ChannelPublicationDraft = {
   id: "draft-1",
   accountId: ACCOUNT.accountId,
   channelId: CHANNEL.channelId,
@@ -193,7 +193,7 @@ describe("simulated Public Reply publication contract", () => {
         },
       },
     };
-    const draft: ChannelReplyDraft = {
+    const draft: ChannelPublicationDraft = {
       ...DRAFT,
       id: "nested-draft-1",
       source,
@@ -251,7 +251,7 @@ describe("simulated Public Reply publication contract", () => {
           identity: { status },
         },
       };
-      const draft: ChannelReplyDraft = { ...DRAFT, id: draftId, source };
+      const draft: ChannelPublicationDraft = { ...DRAFT, id: draftId, source };
       const store = createInMemoryChannelPublicationStore({
         account: ACCOUNT,
         activeConnectedChannel: CHANNEL,
@@ -338,7 +338,7 @@ describe("simulated Public Reply publication contract", () => {
     ] as const;
 
     for (const scenario of scenarios) {
-      const draft: ChannelReplyDraft = {
+      const draft: ChannelPublicationDraft = {
         ...DRAFT,
         id: `precondition-${scenario.name.replaceAll(" ", "-")}`,
       };
@@ -375,7 +375,7 @@ describe("simulated Public Reply publication contract", () => {
   });
 
   it("requires an eligible ready draft and a synthetic provider", async () => {
-    const ineligibleDraft: ChannelReplyDraft = {
+    const ineligibleDraft: ChannelPublicationDraft = {
       ...DRAFT,
       id: "ineligible-draft",
       eligible: false,

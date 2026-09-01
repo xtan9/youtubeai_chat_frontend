@@ -236,7 +236,7 @@ export type {
   ChannelDraftReviewDecision,
   ChannelInteractionLanguage,
   ChannelReplyDraftModelCaller,
-  ChannelReplyDraft,
+  ChannelReplyDraft as ChannelPublicationDraft,
   ChannelReplyDraftContext,
   ChannelReplyDraftModelInput,
   ChannelReplyDraftModelOutput,
