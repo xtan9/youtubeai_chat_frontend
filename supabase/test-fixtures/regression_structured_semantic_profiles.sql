@@ -78,6 +78,9 @@ declare
   pre_activation_request jsonb;
   activation jsonb;
   candidate record;
+  normalized_profile jsonb;
+  dead_letter_message_id bigint;
+  dead_letter_result jsonb;
 begin
   set local role service_role;
   select public.request_semantic_profile_generation(
@@ -99,6 +102,47 @@ begin
   end if;
 
   set local role postgres;
+  select profile into normalized_profile
+  from catalog_private.semantic_profile_versions
+  where video_id = '31000000-0000-4000-8000-000000000002';
+  if normalized_profile ->> 'sourceLanguage' <> 'en'
+    or normalized_profile -> 'topics' is null
+    or normalized_profile ? 'providerCertainty'
+  then
+    raise exception 'stored shorthand profile was not expanded to the governed object: %',
+      normalized_profile;
+  end if;
+  begin
+    update catalog_private.semantic_profile_versions
+    set profile = profile || jsonb_build_object('providerCertainty', 'high')
+    where video_id = '31000000-0000-4000-8000-000000000002';
+    raise exception 'unknown provider metadata was persisted';
+  exception when sqlstate '22023' then
+    null;
+  end;
+  select send into dead_letter_message_id
+  from pgmq.send(
+    'semantic_profile',
+    jsonb_build_object('request_id', 'not-a-request-id'),
+    0
+  );
+  set local role service_role;
+  select public.fail_semantic_profile_work(
+    dead_letter_message_id, null, 'invalid_message', 4, 30
+  ) into dead_letter_result;
+  if dead_letter_result ->> 'outcome' <> 'exhausted' then
+    raise exception 'unidentified envelope was not quarantined: %', dead_letter_result;
+  end if;
+  set local role postgres;
+  if not exists (
+    select 1
+    from catalog_private.semantic_profile_dead_letters as dead_letter
+    where dead_letter.queue_message_id = dead_letter_message_id
+      and dead_letter.request_id is null
+      and dead_letter.failure_code = 'invalid_message'
+  ) then
+    raise exception 'unidentified envelope was not recorded in the dead-letter ledger';
+  end if;
   insert into catalog_private.semantic_profile_evaluations (
     evaluation_fingerprint, model_identifier, profile_schema_version,
     prompt_version, gateway_provider, metrics, status, evaluated_at
@@ -178,7 +222,7 @@ begin
     raise exception 'service-role claim returned the wrong request';
   end if;
   select public.begin_semantic_profile_generation(
-    request_id, 5000, 'gpt-5.3-codex-spark'
+    claimed.msg_id, request_id, 5000, 'gpt-5.3-codex-spark'
   ) into started;
   if started ->> 'outcome' <> 'started' then
     raise exception 'budget admission did not start: %', started;
@@ -220,6 +264,24 @@ begin
     raise exception 'deterministic retrieval did not return the compatible candidate';
   end if;
 
+  set local role postgres;
+  update public.videos
+  set catalog_state = 'inactive'
+  where id = '31000000-0000-4000-8000-000000000001';
+  set local role service_role;
+  select * into pre_activation_candidate
+  from public.retrieve_semantic_profile_candidates(
+    '31000000-0000-4000-8000-000000000001', 12
+  ) limit 1;
+  if pre_activation_candidate.candidate_video_id is not null then
+    raise exception 'inactive source video remained eligible for retrieval';
+  end if;
+  set local role postgres;
+  update public.videos
+  set catalog_state = 'active'
+  where id = '31000000-0000-4000-8000-000000000001';
+  set local role service_role;
+
   -- A Video can be deactivated while its Gateway call is in flight. The
   -- completion boundary must observe that change and archive without creating
   -- an active Profile.
@@ -228,7 +290,7 @@ begin
   where work.request_id = inactive_request_id
   limit 1;
   select public.begin_semantic_profile_generation(
-    inactive_request_id, 5000, 'gpt-5.3-codex-spark'
+    inactive_claimed.msg_id, inactive_request_id, 5000, 'gpt-5.3-codex-spark'
   )
     into inactive_started;
   if inactive_started ->> 'outcome' <> 'started' then
@@ -288,8 +350,20 @@ begin
   exception when insufficient_privilege then
     null;
   end;
-
   set local role anon;
+  begin
+    perform 1 from catalog_private.semantic_profile_dead_letters;
+    raise exception 'browser role could read the semantic-profile dead-letter ledger';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    perform 1 from pgmq.q_semantic_profile;
+    raise exception 'browser role could read the semantic-profile queue';
+  exception when insufficient_privilege then
+    null;
+  end;
+
   begin
     perform public.retrieve_semantic_profile_candidates(
       '31000000-0000-4000-8000-000000000001', 12
@@ -324,7 +398,7 @@ begin
     raise exception 'model-retirement request was not re-enqueued after reactivation';
   end if;
   select public.begin_semantic_profile_generation(
-    inactive_request_id, 5000, 'gpt-5.3-codex-spark'
+    model_retire_claimed.msg_id, inactive_request_id, 5000, 'gpt-5.3-codex-spark'
   ) into model_retire_started;
   if model_retire_started ->> 'outcome' <> 'started' then
     raise exception 'model-retirement request did not start: %', model_retire_started;
@@ -403,6 +477,25 @@ begin
   ) limit 1;
   if candidate.candidate_video_id is not null then
     raise exception 'revoked evaluation remained retrievable';
+  end if;
+
+  -- Evidence changes retire the old active Profile immediately, even when
+  -- the current Gateway tuple is no longer eligible to enqueue replacement
+  -- work. History remains intact in the superseded row.
+  set local role postgres;
+  update public.video_transcripts
+  set segments = jsonb_build_array(jsonb_build_object(
+    'text', 'Gradient descent now has changed approved evidence.',
+    'start', 0, 'duration', 10
+  ))
+  where video_id = '31000000-0000-4000-8000-000000000001';
+  if exists (
+    select 1
+    from catalog_private.semantic_profile_versions
+    where video_id = '31000000-0000-4000-8000-000000000001'
+      and status = 'active'
+  ) then
+    raise exception 'changed evidence left the old active profile retrievable';
   end if;
 end;
 $$;

@@ -243,8 +243,8 @@ insert into catalog_private.semantic_profile_versions (
   'semantic-profile-v1', repeat('3', 64), 'fixture-set-semantic-model',
   'semantic-profile-prompt-v1', repeat('c', 64), 'fr',
   '[{"key":"set-theory","label":"Theorie des ensembles"}]',
-  '[{"key":"set-core-a","label":"Coeur A"},{"key":"set-alternative","label":"Alternative"}]',
-  array['set-theory'], array['set-core-a', 'set-alternative'],
+  '[{"key":"set-alternative","label":"Alternative"},{"key":"set-core-a","label":"Coeur A"}]',
+  array['set-theory'], array['set-alternative', 'set-core-a'],
   array[]::text[], array[]::text[], array[]::text[],
   'advanced', '{"schemaVersion":"semantic-profile-v1"}'
 );

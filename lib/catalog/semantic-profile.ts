@@ -25,6 +25,22 @@ const ConceptSchema = z
   })
   .strict();
 
+const SourceLanguageSchema = z
+  .string()
+  .min(2)
+  .max(35)
+  .regex(/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/)
+  .refine(
+    (value) => {
+      try {
+        return Intl.getCanonicalLocales(value).length === 1;
+      } catch {
+        return false;
+      }
+    },
+    { message: "must be a valid BCP-47 language tag" },
+  );
+
 function uniqueArray<T>(key: (item: T) => string) {
   return (items: T[], context: z.core.$RefinementCtx<T[]>): void => {
     const seen = new Set<string>();
@@ -55,11 +71,7 @@ const ConceptKeyArraySchema = z
 export const SemanticProfileSchema = z
   .object({
     schemaVersion: z.literal(SEMANTIC_PROFILE_SCHEMA_VERSION),
-    sourceLanguage: z
-      .string()
-      .min(2)
-      .max(35)
-      .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
+    sourceLanguage: SourceLanguageSchema,
     topics: ConceptArraySchema.max(8),
     coreConcepts: ConceptArraySchema.min(2),
     difficulty: z.enum(["beginner", "intermediate", "advanced", "mixed"]),
@@ -67,16 +79,45 @@ export const SemanticProfileSchema = z
     applicationConceptKeys: ConceptKeyArraySchema,
     counterpointConceptKeys: ConceptKeyArraySchema,
   })
-  .strict();
+  .strict()
+  .superRefine((profile, context) => {
+    const sections = [
+      ["topics", profile.topics.map((item) => item.key)],
+      ["coreConcepts", profile.coreConcepts.map((item) => item.key)],
+      ["prerequisiteConceptKeys", profile.prerequisiteConceptKeys],
+      ["applicationConceptKeys", profile.applicationConceptKeys],
+      ["counterpointConceptKeys", profile.counterpointConceptKeys],
+    ] as const;
+    const seen = new Map<string, string>();
+
+    for (const [section, keys] of sections) {
+      for (const key of keys) {
+        const previousSection = seen.get(key);
+        if (previousSection) {
+          context.addIssue({
+            code: "custom",
+            path: [section],
+            message: `duplicate governed value across profile sections: ${key} (${previousSection})`,
+          });
+        } else {
+          seen.set(key, section);
+        }
+      }
+    }
+  });
 
 export type SemanticProfile = z.infer<typeof SemanticProfileSchema>;
 
 function sortConcepts(items: SemanticProfile["topics"]) {
-  return [...items].sort((left, right) => left.key.localeCompare(right.key));
+  return [...items].sort((left, right) => compareConceptKeys(left.key, right.key));
 }
 
 function sortKeys(items: readonly string[]) {
-  return [...items].sort((left, right) => left.localeCompare(right));
+  return [...items].sort(compareConceptKeys);
+}
+
+function compareConceptKeys(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function parseSemanticProfile(raw: string): SemanticProfile {
