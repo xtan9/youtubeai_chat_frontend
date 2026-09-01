@@ -4,6 +4,11 @@ import {
   SYNTHETIC_TAXONOMY_VERSION,
   type SyntheticAssessment,
 } from "./contracts";
+import type {
+  ScanCommentProvider,
+  ScanProviderPage,
+  ScanProviderThread,
+} from "./provider";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_RECENT_THREADS = 210;
@@ -13,25 +18,16 @@ export type SyntheticAssessmentFailure =
   | "provider_failure"
   | "malformed_output";
 
-export type SyntheticThread = Readonly<{
-  threadId: string;
-  commentId: string;
-  videoId: string;
-  publishedAt: string;
-  content: string;
-  contentHash: string;
-  isTopLevel: boolean;
+export type SyntheticThread = ScanProviderThread & Readonly<{
   assessmentFailure?: SyntheticAssessmentFailure;
 }>;
 
-export type SyntheticProviderPage = Readonly<{
+export type SyntheticProviderPage = ScanProviderPage & Readonly<{
   threads: readonly SyntheticThread[];
-  nextPageToken: string | null;
-  hasMoreWithinWindow: boolean;
-  hasMoreOutsideWindow: boolean;
 }>;
 
-export type SyntheticCommentProvider = Readonly<{
+export type SyntheticCommentProvider = ScanCommentProvider & Readonly<{
+  readonly kind?: "synthetic";
   listTopLevelThreads(input: {
     connectedChannelId: string;
     windowStart: Date;
@@ -144,12 +140,13 @@ export function createSyntheticCommentProvider(
   options: SyntheticProviderOptions = {},
 ): SyntheticCommentProvider {
   const anchor = options.now ?? (() => new Date());
-  const sourceThreads = [
+  const sourceThreads: SyntheticThread[] = [
     ...(options.threads ?? makeDefaultThreads(anchor())),
-  ].map((thread) => ({ ...thread }));
+  ].map((thread): SyntheticThread => ({ ...thread }));
 
   return {
-    async listTopLevelThreads(input) {
+    kind: "synthetic",
+    async listTopLevelThreads(input): Promise<SyntheticProviderPage> {
       const windowStart = input.windowStart.getTime();
       const windowEnd = input.windowEnd.getTime();
       const candidates = sourceThreads
@@ -184,7 +181,7 @@ export function createSyntheticCommentProvider(
       };
     },
 
-    async findThread(input) {
+    async findThread(input): Promise<SyntheticThread | null> {
       const windowStart = input.windowStart.getTime();
       const windowEnd = input.windowEnd.getTime();
       return (
@@ -201,7 +198,7 @@ export function createSyntheticCommentProvider(
       );
     },
 
-    async assess(thread) {
+    async assess(thread: SyntheticThread) {
       if (thread.assessmentFailure === "provider_failure") {
         throw Object.assign(new Error("Synthetic assessment failed"), {
           code: "SYNTHETIC_ASSESSMENT_FAILED",

@@ -1,43 +1,54 @@
 import {
   MAX_SCAN_THREADS,
   SCAN_PAGE_SIZE,
+  scanProviderSchema,
   syntheticAssessmentSchema,
+  type ScanProviderKind,
   type ScanBound,
   type ScanRun,
   type ScanRunStore,
   type ScanThreadObservation,
   type SyntheticAssessment,
 } from "./contracts";
+import type { AssessmentContext, FinalizedInteractionAssessment } from "@/lib/channel/interaction-assessment";
 import type {
-  SyntheticCommentProvider,
-  SyntheticProviderPage,
-  SyntheticThread,
-} from "./synthetic-provider";
+  InteractionAssessmentEvaluation,
+  ScanCommentProvider,
+  ScanProviderPage,
+  ScanProviderThread,
+} from "./provider";
 
 export type ScanRunExecutionOptions = Readonly<{
   store: ScanRunStore;
-  provider: SyntheticCommentProvider;
+  provider: ScanCommentProvider;
   workerId: string;
   now?: () => Date;
+  persistInteractionAssessment?: (input: {
+    run: ScanRun;
+    thread: ScanProviderThread;
+    context: AssessmentContext;
+    assessment: FinalizedInteractionAssessment;
+    assessedAt: Date;
+  }) => Promise<string>;
 }>;
 
 class InvalidProviderPageError extends Error {
   constructor() {
-    super("synthetic provider returned an invalid page");
+    super("comment provider returned an invalid page");
     this.name = "InvalidProviderPageError";
   }
 }
 
 class InvalidProviderThreadError extends Error {
   constructor() {
-    super("synthetic provider returned an invalid interaction");
+    super("comment provider returned an invalid interaction");
     this.name = "InvalidProviderThreadError";
   }
 }
 
 class InvalidAssessmentError extends Error {
   constructor() {
-    super("synthetic provider returned an invalid assessment");
+    super("comment provider returned an invalid assessment");
     this.name = "InvalidAssessmentError";
   }
 }
@@ -53,7 +64,7 @@ function safeCode(error: unknown, fallback: string): string {
     : fallback;
 }
 
-function isValidThread(value: unknown): value is SyntheticThread {
+function isValidThread(value: unknown): value is ScanProviderThread {
   if (!isRecord(value)) return false;
   return (
     typeof value.threadId === "string" &&
@@ -71,7 +82,7 @@ function isValidThread(value: unknown): value is SyntheticThread {
   );
 }
 
-function validProviderPage(value: unknown): value is SyntheticProviderPage {
+function validProviderPage(value: unknown): value is ScanProviderPage {
   if (!isRecord(value) || !Array.isArray(value.threads)) return false;
   return (
     value.threads.every(isValidThread) &&
@@ -81,7 +92,7 @@ function validProviderPage(value: unknown): value is SyntheticProviderPage {
   );
 }
 
-function observationFor(thread: SyntheticThread): ScanThreadObservation {
+function observationFor(thread: ScanProviderThread): ScanThreadObservation {
   if (!thread.isTopLevel) {
     throw new InvalidProviderThreadError();
   }
@@ -97,9 +108,9 @@ function observationFor(thread: SyntheticThread): ScanThreadObservation {
 
 function pageBound(input: {
   run: ScanRun;
-  page: SyntheticProviderPage;
-  eligibleThreads: readonly SyntheticThread[];
-  acceptedThreads: readonly SyntheticThread[];
+  page: ScanProviderPage;
+  eligibleThreads: readonly ScanProviderThread[];
+  acceptedThreads: readonly ScanProviderThread[];
 }): {
   readonly nextPageToken: string | null;
   readonly sourceExhausted: boolean;
@@ -150,6 +161,52 @@ function itemFailureCode(error: unknown): string {
     return "ITEM_INVALID_ASSESSMENT";
   }
   return safeCode(error, "ITEM_ASSESSMENT_FAILED");
+}
+
+function isQuotaExhaustion(error: unknown): boolean {
+  return isRecord(error) && error.code === "YOUTUBE_QUOTA_EXHAUSTED";
+}
+
+function interactionAssessmentResult(
+  value: unknown,
+): InteractionAssessmentEvaluation | null {
+  if (!isRecord(value)) return null;
+  if (value.kind !== "interaction" || !isRecord(value.assessment)) return null;
+  const assessment = value.assessment;
+  if (
+    assessment.schemaVersion !== "interaction-assessment-v1" ||
+    ![
+      "allowed_criticism",
+      "reviewable_interaction",
+      "actionable_abuse",
+      "safety_flag",
+    ].includes(assessment.category as string) ||
+    ![
+      "english",
+      "simplified_chinese",
+      "traditional_chinese",
+      "chinese_english_code_switch",
+      "other",
+    ].includes(assessment.language as string) ||
+    ![
+      "channel_steward",
+      "other_participant",
+      "ambiguous",
+    ].includes(assessment.target as string) ||
+    !Array.isArray(assessment.targetEvidence) ||
+    !assessment.targetEvidence.every((evidence) => typeof evidence === "string") ||
+    typeof assessment.draftEligible !== "boolean" ||
+    !isRecord(value.context)
+  ) {
+    return null;
+  }
+  return value as unknown as InteractionAssessmentEvaluation;
+}
+
+function providerKind(provider: ScanCommentProvider): ScanProviderKind {
+  return scanProviderSchema.safeParse(provider.kind).success
+    ? (provider.kind as ScanProviderKind)
+    : "synthetic";
 }
 
 function runFailureCode(error: unknown): string {
@@ -221,6 +278,15 @@ export async function executeScanRun(
 
       const run = await options.store.getRun(runId);
       if (!run || run.status !== "running") return;
+      if (run.provider !== providerKind(options.provider)) {
+        await finishSafely(options.store, {
+          runId,
+          workerId: options.workerId,
+          outcome: "failed",
+          failureCode: "PROVIDER_MISMATCH",
+        });
+        return;
+      }
 
       const pending = await options.store.nextPendingThread(runId);
       if (pending) {
@@ -258,6 +324,7 @@ export async function executeScanRun(
 
       const page = await options.provider.listTopLevelThreads({
         connectedChannelId: run.connectedChannelId,
+        videoId: run.videoId,
         windowStart: new Date(run.coverage.windowStart),
         windowEnd: new Date(run.coverage.windowEnd),
         pageToken: run.nextPageToken,
@@ -310,6 +377,145 @@ async function assessPending(
   workItem: NonNullable<Awaited<ReturnType<ScanRunStore["nextPendingThread"]>>>,
   options: ScanRunExecutionOptions,
 ): Promise<void> {
+  const providerThread = await options.provider.findThread({
+    connectedChannelId: run.connectedChannelId,
+    videoId: run.videoId,
+    windowStart: new Date(run.coverage.windowStart),
+    windowEnd: new Date(run.coverage.windowEnd),
+    threadId: workItem.threadId,
+    contentHash: workItem.contentHash,
+  });
+  if (!providerThread) {
+    if (providerKind(options.provider) === "youtube") {
+      if (!options.store.redactDeletedInteraction) {
+        await options.store.markThreadFailed({
+          runId: run.id,
+          workerId: options.workerId,
+          workItemId: workItem.id,
+          failureCode: "ITEM_DELETION_REDACTION_FAILED",
+        });
+        return;
+      }
+      try {
+        await options.store.redactDeletedInteraction({
+          accountId: run.accountId,
+          connectedChannelId: run.connectedChannelId,
+          commentId: workItem.commentId,
+          deletedAt: (options.now ?? (() => new Date()))().toISOString(),
+        });
+      } catch {
+        await options.store.markThreadFailed({
+          runId: run.id,
+          workerId: options.workerId,
+          workItemId: workItem.id,
+          failureCode: "ITEM_DELETION_REDACTION_FAILED",
+        });
+        return;
+      }
+    }
+    await options.store.markThreadFailed({
+      runId: run.id,
+      workerId: options.workerId,
+      workItemId: workItem.id,
+      failureCode: "ITEM_NO_LONGER_AVAILABLE",
+    });
+    return;
+  }
+
+  if (providerKind(options.provider) === "youtube") {
+    if (
+      !options.store.findReusableInteractionAssessment ||
+      !options.store.saveInteractionAssessment
+    ) {
+      await options.store.markThreadFailed({
+        runId: run.id,
+        workerId: options.workerId,
+        workItemId: workItem.id,
+        failureCode: "REVIEW_QUEUE_PERSISTENCE_UNAVAILABLE",
+      });
+      return;
+    }
+    const reusable = await options.store.findReusableInteractionAssessment({
+      accountId: run.accountId,
+      connectedChannelId: run.connectedChannelId,
+      commentId: providerThread.commentId,
+      contentHash: providerThread.contentHash,
+    });
+    if (reusable) {
+      await options.store.markThreadSucceeded({
+        runId: run.id,
+        workerId: options.workerId,
+        workItemId: workItem.id,
+        assessmentId: reusable.assessmentId,
+        resultKind: "reused",
+        assessmentKind: "interaction",
+        contentHash: providerThread.contentHash,
+      });
+      return;
+    }
+
+    let evaluation: InteractionAssessmentEvaluation;
+    try {
+      const parsed = interactionAssessmentResult(
+        await options.provider.assess(providerThread),
+      );
+      if (!parsed) throw new InvalidAssessmentError();
+      evaluation = parsed;
+    } catch (error) {
+      if (isQuotaExhaustion(error)) throw error;
+      await options.store.markThreadFailed({
+        runId: run.id,
+        workerId: options.workerId,
+        workItemId: workItem.id,
+        failureCode: itemFailureCode(error),
+      });
+      return;
+    }
+
+    if (!options.persistInteractionAssessment) {
+      await options.store.markThreadFailed({
+        runId: run.id,
+        workerId: options.workerId,
+        workItemId: workItem.id,
+        failureCode: "REVIEW_QUEUE_PERSISTENCE_UNAVAILABLE",
+      });
+      return;
+    }
+
+    let assessmentId: string;
+    try {
+      assessmentId = await options.persistInteractionAssessment({
+        run,
+        thread: providerThread,
+        context: evaluation.context,
+        assessment: evaluation.assessment,
+        assessedAt: (options.now ?? (() => new Date()))(),
+      });
+      if (typeof assessmentId !== "string" || assessmentId.trim() === "") {
+        throw new Error("Review Queue persistence omitted an assessment ID");
+      }
+    } catch (error) {
+      await options.store.markThreadFailed({
+        runId: run.id,
+        workerId: options.workerId,
+        workItemId: workItem.id,
+        failureCode: itemFailureCode(error),
+      });
+      return;
+    }
+
+    await options.store.markThreadSucceeded({
+      runId: run.id,
+      workerId: options.workerId,
+      workItemId: workItem.id,
+      assessmentId,
+      resultKind: "assessed",
+      assessmentKind: "interaction",
+      contentHash: providerThread.contentHash,
+    });
+    return;
+  }
+
   const reusable = await options.store.findReusableAssessment({
     connectedChannelId: run.connectedChannelId,
     threadId: workItem.threadId,
@@ -322,23 +528,7 @@ async function assessPending(
       workItemId: workItem.id,
       assessmentId: reusable.id,
       resultKind: "reused",
-    });
-    return;
-  }
-
-  const providerThread = await options.provider.findThread({
-    connectedChannelId: run.connectedChannelId,
-    windowStart: new Date(run.coverage.windowStart),
-    windowEnd: new Date(run.coverage.windowEnd),
-    threadId: workItem.threadId,
-    contentHash: workItem.contentHash,
-  });
-  if (!providerThread) {
-    await options.store.markThreadFailed({
-      runId: run.id,
-      workerId: options.workerId,
-      workItemId: workItem.id,
-      failureCode: "ITEM_NO_LONGER_AVAILABLE",
+      assessmentKind: "synthetic",
     });
     return;
   }
@@ -372,5 +562,6 @@ async function assessPending(
     workItemId: workItem.id,
     assessmentId,
     resultKind: "assessed",
+    assessmentKind: "synthetic",
   });
 }

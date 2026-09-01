@@ -48,6 +48,7 @@ const RUN = {
   id: "10000000-0000-4000-8000-000000000001",
   accountId: PRINCIPAL.userId,
   connectedChannelId: "synthetic-demo-channel",
+  videoId: null,
   provider: "synthetic" as const,
   status: "queued" as const,
   outcome: null,
@@ -162,6 +163,63 @@ describe("/api/channel/scans", () => {
       message: "Connect a verified YouTube Channel before starting a scan.",
     });
     expect(mocks.startChannelScanRun).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicitly requested real scan to the fail-closed service seam", async () => {
+    const realConnectedChannelId = "00000000-0000-4000-8000-000000000001";
+    mocks.startChannelScanRun.mockResolvedValueOnce({
+      kind: "blocked",
+      code: "YOUTUBE_ASSESSMENT_GATE_BLOCKED",
+      reason: "Written YouTube clearance is still pending.",
+    });
+
+    const response = await POST(
+      request({
+        connectedChannelId: realConnectedChannelId,
+        provider: "youtube",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      outcome: "real_scan_blocked",
+      code: "YOUTUBE_ASSESSMENT_GATE_BLOCKED",
+      message: "Written YouTube clearance is still pending.",
+    });
+    expect(mocks.startChannelScanRun).toHaveBeenCalledWith({
+      accountId: PRINCIPAL.userId,
+      connectedChannelId: realConnectedChannelId,
+      retryOf: null,
+      provider: "youtube",
+    });
+    expect(afterCallbacks).toHaveLength(0);
+  });
+
+  it("passes an owned-Video scope only through the real provider seam", async () => {
+    const realConnectedChannelId = "00000000-0000-4000-8000-000000000001";
+    mocks.startChannelScanRun.mockResolvedValueOnce({
+      kind: "blocked",
+      code: "YOUTUBE_ASSESSMENT_GATE_BLOCKED",
+      reason: "Written YouTube clearance is still pending.",
+    });
+
+    const response = await POST(
+      request({
+        connectedChannelId: realConnectedChannelId,
+        provider: "youtube",
+        videoId: "AbCdEfGhI_1",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(mocks.startChannelScanRun).toHaveBeenCalledWith({
+      accountId: PRINCIPAL.userId,
+      connectedChannelId: realConnectedChannelId,
+      retryOf: null,
+      provider: "youtube",
+      videoId: "AbCdEfGhI_1",
+    });
+    expect(afterCallbacks).toHaveLength(0);
   });
 
   it("reports the atomic channel-concurrency and account-hourly decisions", async () => {

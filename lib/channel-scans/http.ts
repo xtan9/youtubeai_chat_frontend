@@ -88,7 +88,16 @@ export function startResponse(result: ScanRunStartResult): Response {
       );
     case "retry_unavailable":
       return authError(409, "This Scan Run is not available for retry.");
+    case "blocked":
+      return Response.json(
+        {
+          outcome: "real_scan_blocked",
+          code: result.code,
+          message: result.reason,
+        },
+        { status: 503 },
+      );
     case "invalid":
-      return authError(400, "The bounded synthetic scan request is invalid.");
+      return authError(400, "The bounded comment scan request is invalid.");
   }
 }

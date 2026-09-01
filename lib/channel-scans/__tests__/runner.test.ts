@@ -2,15 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SCAN_WINDOW_DAYS,
   type ScanRunStartInput,
+  type ScanRunStore,
   type SyntheticAssessment,
 } from "../contracts";
 import { InMemoryScanRunStore } from "../memory-store";
-import { executeScanRun } from "../runner";
+import {
+  executeScanRun,
+  type ScanRunExecutionOptions,
+} from "../runner";
 import type {
   SyntheticCommentProvider,
   SyntheticProviderPage,
   SyntheticThread,
 } from "../synthetic-provider";
+import type { ScanProviderThread } from "../provider";
+import type { StoredInteractionAssessment } from "@/lib/channel/review-queue";
 
 const NOW = new Date("2026-08-31T12:00:00.000Z");
 const ACCOUNT_ID = "account-1";
@@ -96,6 +102,340 @@ function providerFor(
 }
 
 describe("executeScanRun", () => {
+  it("persists a real YouTube assessment through the Review Queue boundary", async () => {
+    const store = new InMemoryScanRunStore({ now: () => NOW });
+    const run = await start(store, {
+      ...startInput("00000000-0000-4000-8000-000000000001"),
+      provider: "youtube",
+    });
+    const context = {
+      videoTitle: "A governed video",
+      candidate: {
+        role: "candidate" as const,
+        authorRole: "other_participant" as const,
+        replyTargetRole: "not_a_reply" as const,
+        observableTargetEvidence: ["channel_or_steward_identity" as const],
+        languageHint: null,
+        text: "Supported Creator, you are a fool.",
+      },
+      topLevelComment: {
+        role: "top_level_comment" as const,
+        authorRole: "other_participant" as const,
+        text: "Supported Creator, you are a fool.",
+      },
+      neighboringReplies: [],
+    };
+    const realThread: ScanProviderThread = {
+      ...thread("real-thread"),
+      content: "Supported Creator, you are a fool.",
+      contentHash: "b".repeat(64),
+      assessmentContext: context,
+    };
+    const provider = {
+      kind: "youtube" as const,
+      listTopLevelThreads: vi.fn(async () => page([realThread])),
+      findThread: vi.fn(async () => realThread),
+      assess: vi.fn(async () => ({
+        kind: "interaction" as const,
+        context,
+        assessment: {
+          schemaVersion: "interaction-assessment-v1" as const,
+          category: "actionable_abuse" as const,
+          language: "english" as const,
+          target: "channel_steward" as const,
+          targetEvidence: ["channel_or_steward_identity" as const],
+          draftEligible: true,
+        },
+      })),
+    };
+    const persistInteractionAssessment = vi
+      .fn()
+      .mockResolvedValue("review-assessment-1");
+
+    await executeScanRun(run.id, {
+      store,
+      provider,
+      persistInteractionAssessment,
+      now: () => NOW,
+      workerId: "worker-youtube",
+    });
+
+    await expect(store.getRun(run.id)).resolves.toMatchObject({
+      status: "completed",
+      outcome: "completed",
+      coverage: {
+        threadsDiscovered: 1,
+        threadsAssessed: 1,
+        threadsFailed: 0,
+      },
+    });
+    expect(persistInteractionAssessment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        run: expect.objectContaining({ id: run.id }),
+        thread: expect.objectContaining({ threadId: "real-thread" }),
+        context,
+        assessment: expect.objectContaining({
+          category: "actionable_abuse",
+          draftEligible: true,
+        }),
+        assessedAt: NOW,
+      }),
+    );
+  });
+
+  it("binds the current revalidated hash when a real comment changes", async () => {
+    const store = new InMemoryScanRunStore({ now: () => NOW });
+    const connectedChannelId = "00000000-0000-4000-8000-000000000003";
+    const run = await start(store, {
+      ...startInput(connectedChannelId),
+      provider: "youtube",
+    });
+    const context = {
+      videoTitle: "A governed video",
+      candidate: {
+        role: "candidate" as const,
+        authorRole: "other_participant" as const,
+        replyTargetRole: "not_a_reply" as const,
+        observableTargetEvidence: [] as const,
+        languageHint: null,
+        text: "The current bounded comment.",
+      },
+      topLevelComment: {
+        role: "top_level_comment" as const,
+        authorRole: "other_participant" as const,
+        text: "The current bounded comment.",
+      },
+      neighboringReplies: [],
+    };
+    const discovered: ScanProviderThread = {
+      ...thread("mutable"),
+      commentId: "mutable-comment",
+      contentHash: "a".repeat(64),
+    };
+    const current: ScanProviderThread = {
+      ...discovered,
+      content: "The current bounded comment.",
+      contentHash: "b".repeat(64),
+      assessmentContext: context,
+    };
+    const provider = {
+      kind: "youtube" as const,
+      listTopLevelThreads: vi.fn(async () => page([discovered])),
+      findThread: vi.fn(async () => current),
+      assess: vi.fn(async () => ({
+        kind: "interaction" as const,
+        context,
+        assessment: {
+          schemaVersion: "interaction-assessment-v1" as const,
+          category: "reviewable_interaction" as const,
+          language: "english" as const,
+          target: "ambiguous" as const,
+          targetEvidence: [],
+          draftEligible: false,
+        },
+      })),
+    };
+    const persistInteractionAssessment = vi.fn(
+      async (
+        input: Parameters<
+          NonNullable<
+            ScanRunExecutionOptions["persistInteractionAssessment"]
+          >
+        >[0],
+      ) =>
+        store.saveInteractionAssessment({
+          assessmentId: "assessment-current",
+          accountId: input.run.accountId,
+          channelId: input.run.connectedChannelId,
+          commentId: input.thread.commentId,
+          commentTextHash: input.thread.contentHash,
+          videoId: input.thread.videoId,
+          videoTitle: input.context.videoTitle,
+          category: input.assessment.category,
+          language: input.assessment.language,
+          target: input.assessment.target,
+          targetEvidence: input.assessment.targetEvidence,
+          candidateText: input.context.candidate.text,
+          topLevelCommentText: input.context.topLevelComment.text,
+          neighboringReplies: input.context.neighboringReplies.map(
+            (reply) => reply.text,
+          ),
+          draftEligible: input.assessment.draftEligible,
+          status: "reviewable",
+          assessedAt: input.assessedAt.toISOString(),
+        }),
+    );
+
+    await executeScanRun(run.id, {
+      store,
+      provider,
+      persistInteractionAssessment,
+      now: () => NOW,
+      workerId: "worker-youtube-mutable",
+    });
+
+    await expect(store.getRun(run.id)).resolves.toMatchObject({
+      status: "completed",
+      coverage: { threadsAssessed: 1, threadsFailed: 0 },
+    });
+    expect(persistInteractionAssessment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread: expect.objectContaining({ contentHash: "b".repeat(64) }),
+      }),
+    );
+    await expect(
+      store.findReusableInteractionAssessment({
+        accountId: run.accountId,
+        connectedChannelId,
+        commentId: current.commentId,
+        contentHash: "b".repeat(64),
+      }),
+    ).resolves.toMatchObject({ assessmentId: "assessment-current" });
+  });
+
+  it("fails the real item when durable Review Queue persistence is unavailable", async () => {
+    const store = new InMemoryScanRunStore({ now: () => NOW });
+    const run = await start(store, {
+      ...startInput("00000000-0000-4000-8000-000000000004"),
+      provider: "youtube",
+    });
+    const realThread: ScanProviderThread = {
+      ...thread("persistence-unavailable"),
+      contentHash: "c".repeat(64),
+    };
+    const provider = {
+      kind: "youtube" as const,
+      listTopLevelThreads: vi.fn(async () => page([realThread])),
+      findThread: vi.fn(async () => realThread),
+      assess: vi.fn(),
+    };
+    const unavailableStore = store as unknown as ScanRunStore;
+    unavailableStore.findReusableInteractionAssessment = undefined;
+    unavailableStore.saveInteractionAssessment = undefined;
+
+    await executeScanRun(run.id, {
+      store: unavailableStore,
+      provider,
+      now: () => NOW,
+      workerId: "worker-youtube-persistence",
+    });
+
+    await expect(store.getRun(run.id)).resolves.toMatchObject({
+      status: "partial",
+      outcome: "partial",
+      coverage: { threadsAssessed: 0, threadsFailed: 1 },
+    });
+    expect(provider.assess).not.toHaveBeenCalled();
+  });
+
+  it("reuses only the current real-comment hash and supersedes an older revision", async () => {
+    const store = new InMemoryScanRunStore({ now: () => NOW });
+    const base: StoredInteractionAssessment = {
+      assessmentId: "assessment-old",
+      accountId: ACCOUNT_ID,
+      channelId: "connected-youtube-channel",
+      commentId: "comment-1",
+      commentTextHash: "a".repeat(64),
+      videoId: "video-1",
+      videoTitle: "A governed video",
+      category: "reviewable_interaction",
+      language: "english",
+      target: "ambiguous",
+      targetEvidence: [],
+      candidateText: "Old text",
+      topLevelCommentText: "Old text",
+      neighboringReplies: [],
+      draftEligible: false,
+      status: "reviewable",
+      assessedAt: NOW.toISOString(),
+    };
+    await store.saveInteractionAssessment(base);
+    await store.saveInteractionAssessment({
+      ...base,
+      assessmentId: "assessment-new",
+      commentTextHash: "b".repeat(64),
+      candidateText: "New text",
+      topLevelCommentText: "New text",
+    });
+
+    await expect(
+      store.findReusableInteractionAssessment({
+        accountId: ACCOUNT_ID,
+        connectedChannelId: base.channelId,
+        commentId: base.commentId,
+        contentHash: base.commentTextHash,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      store.findReusableInteractionAssessment({
+        accountId: ACCOUNT_ID,
+        connectedChannelId: base.channelId,
+        commentId: base.commentId,
+        contentHash: "b".repeat(64),
+      }),
+    ).resolves.toMatchObject({
+      assessmentId: "assessment-new",
+      candidateText: "New text",
+    });
+  });
+
+  it("stops the run uniformly when the shared YouTube quota is exhausted", async () => {
+    const store = new InMemoryScanRunStore({ now: () => NOW });
+    const run = await start(store, {
+      ...startInput("00000000-0000-4000-8000-000000000002"),
+      provider: "youtube",
+    });
+    const context = {
+      videoTitle: "A governed video",
+      candidate: {
+        role: "candidate" as const,
+        authorRole: "other_participant" as const,
+        replyTargetRole: "not_a_reply" as const,
+        observableTargetEvidence: [],
+        languageHint: null,
+        text: "A bounded comment.",
+      },
+      topLevelComment: {
+        role: "top_level_comment" as const,
+        authorRole: "other_participant" as const,
+        text: "A bounded comment.",
+      },
+      neighboringReplies: [],
+    };
+    const threads = ["first", "second"].map((id) => ({
+      ...thread(id),
+      contentHash: `${id}-hash`,
+      assessmentContext: context,
+    }));
+    const provider = {
+      kind: "youtube" as const,
+      listTopLevelThreads: vi.fn(async () => page(threads)),
+      findThread: vi.fn(async ({ threadId }) =>
+        threads.find((candidate) => candidate.threadId === threadId) ?? null,
+      ),
+      assess: vi.fn(async () => {
+        throw Object.assign(new Error("shared quota exhausted"), {
+          code: "YOUTUBE_QUOTA_EXHAUSTED",
+        });
+      }),
+    };
+
+    await executeScanRun(run.id, {
+      store,
+      provider,
+      now: () => NOW,
+      workerId: "worker-youtube-quota",
+    });
+
+    await expect(store.getRun(run.id)).resolves.toMatchObject({
+      status: "partial",
+      outcome: "partial",
+      failureCode: "YOUTUBE_QUOTA_EXHAUSTED",
+      coverage: { threadsDiscovered: 2, threadsFailed: 0 },
+    });
+    expect(provider.assess).toHaveBeenCalledOnce();
+  });
+
   it("enforces the seven-day and 200 top-level-thread bounds", async () => {
     const store = new InMemoryScanRunStore({ now: () => NOW });
     const run = await start(store);

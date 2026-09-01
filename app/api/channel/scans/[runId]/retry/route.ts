@@ -1,5 +1,8 @@
 import { scanRunIdSchema } from "@/lib/channel-scans";
-import { isSyntheticScanChannelId } from "@/lib/channel-scans/channel-target";
+import {
+  isRealScanChannelId,
+  isSyntheticScanChannelId,
+} from "@/lib/channel-scans/channel-target";
 import {
   failChannelScanScheduling,
   getChannelScanRun,
@@ -44,7 +47,11 @@ export async function POST(
     return authError(503, "Channel scans are temporarily unavailable.");
   }
   if (!previous) return authError(404, "Scan Run not found.");
-  if (!isSyntheticScanChannelId(previous.connectedChannelId)) {
+  const validTarget =
+    previous.provider === "synthetic"
+      ? isSyntheticScanChannelId(previous.connectedChannelId)
+      : isRealScanChannelId(previous.connectedChannelId);
+  if (!validTarget) {
     return Response.json(
       { outcome: "onboarding_required", message: ONBOARDING_MESSAGE },
       { status: 409 },

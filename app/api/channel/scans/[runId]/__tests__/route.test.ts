@@ -52,6 +52,7 @@ const RUN = {
   id: "10000000-0000-4000-8000-000000000001",
   accountId: PRINCIPAL.userId,
   connectedChannelId: "synthetic-demo-channel",
+  videoId: null,
   provider: "synthetic" as const,
   status: "running" as const,
   outcome: null,
@@ -129,6 +130,7 @@ describe("/api/channel/scans/[runId]", () => {
     await expect(response.json()).resolves.toEqual({
       run: expect.objectContaining({
         id: RUN.id,
+        failureCode: null,
         coverage: expect.objectContaining({
           pages: 1,
           threadsDiscovered: 50,
@@ -141,6 +143,28 @@ describe("/api/channel/scans/[runId]", () => {
       PRINCIPAL.userId,
     );
     expect(afterCallbacks).toHaveLength(1);
+  });
+
+  it("exposes a bounded run failure code for truthful quota coverage", async () => {
+    mocks.getChannelScanRun.mockResolvedValueOnce({
+      ...RUN,
+      status: "partial",
+      outcome: "partial",
+      failureCode: "YOUTUBE_QUOTA_EXHAUSTED",
+    });
+
+    const response = await GET(
+      new Request(`http://test/api/channel/scans/${RUN.id}`),
+      CONTEXT,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      run: expect.objectContaining({
+        failureCode: "YOUTUBE_QUOTA_EXHAUSTED",
+        outcome: "partial",
+      }),
+    });
   });
 
   it("retains a running run while requesting cancellation", async () => {
