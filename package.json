@@ -20,6 +20,7 @@
     "evaluate:channel-quality": "tsx scripts/channel-quality-evaluation.ts",
     "gate:channel-quality": "tsx scripts/run-channel-quality-gate.ts",
     "validate:channel-code-switch-blind-corpus": "tsx scripts/validate-channel-code-switch-blind-corpus.ts",
+    "verify:channel-launch": "tsx scripts/channel-launch-packet.ts",
     "smoke": "pnpm smoke:api && pnpm smoke:e2e"
   },
   "dependencies": {
