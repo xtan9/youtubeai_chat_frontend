@@ -26,7 +26,7 @@ type WorkerResult = Readonly<{
   exhausted: number;
 }>;
 
-type MaintenanceResult = WorkerResult &
+export type MaintenanceResult = WorkerResult &
   Readonly<{ invalidated: number; scheduled: number }>;
 
 const BATCH_SIZE = 4;
