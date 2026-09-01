@@ -1,6 +1,44 @@
 export {
   runChannelJourney,
 } from "./journey";
+
+export {
+  SAFETY_FLAG_LABEL,
+  SAFETY_FLAG_REASONS,
+  SafetyFlagReasonSchema,
+  enforceReplyDraftBoundary,
+  enforceSafetyFlagDominance,
+  isReplyDraftAllowed,
+} from "./safety";
+export type {
+  ChannelAssessmentDecision as SafetyChannelAssessmentDecision,
+  NonSafetyAssessment,
+  RawChannelAssessment,
+  ReplyDraftAction,
+  ReplyDraftBoundaryResult,
+  SafetyFlagAssessment,
+  SafetyFlagReason,
+} from "./safety";
+export {
+  SAFETY_EVIDENCE_REVEAL_WARNING,
+  SENSITIVE_EVIDENCE_CATEGORIES,
+  SafetyEvidenceRevealPurposeSchema,
+  buildSafetyFlagDefaultExport,
+  createProtectedSafetyEvidence,
+  getSafetyEvidenceForBoundary,
+  maskSensitiveEvidence,
+  revealSafetyEvidence,
+} from "./sensitive-evidence";
+export type {
+  MaskedSafetyEvidence,
+  ProtectedSafetyEvidence,
+  RevealedSafetyEvidence,
+  SafetyEvidenceBoundary,
+  SafetyEvidenceRevealConfirmation,
+  SafetyEvidenceRevealPurpose,
+  SafetyFlagDefaultExport,
+  SensitiveEvidenceCategory,
+} from "./sensitive-evidence";
 export type {
   ChannelJourney,
   ChannelJourneyInput,
