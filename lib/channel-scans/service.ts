@@ -10,6 +10,7 @@ import {
   CURRENT_YOUTUBE_CHANNEL_COMPLIANCE_CLEARANCE,
   evaluateYouTubeChannelAssessmentGate,
 } from "@/lib/compliance/youtube-channel-clearance";
+import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 import {
   YOUTUBE_SCAN_PROVIDER,
   scanProviderSchema,
@@ -55,6 +56,15 @@ async function youtubeStartBlock(input: Readonly<{
       code: "YOUTUBE_ASSESSMENT_GATE_BLOCKED",
       reason: gate.reason,
     });
+  }
+
+  const launchGate = evaluateChannelLaunchGate();
+  if (launchGate.status === "blocked") {
+    return {
+      kind: "blocked",
+      code: "CHANNEL_RELEASE_GATE_BLOCKED",
+      reason: launchGate.reason,
+    };
   }
 
   let target;
@@ -257,6 +267,8 @@ export async function runChannelScanRun(runId: string): Promise<void> {
     });
     return;
   }
+
+  if (evaluateChannelLaunchGate().status !== "open") return;
 
   let target = null;
   try {

@@ -1,17 +1,29 @@
 import { z } from "zod";
 
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
-import { authorizeChannelHubAction } from "@/lib/channel-exposure/eligibility";
 import {
+  authorizeChannelHubAction,
   channelEntitlementFromState,
 } from "@/lib/channel-exposure/eligibility";
 import { loadChannelAccessSnapshot } from "@/lib/channel-exposure/server";
 import type { HubAction } from "@/lib/channel-hub/contract";
+import {
+  publicScanRun,
+  startResponse,
+} from "@/lib/channel-scans/http";
+import {
+  cancelChannelScanRun,
+  failChannelScanScheduling,
+  getChannelScanRun,
+  startChannelScanRun,
+} from "@/lib/channel-scans/service";
+import { scanRunIdSchema } from "@/lib/channel-scans";
 import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 import { resolveRegisteredSubscription } from "@/lib/services/entitlements";
 import { createClient } from "@/lib/supabase/server";
 
 import { channelReleaseBlockedResponse } from "../release-response";
+import { scheduleWorker } from "../scans/schedule";
 
 const HubActionSchema = z.object({
   action: z.enum([
@@ -48,6 +60,112 @@ function json(
     status,
     headers: { "Cache-Control": "no-store" },
   });
+}
+
+function withNoStore(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function startRealChannelScan(input: Readonly<{
+  accountId: string;
+  connectedChannelId: string;
+}>): Promise<Response> {
+  let result: Awaited<ReturnType<typeof startChannelScanRun>>;
+  try {
+    result = await startChannelScanRun({
+      accountId: input.accountId,
+      connectedChannelId: input.connectedChannelId,
+      provider: "youtube",
+    });
+  } catch {
+    return json(
+      { outcome: "unavailable", message: "Channel scans are temporarily unavailable." },
+      503,
+    );
+  }
+  if (result.kind !== "started") return withNoStore(startResponse(result));
+
+  if (!scheduleWorker(result.run.id)) {
+    try {
+      await failChannelScanScheduling({
+        accountId: input.accountId,
+        runId: result.run.id,
+      });
+    } catch {
+      // Keep the durable run for reconciliation when scheduling is unavailable.
+    }
+    return json(
+      { outcome: "unavailable", message: "Channel scans are temporarily unavailable." },
+      503,
+    );
+  }
+  return withNoStore(startResponse(result));
+}
+
+async function cancelRealChannelScan(input: Readonly<{
+  accountId: string;
+  connectedChannelId: string;
+  subjectId: string | null | undefined;
+}>): Promise<Response> {
+  const parsedRunId = scanRunIdSchema.safeParse(input.subjectId);
+  if (!parsedRunId.success) {
+    return json(
+      { outcome: "invalid_request", message: "A valid Scan Run is required." },
+      400,
+    );
+  }
+
+  let previous: Awaited<ReturnType<typeof getChannelScanRun>>;
+  try {
+    previous = await getChannelScanRun(parsedRunId.data, input.accountId);
+  } catch {
+    return json(
+      { outcome: "unavailable", message: "Channel scans are temporarily unavailable." },
+      503,
+    );
+  }
+  if (!previous) {
+    return json({ outcome: "not_found", message: "Scan Run not found." }, 404);
+  }
+  if (previous.connectedChannelId !== input.connectedChannelId) {
+    return json(
+      {
+        outcome: "not_authorized",
+        reason: "connected_channel_identity_mismatch",
+        message: "The Scan Run is not bound to the active Channel.",
+      },
+      403,
+    );
+  }
+
+  try {
+    const run = await cancelChannelScanRun({
+      accountId: input.accountId,
+      runId: parsedRunId.data,
+    });
+    if (!run) {
+      return json({ outcome: "not_found", message: "Scan Run not found." }, 404);
+    }
+    const isCancelled = run.outcome === "cancelled";
+    return json(
+      {
+        outcome: isCancelled ? "cancelled" : "cancellation_requested",
+        run: publicScanRun(run),
+      },
+      isCancelled ? 200 : 202,
+    );
+  } catch {
+    return json(
+      { outcome: "unavailable", message: "Channel scans are temporarily unavailable." },
+      503,
+    );
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -131,6 +249,43 @@ export async function POST(request: Request): Promise<Response> {
       },
       403,
     );
+  }
+
+  const connectedChannelId =
+    accessResult.snapshot.access.connectedChannel?.connectedChannelId;
+  if (action === "start_scan") {
+    if (!connectedChannelId) {
+      return json(
+        {
+          outcome: "not_authorized",
+          reason: "connected_channel_identity_required",
+          message: "Connect a verified Channel before starting a Scan Run.",
+        },
+        403,
+      );
+    }
+    return startRealChannelScan({
+      accountId: principalResult.principal.userId,
+      connectedChannelId,
+    });
+  }
+
+  if (action === "cancel_scan") {
+    if (!connectedChannelId) {
+      return json(
+        {
+          outcome: "not_authorized",
+          reason: "connected_channel_identity_required",
+          message: "Connect a verified Channel before cancelling a Scan Run.",
+        },
+        403,
+      );
+    }
+    return cancelRealChannelScan({
+      accountId: principalResult.principal.userId,
+      connectedChannelId,
+      subjectId: parsed.data.subjectId,
+    });
   }
 
   // The action boundary is intentionally present before the provider adapter.

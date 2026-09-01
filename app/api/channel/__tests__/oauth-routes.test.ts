@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { GET as oauthCallback } from "@/app/api/channel/oauth/callback/route";
 import { POST as oauthStart } from "@/app/api/channel/oauth/start/route";
@@ -8,11 +10,10 @@ describe("Supported Creator Channel OAuth routes", () => {
     const response = await oauthStart();
 
     expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       outcome: "blocked",
-      reason: "oauth_verification_required",
-      message:
-        "Google OAuth verification is pending; the Supported Creator Channel OAuth flow remains disabled.",
+      reason: "channel_release_required",
+      blockedGates: expect.arrayContaining(["oauth_verification"]),
     });
   });
 
@@ -28,6 +29,6 @@ describe("Supported Creator Channel OAuth routes", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.text();
     expect(body).not.toContain(secretCode);
-    expect(body).toContain("oauth_verification_required");
+    expect(body).toContain("channel_release_required");
   });
 });

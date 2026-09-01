@@ -21,11 +21,18 @@ import {
   registeredPrincipal,
   startResponse,
 } from "@/lib/channel-scans/http";
+import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
+import { channelReleaseBlockedResponse } from "../release-response";
 import { scheduleWorker } from "./schedule";
 
 export const maxDuration = 300;
 
 export async function POST(request: Request): Promise<Response> {
+  const launchGate = evaluateChannelLaunchGate();
+  if (launchGate.status !== "open") {
+    return channelReleaseBlockedResponse(launchGate);
+  }
+
   let rawBody: unknown;
   try {
     rawBody = await request.json();
@@ -95,6 +102,11 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  const launchGate = evaluateChannelLaunchGate();
+  if (launchGate.status !== "open") {
+    return channelReleaseBlockedResponse(launchGate);
+  }
+
   const authenticated = await registeredPrincipal();
   if (authenticated.response) return authenticated.response;
   const principal = authenticated.principal;

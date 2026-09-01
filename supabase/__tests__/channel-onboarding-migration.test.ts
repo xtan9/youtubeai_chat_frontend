@@ -53,7 +53,15 @@ describe("Channel onboarding database foundation", () => {
     expect(sql).toMatch(/grant_record\.write_scope_granted is true/i);
   });
 
-  it("does not make the eventual Channel route or navigation reachable yet", () => {
-    expect(existsSync(path.resolve(__dirname, "../../app/channel"))).toBe(false);
+  it("keeps the production Channel route fail-closed until the launch packet opens", () => {
+    const channelRoute = path.resolve(__dirname, "../../app/channel/page.tsx");
+
+    expect(existsSync(path.dirname(channelRoute))).toBe(true);
+    expect(readFileSync(channelRoute, "utf8")).toMatch(
+      /evaluateChannelLaunchGate\(\)/,
+    );
+    expect(readFileSync(channelRoute, "utf8")).toMatch(
+      /ChannelReleaseBlocked/,
+    );
   });
 });

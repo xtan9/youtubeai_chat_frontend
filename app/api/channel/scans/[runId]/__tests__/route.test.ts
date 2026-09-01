@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/compliance/channel-launch", () => ({
+  evaluateChannelLaunchGate: () => ({
+    status: "open",
+    reason: "Every Channel release gate has explicit evidence.",
+  }),
+}));
 
 const { afterCallbacks, mocks } = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void>>,
