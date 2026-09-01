@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import pendingVerification from "../../docs/compliance/youtube-channel-oauth-verification.json";
 import {
   YOUTUBE_READONLY_SCOPE_SET,
   YouTubeOAuthScopeSchema,
@@ -85,8 +84,19 @@ export type YouTubeOAuthVerificationGate =
       message: string;
     }>;
 
+/**
+ * Legacy onboarding-gate projection. The canonical detailed record is owned
+ * by the compliance module; this deliberately remains closed until that
+ * record is externally verified and translated by a server-owned caller.
+ */
 export const CURRENT_YOUTUBE_OAUTH_VERIFICATION: YouTubeOAuthVerification =
-  YouTubeOAuthVerificationSchema.parse(pendingVerification);
+  YouTubeOAuthVerificationSchema.parse({
+    recordType: "youtube-channel-oauth-verification",
+    recordVersion: 1,
+    provider: "youtube",
+    status: "pending_external_verification",
+    reason: "No external OAuth verification evidence has been provided.",
+  });
 
 function hasRequiredScopes(
   approvedScopes: readonly string[],

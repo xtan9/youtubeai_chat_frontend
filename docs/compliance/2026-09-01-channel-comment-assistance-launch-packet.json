@@ -1,0 +1,51 @@
+{
+  "recordType": "youtube-channel-comment-assistance-launch-packet",
+  "recordVersion": 1,
+  "issueNumber": 490,
+  "sourceSpec": {
+    "path": "docs/specs/2026-08-31-comment-assistance-discovery.md",
+    "url": "https://github.com/xtan9/youtubeai_chat_frontend/blob/main/docs/specs/2026-08-31-comment-assistance-discovery.md"
+  },
+  "gates": {
+    "youtubeCompliance": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "oauthVerification": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "liveDisclosures": {
+      "status": "pending_live_verification",
+      "repositoryPath": "app/privacy/page.tsx",
+      "canonicalPath": "/privacy",
+      "expectedCanonicalUrl": "https://youtubeai.chat/privacy",
+      "liveUrls": [],
+      "evidenceRef": null
+    },
+    "offlineQuality": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "lifecycleEvidence": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "retentionEvidence": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "accessibilityEvidence": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "quotaLoadEvidence": {
+      "status": "pending",
+      "evidenceRef": null
+    },
+    "productionReadinessEvidence": {
+      "status": "pending",
+      "evidenceRef": null
+    }
+  }
+}

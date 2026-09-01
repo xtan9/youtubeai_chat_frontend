@@ -595,6 +595,11 @@ export function ChannelHub({ initialChannelId = DEFAULT_CHANNEL_ID }: ChannelHub
         Synthetic assessments are rehearsal data. No moderation action or background
         completion notification is sent from this surface.
       </p>
+
+      <p className="text-center text-caption leading-5 text-text-muted">
+        Reply Drafts are private assistance. Publication always requires per-item final review
+        and deliberate confirmation.
+      </p>
     </main>
   );
 }
