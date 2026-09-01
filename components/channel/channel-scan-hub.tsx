@@ -53,7 +53,12 @@ function statusLabel(run: PublicScanRun): string {
 
 function statusIcon(run: PublicScanRun) {
   if (run.status === "queued" || run.status === "running") {
-    return <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />;
+    return (
+      <LoaderCircle
+        aria-hidden="true"
+        className="size-4 motion-safe:animate-spin motion-reduce:animate-none"
+      />
+    );
   }
   if (run.outcome === "completed") {
     return <CheckCircle2 aria-hidden="true" className="size-4" />;
@@ -165,9 +170,19 @@ function RunCoverage({ run }: { run: PublicScanRun }) {
       </div>
       <Progress
         aria-label={`Assessment progress: ${progress.percent}%`}
+        aria-valuetext={`${progress.percent}% of bounded scan processed`}
         value={progress.percent}
         className="h-3 bg-surface-sunken"
       />
+      <p
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={`Assessment progress: ${progress.percent}% — ${progress.processedThreads} of ${progress.totalThreads || "?"} threads processed`}
+      >
+        Assessment progress: {progress.percent}% — {progress.processedThreads} of {progress.totalThreads || "?"} threads processed.
+      </p>
       <div className="grid gap-3 text-body-sm text-text-secondary sm:grid-cols-3">
         <div className="flex items-center gap-2">
           <Layers3 aria-hidden="true" className="size-4 text-accent-brand" />
@@ -218,7 +233,7 @@ function RunRow({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`flex w-full items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-brand ${
+      className={`flex w-full items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 text-left transition-colors motion-reduce:transition-none last:border-b-0 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-brand ${
         selected ? "bg-state-hover" : ""
       }`}
     >
@@ -465,7 +480,7 @@ export function ChannelHub({ initialChannelId = DEFAULT_CHANNEL_ID }: ChannelHub
               className="w-full rounded-full bg-accent-brand text-white hover:bg-accent-brand/90"
             >
               {busyAction === "start" ? (
-                <LoaderCircle aria-hidden="true" className="animate-spin" />
+                <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin motion-reduce:animate-none" />
               ) : (
                 <ScanSearch aria-hidden="true" />
               )}
@@ -502,7 +517,7 @@ export function ChannelHub({ initialChannelId = DEFAULT_CHANNEL_ID }: ChannelHub
                 disabled={isLoading}
                 aria-label="Refresh scan runs"
               >
-                <RefreshCw aria-hidden="true" className={isLoading ? "animate-spin" : ""} />
+                <RefreshCw aria-hidden="true" className={isLoading ? "motion-safe:animate-spin motion-reduce:animate-none" : ""} />
                 Refresh
               </Button>
             </div>
@@ -553,7 +568,7 @@ export function ChannelHub({ initialChannelId = DEFAULT_CHANNEL_ID }: ChannelHub
                   onClick={() => void cancelScan(selectedRun)}
                   disabled={busyAction !== null}
                 >
-                  {busyAction === "cancel" ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <XCircle aria-hidden="true" />}
+                  {busyAction === "cancel" ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin motion-reduce:animate-none" /> : <XCircle aria-hidden="true" />}
                   Cancel scan
                 </Button>
               ) : null}
@@ -564,7 +579,7 @@ export function ChannelHub({ initialChannelId = DEFAULT_CHANNEL_ID }: ChannelHub
                   disabled={busyAction !== null}
                   className="bg-accent-brand text-white hover:bg-accent-brand/90"
                 >
-                  {busyAction === "retry" ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <RefreshCw aria-hidden="true" />}
+                  {busyAction === "retry" ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin motion-reduce:animate-none" /> : <RefreshCw aria-hidden="true" />}
                   Retry scan
                 </Button>
               ) : null}

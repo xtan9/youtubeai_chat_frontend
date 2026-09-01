@@ -90,6 +90,16 @@ describe("ChannelHub", () => {
     expect(screen.getByText(/200-thread cap prevented complete coverage/i)).not.toBeNull();
     expect(screen.getByText(/Aug 25, 2026/)).not.toBeNull();
     expect(screen.getAllByText(/Aug 31, 2026/).length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Assessment progress: 100%" })
+        .getAttribute("aria-valuetext"),
+    ).toBe("100% of bounded scan processed");
+    expect(
+      screen.getByRole("status", {
+        name: /assessment progress: 100% — 200 of 200 threads processed/i,
+      }),
+    ).not.toBeNull();
   });
 
   it("starts, cancels, and retries through durable endpoints without notifications", async () => {
@@ -118,11 +128,14 @@ describe("ChannelHub", () => {
       return response({ run: STARTED_RUN });
     });
 
-    render(<ChannelHub />);
+    const { container } = render(<ChannelHub />);
     await screen.findByText(/no scan runs yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /run synthetic scan/i }));
     expect((await screen.findAllByText("Queued")).length).toBeGreaterThan(0);
+    expect(container.innerHTML).toContain(
+      "motion-safe:animate-spin motion-reduce:animate-none",
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/channel/scans",
       expect.objectContaining({ method: "POST" }),
