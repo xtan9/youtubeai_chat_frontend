@@ -102,6 +102,12 @@ declare
   sent_message_id bigint;
   scheduled_count integer := 0;
 begin
+  -- Serialize scheduler transactions so the candidate snapshot, idempotent
+  -- job insert, and queue write form one duplicate-free scheduling decision.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('catalog-backfill-scheduler-v1', 0)
+  );
+
   -- A Summary row is the only source of cold-start demand. There is no
   -- popularity, trending, learner, or raw-content input in this selection.
   for candidate in
