@@ -16,6 +16,10 @@ begin
 end;
 $$;
 
+-- The queue API is server-only.  Keep the queue schema hidden from browser
+-- roles while allowing the service-role-owned worker contracts to call PGMQ.
+grant usage on schema pgmq to service_role;
+
 create table catalog_private.catalog_backfill_jobs (
   id uuid primary key default gen_random_uuid(),
   summary_id uuid not null references public.summaries(id) on delete restrict,
