@@ -145,23 +145,30 @@ begin
 end;
 $$;
 
-set role service_role;
-select public.complete_catalog_backfill_work(
+reset role;
+select
   (
     select msg_id
     from pgmq.q_catalog_backfill
     where message ->> 'video_id' = '35600000-0000-4000-8000-000000000011'
-  ),
+  ) as msg_id,
   (
     select id
     from catalog_private.catalog_backfill_jobs
     where video_id = '35600000-0000-4000-8000-000000000011'
-  ),
+  ) as backfill_job_id,
   (
     select idempotency_key
     from catalog_private.catalog_backfill_jobs
     where video_id = '35600000-0000-4000-8000-000000000011'
-  ),
+  ) as idempotency_key
+\gset catalog_completion_
+
+set role service_role;
+select public.complete_catalog_backfill_work(
+  :'catalog_completion_msg_id'::bigint,
+  :'catalog_completion_backfill_job_id'::uuid,
+  :'catalog_completion_idempotency_key',
   'skipped',
   'unavailable'
 );
