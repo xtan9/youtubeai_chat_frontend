@@ -51,6 +51,7 @@ export type ChannelHubPresentationItem = Readonly<{
     classification: ChannelJourneySnapshot["reviewQueue"]["items"][number]["interactionAssessment"]["classification"];
     status: "awaiting_review";
   }>;
+  replyDraft: ChannelJourneySnapshot["reviewQueue"]["items"][number]["replyDraft"];
   status: "awaiting_review";
 }>;
 
@@ -95,6 +96,7 @@ export function buildChannelHubPresentation(
           classification: item.interactionAssessment.classification,
           status: item.interactionAssessment.status,
         },
+        replyDraft: item.replyDraft,
         status: item.status,
       })),
     },
