@@ -1,0 +1,63 @@
+{
+  "recordType": "channel-english-blind-evaluation-corpus-approval-evidence",
+  "recordVersion": 1,
+  "issueNumber": 483,
+  "corpusId": "channel-english-blind-v1",
+  "manifestPath": "docs/channel-evaluation/english-blind-corpus-manifest.json",
+  "status": "pending_human_approval_and_freeze",
+  "humanReview": {
+    "requiredIndependentReviewers": 2,
+    "adjudicatorResolvesDisagreements": true,
+    "recordedReviewerCount": 0,
+    "status": "not_recorded"
+  },
+  "approval": {
+    "status": "not_recorded",
+    "approvedBy": null,
+    "approvedAt": null,
+    "corpusFingerprint": null,
+    "evidenceReference": null
+  },
+  "freeze": {
+    "status": "not_recorded",
+    "frozenBy": null,
+    "frozenAt": null,
+    "corpusFingerprint": null,
+    "evidenceReference": null
+  },
+  "finalTupleEvaluation": {
+    "status": "blocked",
+    "blockedBy": [
+      "Human item labels and any required adjudications have not been recorded.",
+      "Explicit corpus approval and freeze evidence have not been recorded.",
+      "Issue #482 offline quality harness is not available on this branch."
+    ]
+  },
+  "tuning": {
+    "allowed": false,
+    "prohibition": "The blind inventory is unavailable for model, prompt, taxonomy, or validator tuning."
+  },
+  "originPolicy": {
+    "allowedOrigins": [
+      "authored_synthetic",
+      "creator_example"
+    ],
+    "creatorExamplesIncluded": 0,
+    "youtubeApiCommentsAllowedInPermanentCorpus": false
+  },
+  "blockers": [
+    "Two independent human reviews per item and third-reviewer adjudication for disagreements are still required.",
+    "No human approval or freeze identity is asserted by this repository record.",
+    "No licensed Creator example is asserted by this repository record.",
+    "Issue #482 remains an upstream harness blocker."
+  ],
+  "nonClaims": [
+    "This record does not claim that the corpus is approved or frozen.",
+    "This record does not claim that any Creator example has been consented, licensed, or de-identified.",
+    "This record does not claim completion of the final model/prompt/validator tuple evaluation."
+  ],
+  "upstreamHarness": {
+    "issueNumber": 482,
+    "status": "not_available"
+  }
+}
