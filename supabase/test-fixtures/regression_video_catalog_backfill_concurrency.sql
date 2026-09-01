@@ -37,6 +37,29 @@ insert into public.summaries (
 );
 reset role;
 
+-- The representative database has other eligible summaries from earlier
+-- fixtures. Suppress those candidates so both concurrent schedulers race on
+-- this fixture's one target rather than legitimately scheduling two videos.
+insert into catalog_private.catalog_backfill_jobs (
+  summary_id,
+  video_id,
+  youtube_video_id,
+  idempotency_key
+)
+select distinct on (video.id)
+  summary_row.id,
+  video.id,
+  video.youtube_video_id,
+  'fixture-catalog-suppress:' || video.id::text
+from public.summaries as summary_row
+join public.videos as video on video.id = summary_row.video_id
+where video.id <> '35600000-0000-4000-8000-000000000011'
+  and btrim(coalesce(summary_row.summary, '')) <> ''
+  and video.youtube_video_id ~ '^[A-Za-z0-9_-]{11}$'
+order by video.id, summary_row.created_at desc, summary_row.id desc
+on conflict (video_id) do nothing;
+reset role;
+
 do $$
 declare
   connection_string text := format(
@@ -73,7 +96,11 @@ begin
 
   if (first_result ->> 'scheduled')::integer
       + (second_result ->> 'scheduled')::integer <> 1
-    or (select count(*) from catalog_private.catalog_backfill_jobs) <> 1
+    or (
+      select count(*)
+      from catalog_private.catalog_backfill_jobs
+      where idempotency_key not like 'fixture-catalog-suppress:%'
+    ) <> 1
   then
     raise exception 'REGRESSION: concurrent backfill scheduling duplicated work: %, %',
       first_result, second_result;
@@ -120,12 +147,28 @@ $$;
 
 set role service_role;
 select public.complete_catalog_backfill_work(
-  (select msg_id from pgmq.q_catalog_backfill),
-  (select id from catalog_private.catalog_backfill_jobs limit 1),
-  (select idempotency_key from catalog_private.catalog_backfill_jobs limit 1),
+  (
+    select msg_id
+    from pgmq.q_catalog_backfill
+    where message ->> 'video_id' = '35600000-0000-4000-8000-000000000011'
+  ),
+  (
+    select id
+    from catalog_private.catalog_backfill_jobs
+    where video_id = '35600000-0000-4000-8000-000000000011'
+  ),
+  (
+    select idempotency_key
+    from catalog_private.catalog_backfill_jobs
+    where video_id = '35600000-0000-4000-8000-000000000011'
+  ),
   'skipped',
   'unavailable'
 );
+reset role;
+delete from catalog_private.catalog_backfill_jobs
+where idempotency_key like 'fixture-catalog-suppress:%';
+set role service_role;
 select public.configure_catalog_processing_policy(
   'recommendation_assessment', 'recommendation-assessment-race-v1',
   2, 0, 4, 2, 4, 1, 120
