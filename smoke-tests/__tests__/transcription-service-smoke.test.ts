@@ -179,26 +179,39 @@ async function startFixtureService(options?: {
   };
 }
 
-async function runSmoke(baseUrl: string) {
+async function runSmoke(
+  baseUrl: string | undefined,
+  environmentOverrides: Record<string, string | undefined> = {}
+) {
   const reportDirectory = await mkdtemp(
     path.join(tmpdir(), "transcription-service-smoke-")
   );
   temporaryDirectories.push(reportDirectory);
   const reportPath = path.join(reportDirectory, "report.json");
 
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    VPS_API_KEY: SECRET,
+    SMOKE_CAPTIONED_VIDEO_URL: CAPTIONED_VIDEO,
+    SMOKE_CAPTIONLESS_VIDEO_URL: CAPTIONLESS_VIDEO,
+    SMOKE_MULTILINGUAL_VIDEO_URL: MULTILINGUAL_VIDEO,
+    SMOKE_MULTILINGUAL_LANGUAGE: "zh",
+    SMOKE_REPORT_PATH: reportPath,
+    SMOKE_REQUEST_TIMEOUT_MS: "5000",
+  };
+  if (baseUrl === undefined) {
+    delete environment.VPS_API_URL;
+  } else {
+    environment.VPS_API_URL = baseUrl;
+  }
+  for (const [name, value] of Object.entries(environmentOverrides)) {
+    if (value === undefined) delete environment[name];
+    else environment[name] = value;
+  }
+
   const child = spawn(process.execPath, ["--import", "tsx", SCRIPT_PATH], {
     cwd: REPO_ROOT,
-    env: {
-      ...process.env,
-      VPS_API_URL: baseUrl,
-      VPS_API_KEY: SECRET,
-      SMOKE_CAPTIONED_VIDEO_URL: CAPTIONED_VIDEO,
-      SMOKE_CAPTIONLESS_VIDEO_URL: CAPTIONLESS_VIDEO,
-      SMOKE_MULTILINGUAL_VIDEO_URL: MULTILINGUAL_VIDEO,
-      SMOKE_MULTILINGUAL_LANGUAGE: "zh",
-      SMOKE_REPORT_PATH: reportPath,
-      SMOKE_REQUEST_TIMEOUT_MS: "5000",
-    },
+    env: environment,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -212,10 +225,11 @@ async function runSmoke(baseUrl: string) {
   });
 
   const report = JSON.parse(await readFile(reportPath, "utf8")) as {
+    targetOrigin: string;
     status: string;
     checks: Array<{
       name: string;
-      requestId: string;
+      requestId: string | null;
       status: string;
       detail: string;
     }>;
@@ -224,6 +238,61 @@ async function runSmoke(baseUrl: string) {
 }
 
 describe("transcription service smoke command", () => {
+  it("writes a safe failure report when required configuration is missing", async () => {
+    const result = await runSmoke(undefined);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toMatchObject({
+      targetOrigin: "unconfigured",
+      status: "failed",
+      checks: [
+        {
+          name: "configuration",
+          endpoint: "configuration",
+          requestId: null,
+          status: "failed",
+          detail: "VPS_API_URL must be configured",
+        },
+      ],
+    });
+    const combinedOutput = result.stdout + result.stderr;
+    expect(combinedOutput).toContain("VPS_API_URL must be configured");
+    expect(combinedOutput).not.toContain(SECRET);
+    expect(JSON.stringify(result.report)).not.toContain(SECRET);
+  });
+
+  it("writes a safe failure report when the API key is missing", async () => {
+    const result = await runSmoke("https://vps.example.com", {
+      VPS_API_KEY: undefined,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report.checks).toEqual([
+      expect.objectContaining({
+        name: "configuration",
+        endpoint: "configuration",
+        requestId: null,
+        status: "failed",
+        detail: "VPS_API_KEY must be configured",
+      }),
+    ]);
+    expect(result.report.targetOrigin).toBe("unconfigured");
+  });
+
+  it("does not echo an invalid service URL in configuration diagnostics", async () => {
+    const invalidUrl = "not-a-valid-url-with-a-secret-value";
+    const result = await runSmoke(invalidUrl);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report.checks[0]).toMatchObject({
+      name: "configuration",
+      detail: "VPS_API_URL must be a valid URL",
+    });
+    const combinedOutput = result.stdout + result.stderr;
+    expect(combinedOutput).not.toContain(invalidUrl);
+    expect(JSON.stringify(result.report)).not.toContain(invalidUrl);
+  });
+
   it("verifies every live contract path and records a redacted request-ID report", async () => {
     const fixture = await startFixtureService();
     try {
@@ -243,7 +312,10 @@ describe("transcription service smoke command", () => {
       ]);
       expect(
         result.report.checks.every(
-          (check) => check.status === "passed" && check.requestId.length > 0
+          (check) =>
+            check.status === "passed" &&
+            check.requestId !== null &&
+            check.requestId.length > 0
         )
       ).toBe(true);
       expect(new Set(result.report.checks.map((check) => check.requestId)).size).toBe(

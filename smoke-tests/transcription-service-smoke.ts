@@ -17,12 +17,25 @@ const DEFAULT_CAPTIONLESS_VIDEO =
 const DEFAULT_MULTILINGUAL_VIDEO =
   "https://www.youtube.com/watch?v=xMZqTuLWSA4";
 const DEFAULT_MULTILINGUAL_LANGUAGE = "zh";
+const DEFAULT_REPORT_PATH = path.join(
+  "test-results",
+  "transcription-service-smoke.json"
+);
 const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
 const ALLOWED_ERROR_FIELDS = new Set(["error", "errorId", "requestId"]);
+const SAFE_CONFIGURATION_ERRORS = new Set([
+  "VPS_API_URL must be configured",
+  "VPS_API_KEY must be configured",
+  "VPS_API_URL must be a valid URL",
+  "VPS_API_URL must use HTTPS (localhost is allowed for tests)",
+  "SMOKE_PROFILE must be full or caption-egress",
+  "SMOKE_REQUEST_TIMEOUT_MS must be a positive integer no greater than 600000",
+]);
 
 type SmokeProfile = "full" | "caption-egress";
 
 type CheckName =
+  | "configuration"
   | "health"
   | "authenticated-metadata"
   | "captioned-video"
@@ -35,7 +48,7 @@ type CheckName =
 type CheckResult = {
   name: CheckName;
   endpoint: string;
-  requestId: string;
+  requestId: string | null;
   status: "passed" | "failed";
   httpStatus?: number;
   durationMs: number;
@@ -106,9 +119,18 @@ function parseProfile(value: string | undefined): SmokeProfile {
   return profile;
 }
 
+function reportPathFromEnvironment(): string {
+  return process.env.SMOKE_REPORT_PATH?.trim() || DEFAULT_REPORT_PATH;
+}
+
 function loadConfig(): Config {
   const baseUrl = requiredEnv("VPS_API_URL").replace(/\/$/, "");
-  const parsedBaseUrl = new URL(baseUrl);
+  let parsedBaseUrl: URL;
+  try {
+    parsedBaseUrl = new URL(baseUrl);
+  } catch {
+    throw new Error("VPS_API_URL must be a valid URL");
+  }
   if (parsedBaseUrl.protocol !== "https:" && parsedBaseUrl.hostname !== "127.0.0.1") {
     throw new Error("VPS_API_URL must use HTTPS (localhost is allowed for tests)");
   }
@@ -127,10 +149,34 @@ function loadConfig(): Config {
     multilingualLanguage:
       process.env.SMOKE_MULTILINGUAL_LANGUAGE?.trim() ||
       DEFAULT_MULTILINGUAL_LANGUAGE,
-    reportPath:
-      process.env.SMOKE_REPORT_PATH?.trim() ||
-      path.join("test-results", "transcription-service-smoke.json"),
+    reportPath: reportPathFromEnvironment(),
     requestTimeoutMs: parseTimeout(process.env.SMOKE_REQUEST_TIMEOUT_MS),
+  };
+}
+
+function safeConfigurationErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return SAFE_CONFIGURATION_ERRORS.has(message)
+    ? message
+    : "Smoke configuration is invalid";
+}
+
+function configurationFailureReport(detail: string): SmokeReport {
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    targetOrigin: "unconfigured",
+    status: "failed",
+    checks: [
+      {
+        name: "configuration",
+        endpoint: "configuration",
+        requestId: null,
+        status: "failed",
+        durationMs: 0,
+        detail,
+      },
+    ],
   };
 }
 
@@ -689,14 +735,14 @@ async function executeSmoke(config: Config): Promise<SmokeReport> {
   };
 }
 
-async function writeReport(config: Config, report: SmokeReport): Promise<void> {
-  await mkdir(path.dirname(config.reportPath), { recursive: true });
-  await writeFile(config.reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+async function writeReport(reportPath: string, report: SmokeReport): Promise<void> {
+  await mkdir(path.dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   if (process.env.GITHUB_STEP_SUMMARY) {
     const rows = report.checks.map(
       (check) =>
-        `| ${check.name} | ${check.status} | ${check.httpStatus ?? "-"} | \`${check.requestId}\` | ${check.detail.replaceAll("|", "\\|")} |`
+        `| ${check.name} | ${check.status} | ${check.httpStatus ?? "-"} | \`${check.requestId ?? "-"}\` | ${check.detail.replaceAll("|", "\\|")} |`
     );
     const summary = [
       "## Transcription service contract smoke",
@@ -717,17 +763,20 @@ async function main(): Promise<void> {
   try {
     config = loadConfig();
   } catch (error) {
+    const detail = safeConfigurationErrorMessage(error);
     console.error(
-      `[transcription-smoke] configuration error: ${
-        error instanceof Error ? error.message : String(error)
-      }`
+      `[transcription-smoke] configuration error: ${detail}`
+    );
+    await writeReport(
+      reportPathFromEnvironment(),
+      configurationFailureReport(detail)
     );
     process.exitCode = 1;
     return;
   }
 
   const report = await executeSmoke(config);
-  await writeReport(config, report);
+  await writeReport(config.reportPath, report);
   console.log(
     `[transcription-smoke] report=${config.reportPath} overall=${report.status}`
   );

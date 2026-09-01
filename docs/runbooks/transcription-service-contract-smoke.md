@@ -19,12 +19,15 @@ must pass in both repositories before either release is promoted.
 
 Configure these settings in `xtan9/youtubeai_chat_frontend`:
 
-- Repository variable `VPS_API_URL`: the deployed service HTTPS origin.
+- Repository secret `VPS_API_URL`: the deployed service HTTPS origin.
 - Repository secret `VPS_API_KEY`: the current service bearer key.
 
 The workflow never prints the key, request/response bodies, full Video URLs,
 or Transcript text. The retained report contains only check names, endpoint
-paths, HTTP statuses, durations, safe schema facts, and request IDs.
+paths, HTTP statuses, durations, safe schema facts, and request IDs. If either
+required secret is missing or syntactically invalid, the smoke writes a failed
+report with a `configuration` check and no service request ID so the artifact
+is still available for diagnosis.
 
 ## Safe public Videos
 
@@ -72,13 +75,15 @@ match the workflow: `SMOKE_CAPTIONED_VIDEO_URL`,
 
 ## Failure response and escalation
 
-Use the failed check's request ID to search service logs. Do not copy response
-bodies or bearer values into issues, chat, or incident notes.
+For service checks, use the failed check's request ID to search service logs.
+For a `configuration` failure, correct the repository secrets first. Do not
+copy response bodies or bearer values into issues, chat, or incident notes.
 
 | Failed check | First response |
 | --- | --- |
 | `health` | Stop promotion. Confirm the process, reverse proxy, and deployment health checks. Roll back immediately if the new release does not become healthy. |
-| `authenticated-metadata` | Check the workflow variable, current/previous key overlap, and service auth configuration. If credentials are correct, treat it as a deployed contract regression and roll back. |
+| `configuration` | Confirm the repository secrets `VPS_API_URL` and `VPS_API_KEY` are configured, then rerun the workflow. |
+| `authenticated-metadata` | Check the workflow secrets, current/previous key overlap, and service auth configuration. If credentials are correct, treat it as a deployed contract regression and roll back. |
 | `captioned-video` | Check YouTube egress, PO-token support, caption extraction, and the Video's current caption state. Roll back when the failure began with the deployment. |
 | `captionless-caption-miss` | Confirm the Video still has no caption tracks. A `200` means fixture drift; an unexpected status means the caption-miss contract regressed. |
 | `captionless-whisper` | Check duration/media limits, capacity, Groq, and local Whisper fallback. Do not accept a deploy that cannot return canonical Whisper segments. |

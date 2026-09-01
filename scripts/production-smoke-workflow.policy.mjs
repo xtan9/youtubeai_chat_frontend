@@ -20,6 +20,13 @@ const transcriptionWorkflow = readFileSync(
   ),
   "utf8",
 );
+const transcriptionRunbook = readFileSync(
+  new URL(
+    "../docs/runbooks/transcription-service-contract-smoke.md",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const productionPlaywrightConfig = readFileSync(
   new URL("../playwright.production.config.ts", import.meta.url),
   "utf8",
@@ -168,6 +175,9 @@ test("alerts on cancelled smoke runs and watches the full transcription smoke", 
     transcriptionWorkflow,
     /VPS_API_KEY:\s*\$\{\{\s*secrets\.VPS_API_KEY\s*\}\}/,
   );
+  assert.match(transcriptionRunbook, /Repository secret `VPS_API_URL`/);
+  assert.match(transcriptionRunbook, /Repository secret `VPS_API_KEY`/);
+  assert.doesNotMatch(transcriptionRunbook, /Repository variable `VPS_API_URL`/);
   assert.match(
     transcriptionWorkflow,
     /run:\s*pnpm exec tsx smoke-tests\/transcription-service-smoke\.ts/,
