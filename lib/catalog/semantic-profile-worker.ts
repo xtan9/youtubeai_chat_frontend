@@ -61,13 +61,17 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
     raw: Record<string, unknown>,
     failureCode: "invalid_message" | "gateway_or_schema" | "worker_error",
   ): Promise<void> => {
+    const messageId = z.coerce.number().int().positive().safeParse(raw.msg_id);
+    if (!messageId.success) {
+      throw new Error("Semantic Profile queue message has no trustworthy message id");
+    }
     const requestId =
       typeof raw.request_id === "string" &&
       z.string().uuid().safeParse(raw.request_id).success
         ? raw.request_id
         : null;
     const failure = await supabase.rpc("fail_semantic_profile_work", {
-      p_msg_id: raw.msg_id,
+      p_msg_id: messageId.data,
       p_request_id: requestId,
       p_failure_code: failureCode,
       p_max_attempts: MAX_ATTEMPTS,
@@ -76,15 +80,18 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
     if (failure.error) {
       throw new Error("Semantic Profile retry failed", { cause: failure.error });
     }
-    if (
-      failure.data &&
-      typeof failure.data === "object" &&
-      "outcome" in failure.data &&
-      failure.data.outcome === "exhausted"
-    ) {
+    const outcome =
+      failure.data && typeof failure.data === "object" && "outcome" in failure.data
+        ? failure.data.outcome
+        : null;
+    if (outcome === "exhausted") {
       exhausted += 1;
-    } else {
+    } else if (outcome === "retry") {
       retried += 1;
+    } else if (outcome === "obsolete") {
+      obsolete += 1;
+    } else {
+      throw new Error("Semantic Profile retry returned an unknown outcome");
     }
   };
 
@@ -98,6 +105,7 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
 
     const work = parsed.data;
     const budget = await supabase.rpc("begin_semantic_profile_generation", {
+      p_msg_id: work.msg_id,
       p_request_id: work.request_id,
       p_estimated_micro_usd: ESTIMATED_MICRO_USD_PER_PROFILE,
       p_generator_model: GENERATOR_MODEL,
@@ -127,10 +135,13 @@ export async function runSemanticProfileWorker(): Promise<WorkerResult> {
       continue;
     }
     if (budgetOutcome !== "started") {
+      if (budgetOutcome === "processing") {
+        await fail(raw, "worker_error");
+        continue;
+      }
       if (
         budgetOutcome !== "obsolete" &&
         budgetOutcome !== "completed" &&
-        budgetOutcome !== "processing" &&
         budgetOutcome !== "exhausted"
       ) {
         await fail(raw, "worker_error");

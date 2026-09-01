@@ -77,6 +77,7 @@ describe("runSemanticProfileWorker", () => {
       p_visibility_timeout_seconds: 120,
     });
     expect(mocks.rpc).toHaveBeenCalledWith("begin_semantic_profile_generation", {
+      p_msg_id: WORK.msg_id,
       p_request_id: WORK.request_id,
       p_estimated_micro_usd: 5_000,
       p_generator_model: "gpt-5.3-codex-spark",
@@ -153,8 +154,50 @@ describe("runSemanticProfileWorker", () => {
     });
   });
 
+  it("retries when budget admission fails before the request starts", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "claim_semantic_profile_work") {
+        return { data: [WORK], error: null };
+      }
+      if (name === "begin_semantic_profile_generation") {
+        return { data: null, error: new Error("database unavailable") };
+      }
+      if (name === "fail_semantic_profile_work") {
+        return { data: { outcome: "retry" }, error: null };
+      }
+      return { data: { outcome: "ok" }, error: null };
+    });
+
+    await expect(runSemanticProfileWorker()).resolves.toMatchObject({
+      claimed: 1,
+      completed: 0,
+      obsolete: 0,
+      retried: 1,
+    });
+    expect(mocks.generateSemanticProfile).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "fail_semantic_profile_work",
+      expect.objectContaining({
+        p_request_id: WORK.request_id,
+        p_failure_code: "worker_error",
+      }),
+    );
+  });
+
   it("routes invalid Gateway output through bounded retry without persistence", async () => {
     mocks.generateSemanticProfile.mockRejectedValue(new Error("schema mismatch"));
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "fail_semantic_profile_work") {
+        return { data: { outcome: "retry" }, error: null };
+      }
+      if (name === "claim_semantic_profile_work") {
+        return { data: [WORK], error: null };
+      }
+      if (name === "begin_semantic_profile_generation") {
+        return { data: { outcome: "started" }, error: null };
+      }
+      return { data: { outcome: "completed" }, error: null };
+    });
 
     await expect(runSemanticProfileWorker()).resolves.toMatchObject({
       claimed: 1,
@@ -185,6 +228,40 @@ describe("runSemanticProfileWorker", () => {
       }
       if (name === "begin_semantic_profile_generation") {
         return { data: { outcome: "unexpected" }, error: null };
+      }
+      if (name === "fail_semantic_profile_work") {
+        return { data: { outcome: "retry" }, error: null };
+      }
+      return { data: { outcome: "ok" }, error: null };
+    });
+
+    await expect(runSemanticProfileWorker()).resolves.toMatchObject({
+      claimed: 1,
+      completed: 0,
+      obsolete: 0,
+      retried: 1,
+    });
+    expect(mocks.generateSemanticProfile).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "fail_semantic_profile_work",
+      expect.objectContaining({
+        p_request_id: WORK.request_id,
+        p_failure_code: "worker_error",
+      }),
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      "ack_semantic_profile_work",
+      expect.anything(),
+    );
+  });
+
+  it("retries a redelivered in-progress request instead of discarding it", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === "claim_semantic_profile_work") {
+        return { data: [WORK], error: null };
+      }
+      if (name === "begin_semantic_profile_generation") {
+        return { data: { outcome: "processing" }, error: null };
       }
       if (name === "fail_semantic_profile_work") {
         return { data: { outcome: "retry" }, error: null };

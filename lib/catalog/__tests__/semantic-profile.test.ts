@@ -86,6 +86,25 @@ describe("parseSemanticProfile", () => {
       ),
     ).toThrow(/schema/);
   });
+
+  it("rejects a concept key repeated across profile sections", () => {
+    expect(() =>
+      parseSemanticProfile(
+        JSON.stringify({
+          ...VALID_PROFILE,
+          topics: [{ key: "linear-algebra", label: "Linear algebra" }],
+        }),
+      ),
+    ).toThrow(/schema/);
+  });
+
+  it("accepts valid BCP-47 extension and private-use subtags", () => {
+    expect(
+      parseSemanticProfile(
+        JSON.stringify({ ...VALID_PROFILE, sourceLanguage: "en-x-private" }),
+      ).sourceLanguage,
+    ).toBe("en-x-private");
+  });
 });
 
 describe("generateSemanticProfile", () => {
