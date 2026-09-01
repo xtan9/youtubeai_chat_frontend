@@ -101,6 +101,7 @@ declare
   job_idempotency_key text;
   sent_message_id bigint;
   scheduled_count integer := 0;
+  inserted_count integer;
 begin
   -- Serialize scheduler transactions so the candidate snapshot, idempotent
   -- job insert, and queue write form one duplicate-free scheduling decision.
@@ -159,7 +160,8 @@ begin
     on conflict (video_id) do nothing
     returning id into backfill_job_id;
 
-    if not found then
+    get diagnostics inserted_count = row_count;
+    if inserted_count = 0 then
       continue;
     end if;
 
