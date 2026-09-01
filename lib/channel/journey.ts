@@ -500,6 +500,7 @@ function buildReviewQueue(
       classification: assessment.classification,
       status: "awaiting_review",
     },
+    replyDraft: assessment.replyDraft,
     status: "awaiting_review",
   }));
   items.sort((left, right) => {
@@ -580,8 +581,11 @@ function belongsToJourney(
         assessment !== undefined &&
         item.interactionId === assessment.interactionId &&
         item.interactionAssessment.classification ===
-          assessment.classification &&
-        item.interactionText === assessment.text
+        assessment.classification &&
+        item.interactionText === assessment.text &&
+        item.video.id === assessment.video.id &&
+        item.video.title === assessment.video.title &&
+        JSON.stringify(item.replyDraft) === JSON.stringify(assessment.replyDraft)
       );
     })
   );

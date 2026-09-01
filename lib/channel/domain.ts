@@ -20,6 +20,29 @@ export const INTERACTION_ASSESSMENT_LABEL =
   "Interaction Assessment" as const;
 export const REVIEW_QUEUE_LABEL = "Review Queue" as const;
 
+export const CHANNEL_REPLY_DRAFT_SCHEMA_VERSION =
+  "channel-reply-draft-v1" as const;
+export const CHANNEL_REPLY_DRAFT_PROMPT_VERSION =
+  "channel-reply-draft-prompt-v1" as const;
+export const CHANNEL_REPLY_DRAFT_VALIDATOR_VERSION =
+  "channel-reply-draft-validator-v1" as const;
+export const CHANNEL_REPLY_DRAFT_PRIVATE_DISCLOSURE =
+  "AI-assisted draft. Review and edit before publishing." as const;
+
+export const ChannelInteractionLanguageSchema = z.enum([
+  "en",
+  "english",
+  "zh-Hans",
+  "simplified_chinese",
+  "zh-Hant",
+  "traditional_chinese",
+  "zh-code-switch",
+  "chinese_english_code_switch",
+]);
+export type ChannelInteractionLanguage = z.infer<
+  typeof ChannelInteractionLanguageSchema
+>;
+
 export const ChannelGovernanceSchema = z
   .object({
     source: z.literal("synthetic"),
@@ -63,6 +86,43 @@ export const ChannelStewardSchema = z
   })
   .strict();
 export type ChannelSteward = z.infer<typeof ChannelStewardSchema>;
+
+export const ChannelPrivateAiAssistanceSchema = z
+  .object({
+    disclosed: z.literal(true),
+    label: z.literal("AI assistance"),
+    disclosure: z.literal(CHANNEL_REPLY_DRAFT_PRIVATE_DISCLOSURE),
+    audience: z.literal("channel_steward"),
+    includedInPublicReply: z.literal(false),
+  })
+  .strict();
+export type ChannelPrivateAiAssistance = z.infer<
+  typeof ChannelPrivateAiAssistanceSchema
+>;
+
+export const ChannelReplyDraftSchema = z
+  .object({
+    schemaVersion: z.literal(CHANNEL_REPLY_DRAFT_SCHEMA_VERSION),
+    id: DomainIdSchema,
+    assessmentId: DomainIdSchema,
+    channelId: DomainIdSchema,
+    connectedChannelId: DomainIdSchema,
+    stewardPrincipalId: NonEmptyTextSchema,
+    interactionLanguage: ChannelInteractionLanguageSchema,
+    generatedText: z.string().trim().min(1).max(600),
+    text: z.string().trim().min(1).max(600),
+    status: z.enum(["ready", "edited"]),
+    validation: z.enum(["passed", "pending"]),
+    visibility: z.literal("private"),
+    editable: z.literal(true),
+    aiAssistance: ChannelPrivateAiAssistanceSchema,
+    promptVersion: z.literal(CHANNEL_REPLY_DRAFT_PROMPT_VERSION),
+    validatorVersion: z.literal(CHANNEL_REPLY_DRAFT_VALIDATOR_VERSION),
+    generatedAt: InstantSchema,
+    updatedAt: InstantSchema,
+  })
+  .strict();
+export type ChannelReplyDraft = z.infer<typeof ChannelReplyDraftSchema>;
 
 export const SyntheticChannelIdentitySchema = z
   .object({
@@ -228,7 +288,7 @@ export const InteractionAssessmentSchema = z
     target: ChannelAssessmentTargetSchema,
     severity: ChannelAssessmentSeveritySchema,
     status: z.literal("awaiting_review"),
-    replyDraft: z.null(),
+    replyDraft: ChannelReplyDraftSchema.nullable(),
     assessedAt: InstantSchema,
     governance: ChannelGovernanceSchema,
   })
@@ -251,6 +311,7 @@ export const ReviewQueueItemSchema = z
         status: z.literal("awaiting_review"),
       })
       .strict(),
+    replyDraft: ChannelReplyDraftSchema.nullable(),
     status: z.literal("awaiting_review"),
   })
   .strict();
