@@ -6,6 +6,10 @@ import {
   completeChannelOnboarding,
   type ChannelConnectionPersistence,
 } from "../journey";
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "../scopes";
 
 const NOW = "2026-08-31T12:00:00.000Z";
 const OWNER_ID = "researcher-1";
@@ -16,7 +20,59 @@ const IDENTITY = {
   providerChannelId: "UC_verified",
   displayName: "Verified creator channel",
   mine: true as const,
+  ownership: "account_owned" as const,
+  authorization: "direct_owner" as const,
+  visibility: "public" as const,
+  persona: "creator" as const,
 };
+
+const GATES = {
+  complianceClearance: {
+    recordType:
+      "youtube-channel-comment-assistance-compliance-clearance" as const,
+    recordVersion: 1 as const,
+    issueNumber: 470 as const,
+    sourceSpec: {
+      path: "docs/specs/2026-08-31-comment-assistance-discovery.md" as const,
+      url: "https://github.com/xtan9/youtubeai_chat_frontend/blob/main/docs/specs/2026-08-31-comment-assistance-discovery.md",
+    },
+    decision: "permitted" as const,
+    packet: {
+      issueNumber: 469 as const,
+      status: "reviewed" as const,
+      artifactPath:
+        "docs/compliance/youtube-channel-comment-assistance-audit-packet.md",
+      revision: "reviewed-packet-revision",
+      reviewedAt: "2026-09-01",
+      reviewedBy: "external reviewer",
+    },
+    determination: {
+      responseDate: "2026-09-01",
+      reviewerOrAuthority: "YouTube API Compliance Audit authority",
+      applicablePolicies: ["YouTube API Services Developer Policies"],
+      permittedScope: "The approved Channel use case.",
+      prohibitedScope: "Unapproved uses.",
+      sourceReference: "evidence://youtube-clearance",
+      verbatimResponse: "The written determination is preserved externally.",
+    },
+    coverage: {
+      customPerCommentBehavioralAssessment: true as const,
+      modelProviderFlow: true as const,
+      retentionApproach: true as const,
+    },
+    conditions: [],
+  },
+  oauthVerification: {
+    recordType: "youtube-channel-oauth-verification" as const,
+    recordVersion: 1 as const,
+    provider: "youtube" as const,
+    status: "verified" as const,
+    verificationReference: "evidence://youtube-oauth-verification",
+    verifiedAt: NOW,
+    verifiedBy: "external OAuth reviewer",
+    approvedScopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+  },
+} as const;
 
 const ACCESS: ChannelAccessContext = {
   principal: { userId: OWNER_ID, isAnonymous: false },
@@ -33,11 +89,13 @@ const IDS = {
   channelId: "channel-1",
   grantId: "grant-1",
   connectedChannelId: "connected-1",
+  credentialReferenceId: "credential-reference-1",
 } as const;
 
 const READ_AUTHORIZATION = {
   status: "completed" as const,
   readScopeGranted: true,
+  scopes: [YOUTUBE_READONLY_SCOPE] as const,
 };
 
 function persistence(): {
@@ -56,6 +114,7 @@ function input(
 ) {
   return {
     access: ACCESS,
+    gates: GATES,
     providerIdentityResults: [IDENTITY],
     readAuthorization: READ_AUTHORIZATION,
     ids: IDS,
@@ -67,8 +126,12 @@ function input(
 
 describe("Channel onboarding journey", () => {
   it("lets a fully eligible Pro Researcher start read-only identity authorization without persisting an attempt", () => {
-    expect(beginChannelOnboarding(ACCESS)).toEqual({
+    expect(beginChannelOnboarding(ACCESS, GATES)).toEqual({
       kind: "awaiting_read_authorization",
+    });
+    expect(beginChannelOnboarding(ACCESS)).toEqual({
+      kind: "blocked",
+      reason: "compliance_clearance_required",
     });
   });
 
@@ -94,6 +157,8 @@ describe("Channel onboarding journey", () => {
         channelId: IDS.channelId,
         provider: "youtube",
         providerSubject: IDENTITY.providerSubject,
+        credentialReferenceId: IDS.credentialReferenceId,
+        oauthScopes: [YOUTUBE_READONLY_SCOPE],
         readScopeGranted: true,
         writeScopeGranted: false,
         status: "active",
@@ -123,6 +188,7 @@ describe("Channel onboarding journey", () => {
         readAuthorization: {
           status: "cancelled",
           readScopeGranted: false,
+          scopes: [],
         },
       }),
     );
@@ -130,6 +196,53 @@ describe("Channel onboarding journey", () => {
     expect(result).toEqual({
       kind: "interrupted",
       reason: "read_authorization_incomplete",
+    });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a completed authorization that contains anything beyond youtube.readonly", async () => {
+    const { adapter, commit } = persistence();
+
+    const result = await completeChannelOnboarding(
+      input({
+        persistence: adapter,
+        readAuthorization: {
+          status: "completed",
+          readScopeGranted: true,
+          scopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+        },
+      }),
+    );
+
+    expect(result).toEqual({ kind: "blocked", reason: "read_scope_mismatch" });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the real onboarding contract blocked while compliance evidence is pending", async () => {
+    const { adapter, commit } = persistence();
+
+    const result = await completeChannelOnboarding(
+      input({
+        gates: {
+          ...GATES,
+          complianceClearance: {
+            ...GATES.complianceClearance,
+            decision: "pending_external_determination" as const,
+            packet: {
+              issueNumber: 469 as const,
+              status: "not_available" as const,
+              reason: "No reviewed packet is available.",
+            },
+            determination: null,
+          },
+        },
+        persistence: adapter,
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: "blocked",
+      reason: "compliance_clearance_required",
     });
     expect(commit).not.toHaveBeenCalled();
   });

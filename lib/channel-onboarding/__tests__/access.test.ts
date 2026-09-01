@@ -5,6 +5,10 @@ import {
   authorizeChannelAction,
   type ChannelAccessContext,
 } from "../access";
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "../scopes";
 
 const PRINCIPAL = {
   userId: "researcher-1",
@@ -33,6 +37,19 @@ const WRITE_AUTHORIZATION = {
   scopes: ["youtube.force-ssl"],
 } as const;
 
+const GRANT = {
+  ownerId: PRINCIPAL.userId,
+  channelId: CONNECTED_CHANNEL.channelId,
+  connectedChannelId: CONNECTED_CHANNEL.connectedChannelId,
+  grantId: CONNECTED_CHANNEL.grantId,
+  credentialReferenceId: "credential-reference-1",
+  provider: "youtube" as const,
+  scopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+  readScopeGranted: true,
+  writeScopeGranted: true,
+  status: "active" as const,
+};
+
 function context(
   overrides: Partial<ChannelAccessContext> = {},
 ): ChannelAccessContext {
@@ -42,6 +59,7 @@ function context(
     persistenceAvailable: true,
     adultAttestation: ATTESTATION,
     connectedChannel: CONNECTED_CHANNEL,
+    grant: GRANT,
     publishingAuthorization: WRITE_AUTHORIZATION,
     ...overrides,
   };
@@ -153,6 +171,50 @@ describe("authorizeChannelAction", () => {
       action: "review",
       reason: "connected_channel_identity_mismatch",
     });
+  });
+
+  it("requires an active grant matching the account, Channel, and read scope for every subsequent action", () => {
+    for (const action of ["scan", "review", "draft", "publication"] as const) {
+      expect(
+        authorizeChannelAction(action, context({ grant: null })),
+      ).toMatchObject({
+        allowed: false,
+        reason: "connected_channel_grant_required",
+      });
+      expect(
+        authorizeChannelAction(
+          action,
+          context({
+            grant: { ...GRANT, connectedChannelId: "connected-other" },
+          }),
+        ),
+      ).toMatchObject({
+        allowed: false,
+        reason: "connected_channel_grant_mismatch",
+      });
+      expect(
+        authorizeChannelAction(
+          action,
+          context({
+            grant: { ...GRANT, status: "revoked" },
+          }),
+        ),
+      ).toMatchObject({
+        allowed: false,
+        reason: "connected_channel_grant_mismatch",
+      });
+      expect(
+        authorizeChannelAction(
+          action,
+          context({
+            grant: { ...GRANT, scopes: [], readScopeGranted: false },
+          }),
+        ),
+      ).toMatchObject({
+        allowed: false,
+        reason: "connected_channel_grant_mismatch",
+      });
+    }
   });
 
   it("requires explicit verified write authorization for publication", () => {

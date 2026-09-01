@@ -1,8 +1,31 @@
 import { z } from "zod";
 
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "./scopes";
+
 const RecordIdSchema = z.string().trim().min(1).max(240);
 const RecordTextSchema = z.string().trim().min(1).max(240);
 const RecordTimestampSchema = z.string().datetime({ offset: true });
+const ChannelOAuthScopesSchema = z
+  .array(z.enum([YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE]))
+  .min(1)
+  .max(2)
+  .superRefine((scopes, context) => {
+    if (new Set(scopes).size !== scopes.length) {
+      context.addIssue({
+        code: "custom",
+        message: "OAuth scopes must not be duplicated.",
+      });
+    }
+    if (!scopes.includes(YOUTUBE_READONLY_SCOPE)) {
+      context.addIssue({
+        code: "custom",
+        message: "A Channel grant must include the read-only scope.",
+      });
+    }
+  });
 
 /** The account-owned Channel Hub resource. It contains no provider grant. */
 export const ChannelRecordSchema = z
@@ -26,12 +49,24 @@ export const ChannelGrantRecordSchema = z
     channelId: RecordIdSchema,
     provider: z.literal("youtube"),
     providerSubject: RecordTextSchema,
+    credentialReferenceId: RecordIdSchema,
+    oauthScopes: ChannelOAuthScopesSchema,
     readScopeGranted: z.literal(true),
     writeScopeGranted: z.boolean(),
     status: z.enum(["active", "revoked"]),
     createdAt: RecordTimestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((grant, context) => {
+    const hasWriteScope = grant.oauthScopes.includes(YOUTUBE_FORCE_SSL_SCOPE);
+    if (grant.writeScopeGranted !== hasWriteScope) {
+      context.addIssue({
+        code: "custom",
+        path: ["oauthScopes"],
+        message: "The write flag must match the write OAuth scope.",
+      });
+    }
+  });
 
 export type ChannelGrantRecord = z.infer<typeof ChannelGrantRecordSchema>;
 
@@ -85,6 +120,9 @@ export function isCoherentChannelConnection(
     channel.id === grant.channelId &&
     channel.id === connectedChannel.channelId &&
     grant.id === connectedChannel.grantId &&
+    grant.oauthScopes.includes(YOUTUBE_READONLY_SCOPE) &&
+    (!grant.writeScopeGranted ||
+      grant.oauthScopes.includes(YOUTUBE_FORCE_SSL_SCOPE)) &&
     grant.provider === connectedChannel.provider &&
     grant.status === "active" &&
     connectedChannel.status === "active" &&

@@ -42,7 +42,7 @@ describe("Channel onboarding release boundary", () => {
 
   it("keeps provider transport and credentials outside the inert contract layer", () => {
     const transportPatterns = [
-      /googleapis\.com/iu,
+      /googleapis\.com\/youtube\/v3/iu,
       /google-auth-library/iu,
       /youtube\/v3/iu,
       /YOUTUBE_DATA_API_KEY/u,

@@ -17,6 +17,10 @@ import {
   type PublicReplyDeletionAuthorization,
   type PublicReplyLifecycleProvider,
 } from "../publication";
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "../scopes";
 
 const NOW = new Date("2026-08-31T12:00:00.000Z");
 const OWNER_ID = "researcher-1";
@@ -42,6 +46,18 @@ const ACCESS = {
     policyVersion: "channel-adult-v1",
   },
   connectedChannel: ACTIVE_CHANNEL,
+  grant: {
+    ownerId: ACTIVE_CHANNEL.ownerId,
+    channelId: ACTIVE_CHANNEL.channelId,
+    connectedChannelId: ACTIVE_CHANNEL.connectedChannelId,
+    grantId: ACTIVE_CHANNEL.grantId,
+    credentialReferenceId: "credential-reference-1",
+    provider: "youtube" as const,
+    scopes: [YOUTUBE_READONLY_SCOPE, YOUTUBE_FORCE_SSL_SCOPE],
+    readScopeGranted: true,
+    writeScopeGranted: true,
+    status: "active" as const,
+  },
   publishingAuthorization: {
     grantId: ACTIVE_CHANNEL.grantId,
     granted: true,

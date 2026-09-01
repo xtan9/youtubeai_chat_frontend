@@ -6,6 +6,11 @@
  * stale dependency cannot accidentally become an authorization decision.
  */
 
+import {
+  YOUTUBE_FORCE_SSL_SCOPE,
+  YOUTUBE_READONLY_SCOPE,
+} from "./scopes";
+
 export const CHANNEL_ACTIONS = [
   "connection",
   "scan",
@@ -50,6 +55,19 @@ export type ConnectedChannelReference = Readonly<{
   status: "active" | "revoked";
 }>;
 
+export type ChannelGrantReference = Readonly<{
+  ownerId: string;
+  channelId: string;
+  connectedChannelId: string;
+  grantId: string;
+  credentialReferenceId: string;
+  provider: "youtube";
+  scopes: readonly string[];
+  readScopeGranted: boolean;
+  writeScopeGranted: boolean;
+  status: "active" | "revoked";
+}>;
+
 export type PublishingAuthorization = Readonly<{
   grantId: string;
   granted: boolean;
@@ -63,6 +81,7 @@ export type ChannelAccessContext = Readonly<{
   persistenceAvailable: boolean;
   adultAttestation: AdultAttestation | null;
   connectedChannel?: ConnectedChannelReference | null;
+  grant?: ChannelGrantReference | null;
   publishingAuthorization?: PublishingAuthorization | null;
 }>;
 
@@ -73,6 +92,8 @@ export type ChannelAccessDeniedReason =
   | "adult_attestation_required"
   | "connected_channel_identity_required"
   | "connected_channel_identity_mismatch"
+  | "connected_channel_grant_required"
+  | "connected_channel_grant_mismatch"
   | "publishing_authorization_mismatch"
   | "publishing_authorization_required";
 
@@ -91,6 +112,10 @@ const ACTIVE_PAID_STATES = new Set<ChannelEntitlementState>([
 
 function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasScope(scopes: unknown, expected: string): boolean {
+  return Array.isArray(scopes) && scopes.includes(expected);
 }
 
 function hasValidAttestation(
@@ -118,6 +143,30 @@ function hasConnectedIdentity(
   );
 }
 
+function hasMatchingGrant(
+  principal: ChannelPrincipal,
+  connectedChannel: ConnectedChannelReference,
+  grant: ChannelGrantReference | null | undefined,
+): boolean {
+  return Boolean(
+    grant &&
+      hasText(grant.ownerId) &&
+      hasText(grant.channelId) &&
+      hasText(grant.connectedChannelId) &&
+      hasText(grant.grantId) &&
+      hasText(grant.credentialReferenceId) &&
+      grant.provider === "youtube" &&
+      grant.ownerId === principal.userId &&
+      grant.ownerId === connectedChannel.ownerId &&
+      grant.channelId === connectedChannel.channelId &&
+      grant.connectedChannelId === connectedChannel.connectedChannelId &&
+      grant.grantId === connectedChannel.grantId &&
+      grant.status === "active" &&
+      grant.readScopeGranted === true &&
+      hasScope(grant.scopes, YOUTUBE_READONLY_SCOPE),
+  );
+}
+
 function deny(
   action: ChannelAction,
   reason: ChannelAccessDeniedReason,
@@ -130,8 +179,8 @@ function deny(
  *
  * The order is deliberate: authentication, paid access, durable state, and
  * adult attestation are required for *every* new action. Work actions then
- * require a verified Connected Channel identity, and publication additionally
- * requires the separate write grant.
+ * require a verified Connected Channel identity and its matching active grant;
+ * publication additionally requires the separate write grant.
  */
 export function authorizeChannelAction(
   action: ChannelAction,
@@ -170,6 +219,12 @@ export function authorizeChannelAction(
     if (!hasConnectedIdentity(principal, context.connectedChannel)) {
       return deny(action, "connected_channel_identity_mismatch");
     }
+    if (!context.grant) {
+      return deny(action, "connected_channel_grant_required");
+    }
+    if (!hasMatchingGrant(principal, context.connectedChannel, context.grant)) {
+      return deny(action, "connected_channel_grant_mismatch");
+    }
   }
 
   if (action === "publication") {
@@ -185,7 +240,13 @@ export function authorizeChannelAction(
       authorization.granted !== true ||
       authorization.verified !== true ||
       !hasText(authorization.grantId) ||
-      !authorization.scopes.includes("youtube.force-ssl")
+      !hasScope(authorization.scopes, "youtube.force-ssl")
+    ) {
+      return deny(action, "publishing_authorization_required");
+    }
+    if (
+      context.grant?.writeScopeGranted !== true ||
+      !hasScope(context.grant.scopes, YOUTUBE_FORCE_SSL_SCOPE)
     ) {
       return deny(action, "publishing_authorization_required");
     }

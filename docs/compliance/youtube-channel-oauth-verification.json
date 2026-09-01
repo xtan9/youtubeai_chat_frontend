@@ -1,0 +1,7 @@
+{
+  "recordType": "youtube-channel-oauth-verification",
+  "recordVersion": 1,
+  "provider": "youtube",
+  "status": "pending_external_verification",
+  "reason": "No external OAuth verification evidence has been provided."
+}

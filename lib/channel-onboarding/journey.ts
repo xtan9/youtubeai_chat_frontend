@@ -4,17 +4,18 @@ import {
   type ChannelAccessDeniedReason,
 } from "./access";
 import {
+  evaluateChannelOnboardingGates,
+  type ChannelOnboardingGates,
+} from "./gates";
+import {
+  ChannelConnectionSchema,
   isCoherentChannelConnection,
   type ChannelConnection,
 } from "./records";
 import {
   resolveSupportedCreatorChannel,
 } from "./identity";
-import {
-  ChannelGrantRecordSchema,
-  ChannelRecordSchema,
-  ConnectedChannelRecordSchema,
-} from "./records";
+import { YOUTUBE_READONLY_SCOPE, type YouTubeOAuthScope } from "./scopes";
 
 export type ChannelConnectionPersistence = Readonly<{
   /**
@@ -24,15 +25,24 @@ export type ChannelConnectionPersistence = Readonly<{
   commitConnectionAtomically(connection: ChannelConnection): Promise<void>;
 }>;
 
+/**
+ * External launch evidence is supplied by a server-owned caller. Keeping it
+ * out of the account access record prevents a client assertion from opening
+ * either gate.
+ */
+export type { ChannelOnboardingGates } from "./gates";
+
 export type ReadAuthorizationState = Readonly<{
   status: "completed" | "cancelled" | "failed";
   readScopeGranted: boolean;
+  scopes: readonly YouTubeOAuthScope[];
 }>;
 
 export type ChannelOnboardingIds = Readonly<{
   channelId: string;
   grantId: string;
   connectedChannelId: string;
+  credentialReferenceId: string;
 }>;
 
 type OnboardingBlockedReason =
@@ -41,6 +51,12 @@ type OnboardingBlockedReason =
   | "multiple_provider_identities"
   | "invalid_provider_identity"
   | "unverified_provider_identity"
+  | "multi_host_organization_not_supported"
+  | "delegated_studio_not_supported"
+  | "not_public_creator_persona"
+  | "compliance_clearance_required"
+  | "oauth_verification_required"
+  | "read_scope_mismatch"
   | "invalid_clock"
   | "invalid_connection_records"
   | "persistence_write_failed";
@@ -49,7 +65,10 @@ export type ChannelOnboardingStartResult =
   | Readonly<{ kind: "awaiting_read_authorization" }>
   | Readonly<{
       kind: "blocked";
-      reason: ChannelAccessDeniedReason;
+      reason:
+        | ChannelAccessDeniedReason
+        | "compliance_clearance_required"
+        | "oauth_verification_required";
     }>;
 
 export type ChannelOnboardingResult =
@@ -72,7 +91,22 @@ function isValidReadAuthorization(
   return Boolean(
     authorization &&
       authorization.status === "completed" &&
-      authorization.readScopeGranted === true,
+      authorization.readScopeGranted === true &&
+      authorization.scopes.length === 1 &&
+      authorization.scopes[0] === YOUTUBE_READONLY_SCOPE,
+  );
+}
+
+function readAuthorizationHasWrongScope(
+  authorization: ReadAuthorizationState | null | undefined,
+): boolean {
+  return Boolean(
+    authorization &&
+      authorization.status === "completed" &&
+      authorization.readScopeGranted === true &&
+      (!Array.isArray(authorization.scopes) ||
+        authorization.scopes.length !== 1 ||
+        authorization.scopes[0] !== YOUTUBE_READONLY_SCOPE),
   );
 }
 
@@ -83,11 +117,15 @@ function isValidReadAuthorization(
  */
 export function beginChannelOnboarding(
   access: ChannelAccessContext,
+  gates?: ChannelOnboardingGates | null,
 ): ChannelOnboardingStartResult {
   const decision = authorizeChannelAction("connection", access);
-  return decision.allowed
+  if (!decision.allowed) return { kind: "blocked", reason: decision.reason };
+
+  const gate = evaluateChannelOnboardingGates(gates);
+  return gate.status === "open"
     ? { kind: "awaiting_read_authorization" }
-    : { kind: "blocked", reason: decision.reason };
+    : { kind: "blocked", reason: gate.reason };
 }
 
 /**
@@ -98,6 +136,7 @@ export function beginChannelOnboarding(
 export async function completeChannelOnboarding(
   input: Readonly<{
     access: ChannelAccessContext;
+    gates?: ChannelOnboardingGates | null;
     providerIdentityResults: unknown;
     readAuthorization: ReadAuthorizationState;
     ids: ChannelOnboardingIds;
@@ -110,7 +149,15 @@ export async function completeChannelOnboarding(
     return { kind: "blocked", reason: accessDecision.reason };
   }
 
+  const gate = evaluateChannelOnboardingGates(input.gates);
+  if (gate.status !== "open") {
+    return { kind: "blocked", reason: gate.reason };
+  }
+
   if (!isValidReadAuthorization(input.readAuthorization)) {
+    if (readAuthorizationHasWrongScope(input.readAuthorization)) {
+      return { kind: "blocked", reason: "read_scope_mismatch" };
+    }
     return {
       kind: "interrupted",
       reason: "read_authorization_incomplete",
@@ -135,7 +182,12 @@ export async function completeChannelOnboarding(
     };
   }
 
-  const now = input.now?.() ?? new Date();
+  let now: Date;
+  try {
+    now = input.now?.() ?? new Date();
+  } catch {
+    return { kind: "blocked", reason: "invalid_clock" };
+  }
   if (!Number.isFinite(now.getTime())) {
     return { kind: "blocked", reason: "invalid_clock" };
   }
@@ -153,6 +205,8 @@ export async function completeChannelOnboarding(
       channelId,
       provider: "youtube",
       providerSubject: identity.identity.providerSubject,
+      credentialReferenceId: input.ids.credentialReferenceId,
+      oauthScopes: [YOUTUBE_READONLY_SCOPE],
       readScopeGranted: true,
       writeScopeGranted: false,
       status: "active",
@@ -173,13 +227,8 @@ export async function completeChannelOnboarding(
     activeConnectedChannelId: connectedChannelId,
   };
 
-  if (
-    !ChannelRecordSchema.safeParse(connection.channel).success ||
-    !ChannelGrantRecordSchema.safeParse(connection.grant).success ||
-    !ConnectedChannelRecordSchema.safeParse(connection.connectedChannel)
-      .success ||
-    !isCoherentChannelConnection(connection)
-  ) {
+  const parsedConnection = ChannelConnectionSchema.safeParse(connection);
+  if (!parsedConnection.success || !isCoherentChannelConnection(parsedConnection.data)) {
     return { kind: "blocked", reason: "invalid_connection_records" };
   }
 
@@ -191,10 +240,10 @@ export async function completeChannelOnboarding(
   }
 
   try {
-    await input.persistence.commitConnectionAtomically(connection);
+    await input.persistence.commitConnectionAtomically(parsedConnection.data);
   } catch {
     return { kind: "blocked", reason: "persistence_write_failed" };
   }
 
-  return { kind: "connected", connection };
+  return { kind: "connected", connection: parsedConnection.data };
 }
