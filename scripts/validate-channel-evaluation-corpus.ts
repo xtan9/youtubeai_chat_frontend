@@ -8,6 +8,13 @@ import {
   validateChannelEvaluationCorpus,
 } from "../lib/channel/evaluation-corpus-governance";
 
+import simplifiedManifest from "../docs/evaluation/channel/simplified-chinese-blind-corpus.manifest.json";
+import simplifiedEvidence from "../docs/evaluation/channel/simplified-chinese-blind-corpus-approval-freeze-evidence.json";
+import {
+  SimplifiedChineseBlindCorpusApprovalFreezeEvidenceSchema,
+  validateSimplifiedChineseBlindCorpus,
+} from "../lib/channel/evaluation-corpus";
+
 const ROOT = path.resolve(__dirname, "..");
 const MANIFEST_PATH = "docs/channel-evaluation/english-blind-corpus-manifest.json";
 const EVIDENCE_PATH =
@@ -69,7 +76,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const result = {
+  const englishResult = {
     corpusId: corpus.corpusId,
     manifestPath: MANIFEST_PATH,
     evidencePath: EVIDENCE_PATH,
@@ -81,11 +88,41 @@ async function main(): Promise<void> {
     finalTupleEvaluation: corpus.finalTupleEvaluation.status,
     tuningAllowed: corpus.tuning.allowed,
   } as const;
+  const simplifiedReport = validateSimplifiedChineseBlindCorpus(simplifiedManifest);
+  const parsedSimplifiedEvidence =
+    SimplifiedChineseBlindCorpusApprovalFreezeEvidenceSchema.safeParse(
+      simplifiedEvidence,
+    );
+  const simplifiedEvidenceMatchesManifest =
+    parsedSimplifiedEvidence.success &&
+    parsedSimplifiedEvidence.data.language === simplifiedManifest.language &&
+    parsedSimplifiedEvidence.data.status === simplifiedReport.status;
+  const simplifiedResult = {
+    manifestPath:
+      "docs/evaluation/channel/simplified-chinese-blind-corpus.manifest.json",
+    evidencePath:
+      "docs/evaluation/channel/simplified-chinese-blind-corpus-approval-freeze-evidence.json",
+    status: simplifiedReport.status,
+    counts: simplifiedReport.counts,
+    issues: simplifiedReport.issues,
+    approvalFreezeEvidence: {
+      status: parsedSimplifiedEvidence.success ? "valid" : "invalid",
+      matchesManifest: simplifiedEvidenceMatchesManifest,
+    },
+  } as const;
+  const result = { english: englishResult, simplified: simplifiedResult } as const;
   console.log(JSON.stringify(result));
 
   // A pending human gate is an intentional fail-closed result, not an error in
   // the inventory. CI and operators must not mistake it for release evidence.
-  if (!result.inventoryValid || !result.releaseReady) process.exitCode = 1;
+  if (
+    !englishResult.inventoryValid ||
+    !englishResult.releaseReady ||
+    simplifiedResult.status !== "ready" ||
+    !simplifiedEvidenceMatchesManifest
+  ) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {

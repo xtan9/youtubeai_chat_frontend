@@ -14,6 +14,18 @@ import {
   validateChannelEvaluationCorpus,
 } from "../evaluation-corpus-governance";
 
+import pendingManifest from "../../../docs/evaluation/channel/simplified-chinese-blind-corpus.manifest.json";
+import pendingEvidence from "../../../docs/evaluation/channel/simplified-chinese-blind-corpus-approval-freeze-evidence.json";
+import {
+  CHANNEL_BLIND_CORPUS_REQUIREMENTS,
+  PROTECTED_GROUP_CROSS_CUTS as SIMPLIFIED_PROTECTED_GROUP_CROSS_CUTS,
+  SimplifiedChineseBlindCorpusApprovalFreezeEvidenceSchema,
+  computeSimplifiedChineseBlindCorpusDigest,
+  authorizeSimplifiedChineseBlindCorpusUse,
+  validateSimplifiedChineseBlindCorpus,
+} from "../evaluation-corpus";
+
+
 const REPOSITORY_ROOT = path.resolve(__dirname, "../../..");
 
 const REVIEWED_AT = "2026-09-01T12:00:00.000Z";
@@ -441,6 +453,523 @@ describe("English blind evaluation corpus governance", () => {
     expect(report.valid).toBe(false);
     expect(report.issues.map((issue) => issue.code)).toContain(
       "tuple_fingerprint_missing",
+    );
+  });
+});
+
+const POLICY_VERSION = "youtube-hate-speech-policy-test-v1";
+const REVIEW_PROTOCOL_VERSION = "channel-blind-review-v1";
+const SIMPLIFIED_REVIEWED_AT = "2026-09-01T00:00:00.000Z";
+const SOURCE_REVISION = "a".repeat(40);
+
+type BlindStratum = keyof typeof CHANNEL_BLIND_CORPUS_REQUIREMENTS.strata;
+
+const VALIDATOR_CLASSES = [
+  "privacy",
+  "threat",
+  "impersonation",
+  "diagnosis",
+  "spam",
+  "malicious_link",
+  "instruction_echo",
+] as const;
+
+function reviewProvenance(
+  label: string,
+  overrides: Readonly<{
+    secondLabel?: string;
+    adjudication?: Readonly<{
+      reviewerId?: string;
+      label: string;
+    }> | null;
+    duplicateReviewer?: boolean;
+  }> = {},
+) {
+  const secondReviewerId = overrides.duplicateReviewer
+    ? "fixture-reviewer-1"
+    : "fixture-reviewer-2";
+  const secondLabel = overrides.secondLabel ?? label;
+  const independentReviews = [
+    {
+      reviewerId: "fixture-reviewer-1",
+      assignmentId: "fixture-assignment-1",
+      role: "independent",
+      label,
+      reviewedAt: SIMPLIFIED_REVIEWED_AT,
+    },
+    {
+      reviewerId: secondReviewerId,
+      assignmentId: "fixture-assignment-2",
+      role: "independent",
+      label: secondLabel,
+      reviewedAt: SIMPLIFIED_REVIEWED_AT,
+    },
+  ];
+
+  const adjudication =
+    overrides.adjudication === undefined
+      ? null
+      : overrides.adjudication === null
+        ? null
+        : {
+            reviewerId:
+              overrides.adjudication.reviewerId ?? "fixture-adjudicator",
+            role: "adjudicator",
+            label: overrides.adjudication.label,
+            reviewedAt: SIMPLIFIED_REVIEWED_AT,
+            rationaleRef: "test://issue-484/adjudication",
+          };
+
+  return {
+    protocolVersion: REVIEW_PROTOCOL_VERSION,
+    independentReviews,
+    adjudication,
+  };
+}
+
+function blindItem(
+  index: number,
+  stratum: BlindStratum,
+  overrides: Readonly<Record<string, unknown>> = {},
+) {
+  const expectedClassification =
+    stratum === "prompt_injection_adversarial"
+      ? "allowed_criticism"
+      : stratum;
+
+  return {
+    id: `fixture-blind-${index}`,
+    language: "simplified_chinese",
+    text: `这是用于治理测试的合成项目 ${index}。`,
+    stratum,
+    expectedClassification,
+    protectedGroupCrossCuts: [],
+    minorSafety: false,
+    origin: {
+      kind: "authored_synthetic",
+      reference: `synthetic://issue-484/${index}`,
+      youtubeApiData: false,
+    },
+    rights: {
+      status: "synthetic",
+      basis: "Authored only for a test fixture; no person or platform data.",
+      evidenceRef: null,
+    },
+    deIdentification: {
+      status: "not_applicable_synthetic",
+      method: "No person-derived source exists.",
+      evidenceRef: null,
+    },
+    policyVersion: POLICY_VERSION,
+    reviewerProvenance: reviewProvenance(expectedClassification),
+    ...overrides,
+  };
+}
+
+function validatorItem(index: number) {
+  return {
+    id: `fixture-validator-${index}`,
+    language: "simplified_chinese",
+    text: `这是用于零容忍验证器治理测试的合成项目 ${index}。`,
+    validatorClass: VALIDATOR_CLASSES[index % VALIDATOR_CLASSES.length],
+    expectedOutcome: "reject",
+    origin: {
+      kind: "authored_synthetic",
+      reference: `synthetic://issue-484/validator/${index}`,
+      youtubeApiData: false,
+    },
+    rights: {
+      status: "synthetic",
+      basis: "Authored only for a test fixture; no person or platform data.",
+      evidenceRef: null,
+    },
+    deIdentification: {
+      status: "not_applicable_synthetic",
+      method: "No person-derived source exists.",
+      evidenceRef: null,
+    },
+    policyVersion: POLICY_VERSION,
+    reviewerProvenance: reviewProvenance("reject"),
+  };
+}
+
+function completeManifest() {
+  const blindItems: Array<Record<string, unknown>> = [
+    ...Array.from({ length: 300 }, (_, index) =>
+      blindItem(index, "allowed_criticism"),
+    ),
+    ...Array.from({ length: 250 }, (_, index) =>
+      blindItem(300 + index, "actionable_abuse"),
+    ),
+    ...Array.from({ length: 200 }, (_, index) =>
+      blindItem(550 + index, "reviewable_interaction"),
+    ),
+    ...Array.from({ length: 200 }, (_, index) =>
+      blindItem(750 + index, "safety_flag"),
+    ),
+    ...Array.from({ length: 50 }, (_, index) =>
+      blindItem(950 + index, "prompt_injection_adversarial"),
+    ),
+  ];
+
+  for (const [groupIndex, group] of SIMPLIFIED_PROTECTED_GROUP_CROSS_CUTS.entries()) {
+    for (let itemIndex = 0; itemIndex < 100; itemIndex += 1) {
+      const index = groupIndex * 100 + itemIndex;
+      blindItems[index] = {
+        ...blindItems[index],
+        protectedGroupCrossCuts: [group],
+      };
+    }
+  }
+
+  for (let index = 750; index < 950; index += 1) {
+    blindItems[index] = {
+      ...blindItems[index],
+      minorSafety: true,
+    };
+  }
+
+  const manifest = {
+    recordType: "channel-evaluation-corpus-manifest",
+    recordVersion: 1,
+    issueNumber: 484,
+    language: "simplified_chinese",
+    languageTag: "zh-Hans",
+    policyVersion: POLICY_VERSION,
+    purpose: "blind_tuple_evaluation",
+    storage: {
+      content: "controlled_external_store_not_checked_in",
+      youtubeApiCommentsPermanentCorpus: "prohibited",
+      trainingUse: "prohibited",
+      allowedUse: "final_tuple_evaluation_only",
+    },
+    reviewProtocol: {
+      protocolVersion: REVIEW_PROTOCOL_VERSION,
+      independentReviewerCount: 2,
+      adjudicatorCount: 1,
+      adjudicationRequiredOnDisagreement: true,
+    },
+    requirements: CHANNEL_BLIND_CORPUS_REQUIREMENTS,
+    blindItems,
+    zeroToleranceValidatorItems: Array.from({ length: 250 }, (_, index) =>
+      validatorItem(index),
+    ),
+    reportedCounts: {
+      blindTotal: 1000,
+      blindByStratum: {
+        allowed_criticism: 300,
+        actionable_abuse: 250,
+        reviewable_interaction: 200,
+        safety_flag: 200,
+        prompt_injection_adversarial: 50,
+      },
+      zeroToleranceValidatorTotal: 250,
+      zeroToleranceByClass: {
+        privacy: 36,
+        threat: 36,
+        impersonation: 36,
+        diagnosis: 36,
+        spam: 36,
+        malicious_link: 35,
+        instruction_echo: 35,
+      },
+      protectedGroupCrossCuts: Object.fromEntries(
+        SIMPLIFIED_PROTECTED_GROUP_CROSS_CUTS.map((group) => [group, 100]),
+      ),
+      minorSafety: 200,
+    },
+    approval: {
+      status: "approved",
+      approvedBy: {
+        kind: "human",
+        reviewerId: "fixture-human-approval-record",
+      },
+      approvedAt: SIMPLIFIED_REVIEWED_AT,
+      evidenceRef: "test://issue-484/approval",
+    },
+    freeze: {
+      status: "frozen",
+      frozenBy: "fixture-freeze-record",
+      frozenAt: SIMPLIFIED_REVIEWED_AT,
+      manifestDigest: "0".repeat(64),
+      sourceRevision: SOURCE_REVISION,
+      frozenBeforeFinalTupleEvaluation: true,
+      evidenceRef: "test://issue-484/freeze",
+    },
+    upstreamHarness: {
+      issueNumber: 482,
+      status: "available",
+      evidenceRef: "test://issue-482/harness",
+    },
+  };
+
+  return {
+    ...manifest,
+    freeze: {
+      ...manifest.freeze,
+      manifestDigest: computeSimplifiedChineseBlindCorpusDigest(manifest),
+    },
+  };
+}
+
+function replaceBlindItem(
+  manifest: ReturnType<typeof completeManifest>,
+  index: number,
+  replacement: Record<string, unknown>,
+) {
+  return {
+    ...manifest,
+    blindItems: manifest.blindItems.map((item, itemIndex) =>
+      itemIndex === index ? replacement : item,
+    ),
+  };
+}
+
+describe("Simplified Chinese blind corpus governance", () => {
+  it("records explicit negative approval and freeze evidence without claiming readiness", () => {
+    expect(
+      SimplifiedChineseBlindCorpusApprovalFreezeEvidenceSchema.safeParse(
+        pendingEvidence,
+      ).success,
+    ).toBe(true);
+    expect(pendingEvidence).toMatchObject({
+      status: "blocked",
+      approval: { status: "not_evidenced", evidenceRef: null },
+      freeze: { status: "not_evidenced", evidenceRef: null },
+      upstreamHarness: { issueNumber: 482, status: "blocked_by_issue_482" },
+      negativeControls: {
+        licensedExamplesCheckedIn: false,
+        humanApprovalsFabricated: false,
+        youtubeApiCommentsScrapedIntoPermanentCorpus: false,
+        blindCorpusAvailableForTuning: false,
+      },
+    });
+  });
+
+  it("keeps the checked-in corpus blocked without inventing corpus or approval evidence", () => {
+    const report = validateSimplifiedChineseBlindCorpus(pendingManifest);
+
+    expect(report.status).toBe("blocked");
+    expect(report.counts).toMatchObject({
+      blindTotal: 0,
+      zeroToleranceValidatorTotal: 0,
+      minorSafety: 0,
+    });
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "blind_items_below_minimum",
+        "zero_tolerance_items_below_minimum",
+        "protected_group_cross_cut_below_minimum",
+        "minor_safety_items_below_minimum",
+        "approval_not_evidenced",
+        "freeze_not_evidenced",
+        "upstream_harness_blocked",
+      ]),
+    );
+    expect(
+      authorizeSimplifiedChineseBlindCorpusUse(
+        pendingManifest,
+        "final_tuple_evaluation",
+      ),
+    ).toMatchObject({ allowed: false });
+  });
+
+  it("authorizes only a fully governed frozen corpus for final tuple evaluation", () => {
+    const manifest = completeManifest();
+    const report = validateSimplifiedChineseBlindCorpus(manifest);
+
+    expect(report).toMatchObject({
+      status: "ready",
+      counts: {
+        blindTotal: 1000,
+        zeroToleranceValidatorTotal: 250,
+        minorSafety: 200,
+      },
+    });
+    expect(report.counts.blindByStratum).toEqual({
+      allowed_criticism: 300,
+      actionable_abuse: 250,
+      reviewable_interaction: 200,
+      safety_flag: 200,
+      prompt_injection_adversarial: 50,
+    });
+    expect(
+      authorizeSimplifiedChineseBlindCorpusUse(
+        manifest,
+        "final_tuple_evaluation",
+      ),
+    ).toMatchObject({ allowed: true });
+    expect(
+      authorizeSimplifiedChineseBlindCorpusUse(manifest, "tuning"),
+    ).toMatchObject({
+      allowed: false,
+      reason: expect.stringMatching(/tuning/i),
+    });
+  });
+
+  it("requires traceable protected-group and minor-safety counts", () => {
+    const manifest = completeManifest();
+    const blindItems = manifest.blindItems.map((item, index) => {
+      if (index === 0) {
+        return { ...item, protectedGroupCrossCuts: [] };
+      }
+      if (index === 750) return { ...item, minorSafety: false };
+      return item;
+    });
+    const report = validateSimplifiedChineseBlindCorpus({
+      ...manifest,
+      blindItems,
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "reported_count_mismatch",
+        "protected_group_cross_cut_below_minimum",
+        "minor_safety_items_below_minimum",
+      ]),
+    );
+  });
+
+  it("requires two distinct independent labels and adjudication only for disagreement", () => {
+    const manifest = completeManifest();
+    const disagreeingItem = {
+      ...manifest.blindItems[0],
+      reviewerProvenance: reviewProvenance("allowed_criticism", {
+        secondLabel: "actionable_abuse",
+      }),
+    };
+    const withoutAdjudication = replaceBlindItem(
+      manifest,
+      0,
+      disagreeingItem,
+    );
+    const blocked = validateSimplifiedChineseBlindCorpus(withoutAdjudication);
+    expect(blocked.issues.map((issue) => issue.code)).toContain(
+      "adjudication_required",
+    );
+
+    const resolved = replaceBlindItem(manifest, 0, {
+      ...disagreeingItem,
+      reviewerProvenance: reviewProvenance("allowed_criticism", {
+        secondLabel: "actionable_abuse",
+        adjudication: { label: "allowed_criticism" },
+      }),
+    });
+    const resolvedReport = validateSimplifiedChineseBlindCorpus({
+      ...resolved,
+      freeze: {
+        ...resolved.freeze,
+        manifestDigest: computeSimplifiedChineseBlindCorpusDigest(resolved),
+      },
+    });
+    expect(resolvedReport.issues.map((issue) => issue.code)).not.toContain(
+      "adjudication_required",
+    );
+
+    const duplicateReviewer = replaceBlindItem(manifest, 0, {
+      ...manifest.blindItems[0],
+      reviewerProvenance: reviewProvenance("allowed_criticism", {
+        duplicateReviewer: true,
+      }),
+    });
+    expect(
+      validateSimplifiedChineseBlindCorpus(duplicateReviewer).issues.map(
+        (issue) => issue.code,
+      ),
+    ).toContain("independent_reviewers_not_distinct");
+  });
+
+  it("rejects YouTube API provenance and unproven governed rights", () => {
+    const manifest = completeManifest();
+    const firstItem = manifest.blindItems[0]!;
+    const secondItem = manifest.blindItems[1]!;
+    const apiItem = {
+      ...firstItem,
+      origin: {
+        ...(firstItem.origin as Record<string, unknown>),
+        youtubeApiData: true,
+      },
+    };
+    const licensedItem = {
+      ...secondItem,
+      origin: {
+        ...(secondItem.origin as Record<string, unknown>),
+        kind: "licensed_deidentified",
+      },
+      rights: {
+        ...(secondItem.rights as Record<string, unknown>),
+        status: "licensed",
+        evidenceRef: null,
+      },
+      deIdentification: {
+        ...(secondItem.deIdentification as Record<string, unknown>),
+        status: "verified",
+        evidenceRef: null,
+      },
+    };
+    const report = validateSimplifiedChineseBlindCorpus({
+      ...manifest,
+      blindItems: [apiItem, licensedItem, ...manifest.blindItems.slice(2)],
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "youtube_api_data_prohibited",
+        "rights_evidence_missing",
+        "de_identification_evidence_missing",
+      ]),
+    );
+  });
+
+  it("fails closed when freeze evidence does not match the governed corpus digest", () => {
+    const manifest = completeManifest();
+    const report = validateSimplifiedChineseBlindCorpus({
+      ...manifest,
+      freeze: {
+        ...manifest.freeze,
+        manifestDigest: "f".repeat(64),
+      },
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.issues.map((issue) => issue.code)).toContain(
+      "freeze_digest_mismatch",
+    );
+    expect(
+      authorizeSimplifiedChineseBlindCorpusUse(
+        {
+          ...manifest,
+          freeze: {
+            ...manifest.freeze,
+            manifestDigest: "f".repeat(64),
+          },
+        },
+        "final_tuple_evaluation",
+      ),
+    ).toMatchObject({ allowed: false });
+  });
+
+  it("requires concrete repository revision and upstream harness evidence", () => {
+    const manifest = completeManifest();
+    const report = validateSimplifiedChineseBlindCorpus({
+      ...manifest,
+      freeze: {
+        ...manifest.freeze,
+        sourceRevision: "fixture-revision",
+      },
+      upstreamHarness: {
+        ...manifest.upstreamHarness,
+        evidenceRef: null,
+      },
+    });
+
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "freeze_source_revision_invalid",
+        "upstream_harness_evidence_missing",
+      ]),
     );
   });
 });
