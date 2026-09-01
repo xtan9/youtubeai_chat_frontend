@@ -6,8 +6,10 @@ export {
   SCAN_WINDOW_DAYS,
   SYNTHETIC_SCAN_PROVIDER,
   SYNTHETIC_TAXONOMY_VERSION,
+  YOUTUBE_SCAN_PROVIDER,
   percentForProgress,
   scanRunIdSchema,
+  scanProviderSchema,
   scanStartRequestSchema,
   scanWindowFor,
   serializeScanRun,
@@ -22,7 +24,9 @@ export {
   type ScanRunStartResult,
   type ScanRunStatus,
   type ScanRunStore,
+  type ScanProviderKind,
   type SyntheticAssessment,
+  youtubeVideoIdSchema,
 } from "./contracts";
 export {
   createSyntheticCommentProvider,
@@ -32,3 +36,12 @@ export {
   type SyntheticThread,
 } from "./synthetic-provider";
 export { executeScanRun, type ScanRunExecutionOptions } from "./runner";
+export {
+  createYouTubeCommentProvider,
+  inspectYouTubeCommentProvider,
+  YouTubeCommentProviderError,
+  type YouTubeCommentProvider,
+  type YouTubeProviderOptions,
+  type YouTubeProviderReadiness,
+  type YouTubeScanTarget,
+} from "./youtube-provider";

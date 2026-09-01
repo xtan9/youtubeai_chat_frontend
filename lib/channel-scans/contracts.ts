@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { StoredInteractionAssessment } from "@/lib/channel/review-queue";
 
 /**
  * Channel scans are deliberately bounded in the domain contract, not only in
@@ -10,7 +11,19 @@ export const SCAN_PAGE_SIZE = 50;
 export const SCAN_ACCOUNT_HOURLY_LIMIT = 4;
 export const SCAN_RUN_LEASE_MS = 2 * 60 * 1000;
 export const SYNTHETIC_SCAN_PROVIDER = "synthetic" as const;
+export const YOUTUBE_SCAN_PROVIDER = "youtube" as const;
 export const SYNTHETIC_TAXONOMY_VERSION = "synthetic-interaction-v1";
+
+export const scanProviderSchema = z.enum([
+  SYNTHETIC_SCAN_PROVIDER,
+  YOUTUBE_SCAN_PROVIDER,
+]);
+export type ScanProviderKind = z.infer<typeof scanProviderSchema>;
+
+/** YouTube video IDs are opaque, URL-safe 11-character identifiers. */
+export const youtubeVideoIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{11}$/u);
 
 export const scanRunOutcomeSchema = z.enum([
   "completed",
@@ -29,7 +42,8 @@ export type ScanRunStatus = z.infer<typeof scanRunStatusSchema>;
 
 export const scanStartRequestSchema = z.object({
   connectedChannelId: z.string().trim().min(1).max(200),
-  provider: z.literal("synthetic").optional().default("synthetic"),
+  provider: scanProviderSchema.optional().default(SYNTHETIC_SCAN_PROVIDER),
+  videoId: youtubeVideoIdSchema.nullable().optional().default(null),
   retryOf: z.uuid().nullable().optional().default(null),
 });
 
@@ -107,7 +121,8 @@ export type ScanRun = Readonly<{
   id: string;
   accountId: string;
   connectedChannelId: string;
-  provider: typeof SYNTHETIC_SCAN_PROVIDER;
+  videoId: string | null;
+  provider: ScanProviderKind;
   status: ScanRunStatus;
   outcome: ScanRunOutcome | null;
   retryOf: string | null;
@@ -125,6 +140,8 @@ export type ScanRun = Readonly<{
 export type PublicScanRun = Readonly<{
   id: string;
   connectedChannelId: string;
+  videoId: string | null;
+  failureCode: string | null;
   status: ScanRunStatus;
   outcome: ScanRunOutcome | null;
   retryOf: string | null;
@@ -139,7 +156,8 @@ export type PublicScanRun = Readonly<{
 export type ScanRunStartInput = Readonly<{
   accountId: string;
   connectedChannelId: string;
-  provider: typeof SYNTHETIC_SCAN_PROVIDER;
+  videoId?: string | null;
+  provider: ScanProviderKind;
   windowStart: Date;
   windowEnd: Date;
   retryOf: string | null;
@@ -151,6 +169,7 @@ export type ScanRunStartResult =
   | Readonly<{ kind: "concurrent"; run: ScanRun }>
   | Readonly<{ kind: "rate_limited"; retryAt: string | null }>
   | Readonly<{ kind: "retry_unavailable" }>
+  | Readonly<{ kind: "blocked"; code: string; reason: string }>
   | Readonly<{ kind: "invalid" }>;
 
 export type ScanPagePersistenceInput = Readonly<{
@@ -170,6 +189,9 @@ export type ScanThreadSuccessInput = Readonly<{
   workItemId: string;
   assessmentId: string;
   resultKind: "assessed" | "reused";
+  assessmentKind?: "synthetic" | "interaction";
+  /** The provider's current hash after revalidation, when it changed. */
+  contentHash?: string;
 }>;
 
 export type ScanThreadFailureInput = Readonly<{
@@ -210,6 +232,19 @@ export interface ScanRunStore {
     contentHash: string;
     assessment: SyntheticAssessment;
   }): Promise<string>;
+  findReusableInteractionAssessment?(input: {
+    accountId: string;
+    connectedChannelId: string;
+    commentId: string;
+    contentHash: string;
+  }): Promise<StoredInteractionAssessment | null>;
+  saveInteractionAssessment?(assessment: StoredInteractionAssessment): Promise<string>;
+  redactDeletedInteraction?(input: {
+    accountId: string;
+    connectedChannelId: string;
+    commentId: string;
+    deletedAt: string;
+  }): Promise<number>;
   markThreadSucceeded(input: ScanThreadSuccessInput): Promise<void>;
   markThreadFailed(input: ScanThreadFailureInput): Promise<void>;
   requestCancellation(input: {
@@ -228,6 +263,8 @@ export function serializeScanRun(run: ScanRun): PublicScanRun {
   return {
     id: run.id,
     connectedChannelId: run.connectedChannelId,
+    videoId: run.videoId,
+    failureCode: run.failureCode,
     status: run.status,
     outcome: run.outcome,
     retryOf: run.retryOf,

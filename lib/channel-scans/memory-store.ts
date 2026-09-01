@@ -2,6 +2,7 @@ import {
   MAX_SCAN_THREADS,
   SCAN_ACCOUNT_HOURLY_LIMIT,
   SCAN_RUN_LEASE_MS,
+  youtubeVideoIdSchema,
   percentForProgress,
   type ScanBound,
   type ScanPagePersistenceInput,
@@ -16,12 +17,15 @@ import {
   type StoredScanAssessment,
   type SyntheticAssessment,
 } from "./contracts";
+import type { StoredInteractionAssessment } from "@/lib/channel/review-queue";
 
 type MutableRun = {
   -readonly [Key in keyof ScanRun]: ScanRun[Key];
 };
 
-type MutableWorkItem = ScanWorkItem & {
+type MutableWorkItem = {
+  -readonly [Key in keyof ScanWorkItem]: ScanWorkItem[Key];
+} & {
   status: "pending" | "succeeded" | "failed";
   resultKind: "assessed" | "reused" | null;
   assessmentId: string | null;
@@ -79,6 +83,25 @@ function assessmentKey(
   return `${connectedChannelId}\u0000${threadId}\u0000${contentHash}`;
 }
 
+function interactionAssessmentKey(
+  accountId: string,
+  connectedChannelId: string,
+  commentId: string,
+  contentHash: string,
+): string {
+  return `${accountId}\u0000${connectedChannelId}\u0000${commentId}\u0000${contentHash}`;
+}
+
+function cloneInteractionAssessment(
+  assessment: StoredInteractionAssessment,
+): StoredInteractionAssessment {
+  return {
+    ...assessment,
+    targetEvidence: [...assessment.targetEvidence],
+    neighboringReplies: [...assessment.neighboringReplies],
+  };
+}
+
 function pageKey(runId: string, pageToken: string): string {
   return `${runId}\u0000${pageToken}`;
 }
@@ -132,7 +155,8 @@ function newRun(input: ScanRunStartInput, id: string, createdAt: Date): MutableR
     id,
     accountId: input.accountId,
     connectedChannelId: input.connectedChannelId,
-    provider: "synthetic",
+    videoId: input.videoId ?? null,
+    provider: input.provider,
     status: "queued",
     outcome: null,
     retryOf: input.retryOf,
@@ -158,6 +182,10 @@ export class InMemoryScanRunStore implements ScanRunStore {
   private readonly pages = new Set<string>();
   private readonly work = new Map<string, MutableWorkItem[]>();
   private readonly assessments = new Map<string, StoredScanAssessment>();
+  private readonly interactionAssessments = new Map<
+    string,
+    StoredInteractionAssessment
+  >();
   private sequence = 0;
   private assessmentSequence = 0;
 
@@ -178,7 +206,11 @@ export class InMemoryScanRunStore implements ScanRunStore {
     if (
       !input.accountId ||
       !input.connectedChannelId ||
-      input.provider !== "synthetic" ||
+      !["synthetic", "youtube"].includes(input.provider) ||
+      (input.provider === "synthetic" && input.videoId != null) ||
+      (input.provider === "youtube" &&
+        input.videoId != null &&
+        !youtubeVideoIdSchema.safeParse(input.videoId).success) ||
       !validWindow(input)
     ) {
       return { kind: "invalid" };
@@ -428,6 +460,115 @@ export class InMemoryScanRunStore implements ScanRunStore {
     return assessment.id;
   }
 
+  async findReusableInteractionAssessment(input: {
+    accountId: string;
+    connectedChannelId: string;
+    commentId: string;
+    contentHash: string;
+  }): Promise<StoredInteractionAssessment | null> {
+    const assessment = this.interactionAssessments.get(
+      interactionAssessmentKey(
+        input.accountId,
+        input.connectedChannelId,
+        input.commentId,
+        input.contentHash,
+      ),
+    );
+    if (!assessment || assessment.deletedAt || assessment.supersededAt) {
+      return null;
+    }
+    return cloneInteractionAssessment(assessment);
+  }
+
+  async saveInteractionAssessment(
+    assessment: StoredInteractionAssessment,
+  ): Promise<string> {
+    const key = interactionAssessmentKey(
+      assessment.accountId,
+      assessment.channelId,
+      assessment.commentId,
+      assessment.commentTextHash,
+    );
+    const existing = this.interactionAssessments.get(key);
+    if (existing) return existing.assessmentId;
+
+    const supersededAt = iso(this.now());
+    for (const [existingKey, current] of this.interactionAssessments) {
+      if (
+        current.accountId === assessment.accountId &&
+        current.channelId === assessment.channelId &&
+        current.commentId === assessment.commentId &&
+        current.commentTextHash !== assessment.commentTextHash &&
+        !current.deletedAt &&
+        !current.supersededAt &&
+        [
+          "reviewable",
+          "actionable",
+          "safety_flag",
+          "draft_requested",
+          "draft_ready",
+          "stale",
+          "failed",
+        ].includes(current.status)
+      ) {
+        this.interactionAssessments.set(existingKey, {
+          ...current,
+          status: "stale",
+          supersededAt,
+        });
+      }
+    }
+
+    const safeAssessment =
+      assessment.category === "allowed_criticism"
+        ? {
+            ...assessment,
+            target: "ambiguous" as const,
+            targetEvidence: [],
+            candidateText: null,
+            topLevelCommentText: null,
+            neighboringReplies: [],
+            draftEligible: false,
+            status: "marked_criticism" as const,
+          }
+        : assessment;
+    this.interactionAssessments.set(
+      key,
+      cloneInteractionAssessment(safeAssessment),
+    );
+    return safeAssessment.assessmentId;
+  }
+
+  async redactDeletedInteraction(input: {
+    accountId: string;
+    connectedChannelId: string;
+    commentId: string;
+    deletedAt: string;
+  }): Promise<number> {
+    let redacted = 0;
+    for (const [key, assessment] of this.interactionAssessments) {
+      if (
+        assessment.accountId !== input.accountId ||
+        assessment.channelId !== input.connectedChannelId ||
+        assessment.commentId !== input.commentId
+      ) {
+        continue;
+      }
+      this.interactionAssessments.set(key, {
+        ...assessment,
+        candidateText: null,
+        topLevelCommentText: null,
+        neighboringReplies: [],
+        targetEvidence: [],
+        draftEligible: false,
+        status: "deleted",
+        deletedAt: input.deletedAt,
+      });
+      redacted += 1;
+    }
+    return redacted;
+  }
+
   private assertLease(runId: string, workerId: string): MutableRun {
     const run = this.runs.get(runId);
     const lease = this.leases.get(runId);
@@ -446,6 +587,7 @@ export class InMemoryScanRunStore implements ScanRunStore {
     item.status = "succeeded";
     item.resultKind = input.resultKind;
     item.assessmentId = input.assessmentId;
+    if (input.contentHash) item.contentHash = input.contentHash;
     run.coverage = {
       ...run.coverage,
       threadsAssessed:

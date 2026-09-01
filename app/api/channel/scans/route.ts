@@ -2,7 +2,11 @@ import {
   scanStartRequestSchema,
   type ScanRunStartResult,
 } from "@/lib/channel-scans";
-import { isSyntheticScanChannelId } from "@/lib/channel-scans/channel-target";
+import {
+  isRealScanChannelId,
+  isSupportedScanChannelId,
+  isSyntheticScanChannelId,
+} from "@/lib/channel-scans/channel-target";
 import {
   failChannelScanScheduling,
   listChannelScanRuns,
@@ -32,7 +36,14 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.success) {
     return authError(400, "Choose a valid Connected Channel.");
   }
-  if (!isSyntheticScanChannelId(parsed.data.connectedChannelId)) {
+  if (parsed.data.provider === "synthetic" && parsed.data.videoId !== null) {
+    return authError(400, "Video scans require the real YouTube provider.");
+  }
+  const validTarget =
+    parsed.data.provider === "synthetic"
+      ? isSyntheticScanChannelId(parsed.data.connectedChannelId)
+      : isRealScanChannelId(parsed.data.connectedChannelId);
+  if (!validTarget) {
     return Response.json(
       { outcome: "onboarding_required", message: ONBOARDING_MESSAGE },
       { status: 409 },
@@ -54,6 +65,14 @@ export async function POST(request: Request): Promise<Response> {
       accountId: principal.userId,
       connectedChannelId: parsed.data.connectedChannelId,
       retryOf: parsed.data.retryOf,
+      ...(parsed.data.provider === "youtube"
+        ? {
+            provider: parsed.data.provider,
+            ...(parsed.data.videoId === null
+              ? {}
+              : { videoId: parsed.data.videoId }),
+          }
+        : {}),
     });
   } catch {
     return authError(503, "Channel scans are temporarily unavailable.");
@@ -84,7 +103,7 @@ export async function GET(request: Request): Promise<Response> {
   );
   if (
     connectedChannelId &&
-    !isSyntheticScanChannelId(connectedChannelId)
+    !isSupportedScanChannelId(connectedChannelId)
   ) {
     return Response.json(
       { outcome: "onboarding_required", message: ONBOARDING_MESSAGE },

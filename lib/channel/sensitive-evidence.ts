@@ -139,6 +139,12 @@ const REDACTION_PATTERNS: readonly RedactionPattern[] = [
     category: "address",
     priority: 9,
     expression:
+      /\b(?:at|visit|from)\s+\d{1,6}\s+(?:[A-Z0-9.'’-]+\s+){0,6}(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|court|ct\.?|way|place|pl\.?|parkway|pkwy\.?|terrace|ter\.?|trail|trl\.?|highway|hwy\.?)\b(?:\s*,?\s*[A-Z][^.!?\n;]{0,60})?/gi,
+  },
+  {
+    category: "address",
+    priority: 10,
+    expression:
       /\b\d{1,6}\s+(?:[A-Z0-9.'’-]+\s+){0,6}(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|court|ct\.?|way|place|pl\.?|parkway|pkwy\.?|terrace|ter\.?|trail|trl\.?|highway|hwy\.?)\b(?:\s*,?\s*[A-Z][^.!?\n;]{0,60})?/gi,
   },
   {

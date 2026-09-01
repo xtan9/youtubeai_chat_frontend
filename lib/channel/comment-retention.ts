@@ -43,18 +43,25 @@ export function retainInteractionAssessment(input: Readonly<{
   channelId: string;
   videoId: string;
   candidate: InteractionCommentSnapshot;
+  /** Optional raw-source hash when candidate text is a privacy-safe projection. */
+  commentTextHash?: string;
   context: AssessmentContext;
   assessment: FinalizedInteractionAssessment;
   assessedAt: string;
 }>): StoredInteractionAssessment {
   const isAllowedCriticism = input.assessment.category === "allowed_criticism";
+  const commentTextHash =
+    input.commentTextHash ?? hashCommentText(input.candidate.text);
+  if (!/^[a-f0-9]{64}$/u.test(commentTextHash)) {
+    throw new Error("Comment text hash must be a SHA-256 digest");
+  }
 
   return {
     assessmentId: input.assessmentId,
     accountId: input.accountId,
     channelId: input.channelId,
     commentId: input.candidate.commentId,
-    commentTextHash: hashCommentText(input.candidate.text),
+    commentTextHash,
     videoId: input.videoId,
     videoTitle: input.context.videoTitle,
     category: input.assessment.category,
