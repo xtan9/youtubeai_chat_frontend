@@ -86,6 +86,7 @@
         "sourceRevision": null,
         "failureReason": "Required external, human, live, and production evidence is not available in this repository."
       },
+      "verification": null,
       "productionClientId": null,
       "verifiedScopes": null,
       "incrementalAuthorizationVerified": null,
@@ -432,5 +433,5 @@
     "This blocked inventory does not claim OAuth verification, live URLs, licensed data, human approval, or production evidence.",
     "A packet pass would make the release eligible for review only; it never activates Channel or changes entitlements."
   ],
-  "packetFingerprint": "d4be656d00c000c249b15ca28a2f6c1cdf6307d89a204848a0f86cc12c14b5c4"
+  "packetFingerprint": "998e38b7a5fbe9d32f60bfad4918ae03d6c74f5d0156c040bfec1695c45e86e7"
 }

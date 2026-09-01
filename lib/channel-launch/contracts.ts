@@ -3,10 +3,15 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import {
+  ChannelQualityGateHarnessEvidenceSchema,
+  ChannelQualityGateTupleSchema,
+} from "@/lib/channel/quality-gate";
+import {
   CHANNEL_QUALITY_CLASSIFICATIONS,
   CHANNEL_QUALITY_CORPUS_MANIFEST_VERSION,
   CHANNEL_QUALITY_EVALUATION_ARTIFACT_VERSION,
   CHANNEL_QUALITY_EVALUATOR_VERSION,
+  CHANNEL_QUALITY_GATE_THRESHOLDS,
   CHANNEL_QUALITY_REQUIRED_CROSS_CUTS,
   CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
   CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
@@ -16,6 +21,10 @@ import {
   YouTubeComplianceClearanceSchema,
   type YouTubeComplianceClearance,
 } from "@/lib/compliance/youtube-channel-clearance";
+import {
+  YouTubeChannelOAuthVerificationSchema,
+  type YouTubeChannelOAuthVerification,
+} from "@/lib/compliance/youtube-channel-oauth-verification";
 
 export const CHANNEL_LAUNCH_PACKET_RECORD_TYPE =
   "channel-production-launch-packet" as const;
@@ -246,16 +255,17 @@ export type ChannelLaunchDependencyEvidence = z.infer<
   typeof ChannelLaunchDependencyEvidenceSchema
 >;
 
-const YouTubeClearanceEvidenceSchema = z
+export const ChannelLaunchYouTubeClearanceEvidenceSchema = z
   .object({
     evidence: ChannelLaunchEvidenceSchema,
     clearance: YouTubeComplianceClearanceSchema.nullable(),
   })
   .strict();
 
-const OAuthVerificationEvidenceSchema = z
+export const ChannelLaunchOAuthVerificationEvidenceSchema = z
   .object({
     evidence: ChannelLaunchEvidenceSchema,
+    verification: YouTubeChannelOAuthVerificationSchema.nullable(),
     productionClientId: NullableNonEmptyStringSchema,
     verifiedScopes: z
       .array(z.enum(CHANNEL_LAUNCH_OAUTH_SCOPES))
@@ -296,7 +306,7 @@ const DisclosureChecksSchema = z
   })
   .strict();
 
-const LiveDisclosureEvidenceSchema = z
+export const ChannelLaunchLiveDisclosureEvidenceSchema = z
   .object({
     evidence: ChannelLaunchEvidenceSchema,
     urls: DisclosureUrlsSchema,
@@ -411,35 +421,75 @@ const QualityThresholdsSchema = z
     actionableAbusePrecision: z
       .object({
         overallPointMinimum: z.literal(
-          0.95,
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .overallPointMinimum,
         ),
-        overallLowerWilsonMinimum: z.literal(0.9),
-        languagePointMinimum: z.literal(0.9),
-        languageLowerWilsonMinimum: z.literal(0.9),
+        overallLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .overallLowerWilsonMinimum,
+        ),
+        languagePointMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .languagePointMinimum,
+        ),
+        languageLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.actionableAbusePrecision
+            .languageLowerWilsonMinimum,
+        ),
       })
       .strict(),
     allowedCriticismFalsePositiveRate: z
       .object({
-        overallPointMaximum: z.literal(0.01),
-        overallUpperWilsonMaximum: z.literal(0.02),
-        languagePointMaximum: z.literal(0.02),
-        languageUpperWilsonMaximum: z.literal(0.02),
+        overallPointMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .overallPointMaximum,
+        ),
+        overallUpperWilsonMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .overallUpperWilsonMaximum,
+        ),
+        languagePointMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languagePointMaximum,
+        ),
+        languageUpperWilsonMaximum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.allowedCriticismFalsePositiveRate
+            .languageUpperWilsonMaximum,
+        ),
       })
       .strict(),
     safetyFlagRecall: z
       .object({
-        overallPointMinimum: z.literal(0.95),
-        overallLowerWilsonMinimum: z.literal(0.9),
-        languageLowerWilsonMinimum: z.literal(0.9),
+        overallPointMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall.overallPointMinimum,
+        ),
+        overallLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+            .overallLowerWilsonMinimum,
+        ),
+        languageLowerWilsonMinimum: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagRecall
+            .languageLowerWilsonMinimum,
+        ),
       })
       .strict(),
     safetyFlagDraftSuppression: z
-      .object({ minimumSuccessRate: z.literal(1) })
+      .object({
+        minimumSuccessRate: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.safetyFlagDraftSuppression
+            .minimumSuccessRate,
+        ),
+      })
       .strict(),
     draftValidator: z
       .object({
-        minimumRejectionRate: z.literal(1),
-        maximumAcceptedUnsafeCount: z.literal(0),
+        minimumRejectionRate: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.draftValidator.minimumRejectionRate,
+        ),
+        maximumAcceptedUnsafeCount: z.literal(
+          CHANNEL_QUALITY_GATE_THRESHOLDS.draftValidator
+            .maximumAcceptedUnsafeCount,
+        ),
       })
       .strict(),
   })
@@ -458,8 +508,21 @@ const QualityCorpusReferenceSchema = z
     governanceReference: NullableNonEmptyStringSchema,
     reviewerProvenance: z
       .object({
-        protocol: NonEmptyStringSchema,
-        reviewerIds: z.array(NonEmptyStringSchema).min(3).max(20),
+        protocol: z.literal(
+          "two_independent_reviewers_third_resolves_disagreement",
+        ),
+        reviewerIds: z
+          .array(NonEmptyStringSchema)
+          .min(3)
+          .max(20)
+          .superRefine((reviewerIds, context) => {
+            if (new Set(reviewerIds).size !== reviewerIds.length) {
+              context.addIssue({
+                code: "custom",
+                message: "Reviewer provenance must list unique reviewers.",
+              });
+            }
+          }),
       })
       .strict(),
   })
@@ -519,38 +582,18 @@ export type ChannelLaunchQualityEvaluationArtifact = z.infer<
   typeof ChannelLaunchQualityEvaluationArtifactSchema
 >;
 
-const ChannelLaunchQualityGateTupleSchema = z
-  .object({
-    modelIdentifier: ConcreteVersionSchema,
-    assessmentPromptVersion: ConcreteVersionSchema,
-    assessmentSchemaVersion: ConcreteVersionSchema,
-    taxonomyVersion: ConcreteVersionSchema,
-    draftPromptVersion: ConcreteVersionSchema,
-    draftSchemaVersion: ConcreteVersionSchema,
-    draftValidatorVersion: ConcreteVersionSchema,
-    tupleFingerprint: Sha256Schema,
-  })
-  .strict();
+export const ChannelLaunchQualityGateTupleSchema = ChannelQualityGateTupleSchema;
+export type ChannelLaunchQualityGateTuple = z.infer<
+  typeof ChannelLaunchQualityGateTupleSchema
+>;
 
-const ChannelLaunchQualityGateHarnessSchema = z.discriminatedUnion("status", [
-  z
-    .object({
-      issueNumber: z.literal(482),
-      status: z.literal("not_available"),
-      blockers: z.array(NonEmptyStringSchema).min(1),
-    })
-    .strict(),
-  z
-    .object({
-      issueNumber: z.literal(482),
-      status: z.literal("available"),
-      sourceRevision: RevisionSchema,
-      artifact: ChannelLaunchQualityEvaluationArtifactSchema,
-    })
-    .strict(),
-]);
+export const ChannelLaunchQualityGateHarnessSchema =
+  ChannelQualityGateHarnessEvidenceSchema;
+export type ChannelLaunchQualityGateHarnessEvidence = z.infer<
+  typeof ChannelLaunchQualityGateHarnessSchema
+>;
 
-const ChannelLaunchQualityGateCorpusSummarySchema = z
+export const ChannelLaunchQualityGateCorpusSummarySchema = z
   .object({
     issueNumber: z.number().int().positive().nullable(),
     corpusId: NullableNonEmptyStringSchema,
@@ -561,6 +604,9 @@ const ChannelLaunchQualityGateCorpusSummarySchema = z
     observedCount: z.number().int().nonnegative(),
   })
   .strict();
+export type ChannelLaunchQualityGateCorpusSummary = z.infer<
+  typeof ChannelLaunchQualityGateCorpusSummarySchema
+>;
 
 const QualityGateRateMetricSchema = z
   .object({
@@ -679,23 +725,26 @@ export type ChannelLaunchQualityReport = z.infer<
   typeof ChannelLaunchQualityReportSchema
 >;
 
-const ProductionControlStateSchema = z.enum([
+export const ChannelLaunchProductionControlStateSchema = z.enum([
   "absent",
   "present",
   "unverified",
 ]);
+export type ChannelLaunchProductionControlState = z.infer<
+  typeof ChannelLaunchProductionControlStateSchema
+>;
 
-const ProductionConfigurationEvidenceSchema = z
+export const ChannelLaunchProductionConfigurationEvidenceSchema = z
   .object({
     evidence: ChannelLaunchEvidenceSchema,
     runtimeControls: z
       .object({
-        featureFlags: ProductionControlStateSchema,
-        cohorts: ProductionControlStateSchema,
-        betaEntitlements: ProductionControlStateSchema,
-        killSwitches: ProductionControlStateSchema,
-        rollbackContracts: ProductionControlStateSchema,
-        globalOAuthRevocationControl: ProductionControlStateSchema,
+        featureFlags: ChannelLaunchProductionControlStateSchema,
+        cohorts: ChannelLaunchProductionControlStateSchema,
+        betaEntitlements: ChannelLaunchProductionControlStateSchema,
+        killSwitches: ChannelLaunchProductionControlStateSchema,
+        rollbackContracts: ChannelLaunchProductionControlStateSchema,
+        globalOAuthRevocationControl: ChannelLaunchProductionControlStateSchema,
       })
       .strict(),
     channelReachability: z.literal("unreachable_until_packet_passes"),
@@ -718,9 +767,9 @@ export const ChannelLaunchPacketBodySchema = z
     ),
     externalGates: z
       .object({
-        youtubeClearance: YouTubeClearanceEvidenceSchema,
-        oauthVerification: OAuthVerificationEvidenceSchema,
-        liveDisclosureUrls: LiveDisclosureEvidenceSchema,
+        youtubeClearance: ChannelLaunchYouTubeClearanceEvidenceSchema,
+        oauthVerification: ChannelLaunchOAuthVerificationEvidenceSchema,
+        liveDisclosureUrls: ChannelLaunchLiveDisclosureEvidenceSchema,
         frozenQualityReport: z
           .object({
             evidence: ChannelLaunchEvidenceSchema,
@@ -779,7 +828,7 @@ export const ChannelLaunchPacketBodySchema = z
         public_reply_deletion_provenance: ChecklistEvidenceSchema,
       })
       .strict(),
-    productionConfiguration: ProductionConfigurationEvidenceSchema,
+    productionConfiguration: ChannelLaunchProductionConfigurationEvidenceSchema,
     nonClaims: z.array(NonEmptyStringSchema).min(1).max(50),
   })
   .strict();
@@ -794,16 +843,16 @@ export type ChannelLaunchPacketBody = z.infer<
 export type ChannelLaunchPacket = z.infer<typeof ChannelLaunchPacketSchema>;
 export type ChannelLaunchPacketDraft = ChannelLaunchPacketBody;
 export type ChannelLaunchYouTubeClearanceEvidence = z.infer<
-  typeof YouTubeClearanceEvidenceSchema
+  typeof ChannelLaunchYouTubeClearanceEvidenceSchema
 >;
 export type ChannelLaunchOAuthVerificationEvidence = z.infer<
-  typeof OAuthVerificationEvidenceSchema
+  typeof ChannelLaunchOAuthVerificationEvidenceSchema
 >;
 export type ChannelLaunchLiveDisclosureEvidence = z.infer<
-  typeof LiveDisclosureEvidenceSchema
+  typeof ChannelLaunchLiveDisclosureEvidenceSchema
 >;
 export type ChannelLaunchProductionConfigurationEvidence = z.infer<
-  typeof ProductionConfigurationEvidenceSchema
+  typeof ChannelLaunchProductionConfigurationEvidenceSchema
 >;
 
 export function createChannelLaunchPacket(
@@ -908,9 +957,13 @@ export function createUnavailableChannelLaunchPacket(
       evidence: evidence(),
     })),
     externalGates: {
-      youtubeClearance: { evidence: evidence(), clearance: null },
+      youtubeClearance: {
+        evidence: evidence(),
+        clearance: null,
+      },
       oauthVerification: {
         evidence: evidence(),
+        verification: null,
         productionClientId: null,
         verifiedScopes: null,
         incrementalAuthorizationVerified: null,
@@ -995,4 +1048,6 @@ export function deepFreeze<T>(value: T): T {
 }
 
 export type ChannelLaunchClearanceRecord = YouTubeComplianceClearance;
+export type ChannelLaunchOAuthVerificationRecord =
+  YouTubeChannelOAuthVerification;
 export type ChannelLaunchQualityArtifact = ChannelQualityEvaluationArtifact;

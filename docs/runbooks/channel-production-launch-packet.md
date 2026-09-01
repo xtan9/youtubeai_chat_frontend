@@ -63,7 +63,9 @@ The quality slot accepts the versioned offline evaluation artifact and checks
 its own evaluation fingerprint, frozen blind corpus, complete provenance,
 result-set hash, measured metrics, passing gate, and approved thresholds. The
 packet does not turn synthetic or governed evaluation data into production
-evidence.
+evidence. When the #487 quality-gate report shape is used, the validator also
+reuses the #487 harness/tuple schemas and binds each summary to the governed
+four-language corpus registry from issues #483–#486.
 
 ## Updating a packet
 

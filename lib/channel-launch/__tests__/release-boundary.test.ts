@@ -38,5 +38,13 @@ describe("Channel launch packet release boundary", () => {
     );
 
     expect(launchImports).toEqual([]);
+
+    const channelRouteReferences = productionConsumers.filter((file) =>
+      /["'`]\/channel(?:[\/?#"'`]|$)/u.test(
+        readFileSync(path.join(ROOT, file), "utf8"),
+      ),
+    );
+
+    expect(channelRouteReferences).toEqual([]);
   });
 });

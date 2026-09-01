@@ -9,6 +9,8 @@ import {
   CHANNEL_QUALITY_SUPPORTED_LANGUAGES,
   CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
 } from "@/lib/channel-quality-evaluation";
+import { CHANNEL_EVALUATION_CORPORA } from "@/lib/channel/quality-gate";
+import { CURRENT_YOUTUBE_CHANNEL_OAUTH_VERIFICATION } from "@/lib/compliance/youtube-channel-oauth-verification";
 import {
   createUnavailableChannelLaunchPacket,
   createChannelLaunchPacket,
@@ -52,7 +54,8 @@ function qualityCorpusReference(
     dataGovernance: "synthetic" as const,
     governanceReference: null,
     reviewerProvenance: {
-      protocol: "two_independent_reviewers_third_resolves_disagreement",
+      protocol:
+        "two_independent_reviewers_third_resolves_disagreement" as const,
       reviewerIds: ["reviewer-primary", "reviewer-secondary", "reviewer-adjudicator"],
     },
   };
@@ -217,15 +220,20 @@ function passingQualityGateReport() {
     "traditional_chinese",
     "chinese_english_code_switch",
   ] as const;
-  const corpora = languages.map((language, index) => ({
-    issueNumber: 483 + index,
-    corpusId: `channel-${language}-test-v1`,
-    language,
-    status: "ready" as const,
-    fingerprint: hashChannelLaunchValue({ language }),
-    sampleCount: 1_000,
-    observedCount: 1_000,
-  }));
+  const corpora = languages.map((language) => {
+    const definition = CHANNEL_EVALUATION_CORPORA.find(
+      (candidate) => candidate.language === language,
+    )!;
+    return {
+      issueNumber: definition.issueNumber,
+      corpusId: definition.corpusId,
+      language,
+      status: "ready" as const,
+      fingerprint: hashChannelLaunchValue({ language }),
+      sampleCount: 1_000,
+      observedCount: 1_000,
+    };
+  });
   const qualityGateRateMetric = {
     numerator: 1,
     denominator: 1,
@@ -354,6 +362,18 @@ function permittedClearance() {
   };
 }
 
+function permittedOAuthVerification() {
+  return {
+    ...CURRENT_YOUTUBE_CHANNEL_OAUTH_VERIFICATION,
+    status: "verified" as const,
+    verificationEvidence: {
+      sourceReference: "test://channel-launch/oauth-verification",
+      verifiedAt: "2026-09-01",
+      verifiedBy: "test-only verification authority",
+    },
+  };
+}
+
 function passingDisclosureEvidence() {
   const urls = {
     privacy: "https://example.test/channel/privacy",
@@ -399,6 +419,7 @@ function passingDisclosureEvidence() {
 
 function passingPacket() {
   const evidence = (id: string) => passedEvidence(id);
+  const clearance = permittedClearance();
   return createChannelLaunchPacket({
     recordType: "channel-production-launch-packet",
     recordVersion: 1,
@@ -415,11 +436,15 @@ function passingPacket() {
     })),
     externalGates: {
       youtubeClearance: {
-        evidence: evidence("youtube-clearance"),
-        clearance: permittedClearance(),
+        evidence: {
+          ...evidence("youtube-clearance"),
+          evidenceRef: clearance.determination.sourceReference,
+        },
+        clearance,
       },
       oauthVerification: {
         evidence: evidence("oauth-verification"),
+        verification: permittedOAuthVerification(),
         productionClientId: "test-client-id",
         verifiedScopes: [
           "https://www.googleapis.com/auth/youtube.readonly",
@@ -630,6 +655,78 @@ describe("Channel production launch packet", () => {
     expect(evaluateChannelLaunchPacket(withGateReport)).toMatchObject({
       status: "passed",
       failures: [],
+    });
+  });
+
+  it("rejects a #487 report that substitutes an ungoverned corpus identity", () => {
+    const packet = passingPacket();
+    const { packetFingerprint: _packetFingerprint, ...packetBody } = packet;
+    expect(_packetFingerprint).toHaveLength(64);
+    const report = passingQualityGateReport();
+    const { evaluationFingerprint: _evaluationFingerprint, ...reportBody } =
+      report;
+    expect(_evaluationFingerprint).toHaveLength(64);
+    const substitutedReportBody = {
+      ...reportBody,
+      corpora: report.corpora.map((corpus, index) =>
+        index === 0
+          ? { ...corpus, corpusId: "test-unapproved-corpus" }
+          : corpus,
+      ),
+    };
+    const substitutedReport = {
+      ...substitutedReportBody,
+      evaluationFingerprint: hashChannelLaunchValue(substitutedReportBody),
+    };
+    const withSubstitutedReport = createChannelLaunchPacket({
+      ...packetBody,
+      externalGates: {
+        ...packet.externalGates,
+        frozenQualityReport: {
+          evidence: {
+            ...packet.externalGates.frozenQualityReport.evidence,
+            artifactSha256: substitutedReport.evaluationFingerprint,
+          },
+          report: substitutedReport,
+        },
+      },
+    });
+
+    expect(evaluateChannelLaunchPacket(withSubstitutedReport)).toMatchObject({
+      status: "blocked",
+      failures: expect.arrayContaining([
+        expect.objectContaining({
+          code: "quality_gate_corpus_identity_mismatch",
+        }),
+      ]),
+    });
+  });
+
+  it("requires YouTube clearance evidence to point to the written determination", () => {
+    const packet = passingPacket();
+    const { packetFingerprint: _packetFingerprint, ...packetBody } = packet;
+    expect(_packetFingerprint).toHaveLength(64);
+    const mismatched = createChannelLaunchPacket({
+      ...packetBody,
+      externalGates: {
+        ...packet.externalGates,
+        youtubeClearance: {
+          ...packet.externalGates.youtubeClearance,
+          evidence: {
+            ...packet.externalGates.youtubeClearance.evidence,
+            evidenceRef: "test://channel-launch/wrong-clearance-reference",
+          },
+        },
+      },
+    });
+
+    expect(evaluateChannelLaunchPacket(mismatched)).toMatchObject({
+      status: "blocked",
+      failures: expect.arrayContaining([
+        expect.objectContaining({
+          code: "youtube_clearance_evidence_reference_mismatch",
+        }),
+      ]),
     });
   });
 

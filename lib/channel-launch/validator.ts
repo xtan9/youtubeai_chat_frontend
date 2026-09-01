@@ -8,6 +8,8 @@ import {
   type ChannelQualityEvaluationArtifact,
 } from "@/lib/channel-quality-evaluation";
 import { evaluateYouTubeChannelAssessmentGate } from "@/lib/compliance/youtube-channel-clearance";
+import { evaluateYouTubeChannelOAuthVerificationGate } from "@/lib/compliance/youtube-channel-oauth-verification";
+import { CHANNEL_EVALUATION_CORPORA } from "@/lib/channel/quality-gate";
 
 import {
   CHANNEL_LAUNCH_ACCESSIBILITY_EVIDENCE_IDS,
@@ -170,6 +172,19 @@ function validateExternalGates(
             gate.reason,
           ),
         );
+      } else if (
+        (external.youtubeClearance.clearance.decision === "permitted" ||
+          external.youtubeClearance.clearance.decision === "conditional") &&
+        external.youtubeClearance.evidence.evidenceRef !==
+          external.youtubeClearance.clearance.determination.sourceReference
+      ) {
+        failures.push(
+          failure(
+            "youtube_clearance_evidence_reference_mismatch",
+            "$.externalGates.youtubeClearance.evidence.evidenceRef",
+            "The packet YouTube evidence must point to the written determination source reference.",
+          ),
+        );
       }
     }
   }
@@ -182,6 +197,38 @@ function validateExternalGates(
     failures,
   );
   if (oauth.evidence.status === "passed") {
+    if (oauth.verification === null) {
+      failures.push(
+        failure(
+          "oauth_verification_record_missing",
+          "$.externalGates.oauthVerification.verification",
+          "A passing launch packet must embed the exact reviewed OAuth verification record.",
+        ),
+      );
+    } else {
+      const verificationGate = evaluateYouTubeChannelOAuthVerificationGate(
+        oauth.verification,
+      );
+      if (verificationGate.status !== "open") {
+        failures.push(
+          failure(
+            "oauth_verification_blocked",
+            "$.externalGates.oauthVerification.verification",
+            verificationGate.reason,
+          ),
+        );
+      } else if (
+        oauth.evidence.evidenceRef !== verificationGate.evidenceRef
+      ) {
+        failures.push(
+          failure(
+            "oauth_evidence_reference_mismatch",
+            "$.externalGates.oauthVerification.evidence.evidenceRef",
+            "The packet OAuth evidence must point to the reviewed verification record evidence.",
+          ),
+        );
+      }
+    }
     const scopes = oauth.verifiedScopes;
     const expectedScopes = new Set([
       "https://www.googleapis.com/auth/youtube.readonly",
@@ -909,7 +956,11 @@ function validateQualityGateReport(
         ),
       );
     }
-    validateEvaluationQualityReport(report.harness.artifact, packet, failures);
+    validateEvaluationQualityReport(
+      report.harness.artifact as unknown as ChannelLaunchQualityEvaluationArtifact,
+      packet,
+      failures,
+    );
   }
   if (report.evaluatedTuple === null || report.tupleFingerprint === null) {
     failures.push(
@@ -935,24 +986,25 @@ function validateQualityGateReport(
     }
   }
 
-  const requiredCorpora = [
-    { language: "english", issueNumber: 483 },
-    { language: "simplified_chinese", issueNumber: 484 },
-    { language: "traditional_chinese", issueNumber: 485 },
-    { language: "chinese_english_code_switch", issueNumber: 486 },
-  ] as const;
+  const requiredCorpora = CHANNEL_EVALUATION_CORPORA.map(
+    ({ language, issueNumber, corpusId }) => ({
+      language,
+      issueNumber,
+      corpusId,
+    }),
+  );
   const requiredLanguages = new Set(
     requiredCorpora.map(({ language }) => language),
   );
   const seenLanguages = new Set<string>();
   let observedTotal = 0;
   for (const [index, corpus] of report.corpora.entries()) {
+    const duplicate = seenLanguages.has(corpus.language);
     const expected = requiredCorpora.find(
       ({ language }) => language === corpus.language,
     );
-    seenLanguages.add(corpus.language);
     observedTotal += corpus.observedCount;
-    if (seenLanguages.has(corpus.language) && expected === undefined) {
+    if (expected === undefined) {
       failures.push(
         failure(
           "quality_gate_corpus_unknown",
@@ -961,6 +1013,16 @@ function validateQualityGateReport(
         ),
       );
     }
+    if (duplicate) {
+      failures.push(
+        failure(
+          "quality_gate_corpus_duplicate",
+          `$.externalGates.frozenQualityReport.report.corpora[${index}].language`,
+          "Each supported language must have exactly one quality corpus summary.",
+        ),
+      );
+    }
+    seenLanguages.add(corpus.language);
     if (expected && corpus.issueNumber !== expected.issueNumber) {
       failures.push(
         failure(
@@ -970,21 +1032,21 @@ function validateQualityGateReport(
         ),
       );
     }
+    if (expected && corpus.corpusId !== expected.corpusId) {
+      failures.push(
+        failure(
+          "quality_gate_corpus_identity_mismatch",
+          `$.externalGates.frozenQualityReport.report.corpora[${index}].corpusId`,
+          `The ${corpus.language} corpus must bind to the governed corpus ${expected.corpusId}.`,
+        ),
+      );
+    }
     if (corpus.corpusId === null || corpus.sampleCount === 0) {
       failures.push(
         failure(
           "quality_gate_corpus_identity_missing",
           `$.externalGates.frozenQualityReport.report.corpora[${index}]`,
           "Every quality corpus must retain a concrete identity and non-empty sample count.",
-        ),
-      );
-    }
-    if (seenLanguages.size !== index + 1) {
-      failures.push(
-        failure(
-          "quality_gate_corpus_duplicate",
-          `$.externalGates.frozenQualityReport.report.corpora[${index}].language`,
-          "Each supported language must have exactly one quality corpus summary.",
         ),
       );
     }
