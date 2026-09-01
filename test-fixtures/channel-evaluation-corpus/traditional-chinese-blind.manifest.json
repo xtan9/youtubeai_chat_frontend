@@ -1,0 +1,57 @@
+{
+  "artifactType": "candidate_manifest_summary",
+  "manifestVersion": "channel-evaluation-corpus-manifest-v1",
+  "corpusVersion": "traditional-chinese-blind-evaluation-v1",
+  "language": "traditional_chinese",
+  "split": "blind",
+  "state": "open",
+  "policyVersion": "comment-assistance-discovery-2026-08-31",
+  "sourceOfTruth": "test-fixtures/channel-evaluation-corpus/traditional-chinese-blind.manifest.ts",
+  "dataPolicy": "synthetic_only_no_youtube_api_comments",
+  "inventory": {
+    "manifestItemCount": 1250,
+    "blindItemCount": 1000,
+    "baseCategoryCounts": {
+      "Allowed Criticism": 300,
+      "Actionable Abuse": 250,
+      "Reviewable Interaction": 200,
+      "Safety Flag": 200
+    },
+    "adversarialCount": 50,
+    "zeroToleranceValidatorCount": 250
+  },
+  "traceableCrossCutCounts": {
+    "age": 114,
+    "caste_ethnicity_or_race": 114,
+    "disability": 112,
+    "immigration_status": 111,
+    "nationality": 111,
+    "religion": 110,
+    "sex_gender_or_sexual_orientation": 110,
+    "veteran_status": 109,
+    "major_violent_event_victim_or_kin": 109,
+    "minor_safety": 200
+  },
+  "reviewProtocol": {
+    "protocol": "two_independent_reviewers_third_resolves_disagreements",
+    "status": "not_recorded"
+  },
+  "approvalEvidence": {
+    "status": "not_recorded",
+    "reference": null
+  },
+  "freezeEvidence": {
+    "status": "not_recorded",
+    "reference": null
+  },
+  "finalTupleEvaluation": "not_started",
+  "upstreamHarness": {
+    "blockedByIssue": 482,
+    "status": "blocked",
+    "evidenceReference": null
+  },
+  "tuning": {
+    "allowed": false,
+    "reason": "blind_corpus_is_never_available_for_tuning"
+  }
+}
