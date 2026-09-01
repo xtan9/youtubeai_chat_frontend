@@ -271,3 +271,83 @@ _Avoid_: Password change, login
 **Smoke Account**:
 A marked, non-human account used only by automated production checks. It follows real product flows and quotas but is excluded from business analytics and real-user totals, and it must never be used as a Learner's personal account.
 _Avoid_: Learner, personal account
+
+**Channel Steward**:
+An 18+ Researcher whose OAuth grant resolves to one Supported Creator Channel and who is authorized to publicly represent that Channel while reviewing its interactions. It is a role, not an account type.
+_Avoid_: Creator account type, Viewer, consumer
+
+**Connected YouTube Channel**:
+The YouTube channel whose identity a Researcher has explicitly authorized YouTube AI Chat to use for a bounded channel-management action.
+_Avoid_: YouTube account, Creator profile
+
+**Interaction Assessment**:
+A provisional judgment about observable behavior in a YouTube comment or reply, kept separate from any judgment about its author.
+_Avoid_: Troll detection, author score, personality label
+
+**Actionable Abuse**:
+An interaction that clearly targets the Channel Steward with a non-severe direct insult, degrading language, or targeted provocation and contains no Safety Flag condition.
+_Avoid_: Troll, keyboard warrior, unhappy person
+
+**Reviewable Interaction**:
+An interaction whose meaning depends on context that is not yet established, such as sarcasm, quotation, reclaimed language, or a relationship-specific joke.
+_Avoid_: Low-confidence abuse, suspicious author
+
+**Allowed Criticism**:
+Negative feedback, disagreement, or content-focused criticism that does not target a person with Actionable Abuse.
+_Avoid_: Hostile opinion, negative sentiment
+
+**Reply Draft**:
+Proposed response text that remains private until a Channel Steward deliberately reviews and publishes it for one interaction.
+_Avoid_: AI reply, automated response
+
+**Public Reply**:
+Text deliberately published to YouTube under a named Connected YouTube Channel after the Channel Steward reviews its final content and context.
+_Avoid_: Draft, scan result
+
+**Safety Flag**:
+A private, response-blocking notice that an interaction contains a threat, self-harm encouragement, doxxing, stalking, extortion, sexual harassment, protected-class hate, minor risk, or another credible real-world safety concern.
+_Avoid_: Reply recommendation, author danger score
+
+**Review Decision**:
+A Channel Steward's explicit per-interaction choice to dismiss an assessment, revise a Reply Draft, publish its final text, or continue with a YouTube enforcement action.
+_Avoid_: Model decision, bulk approval
+
+**Assessment Context**:
+The bounded current-thread and Video identity information needed to interpret one interaction without building a cross-Video profile of its author.
+_Avoid_: Author history, behavioral profile
+
+**Review Queue**:
+The private collection of Reviewable Interactions, Actionable Abuse, and Safety Flags awaiting a Channel Steward's Review Decision.
+_Avoid_: Comments inbox, automated moderation log
+
+**Channel Hub**:
+The registered product surface where a Channel Steward reviews and acts on interactions for a Connected YouTube Channel without changing account type or Project context.
+_Avoid_: Creator mode, Creator dashboard, Project
+
+**Publishing Authorization**:
+The Channel Steward's separate, explicit grant that permits a reviewed final response to be published under one Connected YouTube Channel.
+_Avoid_: Channel connection, scan permission
+
+**Read-only Grace Period**:
+The bounded time after paid access ends during which a former Channel Steward may inspect, export, delete, or disconnect existing Channel data but cannot create new assessments, drafts, or Public Replies.
+_Avoid_: Free Channel access, subscription extension
+
+**Active Connected Channel**:
+The one Connected YouTube Channel currently selected for new scans, assessments, drafts, and Public Replies; changing it never transfers work from another Channel.
+_Avoid_: Default account, current Workspace
+
+**Supported Creator Channel**:
+A Connected YouTube Channel that represents one public creator persona and whose OAuth identity can be verified for every Channel action.
+_Avoid_: Multi-host organization, delegated Studio Channel
+
+**Publication Uncertain**:
+A state in which YouTube may have accepted a Public Reply but the product lacks enough verified provider state to declare it published or safely retry it.
+_Avoid_: Failed reply, retryable error
+
+**Scan Run**:
+A Channel Steward-initiated, bounded attempt to discover and assess recent interactions for one Active Connected Channel, with explicit progress and coverage.
+_Avoid_: Background monitoring, complete channel scan
+
+**Stale Draft**:
+A Reply Draft whose source interaction or Assessment Context changed after generation and therefore requires regeneration before publication.
+_Avoid_: Failed draft, editable draft
