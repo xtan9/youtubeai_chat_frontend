@@ -1,0 +1,436 @@
+{
+  "recordType": "channel-production-launch-packet",
+  "recordVersion": 1,
+  "issueNumber": 492,
+  "packetId": "channel-production-launch-v1",
+  "frozenAt": null,
+  "sourceRevision": null,
+  "decision": "blocked",
+  "releaseReviewEligible": false,
+  "productionActivationPerformed": false,
+  "dependencies": [
+    {
+      "issueNumber": 479,
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      }
+    },
+    {
+      "issueNumber": 480,
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      }
+    },
+    {
+      "issueNumber": 481,
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      }
+    },
+    {
+      "issueNumber": 487,
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      }
+    },
+    {
+      "issueNumber": 491,
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      }
+    }
+  ],
+  "externalGates": {
+    "youtubeClearance": {
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      },
+      "clearance": null
+    },
+    "oauthVerification": {
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      },
+      "productionClientId": null,
+      "verifiedScopes": null,
+      "incrementalAuthorizationVerified": null,
+      "identityVerificationVerified": null,
+      "productionClientVerified": null
+    },
+    "liveDisclosureUrls": {
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      },
+      "urls": {
+        "privacy": null,
+        "youtubeData": null,
+        "provider": null,
+        "deletion": null,
+        "revocation": null
+      },
+      "checks": {
+        "privacy": null,
+        "youtubeData": null,
+        "provider": null,
+        "deletion": null,
+        "revocation": null
+      }
+    },
+    "frozenQualityReport": {
+      "evidence": {
+        "status": "not_available",
+        "evidenceRef": null,
+        "artifactSha256": null,
+        "verifiedAt": null,
+        "sourceRevision": null,
+        "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+      },
+      "report": null
+    }
+  },
+  "endToEnd": {
+    "onboarding": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "identity_switching": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "scanning": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "assessment": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "safety_flags": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "review": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "drafting": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "stale_drafts": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "publication": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "publication_uncertainty": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "deletion": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "downgrade": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "disconnect": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "account_deletion": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    }
+  },
+  "accessibility": {
+    "keyboard": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "screen_readers": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "non_color_state": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "live_progress": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "focus_restoration": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "privacy_reveal": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "reduced_motion": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "layout_390px": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    }
+  },
+  "quotaLoad": {
+    "scan_limits": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "daily_reply_limits": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "shared_quota_exhaustion": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "concurrent_scan_runs": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "atomic_publication_claims": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "cleanup_workers": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    }
+  },
+  "retentionDeletion": {
+    "thirty_day_refresh_or_deletion": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "seven_day_downgrade_cleanup": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "disconnect_cleanup": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "account_deletion_cleanup": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "provider_outcome_tracking": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "public_reply_deletion_provenance": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    }
+  },
+  "productionConfiguration": {
+    "evidence": {
+      "status": "not_available",
+      "evidenceRef": null,
+      "artifactSha256": null,
+      "verifiedAt": null,
+      "sourceRevision": null,
+      "failureReason": "Required external, human, live, and production evidence is not available in this repository."
+    },
+    "runtimeControls": {
+      "featureFlags": "unverified",
+      "cohorts": "unverified",
+      "betaEntitlements": "unverified",
+      "killSwitches": "unverified",
+      "rollbackContracts": "unverified",
+      "globalOAuthRevocationControl": "unverified"
+    },
+    "channelReachability": "unreachable_until_packet_passes"
+  },
+  "nonClaims": [
+    "This blocked inventory does not claim written YouTube clearance.",
+    "This blocked inventory does not claim OAuth verification, live URLs, licensed data, human approval, or production evidence.",
+    "A packet pass would make the release eligible for review only; it never activates Channel or changes entitlements."
+  ],
+  "packetFingerprint": "d4be656d00c000c249b15ca28a2f6c1cdf6307d89a204848a0f86cc12c14b5c4"
+}
