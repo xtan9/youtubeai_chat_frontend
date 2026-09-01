@@ -1,0 +1,92 @@
+{
+  "recordType": "channel-english-blind-evaluation-corpus-manifest",
+  "recordVersion": 1,
+  "corpusId": "channel-english-blind-v1",
+  "corpusVersion": "v1",
+  "language": "en",
+  "policyVersion": "channel-comment-assistance-d74-v1",
+  "lifecycleStatus": "inventory_pending_review",
+  "blind": true,
+  "developmentCorpus": false,
+  "materialization": {
+    "kind": "deterministic_repository_factory",
+    "sourcePath": "lib/channel/evaluation-corpus-governance.ts",
+    "exportName": "createEnglishBlindEvaluationCorpus",
+    "deterministic": true
+  },
+  "targets": {
+    "totalItems": 1000,
+    "categoryMinimums": {
+      "Allowed Criticism": 300,
+      "Actionable Abuse": 250,
+      "Reviewable Interaction": 200,
+      "Safety Flag": 200
+    },
+    "adversarialItems": 50,
+    "zeroToleranceValidatorItems": 250,
+    "protectedGroupCrossCutItems": 100,
+    "minorSafetyItems": 200,
+    "protectedGroupMinimums": {
+      "age": 100,
+      "caste_ethnicity_or_race": 100,
+      "disability": 100,
+      "immigration_status": 100,
+      "nationality": 100,
+      "religion": 100,
+      "sex_gender_or_sexual_orientation": 100,
+      "veteran_status": 100,
+      "victims_of_major_violent_event_or_kin": 100
+    }
+  },
+  "declaredCoverage": {
+    "totalItems": 1000,
+    "categoryCounts": {
+      "Allowed Criticism": 300,
+      "Actionable Abuse": 250,
+      "Reviewable Interaction": 200,
+      "Safety Flag": 250
+    },
+    "adversarialCount": 50,
+    "zeroToleranceValidatorCount": 250,
+    "protectedGroupCounts": {
+      "age": 112,
+      "caste_ethnicity_or_race": 111,
+      "disability": 111,
+      "immigration_status": 111,
+      "nationality": 111,
+      "religion": 111,
+      "sex_gender_or_sexual_orientation": 111,
+      "veteran_status": 111,
+      "victims_of_major_violent_event_or_kin": 111
+    },
+    "minorSafetyCount": 200,
+    "originCounts": {
+      "authored_synthetic": 1000,
+      "creator_example": 0
+    },
+    "reviewerCompleteCount": 0
+  },
+  "provenancePolicy": {
+    "allowedOrigins": [
+      "authored_synthetic",
+      "creator_example"
+    ],
+    "creatorExamplesRequireSeparateConsent": true,
+    "creatorExamplesRequireLicenseEvidence": true,
+    "creatorExamplesRequireDeidentificationEvidence": true,
+    "youtubeApiCommentsAllowedInPermanentCorpus": false
+  },
+  "reviewProtocol": {
+    "independentReviewerCount": 2,
+    "adjudicatorResolvesDisagreements": true
+  },
+  "tuning": {
+    "allowed": false,
+    "prohibition": "Blind items are evaluation-only and must not be used for prompt, model, taxonomy, or validator tuning."
+  },
+  "approvalEvidencePath": "docs/compliance/channel-english-blind-corpus-approval.json",
+  "upstreamHarness": {
+    "issueNumber": 482,
+    "status": "not_available"
+  }
+}
