@@ -1314,7 +1314,7 @@ export function toChannelQualityBlindCorpusManifest(
 
   return freezeChannelQualityCorpus({
     manifestVersion: CHANNEL_QUALITY_CORPUS_MANIFEST_VERSION,
-    corpusVersion: CHANNEL_CHINESE_ENGLISH_CODE_SWITCH_BLIND_CORPUS_ID,
+    corpusVersion: CHANNEL_CHINESE_ENGLISH_CODE_SWITCH_BLIND_CORPUS_VERSION,
     split: "blind",
     frozenAt,
     policyVersion: corpus.policyVersion,

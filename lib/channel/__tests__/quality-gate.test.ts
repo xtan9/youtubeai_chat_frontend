@@ -23,7 +23,6 @@ import {
   CHANNEL_QUALITY_ZERO_TOLERANCE_DRAFT_VALIDATOR_CATEGORIES,
   hashChannelQualityValue,
 } from "../../channel-quality-evaluation";
->>>>>>> ff6c11f (feat(channel): harden multilingual quality gate)
 
 const CATEGORIES = [
   "Allowed Criticism",
@@ -131,7 +130,7 @@ function buildHarnessArtifact(): ChannelQualityHarnessArtifact {
     governanceReference: null,
     reviewerProvenance: {
       protocol:
-        "two_independent_reviewers_third_resolves_disagreements" as const,
+        "two_independent_reviewers_third_resolves_disagreement" as const,
       reviewerIds: ["reviewer-primary", "reviewer-secondary"],
     },
   };
@@ -685,7 +684,60 @@ describe("Channel quality and release gate", () => {
         expect.objectContaining({
           code: "harness_safety_flag_recall",
           category: "safety_flag_recall",
+          language: "traditional_chinese",
           message: expect.stringContaining("traditional_chinese"),
+        }),
+      ]),
+    );
+  });
+
+  it("binds every corpus policy to the available #482 harness policy", () => {
+    const harness = buildHarness("available");
+    if (harness.status !== "available") {
+      throw new Error("expected an available harness fixture");
+    }
+    const artifact = {
+      ...harness.artifact,
+      policyVersion: "shared-policy-v2",
+    };
+    const artifactBody = { ...artifact };
+    Reflect.deleteProperty(artifactBody, "evaluationFingerprint");
+    harness.artifact = {
+      ...artifact,
+      evaluationFingerprint: hashChannelQualityValue(artifactBody),
+    };
+    const input = buildInput({
+      corpora: CHANNEL_EVALUATION_CORPORA.map((definition) => {
+        const corpus = buildCorpus(definition.language);
+        return { ...corpus, policyVersion: "shared-policy-v2" };
+      }),
+      harness,
+    });
+
+    const report = evaluateChannelQualityGate(input);
+
+    expect(report.decision).toBe("passed");
+    expect(report.failures).toEqual([]);
+  });
+
+  it("blocks a corpus whose policy does not match #482", () => {
+    const report = evaluateChannelQualityGate(
+      buildInput({
+        corpora: CHANNEL_EVALUATION_CORPORA.map((definition) => {
+          const corpus = buildCorpus(definition.language);
+          return definition.language === "traditional_chinese"
+            ? { ...corpus, policyVersion: "different-policy-v2" }
+            : corpus;
+        }),
+      }),
+    );
+
+    expect(report.decision).toBe("blocked");
+    expect(report.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "corpus_policy_version_mismatch",
+          language: "traditional_chinese",
         }),
       ]),
     );

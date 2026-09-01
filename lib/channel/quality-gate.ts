@@ -19,7 +19,6 @@ import type { ChannelQualityEvaluationArtifact } from "../channel-quality-evalua
 import {
   ADVERSARIAL_ITEM_KINDS,
   CHANNEL_ENGLISH_BLIND_CORPUS_ID,
-  CHANNEL_EVALUATION_POLICY_VERSION,
   CHANNEL_EVALUATION_CATEGORIES,
   ChannelEnglishBlindEvaluationCorpusSchema,
   PROTECTED_GROUP_CROSS_CUTS,
@@ -232,7 +231,7 @@ const HarnessCorpusReferenceSchema = z
     reviewerProvenance: z
       .object({
         protocol: z.literal(
-          "two_independent_reviewers_third_resolves_disagreements",
+          "two_independent_reviewers_third_resolves_disagreement",
         ),
         reviewerIds: z.array(NonEmptyStringSchema).min(1),
       })
@@ -1170,6 +1169,7 @@ function validateCorpus(
   corpus: ChannelQualityGateCorpus,
   definition: (typeof CHANNEL_EVALUATION_CORPORA)[number],
   failures: ChannelQualityGateFailure[],
+  expectedPolicyVersion: string | null,
 ): void {
   if (
     corpus.issueNumber !== definition.issueNumber ||
@@ -1183,12 +1183,16 @@ function validateCorpus(
       message: `Corpus evidence does not match the governed issue #${definition.issueNumber} identity.`,
     });
   }
-  if (corpus.policyVersion !== CHANNEL_EVALUATION_POLICY_VERSION) {
+  if (
+    expectedPolicyVersion !== null &&
+    corpus.policyVersion !== expectedPolicyVersion
+  ) {
     addFailure(failures, {
       code: "corpus_policy_version_mismatch",
       scope: "corpus",
       language: definition.language,
-      message: "Corpus policy version does not match the approved Channel policy.",
+      message:
+        "Corpus policy version does not match the policy recorded by the #482 harness artifact.",
     });
   }
   if (corpus.governance.status !== "passed") {
@@ -1429,9 +1433,13 @@ export function evaluateChannelQualityGate(input: unknown): ChannelQualityGateRe
       });
     }
     for (const gateFailure of artifact.gate.failures) {
+      const language = CHANNEL_EVALUATION_LANGUAGES.find(
+        (candidate) => gateFailure.scope === `language:${candidate}`,
+      );
       addFailure(failures, {
         code: `harness_${gateFailure.code}`,
         scope: "prerequisite",
+        ...(language === undefined ? {} : { language }),
         ...(gateFailure.category === undefined
           ? {}
           : { category: gateFailure.category }),
@@ -1525,6 +1533,10 @@ export function evaluateChannelQualityGate(input: unknown): ChannelQualityGateRe
 
   const corpusByLanguage = new Map<ChannelQualityLanguage, ChannelQualityGateCorpus>();
   const summaries: ChannelQualityGateCorpusSummary[] = [];
+  const harnessPolicyVersion =
+    value.harness.status === "available"
+      ? value.harness.artifact.policyVersion
+      : null;
   for (const definition of CHANNEL_EVALUATION_CORPORA) {
     const matches = value.corpora.filter(
       (corpus) => corpus.language === definition.language,
@@ -1564,7 +1576,7 @@ export function evaluateChannelQualityGate(input: unknown): ChannelQualityGateRe
     const corpus = matches[0]!;
     corpusByLanguage.set(definition.language, corpus);
     const before = failures.length;
-    validateCorpus(corpus, definition, failures);
+    validateCorpus(corpus, definition, failures, harnessPolicyVersion);
     summaries.push({
       issueNumber: definition.issueNumber,
       corpusId: corpus.corpusId,

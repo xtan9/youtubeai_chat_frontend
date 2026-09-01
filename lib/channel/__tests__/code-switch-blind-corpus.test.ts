@@ -306,6 +306,7 @@ describe("Chinese-English code-switch blind corpus governance", () => {
     });
     expect(projectionReport.ok).toBe(true);
     expect(verifyChannelQualityCorpusFingerprint(projected)).toBe(true);
+    expect(projected.corpusVersion).toBe("v1");
     expect(projected.items).toHaveLength(1_250);
     expect(projected.items.every((item) => item.codeSwitchEvidence !== null)).toBe(
       true,

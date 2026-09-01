@@ -21,6 +21,14 @@ import {
 import {
   validateChannelEvaluationCorpus as validateTraditionalChineseBlindEvaluationCorpus,
 } from "../lib/channel/traditional-chinese-evaluation-corpus-governance";
+import codeSwitchManifest from "../docs/channel-evaluation/chinese-english-code-switch-blind-corpus-manifest.json";
+import codeSwitchEvidence from "../docs/compliance/channel-chinese-english-code-switch-blind-corpus-approval.json";
+import {
+  ChineseEnglishCodeSwitchBlindCorpusApprovalEvidenceSchema,
+  ChineseEnglishCodeSwitchBlindCorpusManifestDescriptorSchema,
+  createChineseEnglishCodeSwitchBlindEvaluationCorpus,
+  validateChineseEnglishCodeSwitchBlindEvaluationCorpus,
+} from "../lib/channel/code-switch-blind-corpus-governance";
 
 const ROOT = path.resolve(__dirname, "..");
 const MANIFEST_PATH = "docs/channel-evaluation/english-blind-corpus-manifest.json";
@@ -128,10 +136,72 @@ async function main(): Promise<void> {
     coverage: traditionalReport.coverage,
     blockers: traditionalReport.blockers,
   } as const;
+  const codeSwitchReport =
+    validateChineseEnglishCodeSwitchBlindEvaluationCorpus(
+      createChineseEnglishCodeSwitchBlindEvaluationCorpus(),
+    );
+  const parsedCodeSwitchManifest =
+    ChineseEnglishCodeSwitchBlindCorpusManifestDescriptorSchema.safeParse(
+      codeSwitchManifest,
+    );
+  const parsedCodeSwitchEvidence =
+    ChineseEnglishCodeSwitchBlindCorpusApprovalEvidenceSchema.safeParse(
+      codeSwitchEvidence,
+    );
+  const codeSwitchManifestMatchesCorpus =
+    parsedCodeSwitchManifest.success &&
+    sameJsonValue(parsedCodeSwitchManifest.data.targets, codeSwitchReport.manifest?.targets) &&
+    sameJsonValue(
+      parsedCodeSwitchManifest.data.declaredCoverage,
+      codeSwitchReport.coverage,
+    );
+  const codeSwitchEvidenceMatchesManifest =
+    parsedCodeSwitchEvidence.success &&
+    parsedCodeSwitchEvidence.data.corpusId === codeSwitchManifest.corpusId &&
+    parsedCodeSwitchEvidence.data.manifestPath ===
+      "docs/channel-evaluation/chinese-english-code-switch-blind-corpus-manifest.json";
+  const codeSwitchResult = {
+    corpusId: codeSwitchManifest.corpusId,
+    manifestPath:
+      "docs/channel-evaluation/chinese-english-code-switch-blind-corpus-manifest.json",
+    evidencePath:
+      "docs/compliance/channel-chinese-english-code-switch-blind-corpus-approval.json",
+    inventoryValid:
+      codeSwitchReport.valid &&
+      parsedCodeSwitchManifest.success &&
+      parsedCodeSwitchEvidence.success &&
+      codeSwitchManifestMatchesCorpus &&
+      codeSwitchEvidenceMatchesManifest,
+    releaseReady:
+      codeSwitchReport.releaseReady &&
+      parsedCodeSwitchManifest.success &&
+      parsedCodeSwitchEvidence.success &&
+      codeSwitchManifestMatchesCorpus &&
+      codeSwitchEvidenceMatchesManifest,
+    coverage: codeSwitchReport.coverage,
+    issues: [
+      ...codeSwitchReport.issues.map((issue) => issue.code),
+      ...(parsedCodeSwitchManifest.success
+        ? []
+        : schemaMessages(parsedCodeSwitchManifest)),
+      ...(parsedCodeSwitchEvidence.success
+        ? []
+        : schemaMessages(parsedCodeSwitchEvidence)),
+      ...(codeSwitchManifestMatchesCorpus ? [] : ["manifest_coverage_mismatch"]),
+      ...(codeSwitchEvidenceMatchesManifest
+        ? []
+        : ["evidence_manifest_mismatch"]),
+    ],
+    blockers: codeSwitchReport.blockers,
+    finalTupleEvaluation:
+      codeSwitchReport.manifest?.finalTupleEvaluation.status ?? "blocked",
+    tuningAllowed: codeSwitchReport.manifest?.tuning.allowed ?? false,
+  } as const;
   const result = {
     english: englishResult,
     simplified: simplifiedResult,
     traditional: traditionalResult,
+    codeSwitch: codeSwitchResult,
   } as const;
   console.log(JSON.stringify(result));
 
@@ -143,7 +213,9 @@ async function main(): Promise<void> {
     simplifiedResult.status !== "ready" ||
     !simplifiedEvidenceMatchesManifest ||
     !traditionalResult.valid ||
-    !traditionalResult.releaseReady
+    !traditionalResult.releaseReady ||
+    !codeSwitchResult.inventoryValid ||
+    !codeSwitchResult.releaseReady
   ) {
     process.exitCode = 1;
   }

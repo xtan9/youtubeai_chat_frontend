@@ -27,6 +27,7 @@ The aggregate input must bind all evidence to the exact final tuple:
   canonical thresholds, complete artifact fields, verified fingerprint, and
   passing outcome;
 - one frozen, review-complete blind corpus for each of issues #483–#486;
+- one concrete corpus policy version shared with the #482 artifact;
 - the model identifier, assessment prompt/schema, taxonomy, draft
   prompt/schema, and draft-validator versions; and
 - exactly one completed observation for every blind sample, bound to both the
@@ -38,11 +39,12 @@ all protected-group cross-cuts, 200 minor-safety samples, complete review
 provenance, blind-only use, and matching approval/freeze fingerprints. A
 missing, malformed, duplicate, unknown, or failed sample blocks the report.
 
-The existing #483 artifact is an authored synthetic inventory with pending
-review, approval, freeze, and upstream-harness evidence. The gate projects it
-into the common input contract without converting that pending state into a
-sign-off. The #484–#486 corpus evidence paths are reserved by the catalog;
-their absence remains a blocker.
+The checked-in #483–#486 artifacts are repository-side synthetic candidate
+inventories with pending review, approval, freeze, and/or upstream-harness
+evidence. The gate projects no pending state into a sign-off: the aggregate
+input must contain a frozen, review-complete common-contract record for every
+slice. Candidate manifests and their pending evidence therefore remain useful
+for reproducibility checks while still blocking release readiness.
 
 ## Statistical gates
 
