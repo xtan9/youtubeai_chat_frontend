@@ -48,6 +48,10 @@ const queueItemSchema = z
       "actionable_abuse",
       "safety_flag",
     ]),
+    target: z
+      .enum(["channel_steward", "other_participant", "ambiguous"])
+      .optional(),
+    targetEvidence: z.array(z.string().max(80)).max(4).optional(),
     language: z.enum([
       "english",
       "simplified_chinese",

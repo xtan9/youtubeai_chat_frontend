@@ -15,6 +15,8 @@ import {
   registeredPrincipal,
   startResponse,
 } from "@/lib/channel-scans/http";
+import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
+import { channelReleaseBlockedResponse } from "../../../release-response";
 import { scheduleWorker } from "../../schedule";
 
 export const maxDuration = 300;
@@ -25,6 +27,11 @@ export async function POST(
   _request: Request,
   context: RouteContext,
 ): Promise<Response> {
+  const launchGate = evaluateChannelLaunchGate();
+  if (launchGate.status !== "open") {
+    return channelReleaseBlockedResponse(launchGate);
+  }
+
   const { runId: rawRunId } = await context.params;
   const parsedRunId = scanRunIdSchema.safeParse(rawRunId);
   if (!parsedRunId.success) {

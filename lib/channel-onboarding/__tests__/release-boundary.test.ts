@@ -28,16 +28,12 @@ function productionFiles(relativeDirectory: string): string[] {
 }
 
 describe("Channel onboarding release boundary", () => {
-  it("keeps the capability out of production routes and navigation", () => {
-    expect(existsSync(path.join(ROOT, "app", "channel"))).toBe(false);
-
-    const imports = [...productionFiles("app"), ...productionFiles("components")]
-      .filter((file) =>
-        /(?:from|import\()\s*["'](?:@\/)?lib\/channel-onboarding\//u.test(
-          readFileSync(path.join(ROOT, file), "utf8"),
-        ),
-      );
-    expect(imports).toEqual([]);
+  it("keeps onboarding behind the complete Channel launch gate", () => {
+    expect(existsSync(path.join(ROOT, "app", "channel", "page.tsx"))).toBe(true);
+    const route = readFileSync(path.join(ROOT, "app", "channel", "page.tsx"), "utf8");
+    expect(route).toContain("evaluateChannelLaunchGate");
+    expect(route).toContain("if (launchGate.status === \"blocked\")");
+    expect(route).toContain("ChannelReleaseBlocked");
   });
 
   it("keeps provider transport and credentials outside the inert contract layer", () => {

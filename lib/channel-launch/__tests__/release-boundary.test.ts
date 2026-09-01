@@ -24,8 +24,12 @@ function productionFiles(relativeDirectory: string): string[] {
 }
 
 describe("Channel launch packet release boundary", () => {
-  it("does not expose the packet or inert Channel experience through production routes", () => {
-    expect(existsSync(path.join(ROOT, "app", "channel"))).toBe(false);
+  it("keeps the packet out of production imports while exposing a gated Channel route", () => {
+    const channelRoute = path.join(ROOT, "app", "channel", "page.tsx");
+    expect(existsSync(channelRoute)).toBe(true);
+    const channelRouteSource = readFileSync(channelRoute, "utf8");
+    expect(channelRouteSource).toContain("evaluateChannelLaunchGate");
+    expect(channelRouteSource).toContain("ChannelReleaseBlocked");
 
     const productionConsumers = [
       ...productionFiles("app"),
@@ -39,12 +43,5 @@ describe("Channel launch packet release boundary", () => {
 
     expect(launchImports).toEqual([]);
 
-    const channelRouteReferences = productionConsumers.filter((file) =>
-      /["'`]\/channel(?:[\/?#"'`]|$)/u.test(
-        readFileSync(path.join(ROOT, file), "utf8"),
-      ),
-    );
-
-    expect(channelRouteReferences).toEqual([]);
   });
 });

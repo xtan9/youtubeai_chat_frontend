@@ -5,6 +5,7 @@ import {
   CreditCard,
   FolderKanban,
   LogOut,
+  Menu,
   User as UserIcon,
 } from "lucide-react";
 import { YtAiMark } from "@/components/brand/yt-ai-mark";
@@ -25,12 +26,17 @@ import { useUser } from "@/lib/contexts/user-context";
 import { Suspense, useState } from "react";
 import { CheckoutActivationGuard } from "./checkout-activation-guard";
 
-export function Header() {
+export function Header({
+  channelReleaseStatus = "blocked",
+}: Readonly<{
+  channelReleaseStatus?: "open" | "blocked";
+}>) {
   const { error: authError, isLoading: isAuthLoading, user } = useUser();
   const router = useRouter();
   const supabase = createClient();
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -83,17 +89,41 @@ export function Header() {
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
               {user && !user.is_anonymous ? (
-                <Link
-                  href="/workspace"
-                  className="text-text-muted hover:text-text-primary transition-colors"
-                >
-                  Workspace
-                </Link>
+                <>
+                  <Link
+                    href="/workspace"
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    Workspace
+                  </Link>
+                  {channelReleaseStatus === "open" ? (
+                    <Link
+                      href="/channel"
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      Channel
+                    </Link>
+                  ) : null}
+                </>
               ) : null}
             </nav>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {user && !user.is_anonymous ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                aria-label="Open navigation menu"
+                aria-expanded={isNavigationOpen}
+                aria-controls="mobile-primary-navigation"
+                onClick={() => setIsNavigationOpen((open) => !open)}
+              >
+                <Menu aria-hidden="true" />
+              </Button>
+            ) : null}
             <ThemeSwitcher />
             <Suspense
               fallback={
@@ -178,6 +208,28 @@ export function Header() {
             )}
           </div>
         </div>
+        {user && !user.is_anonymous && isNavigationOpen ? (
+          <nav
+            id="mobile-primary-navigation"
+            aria-label="Mobile primary"
+            className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3 text-body-md font-medium md:hidden"
+          >
+            <Link
+              href="/workspace"
+              className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
+            >
+              Workspace
+            </Link>
+            {channelReleaseStatus === "open" ? (
+              <Link
+                href="/channel"
+                className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
+              >
+                Channel
+              </Link>
+            ) : null}
+          </nav>
+        ) : null}
         {signOutError ? (
           <p
             role="alert"

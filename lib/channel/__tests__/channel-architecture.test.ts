@@ -39,8 +39,11 @@ function productionFiles(relativeDir: string): string[] {
 }
 
 describe("Channel tracer release boundary", () => {
-  it("keeps the offline tracer out of production routes and navigation", () => {
-    expect(existsSync(absolute("app/channel"))).toBe(false);
+  it("keeps the offline tracer out of production routes while the Hub stays gated", () => {
+    expect(existsSync(absolute("app/channel"))).toBe(true);
+    expect(source("app/channel/page.tsx")).toMatch(
+      /evaluateChannelLaunchGate\(\)/,
+    );
 
     const productionConsumers = [
       ...productionFiles("app"),
