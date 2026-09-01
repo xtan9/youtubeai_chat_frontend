@@ -159,7 +159,7 @@ begin
     on conflict (video_id) do nothing
     returning id into backfill_job_id;
 
-    if backfill_job_id is null then
+    if not found then
       continue;
     end if;
 
