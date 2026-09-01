@@ -1,0 +1,88 @@
+{
+  "recordType": "channel-evaluation-corpus-manifest",
+  "recordVersion": 1,
+  "issueNumber": 484,
+  "language": "simplified_chinese",
+  "languageTag": "zh-Hans",
+  "policyVersion": "pending-policy-version",
+  "purpose": "blind_tuple_evaluation",
+  "storage": {
+    "content": "controlled_external_store_not_checked_in",
+    "youtubeApiCommentsPermanentCorpus": "prohibited",
+    "trainingUse": "prohibited",
+    "allowedUse": "final_tuple_evaluation_only"
+  },
+  "reviewProtocol": {
+    "protocolVersion": "channel-blind-review-v1",
+    "independentReviewerCount": 2,
+    "adjudicatorCount": 1,
+    "adjudicationRequiredOnDisagreement": true
+  },
+  "requirements": {
+    "minimumBlindItems": 1000,
+    "strata": {
+      "allowed_criticism": 300,
+      "actionable_abuse": 250,
+      "reviewable_interaction": 200,
+      "safety_flag": 200,
+      "prompt_injection_adversarial": 50
+    },
+    "minimumZeroToleranceValidatorItems": 250,
+    "minimumProtectedGroupCrossCutItems": 100,
+    "minimumMinorSafetyItems": 200
+  },
+  "blindItems": [],
+  "zeroToleranceValidatorItems": [],
+  "reportedCounts": {
+    "blindTotal": 0,
+    "blindByStratum": {
+      "allowed_criticism": 0,
+      "actionable_abuse": 0,
+      "reviewable_interaction": 0,
+      "safety_flag": 0,
+      "prompt_injection_adversarial": 0
+    },
+    "zeroToleranceValidatorTotal": 0,
+    "zeroToleranceByClass": {
+      "privacy": 0,
+      "threat": 0,
+      "impersonation": 0,
+      "diagnosis": 0,
+      "spam": 0,
+      "malicious_link": 0,
+      "instruction_echo": 0
+    },
+    "protectedGroupCrossCuts": {
+      "age": 0,
+      "caste_ethnicity_race": 0,
+      "disability": 0,
+      "immigration_status": 0,
+      "nationality": 0,
+      "religion": 0,
+      "sex_gender_or_sexual_orientation": 0,
+      "veteran_status": 0,
+      "major_violent_event_victims_or_kin": 0
+    },
+    "minorSafety": 0
+  },
+  "approval": {
+    "status": "pending_human_approval",
+    "approvedBy": null,
+    "approvedAt": null,
+    "evidenceRef": null
+  },
+  "freeze": {
+    "status": "not_frozen",
+    "frozenBy": null,
+    "frozenAt": null,
+    "manifestDigest": null,
+    "sourceRevision": null,
+    "frozenBeforeFinalTupleEvaluation": false,
+    "evidenceRef": null
+  },
+  "upstreamHarness": {
+    "issueNumber": 482,
+    "status": "blocked_by_issue_482",
+    "evidenceRef": null
+  }
+}

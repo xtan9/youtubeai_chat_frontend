@@ -1,0 +1,29 @@
+{
+  "recordType": "channel-evaluation-corpus-approval-freeze-evidence",
+  "recordVersion": 1,
+  "issueNumber": 484,
+  "language": "simplified_chinese",
+  "manifestPath": "docs/evaluation/channel/simplified-chinese-blind-corpus.manifest.json",
+  "status": "blocked",
+  "approval": {
+    "status": "not_evidenced",
+    "evidenceRef": null,
+    "reason": "No human approval record has been supplied; approval is intentionally not fabricated."
+  },
+  "freeze": {
+    "status": "not_evidenced",
+    "evidenceRef": null,
+    "reason": "The governed item inventory is not present, so no blind-corpus freeze is claimed."
+  },
+  "upstreamHarness": {
+    "issueNumber": 482,
+    "status": "blocked_by_issue_482",
+    "evidenceRef": null
+  },
+  "negativeControls": {
+    "licensedExamplesCheckedIn": false,
+    "humanApprovalsFabricated": false,
+    "youtubeApiCommentsScrapedIntoPermanentCorpus": false,
+    "blindCorpusAvailableForTuning": false
+  }
+}
