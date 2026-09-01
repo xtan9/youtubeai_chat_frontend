@@ -16,6 +16,10 @@ import {
   resolveSupportedCreatorChannel,
 } from "./identity";
 import { YOUTUBE_READONLY_SCOPE, type YouTubeOAuthScope } from "./scopes";
+import {
+  planYouTubeAuthorization,
+  type YouTubeAuthorizationPlan,
+} from "./youtube-write";
 
 export type ChannelConnectionPersistence = Readonly<{
   /**
@@ -63,6 +67,16 @@ type OnboardingBlockedReason =
 
 export type ChannelOnboardingStartResult =
   | Readonly<{ kind: "awaiting_read_authorization" }>
+  | Readonly<{
+      kind: "blocked";
+      reason:
+        | ChannelAccessDeniedReason
+        | "compliance_clearance_required"
+        | "oauth_verification_required";
+    }>;
+
+export type ChannelOnboardingAuthorizationPlanResult =
+  | YouTubeAuthorizationPlan
   | Readonly<{
       kind: "blocked";
       reason:
@@ -126,6 +140,23 @@ export function beginChannelOnboarding(
   return gate.status === "open"
     ? { kind: "awaiting_read_authorization" }
     : { kind: "blocked", reason: gate.reason };
+}
+
+/**
+ * Keep the OAuth scope decision next to the resumable onboarding entry point.
+ * The write scope has a separate planner and is never included here.
+ */
+export function planChannelOnboardingAuthorization(input: Readonly<{
+  access: ChannelAccessContext;
+  gates?: ChannelOnboardingGates | null;
+  userInitiated: boolean;
+}>): ChannelOnboardingAuthorizationPlanResult {
+  const started = beginChannelOnboarding(input.access, input.gates);
+  if (started.kind === "blocked") return started;
+  return planYouTubeAuthorization({
+    action: "connect",
+    userInitiated: input.userInitiated,
+  });
 }
 
 /**

@@ -117,8 +117,10 @@ export type {
 export {
   beginChannelOnboarding,
   completeChannelOnboarding,
+  planChannelOnboardingAuthorization,
 } from "./journey";
 export type {
+  ChannelOnboardingAuthorizationPlanResult,
   ChannelOnboardingGates,
   ChannelConnectionPersistence,
   ChannelOnboardingIds,
@@ -133,6 +135,7 @@ export {
   authorizeChannelPublication,
   applyPublicReplyPublicationOutcome,
   beginPublicReplyPublication,
+  buildPublicReplyPublicationConfirmation,
   buildYouTubeReplyUrl,
   completePublicReplyPublication,
   createInMemoryPublicReplyLifecycleStore,
@@ -143,8 +146,12 @@ export {
   isPublicReplyPublicationRetryable,
   openPublicReplyOnYouTube,
   openPublishedPublicReply,
+  publishPublicReply,
   reconcilePublicReply,
+  resolvePublicReplyTarget,
 } from "./publication";
+export { authorizePublicReplyGovernance } from "./publication-gates";
+export type { PublicReplyPublicationGovernance } from "./publication-gates";
 export type {
   BeginPublicReplyPublicationResult,
   ChannelPublicationDecision,
@@ -154,6 +161,11 @@ export type {
   DeletePublicReplyResult,
   InMemoryPublicReplyLifecycleStore,
   OpenPublishedPublicReplyResult,
+  PublicReplyPublicationConfirmation,
+  PublicReplyPublishingIdentity,
+  PublicReplyTargetPlan,
+  PublicReplyTargetResolution,
+  PublishPublicReplyResult,
   PublicReplyControlRecord,
   PublicReplyDeletionAuthorization,
   PublicReplyDeletionProviderResult,
@@ -167,6 +179,7 @@ export type {
   PublicReplyPublicationProviderResult,
   PublicReplySourceContext,
   PublicReplyTarget,
+  PublicReplyNestedIdentity,
   PublicReplyVideo,
   ReconcilePublicReplyResult,
   SyntheticPublicReplyProvider,
@@ -176,6 +189,7 @@ export {
   PublicReplyDeletionProviderResultSchema,
   PublicReplyDeletionStatusSchema,
   PublicReplyLifecycleStatusSchema,
+  PublicReplyNestedIdentitySchema,
   PublicReplyProviderObservationSchema,
   PublicReplyProviderReplySchema,
   PublicReplyPublicationProviderResultSchema,
@@ -201,3 +215,19 @@ export type {
 
 export { buildChannelCapabilityPresentation } from "./presentation";
 export type { ChannelCapabilityPresentation } from "./presentation";
+
+export {
+  createYouTubePublicReplyProvider,
+  evaluateYouTubeExternalActionGate,
+  planYouTubeAuthorization,
+  PUBLIC_REPLY_DAILY_LIMIT,
+  YOUTUBE_COMMENTS_INSERT_QUOTA_COST,
+} from "./youtube-write";
+export type {
+  YouTubeAuthorizationPlan,
+  YouTubeExternalActionGate,
+  YouTubeExternalActionGateInput,
+  YouTubeExternalActionGateReason,
+  YouTubePublicReplyProvider,
+  YouTubePublicReplyTransport,
+} from "./youtube-write";
