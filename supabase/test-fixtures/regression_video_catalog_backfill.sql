@@ -121,14 +121,17 @@ $$;
 
 set local role service_role;
 create temporary table claimed_backfill_work as
-select * from public.claim_catalog_backfill_work(1, 120);
+select * from public.claim_catalog_backfill_work(20, 120);
 reset role;
 
 set local role service_role;
 select public.complete_catalog_backfill_work(
-  (select msg_id from claimed_backfill_work),
-  (select backfill_job_id from claimed_backfill_work),
-  (select idempotency_key from claimed_backfill_work),
+  (select msg_id from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
+  (select backfill_job_id from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
+  (select idempotency_key from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
   'skipped',
   'unavailable'
 );
@@ -136,9 +139,12 @@ reset role;
 
 set local role service_role;
 select public.complete_catalog_backfill_work(
-  (select msg_id from claimed_backfill_work),
-  (select backfill_job_id from claimed_backfill_work),
-  (select idempotency_key from claimed_backfill_work),
+  (select msg_id from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
+  (select backfill_job_id from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
+  (select idempotency_key from claimed_backfill_work
+   where video_id = '35600000-0000-4000-8000-000000000001'),
   'skipped',
   'unavailable'
 );
