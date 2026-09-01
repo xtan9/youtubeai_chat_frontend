@@ -26,17 +26,26 @@ describe("HistoryRow", () => {
 
   it("links to /summary?url=<encoded original>", () => {
     renderWithProviders(<HistoryRow row={ROW} now={NOW} />);
-    const link = screen.getByRole("link");
+    const link = screen.getByRole("link", { name: /view summary/i });
     expect(link.getAttribute("href")).toBe(
       "/summary?url=" +
         encodeURIComponent("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
     );
   });
 
+  it("links the owned Video to a filtered Channel Hub", () => {
+    renderWithProviders(<HistoryRow row={ROW} now={NOW} />);
+    expect(
+      screen
+        .getByRole("link", { name: /open never gonna give you up in channel hub/i })
+        .getAttribute("href"),
+    ).toBe("/channel?videoId=v-1");
+  });
+
   it("link has accessible name including the title", () => {
     renderWithProviders(<HistoryRow row={ROW} now={NOW} />);
     expect(
-      screen.getByRole("link", { name: /Never Gonna Give You Up/i }),
+      screen.getByRole("link", { name: /view summary of Never Gonna Give You Up/i }),
     ).toBeTruthy();
   });
 

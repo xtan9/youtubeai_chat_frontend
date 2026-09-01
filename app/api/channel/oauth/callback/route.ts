@@ -1,39 +1,54 @@
-import {
-  evaluateYouTubeChannelOAuthVerificationGate,
-  CURRENT_YOUTUBE_CHANNEL_OAUTH_VERIFICATION,
-} from "@/lib/compliance/youtube-channel-oauth-verification";
+import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
+import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 
-const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
+import {
+  channelReleaseBlockedResponse,
+  CHANNEL_NO_STORE_HEADERS,
+} from "../../release-response";
 
 /**
- * Inert release-boundary callback. Query parameters are deliberately ignored:
- * an authorization code must never be echoed, logged, or exchanged until the
- * external verification gate and a credentialed provider adapter are both
- * explicitly enabled by a later release.
+ * The callback deliberately does not read or echo query parameters until the
+ * full launch packet is open. A later provider adapter must validate state,
+ * authenticated ownership, scopes, and consent before exchanging a code.
  */
-export function GET(request: Request): Response {
+export async function GET(request: Request): Promise<Response> {
   void request;
-  const gate = evaluateYouTubeChannelOAuthVerificationGate(
-    CURRENT_YOUTUBE_CHANNEL_OAUTH_VERIFICATION,
-  );
-  if (gate.status === "blocked") {
+  const launchGate = evaluateChannelLaunchGate();
+  if (launchGate.status !== "open") {
+    return channelReleaseBlockedResponse(launchGate);
+  }
+
+  const principalResult = await resolveRequestPrincipal({
+    source: "channel_account",
+  });
+  if (principalResult.kind === "unavailable") {
     return Response.json(
       {
-        outcome: "blocked",
-        reason: "oauth_verification_required",
-        message: gate.reason,
+        outcome: "unavailable",
+        message: "Channel authorization is temporarily unavailable.",
       },
-      { status: 503, headers: NO_STORE_HEADERS },
+      { status: 503, headers: CHANNEL_NO_STORE_HEADERS },
+    );
+  }
+  if (
+    principalResult.kind === "missing" ||
+    principalResult.principal.isAnonymous
+  ) {
+    return Response.json(
+      {
+        outcome: "authenticated_identity_required",
+        message: "Sign in to complete Channel connection.",
+      },
+      { status: 401, headers: CHANNEL_NO_STORE_HEADERS },
     );
   }
 
   return Response.json(
     {
-      outcome: "blocked",
-      reason: "oauth_callback_not_configured",
+      outcome: "not_configured",
       message:
         "OAuth callback handling is not configured in this repository; no provider exchange was made.",
     },
-    { status: 503, headers: NO_STORE_HEADERS },
+    { status: 503, headers: CHANNEL_NO_STORE_HEADERS },
   );
 }

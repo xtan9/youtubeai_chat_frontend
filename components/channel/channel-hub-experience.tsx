@@ -42,6 +42,7 @@ import {
 
 export type ChannelHubExperienceProps = Readonly<{
   state: ChannelHubState;
+  mode?: "preview" | "release";
   onAction?: (action: HubAction, subjectId?: string) => void;
   revealSensitiveEvidence?: (itemId: string) => string | Promise<string>;
   onDraftChange?: (itemId: string, text: string) => void;
@@ -1063,6 +1064,7 @@ function DeletedPanel({ deletedAt }: { deletedAt: string }) {
 
 export function ChannelHubExperience({
   state,
+  mode = "preview",
   onAction,
   revealSensitiveEvidence,
   onDraftChange,
@@ -1073,7 +1075,11 @@ export function ChannelHubExperience({
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const dispatch = (action: HubAction, subjectId?: string) => {
     const label = action === "publish" ? "Publish reviewed reply" : action.replaceAll("_", " ");
-    setAnnouncement(`${label} selected${subjectId ? ` for ${subjectId}` : ""}. This inert surface does not perform the external action.`);
+    setAnnouncement(
+      mode === "release"
+        ? `${label} selected${subjectId ? ` for ${subjectId}` : ""}. The server will revalidate Channel authority before every action.`
+        : `${label} selected${subjectId ? ` for ${subjectId}` : ""}. This inert surface does not perform the external action.`,
+    );
     onAction?.(action, subjectId);
   };
   const screenDescription = getScreenStateDescription(state);
@@ -1091,11 +1097,11 @@ export function ChannelHubExperience({
         <div className="pointer-events-none absolute -right-16 -top-20 size-64 rounded-full bg-accent-brand-secondary/10 blur-3xl" />
         <div className="relative flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-caption font-semibold uppercase tracking-[0.2em] text-accent-brand-secondary"><ScanSearch aria-hidden="true" className="size-4" /> Channel / inert release surface</div>
+            <div className="flex flex-wrap items-center gap-2 text-caption font-semibold uppercase tracking-[0.2em] text-accent-brand-secondary"><ScanSearch aria-hidden="true" className="size-4" /> {mode === "release" ? "Channel / production release" : "Channel / inert release surface"}</div>
             <div className="mt-4 flex flex-wrap items-center gap-3"><h1 id={titleId} className="text-4xl font-semibold tracking-[-0.04em] text-text-primary sm:text-5xl">Channel Hub</h1><Badge variant="outline" data-screen-state={state.kind}>{getScreenStateLabel(state.kind)}</Badge></div>
             <p id={descriptionId} className="mt-4 max-w-3xl text-body-md leading-7 text-text-secondary">{screenDescription}</p>
           </div>
-          <div className="flex min-w-0 items-center gap-3 rounded-xl border border-border-strong bg-surface-base/30 px-4 py-3 text-body-sm text-text-secondary"><span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent-success" /><span>Release-safe preview · no production route</span></div>
+          <div className="flex min-w-0 items-center gap-3 rounded-xl border border-border-strong bg-surface-base/30 px-4 py-3 text-body-sm text-text-secondary"><span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent-success" /><span>{mode === "release" ? "Release-gated Hub · account-owned" : "Release-safe preview · no production route"}</span></div>
         </div>
       </header>
 
@@ -1121,7 +1127,7 @@ export function ChannelHubExperience({
       {state.kind === "deletion" ? <LifecyclePanel state={state} onAction={dispatch} /> : null}
       {state.kind === "deleted" ? <DeletedPanel deletedAt={state.deletedAt} /> : null}
 
-      <footer className="border-t border-border-subtle pt-5 text-center text-caption leading-5 text-text-muted">Channel Hub remains disconnected from production navigation, Summary links, History links, OAuth, and real YouTube actions until the uniform-release issue.</footer>
+      <footer className="border-t border-border-subtle pt-5 text-center text-caption leading-5 text-text-muted">{mode === "release" ? "Channel Hub is account-owned and separate from Workspace, Summary, and History. Actions are revalidated server-side before any external operation." : "Channel Hub remains disconnected from production navigation, Summary links, History links, OAuth, and real YouTube actions until the uniform-release issue."}</footer>
     </main>
   );
 }

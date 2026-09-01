@@ -38,23 +38,32 @@ function productionFiles(relativeDirectory: string): string[] {
 }
 
 describe("Channel Hub release boundary", () => {
-  it("keeps the inert experience out of production routes and navigation", () => {
-    expect(existsSync(absolute("app/channel"))).toBe(false);
+  it("exposes the Hub only through the release-gated production route", () => {
+    expect(existsSync(absolute("app/channel/page.tsx"))).toBe(true);
 
     const imports = productionFiles("app").filter((file) =>
       /(?:from|import\()\s*["'](?:@\/)?components\/channel\/channel-hub(?:-experience)?["']/u.test(
         source(file),
       ),
     );
-    expect(imports).toEqual([]);
+    expect(imports).toEqual(["app/channel/channel-hub-controller.tsx"]);
+    expect(source("app/channel/page.tsx")).toContain(
+      "evaluateChannelLaunchGate",
+    );
+    expect(source("app/channel/page.tsx")).toContain(
+      "ChannelReleaseBlocked",
+    );
   });
 
-  it("keeps Summary and History from linking to the public Channel route", () => {
-    const routeLinks = [
-      ...productionFiles("app/summary"),
-      ...productionFiles("app/history"),
-    ].filter((file) => /["'`]\/channel(?:["'`?])/u.test(source(file)));
-
-    expect(routeLinks).toEqual([]);
+  it("links only owner-resolved Summary and History Videos into the Hub", () => {
+    expect(source("app/components/history/history-row.tsx")).toContain(
+      "buildChannelHubVideoHref",
+    );
+    expect(source("app/summary/components/channel-video-link.tsx")).toContain(
+      "/api/channel/owned-video",
+    );
+    expect(source("app/api/channel/owned-video/route.ts")).toContain(
+      "loadOwnedVideoForUrl",
+    );
   });
 });

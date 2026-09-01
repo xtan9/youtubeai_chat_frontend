@@ -171,6 +171,33 @@ describe("Header navigation", () => {
     expect(screen.getByRole("menuitem", { name: "Workspace" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Account" })).not.toBeNull();
   });
+
+  it("shows the uniformly gated Channel destination on desktop and mobile", () => {
+    const qc = freshQueryClient();
+    render(<Header channelReleaseStatus="open" />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByRole("link", { name: "Channel" }).getAttribute("href"))
+      .toBe("/channel");
+    openDropdown(screen.getByRole("button", { name: /open navigation menu/i }));
+    expect(screen.getAllByRole("link", { name: "Channel" })).toHaveLength(2);
+    expect(
+      screen.getAllByRole("link", { name: "Channel" })[1].getAttribute("href"),
+    ).toBe("/channel");
+  });
+
+  it("does not expose Channel navigation while the launch packet is blocked", () => {
+    const qc = freshQueryClient();
+    render(<Header channelReleaseStatus="blocked" />, {
+      wrapper: ({ children }) => <Wrapper qc={qc}>{children}</Wrapper>,
+    });
+
+    expect(screen.queryByRole("link", { name: "Channel" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /open navigation menu/i }),
+    ).not.toBeNull();
+  });
 });
 
 describe("Header plan control", () => {

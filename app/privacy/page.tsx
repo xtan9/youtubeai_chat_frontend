@@ -45,6 +45,60 @@ export default function PrivacyPolicy() {
         </p>
       </section>
 
+      <section
+        className="mb-8"
+        aria-labelledby="supported-creator-channel-assistance"
+      >
+        <h2
+          id="supported-creator-channel-assistance"
+          className="text-2xl font-semibold mb-4"
+        >
+          {SUPPORTED_CREATOR_CHANNEL_DISCLOSURE.heading}
+        </h2>
+        <p className="mb-4">
+          {SUPPORTED_CREATOR_CHANNEL_DISCLOSURE.introduction}
+        </p>
+        {SUPPORTED_CREATOR_CHANNEL_DISCLOSURE.sections.map((section) => (
+          <div key={section.id} className="mb-6">
+            <h3 className="text-xl font-semibold mb-3">{section.heading}</h3>
+            {section.paragraphs.map((paragraph) => (
+              <p key={paragraph} className="mb-3">
+                {paragraph}
+              </p>
+            ))}
+            <ul className="list-disc pl-6 space-y-2">
+              {section.bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+            {section.id === "revocation-and-disconnect" ? (
+              <p className="mt-3">
+                <a
+                  className="underline"
+                  href={CHANNEL_DISCLOSURE_LINKS.googlePermissions}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open Google account permissions
+                </a>
+              </p>
+            ) : null}
+            {section.id === "downgrade-and-youtube-fallback" ? (
+              <p className="mt-3">
+                <a
+                  className="underline"
+                  href={CHANNEL_DISCLOSURE_LINKS.youtubeStudio}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open YouTube Studio
+                </a>
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </section>
+
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Information We Collect</h2>
         <ul className="list-disc pl-6 space-y-2">

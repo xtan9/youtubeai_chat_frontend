@@ -33,11 +33,13 @@ import { useIsMobile } from "@/hooks/use-mobile";
 interface YouTubeSummarizerAppProps {
   initialUrl: string | undefined;
   continueLearningEnabled?: boolean;
+  channelReleaseStatus?: "open" | "blocked";
 }
 
 export function YouTubeSummarizerApp({
   initialUrl,
   continueLearningEnabled = false,
+  channelReleaseStatus = "blocked",
 }: YouTubeSummarizerAppProps) {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -183,6 +185,7 @@ export function YouTubeSummarizerApp({
           languageDisabled={false}
           sourceUrl={url}
           continueLearningEnabled={continueLearningEnabled}
+          channelReleaseStatus={channelReleaseStatus}
         />
       )}
     </>

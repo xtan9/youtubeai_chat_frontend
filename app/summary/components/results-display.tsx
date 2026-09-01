@@ -13,6 +13,7 @@ interface ResultsDisplayProps {
   languageDisabled: boolean;
   sourceUrl?: string;
   continueLearningEnabled?: boolean;
+  channelReleaseStatus?: "open" | "blocked";
 }
 
 export function ResultsDisplay({
@@ -26,6 +27,7 @@ export function ResultsDisplay({
   languageDisabled,
   sourceUrl,
   continueLearningEnabled = false,
+  channelReleaseStatus = "blocked",
 }: ResultsDisplayProps) {
   return (
     data && (
@@ -41,6 +43,7 @@ export function ResultsDisplay({
           languageDisabled={languageDisabled}
           sourceUrl={sourceUrl}
           continueLearningEnabled={continueLearningEnabled}
+          channelReleaseStatus={channelReleaseStatus}
         />
       </div>
     )

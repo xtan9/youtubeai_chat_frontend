@@ -53,6 +53,10 @@ export type InteractionReviewQueueItem = Readonly<{
     InteractionAssessmentCategory,
     "allowed_criticism"
   >;
+  /** Present after the Channel Hub projection migration; absent in older rows. */
+  target?: "channel_steward" | "other_participant" | "ambiguous";
+  /** Present after the Channel Hub projection migration; absent in older rows. */
+  targetEvidence?: readonly string[];
   language: AssessmentLanguage;
   candidateText: string;
   topLevelCommentText: string;

@@ -7,8 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
+import { ChannelAccountControls } from "./channel-account-controls";
 
-export function AccountView() {
+export function AccountView({
+  channelReleaseStatus = "blocked",
+}: Readonly<{ channelReleaseStatus?: "open" | "blocked" }>) {
   const { user } = useUser();
   const router = useRouter();
   const supabase = createClient();
@@ -100,6 +103,8 @@ export function AccountView() {
             </div>
           </CardContent>
         </Card>
+
+        <ChannelAccountControls releaseStatus={channelReleaseStatus} />
 
         <div className="flex flex-col items-start gap-3">
           {signOutError ? (

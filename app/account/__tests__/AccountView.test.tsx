@@ -82,6 +82,38 @@ describe("AccountView identity boundary", () => {
       screen.queryByRole("button", { name: /manage subscription/i }),
     ).toBeNull();
   });
+
+  it("keeps Channel account controls fail-closed while the launch packet is blocked", () => {
+    render(<AccountView />);
+
+    expect(
+      screen.getByRole("heading", { name: "Channel controls" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("link", { name: /open channel hub/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /connect channel/i })).toBeNull();
+  });
+
+  it("renders account-owned Channel connection and lifecycle controls after release", () => {
+    render(<AccountView channelReleaseStatus="open" />);
+
+    expect(
+      screen.getByRole("link", { name: /open channel hub/i }).getAttribute("href"),
+    ).toBe("/channel");
+    expect(
+      screen.getByRole("link", { name: /manage google permissions/i }),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: /manage google permissions/i })
+        .getAttribute("href"),
+    ).toBe("https://myaccount.google.com/permissions");
+    expect(screen.getByRole("button", { name: "Connect Channel" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /revoke channel authorization/i }),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: /export channel data/i })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /delete channel data/i })).not.toBeNull();
+  });
 });
 
 describe("AccountView session security boundary", () => {
