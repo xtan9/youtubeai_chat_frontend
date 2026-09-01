@@ -43,7 +43,7 @@ export type StoredInteractionAssessment = Readonly<{
   candidateAuthorRole?: AssessmentRole;
 }>;
 
-export type ReviewQueueItem = Readonly<{
+export type InteractionReviewQueueItem = Readonly<{
   assessmentId: string;
   channelId: string;
   commentId: string;
@@ -112,7 +112,7 @@ function timestamp(value: string): number {
 
 export function projectReviewQueue(
   assessments: readonly StoredInteractionAssessment[],
-): readonly ReviewQueueItem[] {
+): readonly InteractionReviewQueueItem[] {
   return assessments
     .filter(isVisibleAssessment)
     .map((assessment) => ({

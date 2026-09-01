@@ -2,7 +2,10 @@ import "server-only";
 
 import { z } from "zod";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
-import type { ReviewQueueItem, StoredInteractionAssessment } from "./review-queue";
+import type {
+  InteractionReviewQueueItem,
+  StoredInteractionAssessment,
+} from "./review-queue";
 
 export class InteractionAssessmentRepositoryUnavailableError extends Error {
   constructor(message: string) {
@@ -147,7 +150,7 @@ export async function loadInteractionReviewQueue(input: Readonly<{
   accountId: string;
   connectedChannelId: string;
   limit?: number;
-}>): Promise<readonly ReviewQueueItem[]> {
+}>): Promise<readonly InteractionReviewQueueItem[]> {
   const limit = Number.isFinite(input.limit)
     ? Math.min(100, Math.max(1, Math.floor(input.limit!)))
     : 100;

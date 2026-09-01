@@ -58,6 +58,7 @@ export type {
   ScanRunCoverage,
   SyntheticConnectedChannelDefinition,
 } from "./domain";
+export {
   assessInteraction,
   assessmentLanguageSchema,
   assessmentRoleSchema,
@@ -99,7 +100,7 @@ export {
 export { projectReviewQueue } from "./review-queue";
 export type {
   InteractionAssessmentStatus,
-  ReviewQueueItem,
+  InteractionReviewQueueItem,
   StoredInteractionAssessment,
 } from "./review-queue";
 
