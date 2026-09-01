@@ -4,7 +4,7 @@ The repository-side manifest for the Traditional Chinese Channel evaluation
 slice is exposed by
 `test-fixtures/channel-evaluation-corpus/traditional-chinese-blind.manifest.ts`.
 Its schema, deterministic inventory, fingerprints, and fail-closed validator
-live in `lib/channel/evaluation-corpus-governance.ts`.
+live in `lib/channel/traditional-chinese-evaluation-corpus-governance.ts`.
 
 Run the repository check with:
 
