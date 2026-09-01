@@ -204,11 +204,11 @@ reset role;
 select pgmq.send('catalog_backfill', '{"poison":true}'::jsonb, 0);
 set local role service_role;
 create temporary table poison_backfill_work as
-select * from public.claim_catalog_backfill_work(1, 120);
+select * from public.claim_catalog_backfill_work(20, 120);
 reset role;
 set local role service_role;
 select public.fail_catalog_backfill_work(
-  (select msg_id from poison_backfill_work),
+  (select msg_id from poison_backfill_work where backfill_job_id is null),
   null,
   'invalid_message',
   1,
@@ -218,7 +218,13 @@ reset role;
 
 do $$
 begin
-  if (select count(*) from pgmq.q_catalog_backfill) <> 0
+  if exists (
+    select 1
+    from pgmq.q_catalog_backfill
+    where msg_id = (
+      select msg_id from poison_backfill_work where backfill_job_id is null
+    )
+  )
     or not exists (
       select 1
       from catalog_private.catalog_backfill_dead_letters
