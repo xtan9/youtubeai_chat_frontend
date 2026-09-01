@@ -90,6 +90,13 @@ create policy catalog_backfill_archive_service
   on pgmq.a_catalog_backfill for all to service_role
   using (true) with check (true);
 
+-- RLS policies choose rows, but PGMQ's archive/read helpers still execute
+-- table operations under the worker role.  The queue remains unreachable by
+-- browser roles because their schema/table privileges and policies stay
+-- revoked.
+grant all on table pgmq.q_catalog_backfill, pgmq.a_catalog_backfill
+  to service_role;
+
 create or replace function catalog_private.schedule_catalog_backfill(
   p_batch_size integer
 )
