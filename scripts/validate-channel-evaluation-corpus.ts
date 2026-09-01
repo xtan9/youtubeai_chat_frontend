@@ -15,6 +15,13 @@ import {
   validateSimplifiedChineseBlindCorpus,
 } from "../lib/channel/evaluation-corpus";
 
+import {
+  TRADITIONAL_CHINESE_BLIND_MANIFEST,
+} from "../test-fixtures/channel-evaluation-corpus/traditional-chinese-blind.manifest";
+import {
+  validateChannelEvaluationCorpus as validateTraditionalChineseBlindEvaluationCorpus,
+} from "../lib/channel/traditional-chinese-evaluation-corpus-governance";
+
 const ROOT = path.resolve(__dirname, "..");
 const MANIFEST_PATH = "docs/channel-evaluation/english-blind-corpus-manifest.json";
 const EVIDENCE_PATH =
@@ -110,7 +117,22 @@ async function main(): Promise<void> {
       matchesManifest: simplifiedEvidenceMatchesManifest,
     },
   } as const;
-  const result = { english: englishResult, simplified: simplifiedResult } as const;
+  const traditionalReport = validateTraditionalChineseBlindEvaluationCorpus(
+    TRADITIONAL_CHINESE_BLIND_MANIFEST,
+  );
+  const traditionalResult = {
+    corpusVersion: TRADITIONAL_CHINESE_BLIND_MANIFEST.corpusVersion,
+    language: TRADITIONAL_CHINESE_BLIND_MANIFEST.language,
+    valid: traditionalReport.valid,
+    releaseReady: traditionalReport.releaseReady,
+    coverage: traditionalReport.coverage,
+    blockers: traditionalReport.blockers,
+  } as const;
+  const result = {
+    english: englishResult,
+    simplified: simplifiedResult,
+    traditional: traditionalResult,
+  } as const;
   console.log(JSON.stringify(result));
 
   // A pending human gate is an intentional fail-closed result, not an error in
@@ -119,7 +141,9 @@ async function main(): Promise<void> {
     !englishResult.inventoryValid ||
     !englishResult.releaseReady ||
     simplifiedResult.status !== "ready" ||
-    !simplifiedEvidenceMatchesManifest
+    !simplifiedEvidenceMatchesManifest ||
+    !traditionalResult.valid ||
+    !traditionalResult.releaseReady
   ) {
     process.exitCode = 1;
   }
