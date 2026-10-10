@@ -1,5 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
-import { SPARK, type KnownModel } from "./models";
+import { LUNA, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 export type LlmEvent =
@@ -33,9 +33,9 @@ export interface LlmStreamOptions {
 const MAX_MALFORMED_WARNINGS = 1;
 
 // Shared so cache-write and gateway request don't drift. Referenced against
-// the shared `SPARK` constant so a model-ID bump in `./models` flows here
+// the shared `LUNA` constant so a model-ID bump in `./models` flows here
 // automatically — not duplicated as a string literal.
-export const DEFAULT_LLM_MODEL: KnownModel = SPARK;
+export const DEFAULT_LLM_MODEL: KnownModel = LUNA;
 
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion
@@ -99,6 +99,7 @@ export async function* streamLlmSummary(
         // repeated summaries of the same video should be near-identical so
         // cache hits and live runs read the same. Raise only if product
         // wants variety.
+        ...(model === LUNA ? { reasoning_effort: "none" } : {}),
         temperature: 0.1,
         top_p: 0.9,
       }),
@@ -281,6 +282,7 @@ async function fetchLlmJsonResponse(
         // callers (e.g. classifyContent's Zod parse). Any variability would
         // translate directly into routing-decision flapping across otherwise
         // identical requests.
+        ...(options.model === LUNA ? { reasoning_effort: "none" } : {}),
         temperature: 0,
       }),
       signal,

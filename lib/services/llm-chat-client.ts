@@ -1,6 +1,6 @@
 import "server-only";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import { SPARK, type KnownModel } from "./models";
+import { LUNA, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 export type ChatTokenUsage = Readonly<{
@@ -70,10 +70,10 @@ export async function* streamChatCompletion(
   if (!gatewayUrl || !gatewayKey) {
     throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
   }
-  // Chat is intentionally pinned to Spark for every video and every turn.
+  // Chat is intentionally pinned to Luna for every video and every turn.
   // Do not let a stale deployment-level LLM_MODEL value silently route chat
   // back to a different model after this rollout.
-  const model = SPARK;
+  const model = LUNA;
 
   const response = await fetch(
     `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,
@@ -88,10 +88,11 @@ export async function* streamChatCompletion(
         messages: options.messages,
         stream: true,
         stream_options: { include_usage: true },
+        reasoning_effort: "none",
         temperature: 0.4,
         ...(options.maxOutputTokens === undefined
           ? {}
-          : { max_tokens: options.maxOutputTokens }),
+          : { max_completion_tokens: options.maxOutputTokens }),
       }),
       signal: options.signal,
     }

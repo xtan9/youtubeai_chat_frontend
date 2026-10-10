@@ -2,18 +2,18 @@
 
 // Two-tier routing for YouTube summarization: token count gates the obvious
 // cases, the classifier handles the middle zone, and dimensions remain
-// available for observability. Every branch resolves to Codex Spark. See
+// available for observability. Every branch resolves to GPT-6 Luna. See
 // docs/superpowers/specs/2026-04-19-model-routing-design.md for rationale.
 
 import type { PromptLocale } from "./summarize-cache";
 import { z } from "zod";
 import { callLlmJson } from "./llm-client";
 import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
-import { HAIKU, SONNET, SPARK, type KnownModel } from "./models";
+import { HAIKU, SONNET, LUNA, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 // Re-export so existing consumers (route.ts, tests) keep their import path.
-export { HAIKU, SONNET, SPARK };
+export { HAIKU, SONNET, LUNA };
 export type { KnownModel };
 
 // Rough estimator: one English word ≈ 1.3 tokens. Good enough for
@@ -40,29 +40,29 @@ export const LONG_TOKENS = 150_000;
 // count to pick something reasonable.
 export const FALLBACK_HAIKU_TOKENS = 25_000;
 
-// Spark has a 128K context window. Keep the transcript prompt below 100K
+// Preserve the existing transcript limits for cost and latency. Keep below 100K
 // estimated English tokens so the system prompt, title, and generated answer
 // have headroom.
-export const SPARK_CHAR_BUDGET = 400_000;
-export const SPARK_CJK_CHAR_BUDGET = 64_000;
+export const SUMMARY_CHAR_BUDGET = 400_000;
+export const SUMMARY_CJK_CHAR_BUDGET = 64_000;
 
-/** @deprecated Use SPARK_CHAR_BUDGET. */
-export const HAIKU_CHAR_BUDGET = SPARK_CHAR_BUDGET;
-/** @deprecated Use SPARK_CHAR_BUDGET. */
-export const SONNET_CHAR_BUDGET = SPARK_CHAR_BUDGET;
+/** @deprecated Use SUMMARY_CHAR_BUDGET. */
+export const HAIKU_CHAR_BUDGET = SUMMARY_CHAR_BUDGET;
+/** @deprecated Use SUMMARY_CHAR_BUDGET. */
+export const SONNET_CHAR_BUDGET = SUMMARY_CHAR_BUDGET;
 
 /**
- * Choose a transcript character budget that stays under Spark's context
+ * Choose a transcript character budget that stays under Luna's context
  * window for both English and the denser CJK tokenization path.
  */
-export function getSparkCharBudget(language: "en" | "zh"): number {
-  return language === "zh" ? SPARK_CJK_CHAR_BUDGET : SPARK_CHAR_BUDGET;
+export function getSummaryCharBudget(language: "en" | "zh"): number {
+  return language === "zh" ? SUMMARY_CJK_CHAR_BUDGET : SUMMARY_CHAR_BUDGET;
 }
 
 // How much of the transcript to feed the classifier. 4K chars covers ~1K
 // tokens of English (≈650 words) or ~6K tokens of CJK/kana at our 1.5
 // tokens-per-char estimate (conservative for kana-heavy Japanese, which
-// tokenizes closer to 1:1) — enough signal for Spark to classify style
+// tokenizes closer to 1:1) — enough signal for Luna to classify style
 // without materially inflating classifier cost or latency.
 export const CLASSIFIER_EXCERPT_CHARS = 4_000;
 
@@ -166,30 +166,30 @@ export function chooseModel(
   // the discriminated union so a future refactor can't silently leak a
   // leftover classifier result into a token-gate reason.
   if (metadata.tokens > LONG_TOKENS) {
-    return { model: SPARK, reason: "long_content", dimensions: null };
+    return { model: LUNA, reason: "long_content", dimensions: null };
   }
   if (metadata.tokens < SHORT_TOKENS) {
-    return { model: SPARK, reason: "very_short", dimensions: null };
+    return { model: LUNA, reason: "very_short", dimensions: null };
   }
   if (classifier === null) {
     if (metadata.tokens < FALLBACK_HAIKU_TOKENS) {
-      return { model: SPARK, reason: "classifier_failed_short", dimensions: null };
+      return { model: LUNA, reason: "classifier_failed_short", dimensions: null };
     }
-    return { model: SPARK, reason: "classifier_failed_long", dimensions: null };
+    return { model: LUNA, reason: "classifier_failed_long", dimensions: null };
   }
   if (classifier.density === "high") {
-    return { model: SPARK, reason: "high_density", dimensions: classifier };
+    return { model: LUNA, reason: "high_density", dimensions: classifier };
   }
   if (classifier.type === "lecture" || classifier.type === "news") {
-    return { model: SPARK, reason: "structured_fidelity", dimensions: classifier };
+    return { model: LUNA, reason: "structured_fidelity", dimensions: classifier };
   }
   if (classifier.structure === "rambling" && classifier.density === "low") {
-    return { model: SPARK, reason: "low_density_casual", dimensions: classifier };
+    return { model: LUNA, reason: "low_density_casual", dimensions: classifier };
   }
-  return { model: SPARK, reason: "default_haiku", dimensions: classifier };
+  return { model: LUNA, reason: "default_haiku", dimensions: classifier };
 }
 
-// 5s is the hard cap on classifier latency. Spark classification of a ~1K
+// 5s is the hard cap on classifier latency. Luna classification of a ~1K
 // token prompt returns in <2s under normal load, so 5s leaves headroom for
 // gateway cold-start without letting a stuck classifier dominate end-to-end
 // summarization latency (classifier runs BEFORE the main LLM call).
@@ -214,7 +214,7 @@ export interface ClassifyContentOptions {
 }
 
 /**
- * Single Spark call that classifies a transcript excerpt along three
+ * Single Luna call that classifies a transcript excerpt along three
  * dimensions. Returns `null` on any failure so routing degrades to the
  * token-count fallback — never throws.
  *
@@ -235,7 +235,7 @@ export async function classifyContent(
   let raw: string;
   try {
     raw = await callLlmJson({
-      model: SPARK,
+      model: LUNA,
       prompt,
       timeoutMs: CLASSIFIER_TIMEOUT_MS,
       signal: options.signal,

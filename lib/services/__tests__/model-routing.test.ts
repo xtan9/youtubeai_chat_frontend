@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
-  getSparkCharBudget,
+  getSummaryCharBudget,
   getTranscriptMetadata,
-  SPARK_CHAR_BUDGET,
-  SPARK_CJK_CHAR_BUDGET,
+  SUMMARY_CHAR_BUDGET,
+  SUMMARY_CJK_CHAR_BUDGET,
   TOKENS_PER_WORD,
   TOKENS_PER_ZH_CHAR,
 } from "../model-routing";
@@ -65,13 +65,13 @@ import {
   type TranscriptMetadata,
 } from "../model-routing";
 
-describe("getSparkCharBudget", () => {
+describe("getSummaryCharBudget", () => {
   it("keeps English transcripts near the 100K-token budget", () => {
-    expect(getSparkCharBudget("en")).toBe(SPARK_CHAR_BUDGET);
+    expect(getSummaryCharBudget("en")).toBe(SUMMARY_CHAR_BUDGET);
   });
 
   it("uses a denser budget for Chinese transcripts", () => {
-    expect(getSparkCharBudget("zh")).toBe(SPARK_CJK_CHAR_BUDGET);
+    expect(getSummaryCharBudget("zh")).toBe(SUMMARY_CJK_CHAR_BUDGET);
   });
 });
 
@@ -351,7 +351,7 @@ describe("classifyContent", () => {
 
     expect(callLlmJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-5.3-codex-spark",
+        model: "gpt-6-luna",
         timeoutMs: 5_000,
       })
     );

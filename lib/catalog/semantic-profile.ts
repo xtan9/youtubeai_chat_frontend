@@ -3,7 +3,7 @@ import {
   callLlmJson,
   callLlmJsonWithUsage,
 } from "@/lib/services/llm-client";
-import { SPARK } from "@/lib/services/models";
+import { LUNA } from "@/lib/services/models";
 
 export const SEMANTIC_PROFILE_SCHEMA_VERSION = "semantic-profile-v1" as const;
 export const SEMANTIC_PROFILE_PROMPT_VERSION =
@@ -195,7 +195,7 @@ export async function generateSemanticProfile(
   options: GenerateSemanticProfileOptions,
 ): Promise<SemanticProfile> {
   const raw = await callLlmJson({
-    model: process.env.LLM_MODEL?.trim() || SPARK,
+    model: process.env.LLM_MODEL?.trim() || LUNA,
     prompt: buildSemanticProfilePrompt(options),
     timeoutMs: PROFILE_TIMEOUT_MS,
     signal: options.signal,

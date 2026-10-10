@@ -3,7 +3,7 @@ import { SummarySseEventSchema } from "@/lib/api-contracts/summary";
 import type { LlmEvent } from "@/lib/services/llm-client";
 import {
   HAIKU,
-  SPARK_CHAR_BUDGET,
+  SUMMARY_CHAR_BUDGET,
   SONNET,
 } from "@/lib/services/model-routing";
 import type { CachedSummary } from "@/lib/services/summarize-cache";
@@ -915,7 +915,7 @@ describe("POST /api/summarize/stream", () => {
       });
       expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
         "first segment second segment",
-        SPARK_CHAR_BUDGET,
+        SUMMARY_CHAR_BUDGET,
         undefined,
       );
       expect(mocks.writeCachedSummary).toHaveBeenCalledWith(
@@ -960,7 +960,7 @@ describe("POST /api/summarize/stream", () => {
       );
       expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
         transcript,
-        SPARK_CHAR_BUDGET,
+        SUMMARY_CHAR_BUDGET,
         undefined,
       );
       expect(mocks.streamLlmSummary).toHaveBeenCalledWith(
@@ -984,7 +984,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.classifyContent).not.toHaveBeenCalled();
       expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
         transcript,
-        SPARK_CHAR_BUDGET,
+        SUMMARY_CHAR_BUDGET,
         undefined,
       );
       expect(mocks.streamLlmSummary).toHaveBeenCalledWith(
@@ -1019,7 +1019,7 @@ describe("POST /api/summarize/stream", () => {
       expect(mocks.getCachedSummary).toHaveBeenCalledWith(VALID_URL, "es");
       expect(mocks.buildSummarizationPrompt).toHaveBeenCalledWith(
         "captioned transcript",
-        SPARK_CHAR_BUDGET,
+        SUMMARY_CHAR_BUDGET,
         "es",
       );
       expect(mocks.writeCachedSummary).toHaveBeenCalledWith(

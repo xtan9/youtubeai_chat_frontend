@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { HAIKU, SONNET, SPARK, type KnownModel } from "../models";
+import { HAIKU, SONNET, LUNA, type KnownModel } from "../models";
 
 describe("models constants", () => {
-  it("uses the configured Codex Spark model", () => {
-    expect(SPARK).toBe("gpt-5.3-codex-spark");
+  it("uses the configured GPT-6 Luna model", () => {
+    expect(LUNA).toBe("gpt-6-luna");
   });
 
-  it("keeps legacy routing aliases pointed at Spark", () => {
-    expect(HAIKU).toBe(SPARK);
-    expect(SONNET).toBe(SPARK);
+  it("keeps legacy routing aliases pointed at Luna", () => {
+    expect(HAIKU).toBe(LUNA);
+    expect(SONNET).toBe(LUNA);
   });
 
-  it("KnownModel type accepts the Spark aliases", () => {
+  it("KnownModel type accepts the Luna aliases", () => {
     // Compile-time guarantee, smoke-tested at runtime via assignability.
     const a: KnownModel = HAIKU;
     const b: KnownModel = SONNET;
-    expect([a, b]).toEqual([SPARK, SPARK]);
+    expect([a, b]).toEqual([LUNA, LUNA]);
   });
 });

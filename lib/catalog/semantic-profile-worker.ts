@@ -4,7 +4,7 @@ import {
   generateSemanticProfile,
   SEMANTIC_PROFILE_PROMPT_VERSION,
 } from "./semantic-profile";
-import { SPARK } from "@/lib/services/models";
+import { LUNA } from "@/lib/services/models";
 
 const ClaimedWorkSchema = z
   .object({
@@ -36,7 +36,7 @@ const BASE_RETRY_DELAY_SECONDS = 30;
 const BUDGET_RETRY_DELAY_SECONDS = 900;
 const ESTIMATED_MICRO_USD_PER_PROFILE = 5_000;
 const GENERATION_TIMEOUT_MS = 35_000;
-const GENERATOR_MODEL = process.env.LLM_MODEL?.trim() || SPARK;
+const GENERATOR_MODEL = process.env.LLM_MODEL?.trim() || LUNA;
 
 export async function runSemanticProfileWorker(): Promise<WorkerResult> {
   const supabase = getServiceRoleClient();

@@ -50,7 +50,7 @@ import {
 // step.
 export const maxDuration = 120;
 
-// Spark has a 128K context window. 400K transcript characters are roughly
+// Preserve the existing transcript budget for cost and latency. 400K chars are roughly
 // 100K English tokens, leaving room for the system prompt, summary, history,
 // and the current turn.
 const TRANSCRIPT_HARD_CAP_CHARS = 400_000;

@@ -17,7 +17,7 @@ import { buildSummarizationPrompt } from "@/lib/prompts/summarization";
 import { streamLlmSummary } from "@/lib/services/llm-client";
 import {
   CLASSIFIER_EXCERPT_CHARS,
-  getSparkCharBudget,
+  getSummaryCharBudget,
   LONG_TOKENS,
   SHORT_TOKENS,
   chooseModel,
@@ -609,9 +609,9 @@ export async function runServerSummaryRun(
           dimensions: decision.dimensions,
         });
 
-        // Spark has a 128K context window. Keep enough headroom for the
+        // Preserve the existing transcript budget, with headroom for the
         // summary instructions and generated answer after the transcript.
-        const charBudget = getSparkCharBudget(language);
+        const charBudget = getSummaryCharBudget(language);
         const prompt = buildSummarizationPrompt(
           transcriptText,
           charBudget,

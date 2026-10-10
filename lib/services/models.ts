@@ -12,17 +12,17 @@
 // literals that bypass this file.
 
 // YouTubeAI intentionally uses one model for both summaries and chat. The
-// gateway is CLIProxyAPI, which accepts the canonical Codex model ID below.
-export const SPARK = "gpt-5.3-codex-spark";
+// gateway is CLIProxyAPI, which accepts the canonical OpenAI model ID below.
+export const LUNA = "gpt-6-luna";
 export const CHAT_GATEWAY_PROVIDER = "cliproxyapi";
 
 // Backward-compatible aliases for legacy routing names. Both routes now use
-// the same Spark model; these are not separate model choices.
-/** @deprecated Use SPARK. */
-export const HAIKU = SPARK;
-/** @deprecated Use SPARK. */
-export const SONNET = SPARK;
+// the same Luna model; these are not separate model choices.
+/** @deprecated Use LUNA. */
+export const HAIKU = LUNA;
+/** @deprecated Use LUNA. */
+export const SONNET = LUNA;
 
 // The narrow union we guarantee internally. Arbitrary strings still flow
 // through optional params (env var overrides) via `KnownModel | (string & {})`.
-export type KnownModel = typeof SPARK;
+export type KnownModel = typeof LUNA;

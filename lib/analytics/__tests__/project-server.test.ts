@@ -274,7 +274,7 @@ describe("Project server analytics", () => {
   it("uses only a complete, versioned configured rate card", async () => {
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_VERSION", "gateway-2026-08");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_SOURCE", "provider_contract");
-    vi.stubEnv("PROJECT_MODEL_RATE_CARD_MODEL_ID", "gpt-5.3-codex-spark");
+    vi.stubEnv("PROJECT_MODEL_RATE_CARD_MODEL_ID", "gpt-6-luna");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_GATEWAY_PROVIDER", "cliproxyapi");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_EFFECTIVE_DATE", "2026-08-01");
     vi.stubEnv("PROJECT_MODEL_INPUT_USD_PER_MILLION_TOKENS", "2");
@@ -295,7 +295,7 @@ describe("Project server analytics", () => {
     expect(mocks.rpc).toHaveBeenCalledWith(
       "record_project_generation_usage",
       expect.objectContaining({
-        p_model_id: "gpt-5.3-codex-spark",
+        p_model_id: "gpt-6-luna",
         p_provider_kind: "cliproxyapi",
         p_cost_status: "measured",
         p_cost_usd_micros: 563,
@@ -313,7 +313,7 @@ describe("Project server analytics", () => {
   ])("marks usage unavailable when %s does not match the billed contract", async (field, value) => {
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_VERSION", "gateway-2026-08");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_SOURCE", "provider_contract");
-    vi.stubEnv("PROJECT_MODEL_RATE_CARD_MODEL_ID", "gpt-5.3-codex-spark");
+    vi.stubEnv("PROJECT_MODEL_RATE_CARD_MODEL_ID", "gpt-6-luna");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_GATEWAY_PROVIDER", "cliproxyapi");
     vi.stubEnv("PROJECT_MODEL_RATE_CARD_EFFECTIVE_DATE", "2026-08-01");
     vi.stubEnv("PROJECT_MODEL_INPUT_USD_PER_MILLION_TOKENS", "2");
