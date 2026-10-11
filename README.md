@@ -41,7 +41,7 @@ approval ledgers contain a matching, passed Gateway evaluation and named
 approval for the exact model/schema/prompt tuple; setting `LLM_MODEL` alone
 never activates a model. Durable queue requests bind that exact activation,
 so switching or retiring a model cannot run stale work.
-| `LLM_MODEL` | server only, optional | Set to `gpt-5.3-codex-spark`; the application pins summary and chat requests to Spark. |
+| `LLM_MODEL` | server only, optional | Set to `gpt-6-luna`; the application pins summary and chat requests to Luna. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | browser, optional | PostHog analytics |
 
 The dormant 56-call Semantic Profile evidence command and mandatory
@@ -121,15 +121,22 @@ The Stripe webhook plus all `/api/billing/*` routes and `/api/me/entitlements` a
 
 ## Model routing
 
-The summarize and chat routes use `gpt-5.3-codex-spark` for every video. The
+The summarize and chat routes use `gpt-6-luna` for every video. The
 gateway is CLIProxyAPI's OpenAI-compatible endpoint. The summary route still
 records the existing routing reasons for observability, but no video type is
 sent to a different model:
 
 1. **Token-count gate** — the existing thresholds preserve `very_short` and `long_content` telemetry.
-2. **Classifier (middle zone)** — the first 4K chars of transcript + title are sent to Spark with a strict JSON schema prompt (`lib/prompts/routing-classifier.ts`). Returns `{density, type, structure}`.
-3. **Single model** — every branch returns Spark, including lectures, news, casual videos, and long transcripts.
+2. **Classifier (middle zone)** — the first 4K chars of transcript + title are sent to Luna with a strict JSON schema prompt (`lib/prompts/routing-classifier.ts`). Returns `{density, type, structure}`.
+3. **Single model** — every branch returns Luna, including lectures, news, casual videos, and long transcripts.
 4. **Graceful degradation** — if the classifier fails (timeout, malformed JSON, schema miss), routing falls back to token-count only (`classifier_failed_short`/`classifier_failed_long`). Caller-abort exits silently.
+
+Luna requests explicitly use `reasoning_effort: "none"` for low latency.
+The existing Codex-backed gateway ignores sampling controls and output-token
+limits, including `max_completion_tokens`; the requested anonymous-chat budget
+is not a provider-enforced ceiling. This rollout retains that gateway behavior.
+Existing transcript budgets remain unchanged. Configure the gateway to expose
+`gpt-6-luna` and set `LLM_MODEL=gpt-6-luna` for background profile generation.
 
 Every request emits one structured log line for later analysis:
 
@@ -138,7 +145,7 @@ Every request emits one structured log line for later analysis:
   "event": "routing_decision",
   "youtubeUrl": "https://www.youtube.com/watch?v=abc",
   "userId": "...",
-  "model": "gpt-5.3-codex-spark",
+  "model": "gpt-6-luna",
   "reason": "default_haiku",
   "tokens": 18420,
   "wordCount": 14170,
@@ -160,7 +167,7 @@ lib/services/                       One module per external boundary
   vps-client.ts                     VPS /transcribe client (whisper, language-pinned)
   vps-metadata.ts                   VPS /metadata client (detected language + caption codes)
   llm-client.ts                     Streaming LLM gateway + callLlmJson helper
-  model-routing.ts                  Spark routing: metadata + classifier + telemetry reasons
+  model-routing.ts                  Luna routing: metadata + classifier + telemetry reasons
   summarize-cache.ts                Supabase cache read/write
   rate-limit.ts                     Atomic per-user quota
   video-metadata.ts                 YouTube oEmbed (title/channel for Whisper path)

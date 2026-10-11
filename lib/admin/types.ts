@@ -15,9 +15,10 @@ export interface AdminPrincipal {
   readonly email: string;
 }
 
-// Spark is the current production model. Keep historical Claude IDs so
+// Luna is the current production model. Keep historical model IDs so
 // previously stored summaries remain representable in the admin console.
 export type TranscriptModel =
+  | "gpt-6-luna"
   | "gpt-5.3-codex-spark"
   | "claude-opus-4-7"
   | "claude-sonnet-4-6"

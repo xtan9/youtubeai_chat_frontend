@@ -72,6 +72,7 @@ describe("streamLlmSummary", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.model).toBe(DEFAULT_LLM_MODEL);
+    expect(body.reasoning_effort).toBe("none");
     expect(errSpy).toHaveBeenCalledWith(
       "[llm-client] LLM_MODEL unset; using default",
       expect.objectContaining({
@@ -496,6 +497,17 @@ describe("callLlmJson", () => {
     expect(body.model).toBe("claude-haiku-4-5-20251001");
     expect(body.stream).not.toBe(true);
     expect(body.temperature).toBe(0);
+  });
+
+  it("sends Luna JSON requests with explicit non-reasoning sampling", async () => {
+    stubEnv();
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({ choices: [{ message: { content: '{"x":1}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await callLlmJson({ model: DEFAULT_LLM_MODEL, prompt: "hi" });
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body).toMatchObject({ model: "gpt-6-luna", reasoning_effort: "none", temperature: 0 });
   });
 
   it("returns validated Gateway token usage for evaluation calls", async () => {

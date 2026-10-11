@@ -28,7 +28,7 @@ import {
   streamChatCompletion,
   type ChatTokenUsage,
 } from "@/lib/services/llm-chat-client";
-import { SPARK } from "@/lib/services/models";
+import { LUNA } from "@/lib/services/models";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
@@ -404,7 +404,7 @@ export function createProjectArtifactRoute(
         artifacts,
         citationDiagnostics: validated.citationDiagnostics,
         generationMetadata: {
-          model: SPARK,
+          model: LUNA,
           promptVersion: definition.promptVersion,
           generatedAt: new Date().toISOString(),
           ...generation.generationMetadata,

@@ -221,7 +221,7 @@ const LOADED = {
     },
     citationDiagnostics: [],
     generationMetadata: {
-      model: "gpt-5.3-codex-spark",
+      model: "gpt-6-luna",
       promptVersion: "project-brief-v1",
       generatedAt: "2026-08-09T18:00:00.000Z",
     },
