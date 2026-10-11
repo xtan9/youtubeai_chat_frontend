@@ -131,8 +131,10 @@ sent to a different model:
 3. **Single model** — every branch returns Luna, including lectures, news, casual videos, and long transcripts.
 4. **Graceful degradation** — if the classifier fails (timeout, malformed JSON, schema miss), routing falls back to token-count only (`classifier_failed_short`/`classifier_failed_long`). Caller-abort exits silently.
 
-Luna requests explicitly use `reasoning_effort: "none"` to retain the existing
-low-latency sampling behavior. Anonymous chat limits use `max_completion_tokens`.
+Luna requests explicitly use `reasoning_effort: "none"` for low latency.
+The existing Codex-backed gateway ignores sampling controls and output-token
+limits, including `max_completion_tokens`; the requested anonymous-chat budget
+is not a provider-enforced ceiling. This rollout retains that gateway behavior.
 Existing transcript budgets remain unchanged. Configure the gateway to expose
 `gpt-6-luna` and set `LLM_MODEL=gpt-6-luna` for background profile generation.
 
