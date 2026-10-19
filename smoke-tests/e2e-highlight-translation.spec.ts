@@ -9,6 +9,11 @@ const TRANSLATION = { translation: "务实派", explanation: "这里指重视实
 // API integration tests exercise authorization, source verification, rate
 // limits, and gateway composition; this suite makes no paid live AI calls.
 async function openSummary(page: Page, paid = true) {
+  // Player errors can take focus and clear native ranges while it initializes.
+  // Playback is outside this contract; keep its iframe deterministic.
+  await page.route("**/www.youtube.com/embed/**", route => route.fulfill({
+    contentType: "text/html", body: "<!doctype html><html><body style=\"margin:0;background:#111\"></body></html>",
+  }));
   const user = {
     id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated",
     email: "translation@example.test", app_metadata: {}, user_metadata: {},
@@ -107,6 +112,7 @@ test.describe("touch translation", () => {
     await expect(page.getByRole("switch")).toBeChecked();
     const word = page.getByTestId("summary-markdown-surface").locator("strong");
     await word.scrollIntoViewIfNeeded();
+    await word.tap();
     await word.dispatchEvent("pointerdown", { pointerType: "touch" });
     await word.dispatchEvent("pointercancel", { pointerType: "touch" });
     // The native DOM range represents the range created by mobile selection handles.
