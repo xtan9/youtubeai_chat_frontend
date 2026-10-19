@@ -20,7 +20,11 @@ export function normalizePassage(text: string): string {
 // ICU may split before a proper name (for example, "Dr. Smith").
 export function isSingleSentence(text: string): boolean {
   if (!text.trim() || Array.from(text).length > SELECTION_LIMIT) return false;
-  const input = text.replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc)\./giu, match => match.slice(0, -1));
+  const input = text
+    .replace(/\b(?:e\.\s*g|i\.\s*e|z\.\s*B)\.(?=\s+\p{L})/gu, match => match.replace(/\./g, ""))
+    .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs)\./giu, match => match.slice(0, -1));
+  // Do not strip terminal abbreviations such as "etc.": their period can
+  // separate two real sentences. ICU handles those boundaries itself.
   const parts = Array.from(new Intl.Segmenter(undefined, { granularity: "sentence" }).segment(input))
     .filter(part => /[\p{L}\p{N}]/u.test(part.segment));
   return parts.length === 1;

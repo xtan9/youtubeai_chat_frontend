@@ -55,7 +55,7 @@ export function HighlightTranslation(props: Props) {
   const eligible = entitlements.data?.tier === "pro" && hasTranslationAccess(entitlements.subscriptionPresentation);
   if (eligible) return <PaidHighlightTranslation {...props} />;
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-sm text-text-primary">
+    <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
       {entitlements.isPending ? <span>Checking translation access…</span>
         : entitlements.isError ? <span>Translation access is temporarily unavailable.</span>
         : <><Languages className="h-4 w-4" aria-hidden="true" /><span>Highlight translation · Pro</span><Link href="/pricing" className="font-medium underline underline-offset-4">Upgrade to Pro</Link></>}
@@ -162,27 +162,40 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
     function schedule() { clearTimeout(timer); timer = setTimeout(capture, 250); }
     function pointerDown(event: PointerEvent) {
       if (event.target instanceof Node && (cardRef.current?.contains(event.target) || controlsRef.current?.contains(event.target))) return;
-      dismiss();
       if (event.target instanceof Node && root!.contains(event.target)) {
+        dismiss();
         signature.current = "";
         dragging = true;
         touch = event.pointerType === "touch";
       }
     }
+    // Let outside controls finish their pointer/click sequence before removing
+    // the portal; closing on pointerdown can interfere with native activation.
+    function outsideClick(event: MouseEvent) {
+      if (!(event.target instanceof Node) || root!.contains(event.target) ||
+          cardRef.current?.contains(event.target) || controlsRef.current?.contains(event.target)) return;
+      clearTimeout(timer);
+      dismiss();
+    }
+
     function pointerUp() { if (dragging) { dragging = false; schedule(); } }
     function keyDown(event: KeyboardEvent) {
       if (event.key === "Escape") { clearTimeout(timer); dismiss(); }
     }
     document.addEventListener("selectionchange", schedule);
     document.addEventListener("pointerdown", pointerDown);
+    document.addEventListener("click", outsideClick);
     document.addEventListener("pointerup", pointerUp);
+    document.addEventListener("pointercancel", pointerUp);
     document.addEventListener("keydown", keyDown);
     return () => {
       clearTimeout(timer);
       cancelRequest();
       document.removeEventListener("selectionchange", schedule);
       document.removeEventListener("pointerdown", pointerDown);
+      document.removeEventListener("click", outsideClick);
       document.removeEventListener("pointerup", pointerUp);
+      document.removeEventListener("pointercancel", pointerUp);
       document.removeEventListener("keydown", keyDown);
     };
   }, [enabled, language, sourceUrl, outputLanguage, readingRef, dismiss, translate, cancelRequest]);
@@ -239,7 +252,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
   const isRtl = language === "ar";
   return (
     <>
-      <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-sm text-text-primary">
+      <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
         <>
           <div className="flex items-center gap-2">
             <Switch id={id} checked={preferences.enabled} onCheckedChange={value => save(value, language)} aria-describedby={id + "-help"} />
@@ -249,42 +262,42 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
             Translate to:
             <select id={id + "-language"} value={language} onChange={event => {
               if (isSupportedLanguageCode(event.target.value)) save(preferences.enabled, event.target.value);
-            }} className="max-w-[190px] rounded-md border border-border-default bg-surface-base px-2 py-1.5 text-sm">
+            }} className="max-w-[190px] rounded-md border border-border-default bg-surface-base px-2 py-1.5 text-body-sm">
               {SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}
             </select>
           </label>
-          <p id={id + "-help"} className="basis-full text-xs text-text-secondary">Uses selected text and nearby context for AI translation.</p>
+          <p id={id + "-help"} className="basis-full text-body-xs text-text-secondary">Uses selected text and nearby context for AI translation.</p>
         </>
       </div>
       {visible && createPortal(
-        <div ref={cardRef} role="region" aria-label="Highlight translation" onPointerDown={event => event.stopPropagation()}
+        <div ref={cardRef} role="region" aria-label="Highlight translation" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}
           className="fixed z-50 overflow-auto rounded-xl border border-border-subtle border-t-[3px] border-t-accent-brand-secondary bg-surface-overlay p-4 text-text-primary shadow-xl"
           style={{ ...position, visibility: position ? "visible" : "hidden" }}>
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0 break-words font-semibold">{visible.payload?.text ?? "Highlight translation"}
-              {visible.result?.partOfSpeech && <span className="ml-2 text-xs font-normal italic text-text-muted">{visible.result.partOfSpeech}</span>}
+              {visible.result?.partOfSpeech && <span className="ml-2 text-body-xs font-normal italic text-text-muted">{visible.result.partOfSpeech}</span>}
             </div>
             <button type="button" aria-label="Close translation" onClick={dismiss} className="rounded p-1 hover:bg-state-hover focus-visible:outline-2 focus-visible:outline-offset-2"><X className="h-4 w-4" /></button>
           </div>
           <div aria-live="polite" aria-atomic="true">
             {visible.status === "ready" && <Button onClick={() => void translate(visible)} size="sm"><Languages className="mr-2 h-4 w-4" />Translate</Button>}
-            {visible.status === "loading" && <p className="flex items-center gap-2 text-sm"><LoaderCircle className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />Translating in context…</p>}
+            {visible.status === "loading" && <p className="flex items-center gap-2 text-body-sm"><LoaderCircle className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />Translating in context…</p>}
             {visible.result && <>
-              <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-2xl font-semibold">{visible.result.translation}</p>
+              <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-h4 font-semibold">{visible.result.translation}</p>
               <div className="mt-4 border-t border-border-subtle pt-3">
-                <p className="mb-2 text-xs font-medium text-text-muted">Meaning in this passage</p>
-                <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-sm leading-relaxed">{visible.result.explanation}</p>
+                <p className="mb-2 text-body-xs font-medium text-text-muted">Meaning in this passage</p>
+                <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-body-sm leading-relaxed">{visible.result.explanation}</p>
               </div>
             </>}
-            {visible.message && <p className="text-sm">{visible.message}</p>}
-            {visible.retryAt && <p className="mt-2 text-xs">Retry after {new Date(visible.retryAt).toLocaleTimeString()}.</p>}
+            {visible.message && <p className="text-body-sm">{visible.message}</p>}
+            {visible.retryAt && <p className="mt-2 text-body-xs">Retry after {new Date(visible.retryAt).toLocaleTimeString()}.</p>}
           </div>
           {visible.status === "error" && visible.payload && <Button className="mt-3" variant="outline" size="sm" disabled={visible.retryAt !== undefined} onClick={() => void translate(visible)}>Retry</Button>}
           {visible.result && <div className="mt-4 flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-            <span className="text-xs text-text-muted">Based on this paragraph</span>
+            <span className="text-body-xs text-text-muted">Based on this paragraph</span>
             <Button size="sm" variant="ghost" onClick={() => void copy()}><Copy className="mr-1.5 h-4 w-4" />{copied ? "Copied" : "Copy"}</Button>
           </div>}
-          {copyFailed && <p role="status" className="mt-2 text-xs">Copy failed. Select and copy the translation manually.</p>}
+          {copyFailed && <p role="status" className="mt-2 text-body-xs">Copy failed. Select and copy the translation manually.</p>}
         </div>, document.body)}
     </>
   );

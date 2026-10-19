@@ -107,6 +107,8 @@ test.describe("touch translation", () => {
     await expect(page.getByRole("switch")).toBeChecked();
     const word = page.getByTestId("summary-markdown-surface").locator("strong");
     await word.scrollIntoViewIfNeeded();
+    await word.dispatchEvent("pointerdown", { pointerType: "touch" });
+    await word.dispatchEvent("pointercancel", { pointerType: "touch" });
     // The native DOM range represents the range created by mobile selection handles.
     await word.evaluate(element => {
       const range = document.createRange();

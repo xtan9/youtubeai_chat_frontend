@@ -131,7 +131,7 @@ describe("POST /api/translate", () => {
   });
 
   it.each([
-    { text: "A sentence. Another sentence." }, { text: "一つです。もう一つです。" },
+    { text: "A sentence. Another sentence." }, { text: "They bought books, etc. They left." }, { text: "一つです。もう一つです。" },
     { text: "x".repeat(501) }, { context: "x".repeat(4001) },
     { targetLanguage: "unsupported" }, { text: "  " }, { userId: "someone-else" },
   ])("rejects an invalid translation request: %j", async patch => {
@@ -142,6 +142,7 @@ describe("POST /api/translate", () => {
 
   it.each([
     ["Dr. Smith uses evidence.", "Dr. Smith uses evidence."],
+    ["Er wohnt z. B. in Berlin.", "Er wohnt z. B. in Berlin."],
     ["- A **pragmatist** uses evidence.", "A pragmatist uses evidence."],
     ["我们重视实际成果。", "我们重视实际成果。"],
     ["نستخدم الأدلة لتحقيق النتائج.", "نستخدم الأدلة لتحقيق النتائج."],

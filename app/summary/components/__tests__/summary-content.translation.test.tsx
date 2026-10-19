@@ -22,7 +22,7 @@ function show(paid = true, markdown = summary.summary) {
   });
   const view = render(<QueryClientProvider client={client}>
     <SummaryContent summary={{ ...summary, summary: markdown }} sourceUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      browserLanguage="zh" highlightTranslationEnabled />
+      browserLanguage="zh" onCopySummary={() => {}} onNewSummary={() => {}} highlightTranslationEnabled />
   </QueryClientProvider>);
   return { ...view, client };
 }
@@ -188,5 +188,26 @@ describe("Summary highlight translation", () => {
     vi.mocked(Range.prototype.getBoundingClientRect).mockReturnValue(new DOMRect(120, -60, 80, 20));
     fireEvent.scroll(screen.getByTestId("summary-markdown-surface"));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Highlight translation" })).toBeNull());
+  });
+
+  it("recovers when native touch selection cancels the pointer sequence", async () => {
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    const root = screen.getByTestId("summary-markdown-surface");
+    fireEvent.pointerDown(root, { pointerType: "touch" });
+    fireEvent.pointerCancel(root, { pointerType: "touch" });
+    selectWord();
+    expect(await screen.findByRole("button", { name: "Translate" })).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending selection when an outside control is clicked", async () => {
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    fireEvent.click(screen.getByRole("button", { name: "Copy Summary" }));
+    await new Promise(resolve => setTimeout(resolve, 350));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Highlight translation" })).toBeNull();
   });
 });

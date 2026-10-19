@@ -89,3 +89,27 @@ The implementation request approves the behavior and acceptance criteria above. 
 - [Supported languages](../../lib/constants/languages.ts) and [browser locale matching](../../lib/utils/browser-locale.ts).
 - [Summary entitlements](../../lib/services/entitlements.ts): Summary-generation allowances are separate from this proposed feature.
 - [Shared rate limiter](../../lib/services/rate-limit.ts), [AI integration](../../lib/services/llm-client.ts), and [content-free observability rules](../../lib/observability.ts).
+
+## Implementation verification
+
+- Full unit and integration suite: 378 files / 3,570 tests passed with coverage; line coverage 88.41%.
+- Final focused API/UI regressions: 47 tests passed, including paid-only enforcement, stale responses, native touch cancellation, and sentence boundaries.
+- Repository lint and TypeScript checks passed.
+- Browser contract: 30 checks passed across ten repetitions. Coverage includes desktop Copy/Escape/tab changes, paid-only controls, and the mobile Translate action. AI responses are fixtures in these tests.
+- Separate opt-in live smoke: `smoke-tests/e2e-highlight-translation-live.spec.ts`. After deployment, set `RUN_LIVE_HIGHLIGHT_TRANSLATION=1`, `BASE_URL` and `PROD_URL` to the deployment, and provide the existing dedicated `TEST_LIVE_SUMMARY_EMAIL` / `TEST_LIVE_SUMMARY_PASSWORD` credentials. It exercises real auth, saved Summary access, and AI without interception. It has not been run against production before release.
+
+### Standards review
+
+Three findings were fixed: add the live smoke, preserve terminal abbreviation boundaries, and use semantic typography. Follow-up review found no remaining issues.
+
+### Spec review
+
+Two findings were fixed: recover cancelled touch pointer sequences and recognize representative abbreviation boundaries. Follow-up review found no remaining issues.
+
+### Implemented desktop and mobile views
+
+These screenshots show the real UI with deterministic translation responses.
+
+![Desktop translation card](assets/highlight-translation-desktop-implemented.png)
+
+![Mobile translation card](assets/highlight-translation-mobile-implemented.png)
