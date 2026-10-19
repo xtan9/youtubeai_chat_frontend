@@ -23,11 +23,6 @@ const REQUEST_PRINCIPAL_SOURCES = [
   "billing_portal",
   "admin_gate",
   "account",
-  "channel_hub",
-  "channel_action",
-  "channel_account",
-  "channel_video",
-  "channel_scan",
   "workspace_projects",
   "project",
 ] as const;

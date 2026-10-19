@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
-import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 import { AccountView } from "./AccountView";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +22,5 @@ export default async function AccountPage() {
   ) {
     redirect("/auth/login");
   }
-  return (
-    <AccountView channelReleaseStatus={evaluateChannelLaunchGate().status} />
-  );
+  return <AccountView />;
 }

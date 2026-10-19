@@ -11,7 +11,6 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import StructuredData from "@/components/seo/structured-data";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import type { Viewport, Metadata } from "next";
-import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -92,8 +91,6 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const channelReleaseStatus = evaluateChannelLaunchGate().status;
-
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -110,7 +107,7 @@ export default function RootLayout({
             <TanstackQueryProvider>
               <UserProvider>
                 <PostHogUserIdentifier />
-                <Header channelReleaseStatus={channelReleaseStatus} />
+                <Header />
                 <main className="flex-1">{children}</main>
                 <Footer />
                 <Sonner />

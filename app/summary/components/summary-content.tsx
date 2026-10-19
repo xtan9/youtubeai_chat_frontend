@@ -11,7 +11,6 @@ import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { LanguagePicker } from "./language-picker";
 import { buildSummaryMarkdownComponents } from "./summary-markdown-renderer";
 import { ContinueLearningSection } from "./continue-learning";
-import { ChannelVideoLink } from "./channel-video-link";
 
 interface SummaryContentProps {
   summary: SummaryResult;
@@ -28,7 +27,6 @@ interface SummaryContentProps {
   languageDisabled?: boolean;
   sourceUrl?: string;
   continueLearningEnabled?: boolean;
-  channelReleaseStatus?: "open" | "blocked";
 }
 
 export function SummaryContent({
@@ -42,7 +40,6 @@ export function SummaryContent({
   languageDisabled,
   sourceUrl,
   continueLearningEnabled = false,
-  channelReleaseStatus = "blocked",
 }: SummaryContentProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -162,9 +159,6 @@ export function SummaryContent({
 
           {/* Summary Stats */}
           <SummaryStats summary={summary} />
-          {sourceUrl && channelReleaseStatus === "open" ? (
-            <ChannelVideoLink sourceUrl={sourceUrl} enabled />
-          ) : null}
           {sourceUrl && continueLearningEnabled ? (
             <ContinueLearningSection
               sourceUrl={sourceUrl}

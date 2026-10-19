@@ -7,7 +7,6 @@ import {
   type EvidencePrototypeFixture,
   type EvidencePrototypeVariant,
 } from "@/app/summary/components/evidence-workspace-prototype";
-import { evaluateChannelLaunchGate } from "@/lib/compliance/channel-launch";
 
 type SearchParams = Promise<{
   url?: string;
@@ -89,7 +88,6 @@ export default async function SummaryPage({
   }
 
   const isResultsView = Boolean(params.url);
-  const channelReleaseStatus = evaluateChannelLaunchGate().status;
 
   return (
     <>
@@ -115,7 +113,6 @@ export default async function SummaryPage({
       )}
       <YouTubeSummarizerApp
         initialUrl={params.url}
-        channelReleaseStatus={channelReleaseStatus}
         continueLearningEnabled={
           process.env.CONTINUE_LEARNING_READER_ENABLED?.trim().toLowerCase() ===
           "true"
