@@ -405,10 +405,6 @@ describe("resolveRequestPrincipal", () => {
       "billing_portal",
       "admin_gate",
       "account",
-      "channel_hub",
-      "channel_action",
-      "channel_account",
-      "channel_video",
       "workspace_projects",
       "project",
     ];

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -51,17 +51,5 @@ describe("Channel onboarding database foundation", () => {
     expect(sql).toMatch(/work\.status = 'draft_ready'/i);
     expect(sql).toMatch(/connected\.status = 'active'/i);
     expect(sql).toMatch(/grant_record\.write_scope_granted is true/i);
-  });
-
-  it("keeps the production Channel route fail-closed until the launch packet opens", () => {
-    const channelRoute = path.resolve(__dirname, "../../app/channel/page.tsx");
-
-    expect(existsSync(path.dirname(channelRoute))).toBe(true);
-    expect(readFileSync(channelRoute, "utf8")).toMatch(
-      /evaluateChannelLaunchGate\(\)/,
-    );
-    expect(readFileSync(channelRoute, "utf8")).toMatch(
-      /ChannelReleaseBlocked/,
-    );
   });
 });

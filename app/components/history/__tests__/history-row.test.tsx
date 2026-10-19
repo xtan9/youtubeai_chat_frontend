@@ -33,15 +33,6 @@ describe("HistoryRow", () => {
     );
   });
 
-  it("links the owned Video to a filtered Channel Hub", () => {
-    renderWithProviders(<HistoryRow row={ROW} now={NOW} />);
-    expect(
-      screen
-        .getByRole("link", { name: /open never gonna give you up in channel hub/i })
-        .getAttribute("href"),
-    ).toBe("/channel?videoId=v-1");
-  });
-
   it("link has accessible name including the title", () => {
     renderWithProviders(<HistoryRow row={ROW} now={NOW} />);
     expect(

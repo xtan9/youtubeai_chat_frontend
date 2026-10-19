@@ -26,11 +26,7 @@ import { useUser } from "@/lib/contexts/user-context";
 import { Suspense, useState } from "react";
 import { CheckoutActivationGuard } from "./checkout-activation-guard";
 
-export function Header({
-  channelReleaseStatus = "blocked",
-}: Readonly<{
-  channelReleaseStatus?: "open" | "blocked";
-}>) {
+export function Header() {
   const { error: authError, isLoading: isAuthLoading, user } = useUser();
   const router = useRouter();
   const supabase = createClient();
@@ -89,22 +85,12 @@ export function Header({
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
               {user && !user.is_anonymous ? (
-                <>
-                  <Link
-                    href="/workspace"
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    Workspace
-                  </Link>
-                  {channelReleaseStatus === "open" ? (
-                    <Link
-                      href="/channel"
-                      className="text-text-muted hover:text-text-primary transition-colors"
-                    >
-                      Channel
-                    </Link>
-                  ) : null}
-                </>
+                <Link
+                  href="/workspace"
+                  className="text-text-muted hover:text-text-primary transition-colors"
+                >
+                  Workspace
+                </Link>
               ) : null}
             </nav>
           </div>
@@ -220,14 +206,6 @@ export function Header({
             >
               Workspace
             </Link>
-            {channelReleaseStatus === "open" ? (
-              <Link
-                href="/channel"
-                className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
-              >
-                Channel
-              </Link>
-            ) : null}
           </nav>
         ) : null}
         {signOutError ? (

@@ -3,7 +3,6 @@ import { MessageCircle, Video } from "lucide-react";
 import type { HistoryRow as HistoryRowType } from "@/lib/services/user-history";
 import { formatRelativeTime } from "@/lib/utils/relative-time";
 import { cn } from "@/lib/utils";
-import { buildChannelHubVideoHref } from "@/lib/channel-hub/links";
 
 type HistoryRowProps = {
   row: HistoryRowType;
@@ -21,7 +20,6 @@ export function HistoryRow({
 }: HistoryRowProps) {
   const title = row.title ?? "Untitled";
   const summaryHref = `/summary?url=${encodeURIComponent(row.youtubeUrl)}`;
-  const channelHref = buildChannelHubVideoHref(row.videoId);
   const dateLabel = formatRelativeTime(row.viewedAt, now);
   const showChatBadge = typeof chatCount === "number" && chatCount > 0;
   const isCompact = variant === "compact";
@@ -88,15 +86,6 @@ export function HistoryRow({
             <span className="text-caption text-text-muted">{dateLabel}</span>
           </div>
         </Link>
-        {channelHref ? (
-          <Link
-            href={channelHref}
-            aria-label={`Open ${title} in Channel Hub`}
-            className="ml-3 shrink-0 rounded-md px-2 py-2 text-caption font-medium text-accent-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
-          >
-            Channel
-          </Link>
-        ) : null}
       </div>
     </li>
   );
