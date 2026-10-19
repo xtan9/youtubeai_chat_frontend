@@ -74,6 +74,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
   const [copyFailed, setCopyFailed] = useState(false);
   const [position, setPosition] = useState<ReturnType<typeof positionTranslation>>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const interactingWithCard = useRef(false);
   const controlsRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<AbortController | null>(null);
   const generation = useRef(0);
@@ -87,6 +88,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
 
   const dismiss = useCallback(() => {
     cancelRequest();
+    interactingWithCard.current = false;
     setCard(null);
     setCopied(false);
     setCopyFailed(false);
@@ -140,6 +142,9 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       if (cardRef.current?.contains(document.activeElement)) return;
       const selected = readPassageSelection(root!);
       if (!selected) {
+        // Native touch selection may collapse while a card action receives focus.
+        // Keep the captured Range until an outside action or a new selection.
+        if (interactingWithCard.current) return;
         signature.current = "";
         dismiss();
         return;
@@ -270,7 +275,8 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         </>
       </div>
       {visible && createPortal(
-        <div ref={cardRef} role="region" aria-label="Highlight translation" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}
+        <div ref={cardRef} role="region" aria-label="Highlight translation" onPointerDown={event => { interactingWithCard.current = true; event.stopPropagation(); }}
+          onFocusCapture={() => { interactingWithCard.current = true; }} onClick={event => event.stopPropagation()}
           className="fixed z-50 overflow-auto rounded-xl border border-border-subtle border-t-[3px] border-t-accent-brand-secondary bg-surface-overlay p-4 text-text-primary shadow-xl"
           style={{ ...position, visibility: position ? "visible" : "hidden" }}>
           <div className="mb-3 flex items-start justify-between gap-3">

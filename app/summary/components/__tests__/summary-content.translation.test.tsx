@@ -210,4 +210,21 @@ describe("Summary highlight translation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("region", { name: "Highlight translation" })).toBeNull();
   });
+
+  it("keeps the captured passage when tapping Translate collapses native selection", async () => {
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    const root = screen.getByTestId("summary-markdown-surface");
+    fireEvent.pointerDown(root, { pointerType: "touch" });
+    selectWord();
+    fireEvent.pointerUp(root, { pointerType: "touch" });
+    const action = await screen.findByRole("button", { name: "Translate" });
+    fireEvent.pointerDown(action, { pointerType: "touch" });
+    window.getSelection()!.removeAllRanges();
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(action);
+    await screen.findByText("务实派");
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+    expect(screen.getByRole("region", { name: "Highlight translation" })).toBeTruthy();
+  });
 });

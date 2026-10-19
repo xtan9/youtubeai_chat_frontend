@@ -93,7 +93,7 @@ The implementation request approves the behavior and acceptance criteria above. 
 ## Implementation verification
 
 - Full unit and integration suite: 378 files / 3,570 tests passed with coverage; line coverage 88.41%.
-- Final focused API/UI regressions: 47 tests passed, including paid-only enforcement, stale responses, native touch cancellation, and sentence boundaries.
+- Final focused API/UI regressions: 48 tests passed, including paid-only enforcement, stale responses, native touch cancellation, and sentence boundaries.
 - Repository lint and TypeScript checks passed.
 - Browser contract: 30 checks passed across ten repetitions. Coverage includes desktop Copy/Escape/tab changes, paid-only controls, and the mobile Translate action. AI responses are fixtures in these tests.
 - Separate opt-in live smoke: `smoke-tests/e2e-highlight-translation-live.spec.ts`. After deployment, set `RUN_LIVE_HIGHLIGHT_TRANSLATION=1`, `BASE_URL` and `PROD_URL` to the deployment, and provide the existing dedicated `TEST_LIVE_SUMMARY_EMAIL` / `TEST_LIVE_SUMMARY_PASSWORD` credentials. It exercises real auth, saved Summary access, and AI without interception. It has not been run against production before release.
