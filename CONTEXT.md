@@ -124,6 +124,10 @@ _Avoid_: Launch score, automatic rollout authorization
 A concise, structured account of a Video that remains faithful to its Transcript.
 _Avoid_: Abstract, recap
 
+**Highlight Translation**:
+A contextual translation of a Learner's selected word, phrase, or sentence from a Summary.
+_Avoid_: Translated Summary, Transcript Passage
+
 **Video Chat**:
 A conversation about one Video whose answers use that Video's Transcript and Summary as the only source of truth.
 _Avoid_: General chat, assistant

@@ -32,6 +32,7 @@ export function ResultsDisplay({
       <div className="space-y-8" data-testid="summary-results">
         <SummaryContent
           summary={data}
+          highlightTranslationEnabled
           copied={copied}
           onCopySummary={onCopySummary}
           onNewSummary={onNewSummary}
