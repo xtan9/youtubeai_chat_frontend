@@ -93,6 +93,21 @@ export default function PrivacyPolicy() {
       </section>
 
       <section className="mb-8">
+        <h2 className="text-2xl font-semibold mb-4">Highlight Translation</h2>
+        <p className="mb-4">
+          When you enable Highlight to translate and select text in a Summary,
+          we send the selection, nearby text from its paragraph, and the nearest
+          section heading to our AI service to translate and explain its meaning.
+          This feature does not send the full video transcript.
+        </p>
+        <p className="mb-4">
+          We store your enable switch and target language in your browser. We do
+          not save translation history or record selected text and translations
+          in application logs. You can turn the feature off at any time.
+        </p>
+      </section>
+
+      <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Your Rights</h2>
         <p className="mb-4">You have the right to:</p>
         <ul className="list-disc pl-6 space-y-2">

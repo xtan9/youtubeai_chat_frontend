@@ -34,6 +34,7 @@ function isPublicPath(pathname: string): boolean {
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/billing/") ||
     pathname === "/api/me/entitlements" ||
+    pathname === "/api/translate" ||
     // Project creation owns its anonymous 402 registration envelope.
     pathname === "/api/workspace/projects"
   );

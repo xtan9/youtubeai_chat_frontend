@@ -1,11 +1,12 @@
 import { Brain, Copy, Check, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { HighlightTranslation } from "./highlight-translation";
 import { SummaryStats } from "./summary-stats";
 import type { SummaryResult } from "@/lib/types";
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
 import { useTheme } from "next-themes";
-import { RefObject, useCallback } from "react";
+import { RefObject, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { LanguagePicker } from "./language-picker";
@@ -27,6 +28,7 @@ interface SummaryContentProps {
   languageDisabled?: boolean;
   sourceUrl?: string;
   continueLearningEnabled?: boolean;
+  highlightTranslationEnabled?: boolean;
 }
 
 export function SummaryContent({
@@ -40,7 +42,9 @@ export function SummaryContent({
   languageDisabled,
   sourceUrl,
   continueLearningEnabled = false,
+  highlightTranslationEnabled = false,
 }: SummaryContentProps) {
+  const readingRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const markdownComponents = buildSummaryMarkdownComponents({ isDark });
@@ -137,9 +141,19 @@ export function SummaryContent({
           )}
         </div>
 
+        {highlightTranslationEnabled && sourceUrl && (
+          <HighlightTranslation
+            key={sourceUrl + ":" + (outputLanguage ?? "auto") + ":" + summary.summary}
+            readingRef={readingRef}
+            sourceUrl={sourceUrl}
+            outputLanguage={outputLanguage ?? null}
+            browserLanguage={browserLanguage ?? "en"}
+          />
+        )}
         <div className="space-y-6">
           {/* Render summary with ReactMarkdown */}
           <div
+            ref={readingRef}
             data-testid="summary-markdown-surface"
             className={`${
               isDark

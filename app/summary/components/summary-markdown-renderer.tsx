@@ -41,8 +41,8 @@ export function buildSummaryMarkdownComponents(
         {children}
       </h3>
     ),
-    p: ({ children }) => (
-      <p
+    p: ({ children, node }) => (
+      <p data-translation-block={node?.position?.start.offset}
         className={`${
           isDark ? "text-white" : "text-slate-800"
         } leading-relaxed mb-4 text-base`}
@@ -68,8 +68,8 @@ export function buildSummaryMarkdownComponents(
         {children}
       </ol>
     ),
-    li: ({ children }) => (
-      <li
+    li: ({ children, node }) => (
+      <li data-translation-block={node?.position?.start.offset}
         className={`${
           isDark ? "text-white" : "text-slate-800"
         } leading-relaxed`}

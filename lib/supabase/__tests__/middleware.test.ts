@@ -76,6 +76,7 @@ describe("updateSession", () => {
     ["/api/billing/checkout", "billing checkout"],
     ["/api/billing/portal", "billing portal"],
     ["/api/me/entitlements", "entitlements"],
+    ["/api/translate", "translation JSON authentication envelope"],
     ["/api/workspace/projects", "Project creation registration envelope"],
   ])("allows unauthenticated access to %s (%s)", async (pathname) => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
