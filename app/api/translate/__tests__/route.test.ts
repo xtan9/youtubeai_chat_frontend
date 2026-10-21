@@ -72,6 +72,34 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("POST /api/translate", () => {
+  it.each(["#", "##", "###", "####", "#####", "######"])("translates a word from an authorized Summary heading: %s", async prefix => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    const source = "# Previous section\n\n" + prefix + " What the **controversy** is about";
+    state.rows.summaries[0].summary = source;
+    const response = await POST(request({
+      blockStart: 20, selectionStart: 9, text: "controversy",
+      context: "What the controversy is about", heading: "What the controversy is about",
+    }));
+    expect(response.status).toBe(200);
+    const prompt = JSON.parse(gateway.mock.calls[0][1].body).messages[0].content;
+    expect(JSON.parse(prompt.split("\n").at(-1))).toEqual({
+      targetLanguage: "zh", selection: "controversy", paragraph: "What the controversy is about", heading: "What the controversy is about",
+    });
+  });
+
+  it.each([
+    { context: "Unrelated paragraph" }, { heading: "Previous section" },
+    { selectionStart: 0 }, { blockStart: 0 },
+  ])("rejects forged heading context and offsets: %j", async patch => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    state.rows.summaries[0].summary = "# Previous section\n\n## What the controversy is about\n\nUnrelated paragraph";
+    const response = await POST(request({
+      blockStart: 20, selectionStart: 9, text: "controversy",
+      context: "What the controversy is about", heading: "What the controversy is about", ...patch,
+    }));
+    expect(response.status).toBe(409);
+    expect(gateway).not.toHaveBeenCalled();
+  });
   it("denies a cancelled paid entitlement after its access period ends", async () => {
     state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active", cancel_at_period_end: true, current_period_end: "2020-01-01T00:00:00Z" };
     expect((await POST(request())).status).toBe(403);
