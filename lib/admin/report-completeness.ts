@@ -22,6 +22,15 @@ export interface ReportCompletenessWarning {
   description: string;
 }
 
+export function addWarning(
+  warnings: ReportCompletenessWarning[],
+  warning: ReportCompletenessWarning,
+): void {
+  if (!warnings.some((existing) => existing.code === warning.code)) {
+    warnings.push(warning);
+  }
+}
+
 export const REPORT_COMPLETENESS_DESCRIPTIONS: Readonly<
   Record<ReportCompletenessWarningCode, string>
 > = {

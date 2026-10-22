@@ -1,9 +1,19 @@
+import { measurementPercentile } from "./report-statistics";
+import {
+  DEFAULT_REPORT_WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
+  type TimeWindow,
+  lastNDays,
+  comparisonWindow,
+  serializeWindow,
+  isoDay,
+} from "./report-window";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HISTORY_ROW_CAP, SUMMARIES_ROW_CAP } from "./admin-constants";
 import { QueryError } from "./errors";
 import {
+  addWarning,
   reportCompletenessWarning,
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
@@ -16,14 +26,6 @@ import {
   getExcludedBusinessActivityUserIds,
   listUserAccounts,
 } from "./user-account-directory";
-
-const DAY_MS = 86_400_000;
-const DEFAULT_WINDOW_DAYS = 30;
-
-type TimeWindow = {
-  start: Date;
-  end: Date;
-};
 
 interface SummaryRow {
   video_id: string;
@@ -137,67 +139,26 @@ export async function loadPerformanceReport(
     const day = isoDay(cursor);
     latencyByBucket.push({
       day,
-      p95Seconds: p95(byDay.get(day) ?? []),
+      p95Seconds: measurementPercentile(byDay.get(day) ?? [], 0.95),
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
   return {
     window: serializeWindow(currentWindow),
-    p50Seconds: p50(current.map((summary) => summary.processing_time_seconds)),
-    p95Seconds: p95(current.map((summary) => summary.processing_time_seconds)),
-    transcribeP95Seconds: p95(
-      current.map((summary) => summary.transcribe_time_seconds),
-    ),
-    summarizeP95Seconds: p95(
-      current.map((summary) => summary.summarize_time_seconds),
-    ),
+    p50Seconds: measurementPercentile(current.map((summary) => summary.processing_time_seconds), 0.5),
+    p95Seconds: measurementPercentile(current.map((summary) => summary.processing_time_seconds), 0.95),
+    transcribeP95Seconds: measurementPercentile(current.map((summary) => summary.transcribe_time_seconds), 0.95),
+    summarizeP95Seconds: measurementPercentile(current.map((summary) => summary.summarize_time_seconds), 0.95),
     prev: {
-      p50Seconds: p50(
-        previous.map((summary) => summary.processing_time_seconds),
-      ),
-      p95Seconds: p95(
-        previous.map((summary) => summary.processing_time_seconds),
-      ),
-      transcribeP95Seconds: p95(
-        previous.map((summary) => summary.transcribe_time_seconds),
-      ),
-      summarizeP95Seconds: p95(
-        previous.map((summary) => summary.summarize_time_seconds),
-      ),
+      p50Seconds: measurementPercentile(previous.map((summary) => summary.processing_time_seconds), 0.5),
+      p95Seconds: measurementPercentile(previous.map((summary) => summary.processing_time_seconds), 0.95),
+      transcribeP95Seconds: measurementPercentile(previous.map((summary) => summary.transcribe_time_seconds), 0.95),
+      summarizeP95Seconds: measurementPercentile(previous.map((summary) => summary.summarize_time_seconds), 0.95),
     },
     latencyByBucket,
     warnings,
   };
-}
-
-function normalizeWindowDays(windowDays: number): number {
-  return Number.isFinite(windowDays) && windowDays > 0
-    ? Math.max(1, Math.floor(windowDays))
-    : DEFAULT_WINDOW_DAYS;
-}
-
-function lastNDays(windowDays: number): TimeWindow {
-  const days = normalizeWindowDays(windowDays);
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCHours(0, 0, 0, 0);
-  start.setUTCDate(start.getUTCDate() - (days - 1));
-  return { start, end };
-}
-
-function comparisonWindow(window: TimeWindow): TimeWindow {
-  // Keep the existing Performance query's elapsed-window calculation so
-  // current-versus-previous values retain their established behavior.
-  const days = Math.round((window.end.getTime() - window.start.getTime()) / DAY_MS) + 1;
-  return {
-    start: new Date(window.start.getTime() - days * DAY_MS),
-    end: new Date(window.start.getTime() - DAY_MS),
-  };
-}
-
-function serializeWindow(window: TimeWindow): { start: string; end: string } {
-  return { start: window.start.toISOString(), end: window.end.toISOString() };
 }
 
 async function loadAdminFilter(
@@ -327,44 +288,4 @@ function restrictSummariesToActivity(
   if (!wantFilter || activity.unavailable) return summaries;
   const allowedVideoIds = new Set(activity.rows.map((row) => row.video_id));
   return summaries.filter((summary) => allowedVideoIds.has(summary.video_id));
-}
-
-function addWarning(
-  warnings: ReportCompletenessWarning[],
-  warning: ReportCompletenessWarning,
-): void {
-  if (!warnings.some((existing) => existing.code === warning.code)) {
-    warnings.push(warning);
-  }
-}
-
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function percentile(sorted: number[], percentileValue: number): number | null {
-  if (sorted.length === 0) return null;
-  const index = Math.min(
-    sorted.length - 1,
-    Math.max(0, Math.ceil(sorted.length * percentileValue) - 1),
-  );
-  return sorted[index];
-}
-
-function p95(values: (number | null | undefined)[]): number | null {
-  const filtered = values
-    .filter((value): value is number =>
-      typeof value === "number" && Number.isFinite(value),
-    )
-    .sort((a, b) => a - b);
-  return percentile(filtered, 0.95);
-}
-
-function p50(values: (number | null | undefined)[]): number | null {
-  const filtered = values
-    .filter((value): value is number =>
-      typeof value === "number" && Number.isFinite(value),
-    )
-    .sort((a, b) => a - b);
-  return percentile(filtered, 0.5);
 }

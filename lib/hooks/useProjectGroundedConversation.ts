@@ -1,13 +1,10 @@
 "use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   PROJECT_QUESTION_MESSAGE_ID_HEADER,
   ProjectConversationSchema,
   ProjectConversationSummarySchema,
-  ProjectGroundedAttemptResolutionSchema,
   ProjectGroundedQuestionRequestSchema,
-  ProjectGroundedSseEventSchema,
   ProjectSourceSetEventPageSchema,
   type ProjectAnswerClassification,
   type ProjectAnswerCoverage,
@@ -15,7 +12,6 @@ import {
   type ProjectCitationDiagnostic,
   type ProjectConversation,
   type ProjectConversationSummary,
-  type ProjectConversationMessage,
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
   PROJECT_DEFAULT_CONVERSATION_MODE,
@@ -25,7 +21,12 @@ import { UpgradeRequiredError } from "@/lib/errors/upgrade-required";
 import { logAppEvent } from "@/lib/observability";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
-import { inspectProjectCitations } from "@/lib/projects/project-grounded-citations";
+import { reconcileProjectGroundedAttempt } from "../projects/project-conversation-reconciliation";
+import {
+  consumeProjectConversationStream,
+  completionAnnouncement,
+} from "../projects/project-conversation-stream-client";
+import { captureCompletion } from "../analytics/project-grounded-answer-client";
 
 export type ProjectConversationDraft = Readonly<{
   user: string;
@@ -38,6 +39,7 @@ export type ProjectConversationDraft = Readonly<{
 }>;
 
 type ConversationResponse = { conversation?: unknown; message?: string };
+
 type ConversationListResponse = {
   conversations?: unknown;
   messagesUsed?: number;
@@ -45,98 +47,13 @@ type ConversationListResponse = {
   tier?: "free" | "pro";
   message?: string;
 };
-type AttemptResponse = { attempt?: unknown; message?: string };
+
 type EventPageResponse = { eventPage?: unknown; message?: string };
-type AssistantMessage = Extract<
-  ProjectConversationMessage,
-  { role: "assistant" }
->;
-type AttemptTerminal =
-  | { readonly state: "absent" }
-  | { readonly state: "cancelled" }
-  | { readonly state: "completed"; readonly assistant: AssistantMessage };
-
-const UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS = 8;
-
-function reconciliationDelay(attempt: number) {
-  if (attempt === 0) return 0;
-  return Math.min(1_000, 25 * 2 ** Math.min(attempt - 1, 6));
-}
-
-function abortableDelay(milliseconds: number, signal: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    if (signal.aborted || milliseconds === 0) {
-      resolve();
-      return;
-    }
-    const timeout = setTimeout(finish, milliseconds);
-    function finish() {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", finish);
-      resolve();
-    }
-    signal.addEventListener("abort", finish, { once: true });
-  });
-}
 
 type LastQuestionIntent = Readonly<{
   question: string;
   mode: ProjectConversationMode;
 }>;
-
-function parseEvent(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("data:")) return null;
-  try {
-    const parsed = ProjectGroundedSseEventSchema.safeParse(
-      JSON.parse(trimmed.slice(5).trim()),
-    );
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-function captureCompletion(input: {
-  readonly projectId: string;
-  readonly classification: ProjectAnswerClassification;
-  readonly mode?: ProjectConversationMode;
-  readonly manifest: ProjectAnswerSourceManifest;
-  readonly coverage: ProjectAnswerCoverage;
-  readonly diagnosticCount: number;
-  readonly content: string;
-}) {
-  const citationInspection = inspectProjectCitations(input.content, input.manifest);
-  captureAnalyticsEvent("project_grounded_answer_completed", {
-    project_id: input.projectId,
-    classification: input.classification,
-    ...(input.mode === undefined || input.mode === PROJECT_DEFAULT_CONVERSATION_MODE
-      ? {}
-      : { mode: input.mode }),
-    source_set_revision: input.manifest.sourceSetRevision,
-    total_videos: input.coverage.totalVideos,
-    ready_videos: input.coverage.readyVideos,
-    used_videos: input.coverage.usedVideos,
-    unavailable_videos: input.coverage.unavailableVideos.length,
-    passages_examined: input.coverage.passagesExamined,
-    passages_used: input.coverage.passagesUsed,
-    citation_diagnostics: input.diagnosticCount,
-    citation_candidates:
-      citationInspection.validCitationCount + input.diagnosticCount,
-    resolved_citations: citationInspection.validCitationCount,
-    citation_measurement_status: "measured",
-  });
-}
-
-function completionAnnouncement(classification: ProjectAnswerClassification) {
-  if (classification === "supported") {
-    return "Grounded Answer complete. Evidence supported.";
-  }
-  if (classification === "abstained") {
-    return "Grounded Answer complete. Abstained.";
-  }
-  return "Grounded Answer complete. Unsupported by sources.";
-}
 
 export function useProjectGroundedConversation(args: {
   readonly projectId: string;
@@ -427,82 +344,9 @@ export function useProjectGroundedConversation(args: {
     },
     [args.projectId],
   );
-
   const reconcileAttempt = useCallback(
-    async (
-      userMessageId: string,
-      conversationId: string | null,
-      epoch: number,
-      signal: AbortSignal,
-      reservationKnown: boolean,
-    ): Promise<AttemptTerminal | null> => {
-      let attempt = 0;
-      let unknownChecks = 0;
-      let loggedErrorName: string | null = null;
-      while (sendEpochRef.current === epoch && !signal.aborted) {
-        await abortableDelay(reconciliationDelay(attempt), signal);
-        attempt += 1;
-        if (signal.aborted || sendEpochRef.current !== epoch) return null;
-        try {
-          const response = await fetch(
-            `/api/projects/${args.projectId}/conversation/attempt/${userMessageId}${conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ""}`,
-            { cache: "no-store", signal },
-          );
-          if (signal.aborted || sendEpochRef.current !== epoch) return null;
-          if (response.status === 404) {
-            if (
-              !reservationKnown &&
-              ++unknownChecks >= UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS
-            ) {
-              return { state: "absent" };
-            }
-            continue;
-          }
-          const payload = (await response.json()) as AttemptResponse;
-          if (!response.ok) {
-            throw new Error(
-              payload.message ?? "Could not check the Grounded Answer.",
-            );
-          }
-          const parsed = ProjectGroundedAttemptResolutionSchema.safeParse(
-            payload.attempt,
-          );
-          if (!parsed.success || parsed.data.status !== "ready") {
-            throw new Error("Grounded Answer attempt response was not valid.");
-          }
-          reservationKnown = true;
-          if (parsed.data.state === "cancelled") {
-            return { state: "cancelled" };
-          }
-          if (
-            parsed.data.state === "completed" &&
-            parsed.data.assistant
-          ) {
-            return {
-              state: "completed",
-              assistant: parsed.data.assistant,
-            };
-          }
-        } catch (caught) {
-          if (signal.aborted) return null;
-          if (
-            !reservationKnown &&
-            ++unknownChecks >= UNKNOWN_ATTEMPT_SETTLEMENT_CHECKS
-          ) {
-            return { state: "absent" };
-          }
-          const errorName = caught instanceof Error ? caught.name : typeof caught;
-          if (errorName !== loggedErrorName) {
-            loggedErrorName = errorName;
-            logAppEvent("error", "[project-conversation] reconciliation failed", {
-              errorId: "PROJECT_CONVERSATION_RECONCILIATION_FAILED",
-              errorName,
-            });
-          }
-        }
-      }
-      return null;
-    },
+    (userMessageId: string, conversationId: string | null, epoch: number, signal: AbortSignal, reservationKnown: boolean) =>
+      reconcileProjectGroundedAttempt(args.projectId, userMessageId, conversationId, () => sendEpochRef.current === epoch, signal, reservationKnown),
     [args.projectId],
   );
 
@@ -806,88 +650,76 @@ export function useProjectGroundedConversation(args: {
           throw new Error("Empty response from server.");
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            if (sendEpochRef.current !== epoch) continue;
-            const event = parseEvent(line);
-            if (!event) continue;
-            switch (event.type) {
-              case "question_reserved":
-                if (event.userMessageId !== questionId) {
-                  captureMessageFailure("protocol");
-                  throw new Error("Grounded Answer reservation did not match.");
-                }
-                reservationKnown = true;
-                break;
-              case "source_manifest":
-                currentDraft = { ...currentDraft, manifest: event.manifest };
-                break;
-              case "source_coverage":
-                currentDraft = { ...currentDraft, coverage: event.coverage };
-                break;
-              case "answer_start":
-                currentDraft = {
-                  ...currentDraft,
-                  classification: event.classification,
-                  mode: event.mode ?? currentDraft.mode,
-                };
-                setAnnouncement("Writing the Grounded Answer.");
-                break;
-              case "delta":
-                currentDraft = {
-                  ...currentDraft,
-                  assistant: currentDraft.assistant + event.text,
-                };
-                break;
-              case "persistence_started":
-                persistenceStartedRef.current = true;
-                setPersistenceStarted(true);
-                setAnnouncement("Saving the Grounded Answer.");
-                break;
-              case "citation_diagnostics":
-                currentDraft = {
-                  ...currentDraft,
-                  diagnostics: event.diagnostics,
-                };
-                break;
-              case "done":
-                completed = true;
-                setAnnouncement(
-                  completionAnnouncement(
-                    currentDraft.classification ?? "unsupported",
-                  ),
-                );
-                if (
-                  currentDraft.manifest &&
-                  currentDraft.coverage &&
-                  currentDraft.classification
-                ) {
-                  captureCompletion({
-                    projectId: args.projectId,
-                    classification: currentDraft.classification,
-                    mode: currentDraft.mode,
-                    manifest: currentDraft.manifest,
-                    coverage: currentDraft.coverage,
-                    diagnosticCount: currentDraft.diagnostics.length,
-                    content: currentDraft.assistant,
-                  });
-                }
-                break;
-              case "error":
-                captureMessageFailure("processing");
-                throw new Error(event.message);
-            }
-            setDraft(currentDraft);
+        await consumeProjectConversationStream(response.body, (event) => {
+          if (sendEpochRef.current !== epoch) return;
+          switch (event.type) {
+            case "question_reserved":
+              if (event.userMessageId !== questionId) {
+                captureMessageFailure("protocol");
+                throw new Error("Grounded Answer reservation did not match.");
+              }
+              reservationKnown = true;
+              break;
+            case "source_manifest":
+              currentDraft = { ...currentDraft, manifest: event.manifest };
+              break;
+            case "source_coverage":
+              currentDraft = { ...currentDraft, coverage: event.coverage };
+              break;
+            case "answer_start":
+              currentDraft = {
+                ...currentDraft,
+                classification: event.classification,
+                mode: event.mode ?? currentDraft.mode,
+              };
+              setAnnouncement("Writing the Grounded Answer.");
+              break;
+            case "delta":
+              currentDraft = {
+                ...currentDraft,
+                assistant: currentDraft.assistant + event.text,
+              };
+              break;
+            case "persistence_started":
+              persistenceStartedRef.current = true;
+              setPersistenceStarted(true);
+              setAnnouncement("Saving the Grounded Answer.");
+              break;
+            case "citation_diagnostics":
+              currentDraft = {
+                ...currentDraft,
+                diagnostics: event.diagnostics,
+              };
+              break;
+            case "done":
+              completed = true;
+              setAnnouncement(
+                completionAnnouncement(
+                  currentDraft.classification ?? "unsupported",
+                ),
+              );
+              if (
+                currentDraft.manifest &&
+                currentDraft.coverage &&
+                currentDraft.classification
+              ) {
+                captureCompletion({
+                  projectId: args.projectId,
+                  classification: currentDraft.classification,
+                  mode: currentDraft.mode,
+                  manifest: currentDraft.manifest,
+                  coverage: currentDraft.coverage,
+                  diagnosticCount: currentDraft.diagnostics.length,
+                  content: currentDraft.assistant,
+                });
+              }
+              break;
+            case "error":
+              captureMessageFailure("processing");
+              throw new Error(event.message);
           }
-        }
+          setDraft(currentDraft);
+        });
         if (!completed) {
           captureMessageFailure("interrupted");
           throw new Error("The answer stream ended early.");

@@ -1,3 +1,13 @@
+import { measurementPercentile } from "./report-statistics";
+import {
+  DEFAULT_REPORT_WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
+  type TimeWindow,
+  lastNDays,
+  comparisonWindow,
+  serializeWindow,
+  isoDay,
+  fillDailySeries,
+} from "./report-window";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -9,6 +19,7 @@ import { HISTORY_ROW_CAP, SUMMARIES_ROW_CAP } from "./admin-constants";
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 import { QueryError } from "./errors";
 import {
+  addWarning,
   reportCompletenessWarning,
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
@@ -17,22 +28,13 @@ import type {
   DashboardDailyPoint,
   DashboardReport,
   DashboardReportInput,
-  DashboardReportWindow,
   DashboardTopUserStat,
 } from "./report-types";
 import {
   getExcludedBusinessActivityUserIds,
   listUserAccounts,
 } from "./user-account-directory";
-
-const DAY_MS = 86_400_000;
-const DEFAULT_WINDOW_DAYS = 30;
 const TOP_USER_LIMIT = 5;
-
-type TimeWindow = {
-  start: Date;
-  end: Date;
-};
 
 interface SummaryRow {
   id: string;
@@ -175,17 +177,11 @@ export async function loadDashboardReport(
     },
     whisper: { current: whisperCurrent, previous: whisperPrevious },
     p95Seconds: {
-      current: p95(filteredCurrent.map((summary) => summary.processing_time_seconds)),
-      previous: p95(
-        filteredPrevious.map((summary) => summary.processing_time_seconds),
-      ),
+      current: measurementPercentile(filteredCurrent.map((summary) => summary.processing_time_seconds), 0.95),
+      previous: measurementPercentile(filteredPrevious.map((summary) => summary.processing_time_seconds), 0.95),
     },
-    transcribeP95Seconds: p95(
-      filteredCurrent.map((summary) => summary.transcribe_time_seconds),
-    ),
-    summarizeP95Seconds: p95(
-      filteredCurrent.map((summary) => summary.summarize_time_seconds),
-    ),
+    transcribeP95Seconds: measurementPercentile(filteredCurrent.map((summary) => summary.transcribe_time_seconds), 0.95),
+    summarizeP95Seconds: measurementPercentile(filteredCurrent.map((summary) => summary.summarize_time_seconds), 0.95),
     cacheHitRatePct: {
       current: computeCacheHitRate(history, !historyRead.cacheLookupFailed),
       previous: computeCacheHitRate(
@@ -217,46 +213,6 @@ export async function loadDashboardReport(
     topUsers: topUsers.rows,
     warnings,
   };
-}
-
-function normalizeWindowDays(windowDays: number): number {
-  return Number.isFinite(windowDays) && windowDays > 0
-    ? Math.max(1, Math.floor(windowDays))
-    : DEFAULT_WINDOW_DAYS;
-}
-
-function lastNDays(windowDays: number): TimeWindow {
-  const days = normalizeWindowDays(windowDays);
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCHours(0, 0, 0, 0);
-  start.setUTCDate(start.getUTCDate() - (days - 1));
-  return { start, end };
-}
-
-function comparisonWindow(window: TimeWindow): TimeWindow {
-  const days =
-    Math.round((window.end.getTime() - window.start.getTime()) / DAY_MS) + 1;
-  return {
-    start: new Date(window.start.getTime() - days * DAY_MS),
-    end: new Date(window.start.getTime() - DAY_MS),
-  };
-}
-
-function serializeWindow(window: TimeWindow): DashboardReportWindow {
-  return {
-    start: window.start.toISOString(),
-    end: window.end.toISOString(),
-  };
-}
-
-function addWarning(
-  warnings: ReportCompletenessWarning[],
-  warning: ReportCompletenessWarning,
-): void {
-  if (!warnings.some((existing) => existing.code === warning.code)) {
-    warnings.push(warning);
-  }
 }
 
 async function loadAdminFilter(
@@ -418,25 +374,6 @@ function computeCacheHitRate(
   return Math.round((hits / history.length) * 100);
 }
 
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function fillDailySeries(
-  start: Date,
-  end: Date,
-  bucketed: Map<string, number>,
-): DashboardDailyPoint[] {
-  const output: DashboardDailyPoint[] = [];
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    const day = isoDay(cursor);
-    output.push({ day, value: bucketed.get(day) ?? 0 });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return output;
-}
-
 function bucketByDay<T extends { created_at: string }>(
   rows: T[],
   window: TimeWindow,
@@ -456,24 +393,6 @@ function bucketByDay<T extends { created_at: string }>(
     reduced.set(day, reducer(dayRows));
   }
   return fillDailySeries(window.start, window.end, reduced);
-}
-
-function percentile(sorted: number[], percentileValue: number): number | null {
-  if (sorted.length === 0) return null;
-  const index = Math.min(
-    sorted.length - 1,
-    Math.max(0, Math.ceil(sorted.length * percentileValue) - 1),
-  );
-  return sorted[index];
-}
-
-function p95(values: (number | null | undefined)[]): number | null {
-  const filtered = values
-    .filter((value): value is number =>
-      typeof value === "number" && Number.isFinite(value),
-    )
-    .sort((a, b) => a - b);
-  return percentile(filtered, 0.95);
 }
 
 async function computeTopUsers(
@@ -516,7 +435,7 @@ async function computeTopUsers(
       summaries: bucket.total,
       whisperPct:
         bucket.total > 0 ? Math.round((bucket.whisper / bucket.total) * 100) : 0,
-      p95Seconds: p95(bucket.latencies),
+      p95Seconds: measurementPercentile(bucket.latencies, 0.95),
       lastSeen: bucket.lastSeen,
     }))
     .sort((a, b) => b.summaries - a.summaries)
