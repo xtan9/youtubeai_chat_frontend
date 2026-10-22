@@ -54,6 +54,29 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.getSelection()?.removeAllRanges(); });
 
 describe("Summary highlight translation", () => {
+  it.each([
+    "# What the controversy is about",
+    "## What the controversy is about",
+    "### What the **controversy** is about",
+    "#### What the controversy is about",
+    "##### What the controversy is about",
+    "###### What the controversy is about",
+    "What the controversy is about\n============================",
+    "What the controversy is about\n----------------------------",
+  ])("translates a word selected inside a Summary heading: %s", async markdown => {
+    fetchMock.mockResolvedValue(Response.json({ translation: "争议", explanation: "这里指该主题存在的不同观点。", sameLanguage: false }));
+    show(true, markdown);
+    fireEvent.click(screen.getByRole("switch", { name: "Highlight to translate" }));
+    selectWord("controversy");
+    const card = await screen.findByRole("region", { name: "Highlight translation" });
+    expect(card.textContent).not.toContain("Select up to one sentence within a paragraph or heading.");
+    expect(await screen.findByText("争议")).toBeTruthy();
+    expect(screen.queryByText("Select up to one sentence within a paragraph or heading.")).toBeNull();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      text: "controversy", context: "What the controversy is about", heading: "What the controversy is about", blockStart: 0, selectionStart: 9,
+    });
+  });
+
   it("stays off until enabled, then shows a contextual floating translation for a paid learner", async () => {
     show();
     const toggle = screen.getByRole("switch", { name: "Highlight to translate" });
@@ -160,7 +183,7 @@ describe("Summary highlight translation", () => {
       show(true, text);
       fireEvent.click(screen.getByRole("switch"));
       selectWord(text);
-      await screen.findByText("Select up to one sentence in one paragraph.");
+      await screen.findByText("Select up to one sentence within a paragraph or heading.");
       expect(fetchMock).not.toHaveBeenCalled();
     },
   );
@@ -176,10 +199,23 @@ describe("Summary highlight translation", () => {
     window.getSelection()!.removeAllRanges();
     window.getSelection()!.addRange(range);
     fireEvent(document, new Event("selectionchange"));
-    await screen.findByText("Select up to one sentence in one paragraph.");
+    await screen.findByText("Select up to one sentence within a paragraph or heading.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects a selection spanning a heading and its following paragraph", async () => {
+    show(true, "## What the controversy is about\n\nResearchers disagree about the evidence.");
+    fireEvent.click(screen.getByRole("switch"));
+    const root = screen.getByTestId("summary-markdown-surface");
+    const range = document.createRange();
+    range.setStart(root.querySelector("h2")!.firstChild!, 9);
+    range.setEnd(root.querySelector("p")!.firstChild!, 11);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent(document, new Event("selectionchange"));
+    await screen.findByText("Select up to one sentence within a paragraph or heading.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("dismisses when its selection scrolls out of view", async () => {
     show();
     fireEvent.click(screen.getByRole("switch"));

@@ -34,7 +34,7 @@ export function readPassageSelection(root: HTMLElement): PassageSelection | null
   if (!Number.isInteger(blockStart) || blockStart < 0) return invalid;
   let heading = "";
   for (const node of root.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
-    if (node.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING) {
+    if (node === block || (node.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING)) {
       heading = Array.from(normalizePassage(node.textContent ?? "")).slice(0, HEADING_LIMIT).join("");
     }
   }

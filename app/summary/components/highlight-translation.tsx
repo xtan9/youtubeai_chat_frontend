@@ -154,7 +154,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       signature.current = nextSignature;
       dismiss();
       if (!selected.passage) {
-        setCard({ range: selected.range, status: "hint", message: "Select up to one sentence in one paragraph." });
+        setCard({ range: selected.range, status: "hint", message: "Select up to one sentence within a paragraph or heading." });
         return;
       }
       const next: Card = {
@@ -300,7 +300,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
           </div>
           {visible.status === "error" && visible.payload && <Button className="mt-3" variant="outline" size="sm" disabled={visible.retryAt !== undefined} onClick={() => void translate(visible)}>Retry</Button>}
           {visible.result && <div className="mt-4 flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-            <span className="text-body-xs text-text-muted">Based on this paragraph</span>
+            <span className="text-body-xs text-text-muted">Based on this passage</span>
             <Button size="sm" variant="ghost" onClick={() => void copy()}><Copy className="mr-1.5 h-4 w-4" />{copied ? "Copied" : "Copy"}</Button>
           </div>}
           {copyFailed && <p role="status" className="mt-2 text-body-xs">Copy failed. Select and copy the translation manually.</p>}

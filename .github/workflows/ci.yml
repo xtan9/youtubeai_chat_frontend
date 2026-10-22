@@ -45,7 +45,8 @@ jobs:
       - run: pnpm exec tsc --noEmit
 
   test:
-    runs-on: ubuntu-latest
+    # Playwright 1.59 supports Ubuntu 24.04; ubuntu-latest may select 26.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5

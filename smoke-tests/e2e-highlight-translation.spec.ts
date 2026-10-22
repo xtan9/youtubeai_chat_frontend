@@ -8,7 +8,7 @@ const TRANSLATION = { translation: "务实派", explanation: "这里指重视实
 // Browser contract fixtures replace external auth, Summary, and AI boundaries.
 // API integration tests exercise authorization, source verification, rate
 // limits, and gateway composition; this suite makes no paid live AI calls.
-async function openSummary(page: Page, paid = true) {
+async function openSummary(page: Page, paid = true, summary = SUMMARY) {
   // Player errors can take focus and clear native ranges while it initializes.
   // Playback is outside this contract; keep its iframe deterministic.
   await page.route("**/www.youtube.com/embed/**", route => route.fulfill({
@@ -31,7 +31,7 @@ async function openSummary(page: Page, paid = true) {
     contentType: "text/event-stream", body: [
       { type: "metadata", category: "general", cached: true },
       { type: "full_transcript", source: "auto_captions", segments: [{ text: "Economic changes and practical results.", start: 0, duration: 30 }] },
-      { type: "content", text: SUMMARY },
+      { type: "content", text: summary },
       { type: "summary", category: "general", total_time: 3, summarize_time: 2, transcribe_time: 1 },
     ].map(event => "data: " + JSON.stringify(event) + "\n\n").join(""),
   }));
@@ -89,6 +89,26 @@ test.describe("paid highlight translation browser contract", () => {
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem("highlight-translation:v1")!))).toEqual({ enabled: true, language: "fr" });
   });
 
+  test("translates a word selected in a heading instead of showing a sentence-limit hint", async ({ page }, testInfo) => {
+    await page.route("**/api/translate", route => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        text: "controversy", targetLanguage: "zh", selectionStart: 9,
+        context: "What the controversy is about", heading: "What the controversy is about",
+      });
+      return route.fulfill({ json: { translation: "争议", explanation: "这里指研究结论存在不同观点。", sameLanguage: false } });
+    });
+    await openSummary(page, true, "## What the **controversy** is about\n\nA pragmatist examines the evidence.");
+    await page.getByRole("switch", { name: "Highlight to translate" }).click();
+    const word = page.getByRole("heading", { name: "What the controversy is about" }).locator("strong");
+    await word.dblclick();
+    expect(await page.evaluate(() => window.getSelection()?.toString().trim())).toBe("controversy");
+    const card = page.getByRole("region", { name: "Highlight translation" });
+    await expect(card).toContainText("争议");
+    await expect(card).toContainText("这里指研究结论存在不同观点。");
+    await expect(card).toContainText("Based on this passage");
+    await expect(card).not.toContainText("Select up to one sentence");
+    await page.screenshot({ path: testInfo.outputPath("heading-translation-fixed.png"), fullPage: false });
+  });
   test("Free users see the upgrade control and cannot enable translation", async ({ page }) => {
     let calls = 0;
     await page.route("**/api/translate", route => { calls++; return route.fulfill({ status: 403, json: {} }); });

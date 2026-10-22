@@ -22,8 +22,8 @@ export function buildSummaryMarkdownComponents(
 ): Components {
   const { isDark } = opts;
   return {
-    h1: ({ children }) => (
-      <h1
+    h1: ({ children, node }) => (
+      <h1 data-translation-block={node?.position?.start.offset}
         className={`text-xl font-bold border-accent-brand-secondary/30 ${
           isDark ? "text-white" : "text-slate-900"
         } border-b pb-2 mb-4`}
@@ -31,16 +31,19 @@ export function buildSummaryMarkdownComponents(
         {children}
       </h1>
     ),
-    h2: ({ children }) => (
-      <h2 className="text-lg font-semibold text-accent-brand-secondary mt-6 mb-3">
+    h2: ({ children, node }) => (
+      <h2 data-translation-block={node?.position?.start.offset} className="text-lg font-semibold text-accent-brand-secondary mt-6 mb-3">
         {children}
       </h2>
     ),
-    h3: ({ children }) => (
-      <h3 className="text-base font-medium text-accent-brand mt-4 mb-2">
+    h3: ({ children, node }) => (
+      <h3 data-translation-block={node?.position?.start.offset} className="text-base font-medium text-accent-brand mt-4 mb-2">
         {children}
       </h3>
     ),
+    h4: ({ children, node }) => <h4 data-translation-block={node?.position?.start.offset}>{children}</h4>,
+    h5: ({ children, node }) => <h5 data-translation-block={node?.position?.start.offset}>{children}</h5>,
+    h6: ({ children, node }) => <h6 data-translation-block={node?.position?.start.offset}>{children}</h6>,
     p: ({ children, node }) => (
       <p data-translation-block={node?.position?.start.offset}
         className={`${

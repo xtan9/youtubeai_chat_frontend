@@ -113,3 +113,15 @@ These screenshots show the real UI with deterministic translation responses.
 ![Desktop translation card](assets/highlight-translation-desktop-implemented.png)
 
 ![Mobile translation card](assets/highlight-translation-mobile-implemented.png)
+
+## Heading-selection regression (2026-10-21)
+
+The Learner reported that selecting “controversy” in “What the controversy is about” showed the invalid-selection hint. Headings were missing from both the browser selection markers and the server passage verifier. Summary headings are selectable content: support all six heading levels and both Markdown heading syntaxes, using the selected heading itself as the bounded local context and section heading. Keep the existing sentence/character limits, paid-only checks, and exact saved-Summary verification. A selection that crosses from a heading into a paragraph remains invalid. Card copy refers to a “passage” so it also describes heading selections accurately.
+
+Regression evidence: the Summary UI test reproduced the exact hint; changing only the Markdown from heading to paragraph passed. The API regression returned 409 before the fix and 200 after it. UI/API coverage checks heading formats, selection offsets, forged context, and cross-block rejection; a browser regression exercises native double-click selection of “controversy”.
+
+Validation: 67 focused UI/API tests passed; the full 378-file / 3,594-test suite passed with 88.44% line coverage. TypeScript and changed-file lint passed. Independent Standards and Spec reviews found no actionable issues.
+
+![Heading selection with a contextual translation](assets/highlight-translation-heading-fixed.png)
+
+The broader browser stress run also encountered intermittent selection/card dismissal in the existing mobile paragraph test. That behavior remains unresolved; this correction changes heading recognition and leaves the mobile selection lifecycle unchanged.
