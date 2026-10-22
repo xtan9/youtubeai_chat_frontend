@@ -81,15 +81,21 @@ test("French video produces French transcript + summary end-to-end @live-summary
     "transcript should contain common French anchor words"
   ).toBe(true);
 
-  // Summary is rendered elsewhere on the page; grab full body text and
-  // run the same check. The summary + transcript together cover the
-  // "summary speaks the right language" claim in the original bug.
-  // Note: hasFrenchAnchors on body text is unreliable because English UI
-  // chrome dominates word counts — keep the French-anchor check on the
-  // transcript (unambiguously content, not chrome) only.
-  const bodyText = await page.locator("body").innerText();
+  // Check generated content separately from UI chrome. The translation
+  // language menu contains an Arabic option even when the Summary is French.
+  const summary = page.getByTestId("summary-markdown-surface");
+  await expect(summary).toBeVisible();
+  const summaryText = (await summary.innerText()).trim();
   expect(
-    hasArabicChars(bodyText),
-    "summary/page must not contain Arabic script"
+    summaryText.length,
+    "summary should contain substantial content"
+  ).toBeGreaterThan(100);
+  expect(
+    hasArabicChars(summaryText),
+    "summary must not contain Arabic script"
   ).toBe(false);
+  expect(
+    hasFrenchAnchors(summaryText),
+    "summary should contain common French anchor words"
+  ).toBe(true);
 });
