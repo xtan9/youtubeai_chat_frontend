@@ -54,7 +54,8 @@ export type TranslationRequest = z.infer<typeof TranslationRequestSchema>;
 export const TranslationResultSchema = z.object({
   translation: z.string().trim().min(1).max(1500),
   explanation: z.string().trim().min(1).max(2000),
-  partOfSpeech: z.string().trim().max(60).optional(),
-  sameLanguage: z.boolean(),
+  // Auxiliary model metadata must not discard a usable contextual translation.
+  partOfSpeech: z.string().trim().max(60).nullish().transform(value => value ?? undefined),
+  sameLanguage: z.boolean().optional(),
 }).strict();
 export type TranslationResult = z.infer<typeof TranslationResultSchema>;

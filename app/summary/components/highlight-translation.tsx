@@ -122,7 +122,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         return;
       }
       const result = TranslationResultSchema.parse(body);
-      setCard({ ...next, status: "success", result });
+      setCard({ ...next, status: "success", result, message: undefined, retryAt: undefined });
     } catch {
       if (!controller.signal.aborted && current === generation.current) {
         setCard({ ...next, status: "error", message: "Translation could not be completed. Try again." });

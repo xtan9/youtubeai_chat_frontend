@@ -117,6 +117,30 @@ describe("POST /api/translate", () => {
     expect(prompt).not.toContain("learner-1");
   });
 
+  it.each([
+    { label: "omitted part of speech", partOfSpeech: undefined, sameLanguage: false },
+    { label: "null part of speech", partOfSpeech: null, sameLanguage: false },
+    { label: "omitted same-language flag", partOfSpeech: undefined, sameLanguage: undefined },
+    { label: "same-language meaning", partOfSpeech: undefined, sameLanguage: true },
+  ])("translates the reported full sentence with $label", async ({ partOfSpeech, sameLanguage }) => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    const heading = "Why some researchers argue omega-6s may be harmful";
+    const text = "The video reviews an analysis by researchers including Ramsden that pooled older randomized controlled trials";
+    const context = text + ". Across all the trials, the results showed no clear change in overall mortality. But when the researchers separated trials that increased omega-6 alone from those that increased omega-6 alongside omega-3, the patterns differed: the omega-3-included trials leaned toward benefit, while omega-6-only trials leaned toward harm.";
+    const source = "## " + heading + "\n\n" + context;
+    state.rows.summaries[0].summary = source;
+    const translation = "视频回顾了拉姆斯登等研究人员的一项分析，该分析汇总了较早的随机对照试验。";
+    const explanation = "这里描述的是视频所回顾的研究分析，以及该分析汇总的试验类型。";
+    gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify({
+      translation, explanation, sameLanguage, partOfSpeech,
+    }) } }] }));
+    const response = await POST(request({
+      blockStart: source.indexOf(context), selectionStart: 0, text, context, heading,
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ translation, explanation, ...(sameLanguage === undefined ? {} : { sameLanguage }) });
+  });
+
   it("denies Free users before sending any selected text to AI", async () => {
     const response = await POST(request());
     expect(response.status).toBe(403);
@@ -227,7 +251,7 @@ describe("POST /api/translate", () => {
     state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
     gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify({
       translation: "PRIVATE_TRANSLATION", explanation: "PRIVATE_EXPLANATION",
-      partOfSpeech: null, sameLanguage: false, PRIVATE_KEY: "PRIVATE_VALUE",
+      partOfSpeech: false, sameLanguage: false, PRIVATE_KEY: "PRIVATE_VALUE",
     }) } }] }));
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -238,7 +262,7 @@ describe("POST /api/translate", () => {
       });
       expect(log.mock.calls).toEqual([
         ["[highlight-translation] invalid AI result", {
-          errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: "partOfSpeech", reason: "null",
+          errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: "partOfSpeech", reason: "boolean",
         }],
         ["[highlight-translation] invalid AI result", {
           errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: "response", reason: "object",
@@ -256,7 +280,8 @@ describe("POST /api/translate", () => {
     { field: "explanation", value: 42, type: "number" },
     { field: "partOfSpeech", value: ["PRIVATE_VALUE"], type: "array" },
     { field: "partOfSpeech", value: { PRIVATE_KEY: "PRIVATE_VALUE" }, type: "object" },
-    { field: "sameLanguage", value: undefined, type: "missing" },
+    { field: "translation", value: undefined, type: "missing" },
+    { field: "sameLanguage", value: "false", type: "string" },
   ])("reports only the $type type for invalid $field", async ({ field, value, type }) => {
     state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
     gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify({

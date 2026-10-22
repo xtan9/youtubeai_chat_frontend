@@ -175,6 +175,26 @@ describe("Summary highlight translation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fireEvent.click(retry);
     await screen.findByText("务实派");
+    expect(screen.queryByText("Too many requests.")).toBeNull();
+    expect(screen.queryByText(/^Retry after /)).toBeNull();
+  });
+
+  it("replaces a failed translation with a successful result even without auxiliary metadata", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ code: "TRANSLATION_FAILED" }, { status: 502 }))
+      .mockResolvedValueOnce(Response.json({ translation: result.translation, explanation: result.explanation }));
+    show();
+    fireEvent.click(screen.getByRole("switch", { name: "Highlight to translate" }));
+    selectWord();
+    const message = "Translation could not be completed. Try again.";
+    await screen.findByText(message);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText(result.translation);
+    expect(screen.getByText(result.explanation)).toBeTruthy();
+    expect(screen.getByText("Meaning in this passage")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    expect(screen.queryByText(message)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByText(/^Retry after /)).toBeNull();
   });
 
   it.each(["First sentence. Second sentence.", "第一句。第二句。", "x".repeat(501)])(
