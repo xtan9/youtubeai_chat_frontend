@@ -76,10 +76,15 @@ const YoutubeVideo = ({
   }
 
   return (
-    <div className="w-full" ref={containerRef}>
+    <div
+      className="relative w-full"
+      style={{ maxWidth: width, aspectRatio: "16 / 9" }}
+      ref={containerRef}
+    >
       <YouTubeNoSSR
         videoId={videoId}
-        iframeClassName="rounded-lg w-full"
+        className="absolute inset-0"
+        iframeClassName="rounded-lg h-full w-full"
         opts={{
           width: String(containerWidth),
           height: String(height),

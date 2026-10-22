@@ -8,12 +8,39 @@ const TRANSLATION = { translation: "务实派", explanation: "这里指重视实
 // Browser contract fixtures replace external auth, Summary, and AI boundaries.
 // API integration tests exercise authorization, source verification, rate
 // limits, and gateway composition; this suite makes no paid live AI calls.
-async function openSummary(page: Page, paid = true, summary = SUMMARY) {
-  // Player errors can take focus and clear native ranges while it initializes.
-  // Playback is outside this contract; keep its iframe deterministic.
-  await page.route("**/www.youtube.com/embed/**", route => route.fulfill({
-    contentType: "text/html", body: "<!doctype html><html><body style=\"margin:0;background:#111\"></body></html>",
-  }));
+type TranslationPlayerWindow = Window & {
+  loadTranslationPlayer?: () => void;
+  onYouTubeIframeAPIReady?: () => void;
+};
+
+async function openSummary(page: Page, paid = true, summary = SUMMARY, delayPlayer = false) {
+  // Replace only the external player API. It still inserts a sized iframe,
+  // including after reading begins when a test explicitly delays its load.
+  await page.addInitScript(({ delayed }) => {
+    const testWindow = window as TranslationPlayerWindow;
+    class Player {
+      private iframe = document.createElement("iframe");
+      constructor(private element: HTMLElement, options: { width: string; height: string; events: { onReady?: (event: unknown) => void } }) {
+        this.iframe.width = options.width;
+        this.iframe.height = options.height;
+        this.iframe.title = "Video fixture";
+        element.replaceWith(this.iframe);
+        setTimeout(() => options.events.onReady?.({ target: this }), 0);
+      }
+      getIframe() { return this.iframe; }
+      getCurrentTime() { return 0; }
+      getPlayerState() { return -1; }
+      cueVideoById() {}
+      loadVideoById() {}
+      destroy() { this.iframe.replaceWith(this.element); }
+    }
+    testWindow.loadTranslationPlayer = () => {
+      Object.assign(window, { YT: { Player } });
+      testWindow.onYouTubeIframeAPIReady?.();
+    };
+    if (!delayed) testWindow.loadTranslationPlayer();
+  }, { delayed: delayPlayer });
+  await page.route("**/www.youtube.com/iframe_api", route => route.fulfill({ contentType: "application/javascript", body: "" }));
   const user = {
     id: "11111111-1111-4111-8111-111111111111", aud: "authenticated", role: "authenticated",
     email: "translation@example.test", app_metadata: {}, user_metadata: {},
@@ -127,7 +154,7 @@ test.describe("touch translation", () => {
   test("offers an explicit action and keeps the result inside the mobile viewport", async ({ page }, testInfo) => {
     let calls = 0;
     await page.route("**/api/translate", route => { calls++; return route.fulfill({ json: TRANSLATION }); });
-    await openSummary(page);
+    await openSummary(page, true, SUMMARY, true);
     await page.getByRole("switch", { name: "Highlight to translate" }).tap();
     await expect(page.getByRole("switch")).toBeChecked();
     const word = page.getByTestId("summary-markdown-surface").locator("strong");
@@ -147,6 +174,11 @@ test.describe("touch translation", () => {
     const card = page.getByRole("region", { name: "Highlight translation" });
     await expect(card.getByRole("button", { name: "Translate", exact: true })).toBeVisible();
     expect(calls).toBe(0);
+    const readingTop = (await word.boundingBox())!.y;
+    await page.evaluate(() => (window as TranslationPlayerWindow).loadTranslationPlayer?.());
+    await expect(page.getByTitle("Video fixture")).toBeVisible();
+    await expect.poll(async () => Math.abs((await word.boundingBox())!.y - readingTop)).toBeLessThan(1);
+    await expect(card.getByRole("button", { name: "Translate", exact: true })).toBeVisible();
     await card.getByRole("button", { name: "Translate", exact: true }).tap();
     await expect(card).toContainText(TRANSLATION.translation);
     const bounds = await card.boundingBox();

@@ -164,7 +164,24 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       if (touch) setCard(next);
       else void translate(next);
     }
-    function schedule() { clearTimeout(timer); timer = setTimeout(capture, 250); }
+    function schedule() {
+      clearTimeout(timer);
+      // Observe collapse before debounce can hide a quick keyboard reselection.
+      if (window.getSelection()?.isCollapsed) signature.current = "";
+      const selected = readPassageSelection(root!);
+      if (!selected && !interactingWithCard.current && !cardRef.current?.contains(document.activeElement)) {
+        cancelRequest();
+        signature.current = "";
+      } else if (selected && !cardRef.current?.contains(document.activeElement)) {
+        const nextSignature = JSON.stringify(selected.passage ?? { invalid: selected.range.toString() });
+        // Only starting the next translation waits for a settled selection.
+        if (nextSignature !== signature.current) {
+          cancelRequest();
+          signature.current = "";
+        }
+      }
+      timer = setTimeout(capture, 250);
+    }
     function pointerDown(event: PointerEvent) {
       if (event.target instanceof Node && (cardRef.current?.contains(event.target) || controlsRef.current?.contains(event.target))) return;
       if (event.target instanceof Node && root!.contains(event.target)) {
@@ -247,11 +264,15 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
   }
   async function copy() {
     if (!card?.result) return;
+    const current = generation.current;
     try {
       await navigator.clipboard.writeText(card.result.translation + "\n\n" + card.result.explanation);
+      if (current !== generation.current) return;
       setCopied(true);
       setCopyFailed(false);
-    } catch { setCopyFailed(true); }
+    } catch {
+      if (current === generation.current) setCopyFailed(true);
+    }
   }
   const visible = enabled ? card : null;
   const isRtl = language === "ar";

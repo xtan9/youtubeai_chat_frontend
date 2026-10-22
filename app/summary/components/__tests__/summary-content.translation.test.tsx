@@ -283,4 +283,129 @@ describe("Summary highlight translation", () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
     expect(screen.getByRole("region", { name: "Highlight translation" })).toBeTruthy();
   });
+
+  it.each(["succeeds", "fails"])("does not change a new card when an older clipboard write %s", async outcome => {
+    let finishCopy!: () => void;
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finishCopy = outcome === "succeeds" ? resolve : () => reject(new Error("Clipboard unavailable"));
+    }));
+    fetchMock.mockResolvedValueOnce(Response.json(result)).mockResolvedValueOnce(Response.json({
+      translation: "经济成果", explanation: "这里指经济方面取得的实际成效。",
+    }));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    await screen.findByText(result.translation);
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith(result.translation + "\n\n" + result.explanation);
+    const root = screen.getByTestId("summary-markdown-surface");
+    fireEvent.pointerDown(root, { pointerType: "mouse" });
+    selectWord("economic results");
+    fireEvent.pointerUp(root, { pointerType: "mouse" });
+    await screen.findByText("经济成果");
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    await act(async () => finishCopy());
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    expect(screen.queryByText("Copy failed. Select and copy the translation manually.")).toBeNull();
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+  it("allows keyboard re-selection of the same word after dismissing its card", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(Response.json(result)));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    await screen.findByText(result.translation);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Highlight translation" })).toBeNull();
+    const selection = window.getSelection()!;
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    selection.collapseToStart();
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.keyDown(document, { key: "ArrowRight", shiftKey: true, ctrlKey: true });
+    selectWord();
+    expect(await screen.findByText(result.translation)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("does not show an old response while keyboard selection settles (return to original: %s)", async returnToOriginal => {
+    let finishOld!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finishOld = resolve; }))
+      .mockResolvedValueOnce(Response.json({ translation: "经济成果", explanation: "这里指经济方面取得的实际成效。" }));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    await screen.findByText("Translating in context…");
+    fireEvent.keyDown(document, { key: "ArrowRight", shiftKey: true, ctrlKey: true });
+    if (returnToOriginal) {
+      const selection = window.getSelection()!;
+      const endNode = selection.focusNode!;
+      const endOffset = selection.focusOffset;
+      selection.extend(endNode, endOffset - 1);
+      fireEvent(document, new Event("selectionchange"));
+      selection.extend(endNode, endOffset);
+      fireEvent(document, new Event("selectionchange"));
+    } else {
+      selectWord("economic results");
+    }
+    await act(async () => finishOld(Response.json({ ...result, translation: "OUTDATED_RESULT" })));
+    expect(screen.queryByText("OUTDATED_RESULT")).toBeNull();
+    expect(await screen.findByText("经济成果")).toBeTruthy();
+  });
+
+  it("keeps a pending translation alive when the selection has not changed", async () => {
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    await screen.findByText("Translating in context…");
+    fireEvent(document, new Event("selectionchange"));
+    await act(async () => finish(Response.json(result)));
+    expect(await screen.findByText(result.translation)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["collapsed", "outside Summary"])("invalidates a pending result immediately when the selection is %s", async nextSelection => {
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    selectWord();
+    await screen.findByText("Translating in context…");
+    const selection = window.getSelection()!;
+    if (nextSelection === "collapsed") {
+      fireEvent.keyDown(document, { key: "ArrowLeft" });
+      selection.collapseToStart();
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(screen.getByRole("heading", { name: "AI-Generated Video Summary" }));
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    fireEvent(document, new Event("selectionchange"));
+    await act(async () => finish(Response.json({ ...result, translation: "OUTDATED_AFTER_SELECTION_EXIT" })));
+    expect(screen.queryByText("OUTDATED_AFTER_SELECTION_EXIT")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a pending touch request when its Translate action collapses selection", async () => {
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    show();
+    fireEvent.click(screen.getByRole("switch"));
+    const root = screen.getByTestId("summary-markdown-surface");
+    fireEvent.pointerDown(root, { pointerType: "touch" });
+    selectWord();
+    fireEvent.pointerUp(root, { pointerType: "touch" });
+    const action = await screen.findByRole("button", { name: "Translate" });
+    fireEvent.pointerDown(action, { pointerType: "touch" });
+    fireEvent.click(action);
+    await screen.findByText("Translating in context…");
+    window.getSelection()!.collapseToStart();
+    fireEvent(document, new Event("selectionchange"));
+    await act(async () => finish(Response.json(result)));
+    expect(await screen.findByText(result.translation)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
