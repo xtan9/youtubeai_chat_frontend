@@ -55,6 +55,32 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window
 
 describe("Summary highlight translation", () => {
   it.each([
+    "U.S. Army",
+    "The U.S. Food and Drug Administration approved it.",
+    "The U.N. Security Council met today.",
+  ])("translates a selected name containing a dotted initialism: %s", async text => {
+    show(true, text);
+    fireEvent.click(screen.getByRole("switch", { name: "Highlight to translate" }));
+    selectWord(text);
+    expect(await screen.findByText(result.translation)).toBeTruthy();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ text, context: text });
+  });
+
+  it.each([
+    "He lives in the U.S. Army recruitment is falling.",
+    "He lives in the U.S. Stop!",
+    "He lives in the U.S. It is warm.",
+    "He lives in the U.S. Prices rose.",
+    "U.S. Army. They moved.",
+  ])("rejects separate sentences next to an initialism: %s", async text => {
+    show(true, text);
+    fireEvent.click(screen.getByRole("switch", { name: "Highlight to translate" }));
+    selectWord(text);
+    expect(await screen.findByText("Select up to one sentence within a paragraph or heading.")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
     "# What the controversy is about",
     "## What the controversy is about",
     "### What the **controversy** is about",
