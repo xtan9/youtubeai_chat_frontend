@@ -1,23 +1,10 @@
-import { after } from "next/server";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { checkRateLimit } from "@/lib/services/rate-limit";
-import {
-  checkChatEntitlement,
-  resolveRegisteredSubscription,
-} from "@/lib/services/entitlements";
-import {
-  appendVideoChatTurn,
-  appendVideoChatUserMessage,
-  listVideoChatMessages,
-} from "@/lib/services/video-chat-history";
+import { checkChatEntitlement, resolveRegisteredSubscription } from "@/lib/services/entitlements";
+import { listVideoChatMessages } from "@/lib/services/video-chat-history";
 import type { ChatMessageRow } from "@/lib/services/chat-store";
 import { buildChatMessages, MAX_HISTORY_MESSAGES } from "@/lib/prompts/chat";
-import { streamChatCompletion } from "@/lib/services/llm-chat-client";
-import { formatSseEvent } from "@/lib/services/llm-client";
-import {
-  ChatStreamRequestSchema,
-  type ChatSseEvent,
-} from "@/lib/api-contracts/chat";
+import { ChatStreamRequestSchema } from "@/lib/api-contracts/chat";
 import { formatTimestamp } from "@/lib/utils/timestamp-citations";
 import {
   resolveVideoChatSubject,
@@ -28,9 +15,6 @@ import {
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
 import { logAppEvent, videoIdForLog } from "@/lib/observability";
 import {
-  completeAnonymousTrialChatMessage,
-  markAnonymousTrialChatMessageStarted,
-  refundAnonymousTrialChatMessage,
   reserveAnonymousTrialChatMessage,
   type AnonymousTrialReservationResult,
 } from "@/lib/services/anonymous-trial";
@@ -38,10 +22,7 @@ import {
   admitRegisteredFreeHeroDemoChatMessage,
   type RegisteredFreeHeroDemoAdmissionResult,
 } from "@/lib/services/registered-free-hero-demo";
-import {
-  MAX_ANONYMOUS_TRIAL_RESULT_CHARS,
-  validateAnonymousTrialChatResult,
-} from "@/lib/services/anonymous-trial-chat-result";
+import { createVideoChatStreamResponse } from "../../../../lib/services/video-chat-stream";
 
 // Chat turns are typically much shorter than the summarize pipeline
 // (no transcription, no segmenting), so 120s is enough headroom for
@@ -54,7 +35,9 @@ export const maxDuration = 120;
 // 100K English tokens, leaving room for the system prompt, summary, history,
 // and the current turn.
 const TRANSCRIPT_HARD_CAP_CHARS = 400_000;
+
 const CJK_TRANSCRIPT_HARD_CAP_CHARS = 64_000;
+
 const CJK_CHAR_REGEX = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g;
 
 function transcriptHardCapChars(transcript: string): number {
@@ -65,18 +48,21 @@ function transcriptHardCapChars(transcript: string): number {
     : TRANSCRIPT_HARD_CAP_CHARS;
 }
 
-const USER_ERROR_GENERIC =
-  "Something went wrong answering your question. Please try again.";
 const USER_ERROR_NO_SUMMARY =
   "Generate the summary first, then ask follow-up questions.";
+
 const USER_ERROR_TRANSCRIPT_TOO_LONG =
   "This video's transcript is too long for chat. Please try a shorter video.";
+
 const USER_ERROR_SERVICE_UNAVAILABLE =
   "Chat service temporarily unavailable. Please try again later.";
 
 const CHAT_STREAM_SUBJECT_NOT_READY = "CHAT_STREAM_SUBJECT_NOT_READY";
+
 const CHAT_STREAM_SUBJECT_UNAVAILABLE = "CHAT_STREAM_SUBJECT_UNAVAILABLE";
+
 const CHAT_STREAM_GROUNDING_NOT_READY = "CHAT_STREAM_GROUNDING_NOT_READY";
+
 const CHAT_STREAM_GROUNDING_UNAVAILABLE = "CHAT_STREAM_GROUNDING_UNAVAILABLE";
 
 function anonymousTrialRemainingBucket(
@@ -610,343 +596,17 @@ export async function POST(request: Request) {
     anonymousReservation = reservation;
   }
 
-  // Stream-side state. `closed` flips on natural end or consumer cancel so
-  // in-flight enqueues stop, while `assistantBuffer` holds the durable answer.
-  // `userMessagePersisted` prevents duplicate user-only writes on abort races.
-  let closed = false;
-  let assistantBuffer = "";
-  let anonymousTrialStarted = false;
-  let anonymousTrialCompletion:
-    | ReturnType<typeof completeAnonymousTrialChatMessage>
-    | undefined;
-  const releaseAnonymousTrialLease = () => {
-    if (!anonymousTrialStarted || !anonymousReservation) {
-      return Promise.resolve();
-    }
-    anonymousTrialCompletion ??= completeAnonymousTrialChatMessage({
-      userId,
-      reservationId: anonymousReservation.reservationId,
-    });
-    return anonymousTrialCompletion;
-  };
-  // A subject without retention starts with no persistence work to do.
-  let userMessagePersisted = !retainedThread;
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      const sendEvent = (data: ChatSseEvent) => {
-        if (request.signal.aborted || closed) return;
-        try {
-          controller.enqueue(encoder.encode(formatSseEvent(data)));
-        } catch (err) {
-          // Stream-emit failures are usually a torn-down consumer reader,
-          // but real bugs (encoder failure, controller in invalid state
-          // we didn't see coming) need a stable errorId for log search.
-          // Tag the eventType so post-incident triage can tell whether
-          // a delta was lost (annoying) vs. the terminal `done` was lost
-          // (the client falls back to reader-close, but we want to know).
-          logAppEvent("error", "[chat/stream] enqueue failed", {
-            errorId: "CHAT_ENQUEUE_FAILED",
-            errorClass: data.type,
-            errorName: err instanceof Error ? err.name : typeof err,
-            requestId,
-          });
-        }
-      };
-
-      // Schedule the user-only persist exactly once. Used by both the
-      // start()-side abort branch and cancel(); the dedupe flag keeps a
-      // post-success cancel() (rare, but observed when a flush races a
-      // disconnect) from inserting the question a second time.
-      const persistUserOnly = (errorId: string) => {
-        if (!retainedThread || userMessagePersisted) return;
-        userMessagePersisted = true;
-        try {
-          after(async () => {
-            try {
-              await appendVideoChatUserMessage(
-                userId,
-                retainedThread,
-                message,
-              );
-            } catch (persistErr) {
-              logAppEvent("error", "[chat/stream] user-only persist failed", {
-                errorId,
-                userId,
-                videoId,
-                errorName: persistErr instanceof Error ? persistErr.name : typeof persistErr,
-                requestId,
-              });
-            }
-          });
-        } catch (afterErr) {
-          logAppEvent("error", "[chat/stream] user-only persist scheduling failed", {
-            errorId: `${errorId}_SCHEDULE`,
-            userId,
-            videoId,
-            errorName: afterErr instanceof Error ? afterErr.name : typeof afterErr,
-            requestId,
-          });
-        }
-      };
-
-      const rejectInvalidAnonymousAnswer = () => {
-        logAppEvent("warn", "[chat/stream] anonymous trial terminal outcome", {
-          errorId: "CHAT_ANONYMOUS_ANSWER_INVALID",
-          outcome: "invalid_grounding",
-          userId,
-          videoId,
-          requestId,
-        });
-        // The admitted model call is still part of the retained thread:
-        // keep the learner's question for a safe retry, but never persist
-        // or expose the rejected assistant payload.
-        persistUserOnly("CHAT_ANONYMOUS_ANSWER_INVALID_PERSIST_FAILED");
-        sendEvent({
-          type: "error",
-          message:
-            "We couldn't validate that answer against the selected video. Try another question.",
-          errorCode: "anonymous_trial_invalid_answer",
-        });
-      };
-
-      try {
-        if (registeredFreeHeroDemoAdmission) {
-          sendEvent({
-            type: "registered_free_hero_demo_admitted",
-            remainingMessages:
-              registeredFreeHeroDemoAdmission.remainingMessages,
-          });
-        }
-        if (anonymousReservation) {
-          const started = await markAnonymousTrialChatMessageStarted({
-            userId,
-            reservationId: anonymousReservation.reservationId,
-          });
-          if (started.outcome !== "started" && started.outcome !== "already_started") {
-            await refundAnonymousTrialChatMessage({
-              userId,
-              reservationId: anonymousReservation.reservationId,
-            });
-            sendEvent({
-              type: "error",
-              message: "Anonymous chat is temporarily unavailable. Create an account to continue.",
-              errorCode: "anonymous_trial_unavailable",
-            });
-            return;
-          }
-          anonymousTrialStarted = true;
-          sendEvent({
-            type: "anonymous_trial_admitted",
-            reservationId: anonymousReservation.reservationId,
-            remainingMessages: started.remainingMessages,
-          });
-        }
-        try {
-          for await (const evt of streamChatCompletion({
-            messages,
-            signal: request.signal,
-            ...(anonymousTrialEnabled ? { maxOutputTokens: 600 } : {}),
-          })) {
-            if (request.signal.aborted) break;
-            if (evt.type === "delta") {
-              if (
-                anonymousTrialEnabled &&
-                assistantBuffer.length + evt.text.length >
-                  MAX_ANONYMOUS_TRIAL_RESULT_CHARS
-              ) {
-                rejectInvalidAnonymousAnswer();
-                return;
-              }
-              assistantBuffer += evt.text;
-              if (!anonymousTrialEnabled) {
-                sendEvent({ type: "delta", text: evt.text });
-              }
-            }
-            // We don't forward the generator's `done` here — the inline
-            // persist below sends the terminal `done` event so the
-            // client only sees `done` AFTER the turn is durable. Any
-            // generator `done` arriving early is intentionally ignored.
-          }
-          // Post-loop abort: if the iterator finished cleanly because
-          // signal.aborted was checked at the top of the body, treat
-          // this exactly like a thrown abort — preserve the user
-          // message and drop the assistant partial. Without this branch
-          // the success path below would persist a partial turn.
-          if (request.signal.aborted) {
-            persistUserOnly("CHAT_ABORT_PERSIST_FAILED");
-            return;
-          }
-        } catch (err) {
-          if (request.signal.aborted) {
-            // Caller disconnect mid-stream. Preserve the user's message
-            // so it shows up on reload — the assistant's partial output
-            // is dropped (no half-turn persisted).
-            persistUserOnly("CHAT_ABORT_PERSIST_FAILED");
-            return;
-          }
-          logAppEvent("error", "[chat/stream] llm failed", {
-            errorId: "CHAT_LLM_FAILED",
-            userId,
-            videoId,
-            errorName: err instanceof Error ? err.name : typeof err,
-            requestId,
-          });
-          // The thread is the artifact — preserve the user's question
-          // even when the LLM call failed so they can retry without
-          // retyping. The dedupe inside persistUserOnly keeps cancel()
-          // from also scheduling.
-          persistUserOnly("CHAT_LLM_FAILED_PERSIST_FAILED");
-          sendEvent({ type: "error", message: USER_ERROR_GENERIC });
-          return;
-        }
-
-        if (anonymousTrialEnabled) {
-          const validated = validateAnonymousTrialChatResult(
-            assistantBuffer,
-            anonymousTrialAvailableCitations,
-          );
-          if (validated.outcome === "rejected") {
-            rejectInvalidAnonymousAnswer();
-            return;
-          }
-          assistantBuffer = validated.text;
-          sendEvent({ type: "delta", text: validated.text });
-        }
-
-        if (assistantBuffer.length === 0) {
-          // Gateway closed without any content — surface it so the
-          // client doesn't hang in a "streaming" state forever, but
-          // still preserve the user's question for retry.
-          logAppEvent("error", "[chat/stream] empty assistant response", {
-            errorId: "CHAT_EMPTY_RESPONSE",
-            userId,
-            videoId,
-            requestId,
-          });
-          persistUserOnly("CHAT_EMPTY_RESPONSE_PERSIST_FAILED");
-          sendEvent({ type: "error", message: USER_ERROR_GENERIC });
-          return;
-        }
-
-        // Persist the turn INLINE before sending the terminal `done`.
-        // The summary route's cache write uses after() because the
-        // cache is best-effort, but the chat thread IS the artifact —
-        // a silent persist failure here would let the user see a
-        // complete answer that vanishes on reload. Adding ~50–200ms of
-        // DB-write latency to the perceived close is the right trade.
-        //
-        if (!retainedThread) {
-          sendEvent({ type: "done" });
-          return;
-        }
-        try {
-          await appendVideoChatTurn({
-            userId,
-            thread: retainedThread,
-            userMessage: message,
-            assistantMessage: assistantBuffer,
-          });
-          // Only flip the dedupe flag AFTER the insert succeeded. If
-          // we'd flipped it before the await and the insert threw,
-          // a racing cancel() would short-circuit and we'd silently
-          // drop the user's question on reload (round-2 review I-B).
-          userMessagePersisted = true;
-          sendEvent({ type: "done" });
-        } catch (persistErr) {
-          logAppEvent("error", "[chat/stream] persist failed", {
-            errorId: "CHAT_PERSIST_FAILED",
-            userId,
-            videoId,
-            errorName: persistErr instanceof Error ? persistErr.name : typeof persistErr,
-            requestId,
-          });
-          // Best-effort fallback: the joint insert failed, so try a
-          // user-only insert so the question survives reload. Both
-          // calls landing on the same Supabase blip is rare; if it
-          // also fails the helper logs it. The flag is still false at
-          // this point, so persistUserOnly's dedupe doesn't short-
-          // circuit, and a future cancel() will also see false and be
-          // a no-op (the after() callback is the only thing that
-          // would still fire).
-          persistUserOnly("CHAT_PERSIST_FALLBACK_FAILED");
-          sendEvent({
-            type: "error",
-            message:
-              "Your message was answered, but we couldn't save it. Try again.",
-          });
-        }
-      } finally {
-        await releaseAnonymousTrialLease();
-        // Order matters: flip `closed` BEFORE close(). Any in-flight
-        // sendEvent() observes the flag on its next call and short-
-        // circuits instead of racing the close().
-        closed = true;
-        try {
-          controller.close();
-        } catch (err) {
-          // "already closed" is expected if the runtime tore the stream
-          // down first (caller abort). Anything else is a real bug.
-          const isAlreadyClosed =
-            err instanceof TypeError &&
-            /closed|invalid state/i.test(err.message);
-          if (!isAlreadyClosed) {
-            logAppEvent("error", "[chat/stream] close failed", {
-              errorName: err instanceof Error ? err.name : typeof err,
-              requestId,
-            });
-          }
-        }
-      }
-    },
-    cancel() {
-      // Consumer tore down the reader before start() finished. Mark the
-      // stream closed so any race-y enqueue becomes a no-op, and
-      // persist the user message so the question survives reload —
-      // unless the success path already persisted (or scheduled) it via
-      // appendChatTurn, in which case `userMessagePersisted` is set and
-      // the dedupe guard inside persistUserOnly returns immediately.
-      closed = true;
-      void releaseAnonymousTrialLease();
-      if (!retainedThread || userMessagePersisted) return;
-      userMessagePersisted = true;
-      try {
-        after(async () => {
-          try {
-            await appendVideoChatUserMessage(
-              userId,
-              retainedThread,
-              message,
-            );
-          } catch (err) {
-            logAppEvent("error", "[chat/stream] cancel-persist failed", {
-              errorId: "CHAT_CANCEL_PERSIST_FAILED",
-              userId,
-              videoId,
-              errorName: err instanceof Error ? err.name : typeof err,
-              requestId,
-            });
-          }
-        });
-      } catch (afterErr) {
-        logAppEvent("error", "[chat/stream] cancel persist scheduling failed", {
-          errorId: "CHAT_CANCEL_PERSIST_SCHEDULE_FAILED",
-          userId,
-          videoId,
-          errorName: afterErr instanceof Error ? afterErr.name : typeof afterErr,
-          requestId,
-        });
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      [REQUEST_ID_HEADER]: requestId,
-    },
+  return createVideoChatStreamResponse({
+    request,
+    requestId,
+    userId,
+    videoId,
+    message,
+    messages,
+    retainedThread,
+    anonymousTrialEnabled,
+    anonymousReservation,
+    anonymousTrialAvailableCitations,
+    registeredFreeHeroDemoAdmission,
   });
 }

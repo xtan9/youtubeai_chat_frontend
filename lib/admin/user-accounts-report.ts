@@ -10,6 +10,7 @@ import { WHISPER_FLAG_THRESHOLD } from "./constants";
 import { mapAuditRow } from "./audit-row";
 import { QueryError } from "./errors";
 import {
+  addWarning,
   reportCompletenessWarning,
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
@@ -644,13 +645,4 @@ async function loadUserAuditEvents(
     return [];
   }
   return (data ?? []).map((row) => mapAuditRow(row as Record<string, unknown>));
-}
-
-function addWarning(
-  warnings: ReportCompletenessWarning[],
-  warning: ReportCompletenessWarning,
-): void {
-  if (!warnings.some((existing) => existing.code === warning.code)) {
-    warnings.push(warning);
-  }
 }
