@@ -1,3 +1,4 @@
+import { buildProjectPromptEvidence } from "./project-prompt-evidence";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
 import type {
   ProjectConversationMessage,
@@ -9,16 +10,6 @@ import {
   buildProjectSynthesisInstructions,
   type ProjectConversationMode,
 } from "./project-grounded-synthesis";
-
-function timestampValue(seconds: number) {
-  const total = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const remainder = total % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
-    : `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-}
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_MESSAGE_CHARS = 2_000;
@@ -54,25 +45,10 @@ export function buildProjectGroundedMessages(args: {
   readonly evidenceSnapshot: ProjectEvidenceSnapshot;
   readonly mode?: ProjectConversationMode;
 }): readonly ChatGatewayMessage[] {
-  const sourceByVideo = new Map(
-    args.sourceManifest.sources.map((source) => [source.videoId, source]),
+  const evidence = buildProjectPromptEvidence(
+    args.sourceManifest,
+    args.evidenceSnapshot,
   );
-  const evidence = args.evidenceSnapshot.passages.map((passage) => {
-    const source = sourceByVideo.get(passage.videoId);
-    if (!source) throw new TypeError("Evidence Snapshot source is missing.");
-    return {
-      sourceId: source.sourceId,
-      timestamp: timestampValue(passage.startSeconds),
-      endTimestamp:
-        passage.endSeconds === null
-          ? null
-          : timestampValue(passage.endSeconds),
-      truncatedStart: passage.truncatedStart,
-      truncatedEnd: passage.truncatedEnd,
-      passageId: passage.passageId,
-      text: passage.text,
-    };
-  });
   const guidanceHistory = boundedConversationHistory(args.history);
   const mode = args.mode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
   const synthesisInstructions =

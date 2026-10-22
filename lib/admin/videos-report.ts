@@ -1,3 +1,4 @@
+import { fillDailySeries, isoDay } from "./report-window";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -13,6 +14,7 @@ import {
 import { WHISPER_FLAG_THRESHOLD } from "./constants";
 import { QueryError } from "./errors";
 import {
+  addWarning,
   reportCompletenessWarning,
   REPORT_COMPLETENESS_WARNING_CODES,
   type ReportCompletenessWarning,
@@ -732,32 +734,4 @@ function percentile(values: number[], percentileValue: number): number | null {
     Math.max(0, Math.ceil(sorted.length * percentileValue) - 1),
   );
   return sorted[index];
-}
-
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function fillDailySeries(
-  start: Date,
-  end: Date,
-  bucketed: Map<string, number>,
-): { day: string; value: number }[] {
-  const points: { day: string; value: number }[] = [];
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    const day = isoDay(cursor);
-    points.push({ day, value: bucketed.get(day) ?? 0 });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return points;
-}
-
-function addWarning(
-  warnings: ReportCompletenessWarning[],
-  warning: ReportCompletenessWarning,
-): void {
-  if (!warnings.some((existing) => existing.code === warning.code)) {
-    warnings.push(warning);
-  }
 }

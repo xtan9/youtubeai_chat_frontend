@@ -11,95 +11,30 @@ import {
   type TranscriptSegment,
   type TranscriptSource,
 } from "./summarize-cache";
-import {
-  fetchVideoMetadata,
-  type VideoMetadataResult,
-} from "./video-metadata";
-import {
-  fetchVpsMetadata,
-  primarySubtag,
-  type VpsMetadataResult,
-} from "./vps-metadata";
-import {
-  transcribeViaVps,
-  VpsTranscribeError,
-  vpsErrorId,
-} from "./vps-client";
+import { type VideoMetadataResult } from "./video-metadata";
+import { fetchVpsMetadata, primarySubtag, type VpsMetadataResult } from "./vps-metadata";
+import { transcribeViaVps, VpsTranscribeError, vpsErrorId } from "./vps-client";
 import { detectLocale } from "./language-detect";
 import { logAppEvent, videoIdForLog } from "../observability";
-
-/**
- * Semantic milestones emitted by Transcript Acquisition. The route maps
- * these to its own transport and product copy; this module never emits SSE
- * events or user-facing strings.
- */
-export type TranscriptAcquisitionProgress =
-  | { readonly type: "stored_reuse" }
-  | {
-      readonly type: "language_detection";
-      readonly detectedLanguage: string;
-    }
-  | { readonly type: "caption_acquisition" }
-  | { readonly type: "audio_transcription" };
-
-/** Input for one request-scoped Transcript Acquisition operation. */
-export interface TranscriptAcquisitionInput {
-  /** A Video URL already validated by the request boundary. */
-  readonly youtubeUrl: string;
-  /** The caller's signal; internal provider timeouts remain provider-owned. */
-  readonly signal: AbortSignal;
-  /** Correlates cache, metadata, caption, and audio-transcription work. */
-  readonly requestId: string;
-  /** Synchronous semantic progress observer owned by the caller. */
-  readonly onProgress?: (event: TranscriptAcquisitionProgress) => void;
-}
-
-export type TranscriptAcquisitionFailureStage = "captions" | "transcription";
-
-export type TranscriptAcquisitionFailureStatus =
-  | number
-  | "network"
-  | "timeout"
-  | "schema";
-
-export interface TranscriptAcquisitionFailure {
-  readonly stage: TranscriptAcquisitionFailureStage;
-  /** Stable identifier; callers do not need to inspect provider exceptions. */
-  readonly errorId: string;
-  readonly requestId: string;
-  readonly status?: TranscriptAcquisitionFailureStatus;
-  readonly errorName?: string;
-}
-
-export interface TranscriptAcquisitionSuccess {
-  readonly outcome: "success";
-  readonly segments: readonly TranscriptSegment[];
-  readonly transcriptSource: TranscriptSource;
-  readonly promptLocale: PromptLocale;
-  readonly detectedLanguage?: string;
-  readonly title?: string;
-  readonly channelName?: string;
-  readonly reusedStoredTranscript: boolean;
-  readonly acquisitionDurationSeconds: number;
-}
-
-export type TranscriptAcquisitionOutcome =
-  | TranscriptAcquisitionSuccess
-  | { readonly outcome: "caller_aborted" }
-  | {
-      readonly outcome: "acquisition_failed";
-      readonly failure: TranscriptAcquisitionFailure;
-    };
-
-type MetadataFields = {
-  title?: string;
-  channelName?: string;
-};
-
-function nonBlank(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
+import {
+  type TranscriptAcquisitionProgress,
+  type TranscriptAcquisitionInput,
+  type TranscriptAcquisitionFailureStage,
+  type TranscriptAcquisitionFailureStatus,
+  type TranscriptAcquisitionFailure,
+  type TranscriptAcquisitionSuccess,
+  type TranscriptAcquisitionOutcome,
+} from "./transcript-acquisition-contract";
+import {
+  type MetadataFields,
+  nonBlank,
+  mergeMetadata,
+  logMetadataDegradation,
+  logMetadataRecoveryFailure,
+  recoverMetadata,
+  type MetadataRecovery,
+  recoverMissingMetadata,
+} from "./transcript-acquisition-metadata";
 
 function assertUsableSegments(
   segments: readonly TranscriptSegment[]
@@ -111,32 +46,6 @@ function assertUsableSegments(
   ) {
     throw new Error("Transcript Acquisition received no usable segments");
   }
-}
-
-function hasCompleteMetadata(fields: MetadataFields): boolean {
-  return fields.title !== undefined && fields.channelName !== undefined;
-}
-
-function mergeMetadata(
-  current: MetadataFields,
-  result: VideoMetadataResult
-): { fields: MetadataFields; recovered: boolean } {
-  if (!result.ok) return { fields: current, recovered: false };
-
-  const recoveredTitle =
-    current.title === undefined ? nonBlank(result.data.title) : undefined;
-  const recoveredChannel =
-    current.channelName === undefined
-      ? nonBlank(result.data.channelName)
-      : undefined;
-
-  return {
-    fields: {
-      title: current.title ?? recoveredTitle,
-      channelName: current.channelName ?? recoveredChannel,
-    },
-    recovered: recoveredTitle !== undefined || recoveredChannel !== undefined,
-  };
 }
 
 function emitProgress(
@@ -250,94 +159,6 @@ function shouldAttemptEnglishCaption(
       (language) => primarySubtag(language) === "en"
     )
   );
-}
-
-function logMetadataDegradation(
-  input: TranscriptAcquisitionInput,
-  result: Exclude<VpsMetadataResult, { ok: true }>
-): void {
-  if (result.reason === "aborted" || input.signal.aborted) return;
-
-  if (result.reason === "non_ok" && result.status === 404) {
-    logAppEvent("warn", "[transcript-acquisition] metadata endpoint unavailable", {
-      errorId: "VPS_METADATA_404",
-      status: 404,
-      videoId: videoIdForLog(input.youtubeUrl),
-      requestId: input.requestId,
-    });
-    return;
-  }
-
-  logAppEvent("error", "[transcript-acquisition] language detection degraded", {
-    errorId: "TRANSCRIPT_LANGUAGE_DETECTION_DEGRADED",
-    reason: result.reason,
-    ...(result.reason === "non_ok" ? { status: result.status } : {}),
-    ...(result.reason === "error"
-      ? {
-          errorName:
-            result.error instanceof Error
-              ? result.error.name
-              : typeof result.error,
-        }
-      : {}),
-    videoId: videoIdForLog(input.youtubeUrl),
-    requestId: input.requestId,
-  });
-}
-
-function logMetadataRecoveryFailure(
-  input: TranscriptAcquisitionInput,
-  result: Exclude<VideoMetadataResult, { ok: true }>
-): void {
-  if (result.reason === "aborted" || input.signal.aborted) return;
-
-  logAppEvent("warn", "[transcript-acquisition] metadata recovery failed", {
-    errorId: "TRANSCRIPT_METADATA_RECOVERY_FAILED",
-    reason: result.reason,
-    ...(result.reason === "non_ok" ? { status: result.status } : {}),
-    ...(result.reason === "error"
-      ? {
-          errorName:
-            result.error instanceof Error
-              ? result.error.name
-              : typeof result.error,
-        }
-      : {}),
-    videoId: videoIdForLog(input.youtubeUrl),
-    requestId: input.requestId,
-  });
-}
-
-async function recoverMetadata(
-  input: TranscriptAcquisitionInput
-): Promise<VideoMetadataResult> {
-  try {
-    return await fetchVideoMetadata(input.youtubeUrl, input.signal);
-  } catch (error) {
-    return input.signal.aborted
-      ? { ok: false, reason: "aborted" }
-      : { ok: false, reason: "error", error };
-  }
-}
-
-type MetadataRecovery = {
-  readonly fields: MetadataFields;
-  readonly recovered: boolean;
-};
-
-async function recoverMissingMetadata(
-  input: TranscriptAcquisitionInput,
-  fields: MetadataFields
-): Promise<MetadataRecovery> {
-  if (hasCompleteMetadata(fields)) return { fields, recovered: false };
-
-  const metadata = await recoverMetadata(input);
-  if (!metadata.ok) {
-    logMetadataRecoveryFailure(input, metadata);
-    return { fields, recovered: false };
-  }
-
-  return mergeMetadata(fields, metadata);
 }
 
 type AbortableWait<T> =
@@ -736,3 +557,13 @@ export async function acquireTranscript(
   if (cached) return acquireStoredTranscript(input, cached);
   return acquireFreshTranscript(input, startedAt);
 }
+
+export {
+  type TranscriptAcquisitionProgress,
+  type TranscriptAcquisitionInput,
+  type TranscriptAcquisitionFailureStage,
+  type TranscriptAcquisitionFailureStatus,
+  type TranscriptAcquisitionFailure,
+  type TranscriptAcquisitionSuccess,
+  type TranscriptAcquisitionOutcome,
+} from "./transcript-acquisition-contract";
