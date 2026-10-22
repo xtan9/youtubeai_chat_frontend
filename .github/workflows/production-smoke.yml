@@ -71,7 +71,8 @@ jobs:
   # browser checks. It must never consume the same timeout budget or wait for
   # the rest of the browser smoke to finish.
   live-summary-smoke:
-    runs-on: ubuntu-latest
+    # Playwright 1.59 supports Ubuntu 24.04, but not Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     needs: api-smoke
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '17 15 * * *' }}
     timeout-minutes: 10
@@ -111,7 +112,7 @@ jobs:
           retention-days: 14
 
   e2e-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: api-smoke
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '17 15 * * *' }}
     # Manual full-suite runs can exceed 19 minutes on a real hosted runner.
@@ -127,7 +128,6 @@ jobs:
       # separate from the account used for successful live Summary requests.
       TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
       TEST_NON_ADMIN_PASSWORD: ${{ secrets.TEST_NON_ADMIN_PASSWORD }}
-      TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
     steps:
@@ -172,11 +172,18 @@ jobs:
           --retries=0
       - name: Run Project Conversation production smoke
         if: ${{ !cancelled() }}
-        run: >-
-          pnpm exec playwright test
-          smoke-tests/e2e-project-conversation-production.spec.ts
-          --grep "@project-grounded"
-          --workers=1
+        env:
+          TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
+          TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
+          TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
+        run: |
+          : "${TEST_LIVE_SUMMARY_EMAIL:?TEST_LIVE_SUMMARY_EMAIL is required for Project Conversation smoke}"
+          : "${TEST_LIVE_SUMMARY_PASSWORD:?TEST_LIVE_SUMMARY_PASSWORD is required for Project Conversation smoke}"
+          : "${TEST_PROJECT_ID:?TEST_PROJECT_ID is required for Project Conversation smoke}"
+          pnpm exec playwright test \
+          smoke-tests/e2e-project-conversation-production.spec.ts \
+          --grep "@project-grounded" \
+          --workers=1 \
           --retries=0
       - name: Run bounded Anonymous Trial rollout probe
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.anonymous_trial_smoke_phase != 'skip' }}
@@ -202,7 +209,7 @@ jobs:
   # ordering while giving the destructive journey an independent budget even
   # when a real live Summary check correctly reports a production failure.
   session-policy-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [api-smoke, live-summary-smoke, e2e-smoke]
     if: ${{ always() && !cancelled() && needs.api-smoke.result == 'success' && needs.live-summary-smoke.result != 'skipped' && needs.e2e-smoke.result != 'skipped' }}
     timeout-minutes: 10

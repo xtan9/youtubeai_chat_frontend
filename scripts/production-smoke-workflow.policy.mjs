@@ -80,6 +80,21 @@ test("serializes production smoke runs and cancels superseded executions", () =>
   );
 });
 
+test("runs production browser smoke on an Ubuntu release supported by Playwright", () => {
+  for (const job of [
+    "live-summary-smoke",
+    "e2e-smoke",
+    "session-policy-smoke",
+  ]) {
+    const jobHeader = sectionBetween(workflow, `  ${job}:`, "\n    env:");
+    assert.match(
+      jobHeader,
+      /runs-on:\s*ubuntu-24\.04/,
+      `${job} must not follow ubuntu-latest to an unsupported browser platform`,
+    );
+  }
+});
+
 test("defaults production browser smoke to an explicit critical allowlist", () => {
   assert.match(workflow, /browser_smoke_scope:/);
   assert.match(workflow, /default:\s*critical/);
@@ -293,6 +308,45 @@ test("production browser smoke excludes local fixtures and development prototype
     );
   }
   assert.match(productionPlaywrightConfig, /webServer:\s*undefined/);
+});
+
+test("gives the Project Conversation smoke its required account only for that step", () => {
+  const browserJob = sectionBetween(
+    workflow,
+    "  e2e-smoke:",
+    "\n  session-policy-smoke:",
+  );
+  const projectStep = sectionBetween(
+    browserJob,
+    "      - name: Run Project Conversation production smoke",
+    "\n      - name: Run bounded Anonymous Trial rollout probe",
+  );
+  const precedingSteps = browserJob.slice(0, browserJob.indexOf(projectStep));
+
+  assert.doesNotMatch(
+    precedingSteps,
+    /TEST_LIVE_SUMMARY_(?:EMAIL|PASSWORD):/,
+    "the live account must not become available to unrelated browser specs",
+  );
+  for (const name of [
+    "TEST_LIVE_SUMMARY_EMAIL",
+    "TEST_LIVE_SUMMARY_PASSWORD",
+    "TEST_PROJECT_ID",
+  ]) {
+    assert.ok(
+      projectStep.includes(`${name}: \${{ secrets.${name} }}`),
+      `the Project Conversation step requires the dedicated ${name} secret`,
+    );
+    const requiredConfig = `: "\${${name}:?${name} is required for Project Conversation smoke}"`;
+    assert.ok(
+      projectStep.includes(requiredConfig),
+      `${name} must fail before Playwright can silently skip the required journey`,
+    );
+    assert.ok(
+      projectStep.indexOf(requiredConfig) < projectStep.indexOf("pnpm exec playwright test"),
+      `${name} must be checked before launching the browser journey`,
+    );
+  }
 });
 
 test("requires a distinct verified live Summary Smoke Account", () => {
