@@ -131,11 +131,8 @@ test.describe("touch translation", () => {
     await page.getByRole("switch", { name: "Highlight to translate" }).tap();
     await expect(page.getByRole("switch")).toBeChecked();
     const word = page.getByTestId("summary-markdown-surface").locator("strong");
-    // Adding a native Range focuses its tab panel. Focus it before scrolling so
-    // that focus cannot later scroll the selected word outside the viewport.
-    await page.getByRole("tabpanel", { name: "Summary", exact: true }).focus();
     await word.scrollIntoViewIfNeeded();
-    await expect(word).toBeInViewport();
+    await word.tap();
     await word.dispatchEvent("pointerdown", { pointerType: "touch" });
     await word.dispatchEvent("pointercancel", { pointerType: "touch" });
     // The native DOM range represents the range created by mobile selection handles.

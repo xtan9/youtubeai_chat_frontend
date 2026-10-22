@@ -123,3 +123,5 @@ Regression evidence: the Summary UI test reproduced the exact hint; changing onl
 Validation: 67 focused UI/API tests passed; the full 378-file / 3,594-test suite passed with 88.44% line coverage. TypeScript and changed-file lint passed. Independent Standards and Spec reviews found no actionable issues.
 
 ![Heading selection with a contextual translation](assets/highlight-translation-heading-fixed.png)
+
+The broader browser stress run also encountered intermittent selection/card dismissal in the existing mobile paragraph test. That behavior remains unresolved; this correction changes heading recognition and leaves the mobile selection lifecycle unchanged.
