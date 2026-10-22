@@ -116,7 +116,7 @@ export interface AnalyticsEventProperties {
     | LegacySubscriptionActivatedProperties
     | SubscriptionDiscoveryEventProperties["subscription_activated"];
   summary_button_clicked: {
-    source_surface: "homepage";
+    source_surface: "homepage" | "summary";
   };
   new_summary_button_clicked: {
     source_surface: "summary";

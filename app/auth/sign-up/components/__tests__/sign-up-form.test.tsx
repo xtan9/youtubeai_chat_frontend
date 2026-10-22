@@ -32,6 +32,7 @@ vi.mock("@/lib/supabase/client", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("@/lib/analytics/client", () => ({
@@ -75,6 +76,20 @@ function setSignupLocation(redirectTo?: string) {
 }
 
 describe("SignUpForm analytics", () => {
+  it("preserves the selected plan when switching to login", () => {
+    setSignupLocation("/pricing?intent=upgrade&plan=monthly&source_surface=global_header");
+    render(<SignUpForm />);
+
+    const login = new URL(
+      screen.getByRole("link", { name: "Login" }).getAttribute("href")!,
+      window.location.origin,
+    );
+    expect(login.pathname).toBe("/auth/login");
+    expect(login.searchParams.get("redirect_to")).toBe(
+      "/pricing?intent=upgrade&plan=monthly&source_surface=global_header",
+    );
+  });
+
   it("treats a missing signed-out session as a normal email signup", async () => {
     mocks.getUser.mockResolvedValue({
       data: { user: null },

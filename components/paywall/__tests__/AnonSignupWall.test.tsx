@@ -22,7 +22,7 @@ afterEach(() => {
 describe("AnonSignupWall", () => {
   it("renders hit-cap copy by default", () => {
     render(<AnonSignupWall />);
-    expect(screen.getByText(/try unlimited free/i)).not.toBeNull();
+    expect(screen.getByText(/sign up free to get 10 summaries per month/i)).not.toBeNull();
   });
 
   it("renders feature-locked variant", () => {
@@ -70,5 +70,33 @@ describe("AnonSignupWall", () => {
     expect(
       container.querySelector('[data-paywall-variant="anon-hit-cap"]'),
     ).not.toBeNull();
+  });
+
+  it("returns to the same Summary after either signup or login", () => {
+    render(
+      <AnonSignupWall returnTo="/summary?url=https://www.youtube.com/watch?v=Hrbq66XqtCo" />,
+    );
+
+    for (const name of [/sign up free/i, /i have an account/i]) {
+      const href = new URL(
+        screen.getByRole("link", { name }).getAttribute("href")!,
+        "https://example.test",
+      );
+      expect(href.searchParams.get("redirect_to")).toBe(
+        "/summary?url=https://www.youtube.com/watch?v=Hrbq66XqtCo",
+      );
+    }
+  });
+
+  it("rejects an external Summary return destination for either auth link", () => {
+    render(<AnonSignupWall returnTo="https://outside.example/account" />);
+
+    for (const name of [/sign up free/i, /i have an account/i]) {
+      const href = new URL(
+        screen.getByRole("link", { name }).getAttribute("href")!,
+        "https://example.test",
+      );
+      expect(href.searchParams.get("redirect_to")).toBe("/dashboard");
+    }
   });
 });

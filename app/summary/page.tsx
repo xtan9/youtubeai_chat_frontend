@@ -1,4 +1,5 @@
 import { YouTubeSummarizerApp } from "@/app/summary/components/youtube-summarizer-app";
+import { InputForm } from "@/app/components/input-form";
 import { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
@@ -107,17 +108,23 @@ export default async function SummaryPage({
             Paste a YouTube URL below and our AI extracts the key points,
             themes, and insights in seconds. Works on any public video — even
             ones without captions — and reads back in 18 summary languages.
-            No signup or paywall.
+            Try one summary without signing up, or create a free account for
+            10 summaries per month.
           </p>
+          <div className="mt-8">
+            <InputForm sourceSurface="summary" />
+          </div>
         </section>
       )}
-      <YouTubeSummarizerApp
-        initialUrl={params.url}
-        continueLearningEnabled={
-          process.env.CONTINUE_LEARNING_READER_ENABLED?.trim().toLowerCase() ===
-          "true"
-        }
-      />
+      {isResultsView && (
+        <YouTubeSummarizerApp
+          initialUrl={params.url}
+          continueLearningEnabled={
+            process.env.CONTINUE_LEARNING_READER_ENABLED?.trim().toLowerCase() ===
+            "true"
+          }
+        />
+      )}
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([

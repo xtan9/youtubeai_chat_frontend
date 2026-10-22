@@ -20,7 +20,7 @@ describe("AnonHomepageGate", () => {
     });
 
     render(<AnonHomepageGate />);
-    expect(screen.getByText(/try unlimited free/i)).not.toBeNull();
+    expect(screen.getByText(/sign up free to get 10 summaries per month/i)).not.toBeNull();
   });
 
   it("renders nothing when anon user has NOT yet hit the cap", () => {

@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { buildRecoveryRedirectUrl } from "@/lib/auth/recovery-redirect";
+import { buildAuthPageHref } from "@/lib/auth/signup-redirect";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 export function ForgotPasswordForm({
@@ -24,6 +26,7 @@ export function ForgotPasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const redirectTo = useSearchParams().get("redirect_to");
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,7 +97,7 @@ export function ForgotPasswordForm({
               <div className="mt-4 text-center text-sm">
                 Already have an account?{" "}
                 <Link
-                  href="/auth/login"
+                  href={buildAuthPageHref("/auth/login", redirectTo)}
                   className="underline underline-offset-4"
                 >
                   Login

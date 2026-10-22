@@ -7,13 +7,18 @@ import { X } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
+import type { AnalyticsEventProperties } from "@/lib/analytics/events";
 import { cn } from "@/lib/utils";
 
 type InputFormProps = {
   variant?: "default" | "compact";
+  sourceSurface?: AnalyticsEventProperties["summary_button_clicked"]["source_surface"];
 };
 
-export function InputForm({ variant = "default" }: InputFormProps) {
+export function InputForm({
+  variant = "default",
+  sourceSurface = "homepage",
+}: InputFormProps) {
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,7 +46,7 @@ export function InputForm({ variant = "default" }: InputFormProps) {
 
     // Track the summary button click with PostHog
     captureAnalyticsEvent("summary_button_clicked", {
-      source_surface: "homepage",
+      source_surface: sourceSurface,
     });
 
     setError(null);
@@ -49,7 +54,10 @@ export function InputForm({ variant = "default" }: InputFormProps) {
     router.push(`/summary?url=${encodeURIComponent(formUrl)}`);
   };
 
-  const handleClearUrl = () => setUrl("");
+  const handleClearUrl = () => {
+    setUrl("");
+    setError(null);
+  };
 
   return (
     <div className={cn("relative mx-auto", isCompact ? "w-full" : "group")}>
@@ -90,7 +98,10 @@ export function InputForm({ variant = "default" }: InputFormProps) {
                     name="url"
                     placeholder="Enter YouTube URL here..."
                     value={url}
-                    onChange={(e) => setUrl(e.target.value)}
+                    onChange={(e) => {
+                      setUrl(e.target.value);
+                      setError(null);
+                    }}
                     aria-label="YouTube URL"
                     autoComplete="off"
                     className={cn(

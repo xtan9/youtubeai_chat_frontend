@@ -13,11 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GoogleIcon } from "@/components/ui/google-icon";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import {
   buildAuthCallbackUrl,
+  buildAuthPageHref,
   getSafeAuthRedirect,
 } from "@/lib/auth/signup-redirect";
 
@@ -39,6 +40,7 @@ export function SignUpForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const redirectTo = useSearchParams().get("redirect_to");
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +215,10 @@ export function SignUpForm({
             </div>
             <div className="mt-4 text-center text-sm">
               Already have an account?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
+              <Link
+                href={buildAuthPageHref("/auth/login", redirectTo)}
+                className="underline underline-offset-4"
+              >
                 Login
               </Link>
             </div>
