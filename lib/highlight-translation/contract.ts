@@ -20,7 +20,11 @@ export function normalizePassage(text: string): string {
 // ICU may split before a proper name (for example, "Dr. Smith").
 export function isSingleSentence(text: string): boolean {
   if (!text.trim() || Array.from(text).length > SELECTION_LIMIT) return false;
+  // Repair known names at the start of a selection (optionally after an article).
+  // Capitalization alone cannot distinguish "U.S. Army" from "U.S. Stop!".
+  // Keep boundaries after preceding clauses: "He lives in the U.S. Army recruitment fell."
   const input = text
+    .replace(/^(?:(?:The|An?)\s+)?(?:U\.S\.(?=\s+(?:Army\b|Food\s+and\s+Drug\s+Administration\b))|U\.K\.(?=\s+Prime\s+Minister\b)|U\.N\.(?=\s+Security\s+Council\b))/gu, match => match.replace(/\./g, ""))
     .replace(/\b(?:e\.\s*g|i\.\s*e|z\.\s*B)\.(?=\s+\p{L})/gu, match => match.replace(/\./g, ""))
     .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs)\./giu, match => match.slice(0, -1));
   // Do not strip terminal abbreviations such as "etc.": their period can

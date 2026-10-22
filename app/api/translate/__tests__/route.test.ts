@@ -184,6 +184,17 @@ describe("POST /api/translate", () => {
 
   it.each([
     { text: "A sentence. Another sentence." }, { text: "They bought books, etc. They left." }, { text: "一つです。もう一つです。" },
+    { text: "He lives in the U.S. Army recruitment is falling." },
+    { text: "He moved to the U.K. Prime Minister Brown resigned." },
+    { text: "He lives in the U.S. Stop!" },
+    { text: "He lives in the U.S. Run!" },
+    { text: "He lives in the U.S. Go!" },
+    { text: "He lives in the U.S. It is warm." },
+    { text: "He lives in the U.S. Prices rose." },
+    { text: "U.S. Army. They moved." },
+    { text: "The U.S. Food and Drug Administration approved it. They announced it." },
+    { text: "The U.S. Armyworm numbers rose." },
+    { text: "The U.S. It is warm." },
     { text: "x".repeat(501) }, { context: "x".repeat(4001) },
     { targetLanguage: "unsupported" }, { text: "  " }, { userId: "someone-else" },
   ])("rejects an invalid translation request: %j", async patch => {
@@ -193,6 +204,10 @@ describe("POST /api/translate", () => {
   });
 
   it.each([
+    ["U.S. Army", "U.S. Army"],
+    ["The U.S. Food and Drug Administration approved it.", "The U.S. Food and Drug Administration approved it."],
+    ["U.K. Prime Minister", "U.K. Prime Minister"],
+    ["The U.N. Security Council met today.", "The U.N. Security Council met today."],
     ["Dr. Smith uses evidence.", "Dr. Smith uses evidence."],
     ["Er wohnt z. B. in Berlin.", "Er wohnt z. B. in Berlin."],
     ["- A **pragmatist** uses evidence.", "A pragmatist uses evidence."],
