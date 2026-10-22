@@ -17,6 +17,16 @@ function error(status: number, code: string, message: string, retryAfter?: numbe
   });
 }
 
+function resultValueType(value: unknown) {
+  if (value === undefined) return "missing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "string") return "string";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return "number";
+  return "object";
+}
+
 async function readBody(request: Request): Promise<unknown> {
   const reader = request.body?.getReader();
   if (!reader) throw new Error("Missing body");
@@ -98,8 +108,25 @@ export async function POST(request: Request): Promise<Response> {
       model: process.env.LLM_MODEL?.trim() || DEFAULT_LLM_MODEL,
       prompt, timeoutMs: 15_000, signal: request.signal,
     });
-    const result = TranslationResultSchema.safeParse(JSON.parse(raw));
-    if (!result.success) return error(502, "TRANSLATION_FAILED", "Translation could not be completed. Try again.");
+    const decoded: unknown = JSON.parse(raw);
+    const result = TranslationResultSchema.safeParse(decoded);
+    if (!result.success) {
+      // Never log Zod messages, received values, or unknown response keys.
+      // Collapse those paths to a fixed label and report only JSON value types.
+      const fields = new Set(result.error.issues.map(issue => {
+        const field = issue.path[0];
+        return field === "translation" || field === "explanation" || field === "partOfSpeech" || field === "sameLanguage"
+          ? field : "response";
+      }));
+      for (const field of fields) {
+        const value: unknown = field === "response" ? decoded
+          : typeof decoded === "object" && decoded !== null ? Reflect.get(decoded, field) : undefined;
+        logAppEvent("error", "[highlight-translation] invalid AI result", {
+          errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: field, reason: resultValueType(value),
+        });
+      }
+      return error(502, "TRANSLATION_FAILED", "Translation could not be completed. Try again.");
+    }
     return Response.json(result.data, { headers: HEADERS });
   } catch {
     // Provider errors can contain prompts or source text. Record no exception
