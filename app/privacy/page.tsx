@@ -137,7 +137,7 @@ export default function PrivacyPolicy() {
       </section>
 
       <footer className="text-sm text-text-muted">
-        Last updated: {new Date().toLocaleDateString()}
+        Last updated: <time dateTime="2026-10-18">October 18, 2026</time>
       </footer>
     </div>
   );

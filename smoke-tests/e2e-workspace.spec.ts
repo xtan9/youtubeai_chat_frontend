@@ -278,7 +278,7 @@ test.beforeAll(async () => {
         WORKSPACE_E2E_DIST_DIR: ".next-workspace-e2e",
         PROJECT_MODEL_RATE_CARD_VERSION: "fixture-2026-08",
         PROJECT_MODEL_RATE_CARD_SOURCE: "provider_contract",
-        PROJECT_MODEL_RATE_CARD_MODEL_ID: "gpt-5.3-codex-spark",
+        PROJECT_MODEL_RATE_CARD_MODEL_ID: "gpt-6-luna",
         PROJECT_MODEL_RATE_CARD_GATEWAY_PROVIDER: "cliproxyapi",
         PROJECT_MODEL_RATE_CARD_EFFECTIVE_DATE: "2026-08-01",
         PROJECT_MODEL_INPUT_USD_PER_MILLION_TOKENS: "1",
@@ -1076,8 +1076,9 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByLabel("Source Coverage")).toContainText(
     "Passages examined3",
   );
+  // All three fixture candidates fit within the eight-passage evidence limit.
   await expect(page.getByLabel("Source Coverage")).toContainText(
-    "Passages selected2",
+    "Passages selected3",
   );
   await expect(page.getByText("Preparing answer")).toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
@@ -1124,6 +1125,9 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
   await expect(page.getByLabel("Source Coverage")).toContainText(
     "Passages examined3",
+  );
+  await expect(page.getByLabel("Source Coverage")).toContainText(
+    "Passages selected3",
   );
   await expect(page.getByRole("link", { name: /S1 @ 00:42/i })).toHaveAttribute(
     "href",
@@ -1903,7 +1907,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
     projectId,
     ownerId: OWNER_ID,
     generationKind: "project_brief",
-    modelId: "gpt-5.3-codex-spark",
+    modelId: "gpt-6-luna",
     providerKind: "cliproxyapi",
     costStatus: "measured",
     inputTokens: 160,

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InputForm } from "../input-form";
 
@@ -14,6 +14,32 @@ vi.mock("@/lib/analytics/client", () => ({
 afterEach(() => cleanup());
 
 describe("InputForm", () => {
+  it.each(["clear", "edit"])(
+    "clears the previous URL validation error when the Learner chooses to %s",
+    (recovery) => {
+      render(<InputForm />);
+
+      const input = screen.getByRole("textbox", { name: "YouTube URL" });
+      fireEvent.change(input, {
+        target: { value: "https://example.com/not-a-video" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Summarize video" }));
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Please enter a valid YouTube URL",
+      );
+
+      if (recovery === "clear") {
+        fireEvent.click(screen.getByRole("button", { name: "Clear input" }));
+      } else {
+        fireEvent.change(input, {
+          target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+        });
+      }
+
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
   it("falls back to the Summary GET route before client hydration", () => {
     render(<InputForm />);
 

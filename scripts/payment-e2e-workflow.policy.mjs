@@ -5,6 +5,14 @@ import test from "node:test";
 const workflowPath = new URL("../.github/workflows/payment-e2e.yml", import.meta.url);
 const workflow = readFileSync(workflowPath, "utf8");
 
+test("runs payment browser smoke on an Ubuntu release supported by Playwright", () => {
+  assert.match(
+    workflow,
+    /stripe-checkout:\s*\n\s*(?:#[^\n]*\n\s*)*runs-on:\s*ubuntu-24\.04/,
+    "Stripe Checkout must not follow ubuntu-latest to an unsupported browser platform",
+  );
+});
+
 test("runs the application and Supabase locally instead of using hosted staging", () => {
   assert.match(workflow, /PAYMENT_E2E_BASE_URL:\s*http:\/\/127\.0\.0\.1:3000/);
   assert.doesNotMatch(workflow, /secrets\.PAYMENT_E2E_SUPABASE_(?:URL|SECRET_KEY)/);

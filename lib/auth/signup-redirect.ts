@@ -32,6 +32,17 @@ export function getSafeAuthRedirect(currentUrl: string): string {
   }
 }
 
+export function buildAuthPageHref(
+  pathname: "/auth/login" | "/auth/sign-up" | "/auth/forgot-password",
+  redirectTo: string | null | undefined,
+): string {
+  if (!redirectTo) return pathname;
+  const search = new URLSearchParams({
+    redirect_to: normalizeAuthRedirect(redirectTo),
+  });
+  return `${pathname}?${search}`;
+}
+
 export function buildAuthCallbackUrl(
   origin: string,
   next: string,

@@ -151,7 +151,7 @@ export default function TermsOfService() {
       </section>
 
       <footer className="text-sm text-text-muted">
-        Last updated: {new Date().toLocaleDateString()}
+        Last updated: <time dateTime="2026-05-03">May 3, 2026</time>
       </footer>
     </div>
   );

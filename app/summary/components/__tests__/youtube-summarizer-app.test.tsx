@@ -3,15 +3,18 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SummaryRunSnapshot } from "@/lib/summary-run";
 
-const { navigationSearchParams } = vi.hoisted(() => ({
+const { navigationSearchParams, push, capture } = vi.hoisted(() => ({
   navigationSearchParams: { value: new URLSearchParams() },
+  push: vi.fn(),
+  capture: vi.fn(),
 }));
 
+vi.mock("posthog-js", () => ({ default: { capture } }));
 vi.mock("posthog-js/react", () => ({
   usePostHog: () => ({ capture: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn() }),
   usePathname: () => "/summary",
   useSearchParams: () => navigationSearchParams.value,
 }));
@@ -94,6 +97,7 @@ vi.mock("@/lib/contexts/user-context", () => ({
 
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { YouTubeSummarizerApp } from "../youtube-summarizer-app";
+import SummaryPage from "../../page";
 import { setViewportWidth } from "./viewport";
 
 const mockUseYouTubeSummarizer = useYouTubeSummarizer as ReturnType<typeof vi.fn>;
@@ -161,6 +165,8 @@ function succeededSnapshot(): SummaryRunSnapshot {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  push.mockClear();
+  capture.mockClear();
   navigationSearchParams.value = new URLSearchParams();
   setViewportWidth(1024);
 });
@@ -170,6 +176,46 @@ afterEach(() => {
 });
 
 describe("YouTubeSummarizerApp Summary Run presentation", () => {
+  it("lets a Learner submit a Video URL from the bare Summary landing page", async () => {
+    const commands = commonCommands();
+    mockUseYouTubeSummarizer.mockReturnValue({
+      ...commands,
+      snapshot: { status: "idle" },
+    });
+
+    const { rerender } = render(
+      await SummaryPage({ searchParams: Promise.resolve({}) }),
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "YouTube URL" }), {
+      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Summarize video" }));
+
+    expect(push).toHaveBeenCalledWith(
+      "/summary?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ",
+    );
+    expect(commands.start).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith(
+      "summary_button_clicked",
+      expect.objectContaining({ source_surface: "summary" }),
+    );
+
+    rerender(
+      await SummaryPage({
+        searchParams: Promise.resolve({
+          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        }),
+      }),
+    );
+    expect(screen.queryByRole("textbox", { name: "YouTube URL" })).toBeNull();
+    expect(commands.start).toHaveBeenCalledWith({
+      video: { youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+      outputLanguage: null,
+      includeTranscript: true,
+    });
+  });
+
   it("places the persistent Video before the three-tab workspace on mobile", () => {
     setViewportWidth(390);
     mockUseYouTubeSummarizer.mockReturnValue({
