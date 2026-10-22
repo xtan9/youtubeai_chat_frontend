@@ -222,4 +222,56 @@ describe("POST /api/translate", () => {
     gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: "{}" } }] }));
     expect((await POST(request())).status).toBe(502);
   });
+
+  it("diagnoses invalid AI result fields without logging values or arbitrary keys", async () => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify({
+      translation: "PRIVATE_TRANSLATION", explanation: "PRIVATE_EXPLANATION",
+      partOfSpeech: null, sameLanguage: false, PRIVATE_KEY: "PRIVATE_VALUE",
+    }) } }] }));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await POST(request());
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        code: "TRANSLATION_FAILED", message: "Translation could not be completed. Try again.",
+      });
+      expect(log.mock.calls).toEqual([
+        ["[highlight-translation] invalid AI result", {
+          errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: "partOfSpeech", reason: "null",
+        }],
+        ["[highlight-translation] invalid AI result", {
+          errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: "response", reason: "object",
+        }],
+      ]);
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE|pragmatist|learner-1/);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    { field: "translation", value: "", type: "string" },
+    { field: "translation", value: true, type: "boolean" },
+    { field: "explanation", value: 42, type: "number" },
+    { field: "partOfSpeech", value: ["PRIVATE_VALUE"], type: "array" },
+    { field: "partOfSpeech", value: { PRIVATE_KEY: "PRIVATE_VALUE" }, type: "object" },
+    { field: "sameLanguage", value: undefined, type: "missing" },
+  ])("reports only the $type type for invalid $field", async ({ field, value, type }) => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    gateway.mockResolvedValue(Response.json({ choices: [{ message: { content: JSON.stringify({
+      translation: "PRIVATE_TRANSLATION", explanation: "PRIVATE_EXPLANATION", sameLanguage: false,
+      [field]: value,
+    }) } }] }));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await POST(request())).status).toBe(502);
+      expect(log.mock.calls).toEqual([["[highlight-translation] invalid AI result", {
+        errorId: "HIGHLIGHT_TRANSLATION_INVALID_RESULT", source: field, reason: type,
+      }]]);
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE|pragmatist|learner-1/);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
