@@ -125,3 +125,11 @@ Validation: 67 focused UI/API tests passed; the full 378-file / 3,594-test suite
 ![Heading selection with a contextual translation](assets/highlight-translation-heading-fixed.png)
 
 The broader browser stress run also encountered intermittent selection/card dismissal in the existing mobile paragraph test. That behavior remains unresolved; this correction changes heading recognition and leaves the mobile selection lifecycle unchanged.
+
+## Translation-response regression (2026-10-21)
+
+The Learner reported intermittent failures when selecting a valid sentence. Repeating the same sentence against production produced both 200 and 502 responses. Content-free diagnostics identified a rejected result with `source: sameLanguage` and `reason: missing`: an auxiliary model flag caused an otherwise usable translation to be discarded. Make that flag optional, preserve it when supplied, and normalize a null optional part of speech to absence. Translation and explanation remain required and bounded; unknown keys and invalid supplied metadata types still fail validation.
+
+A successful live Retry also left the previous failure message below the result. Clear the message and retry timestamp on success. Paid entitlement, saved-Summary authorization, shared rate limits, context bounds, and privacy rules are unchanged.
+
+Regressions exercise the reported sentence through the real POST handler and the Summary UI through failure → Retry → success, including a response containing only translation and explanation. Before the fix, missing metadata returned 502 and successful Retry retained the error; both now pass. Independent Standards and Spec reviews found no actionable issues.
