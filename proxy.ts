@@ -1,12 +1,24 @@
 import { updateSession } from "@/lib/supabase/middleware";
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  if (pathname === "/ingest" || pathname.startsWith("/ingest/")) {
+    // Public PostHog scripts/events must bypass sign-in. Strip application
+    // credentials before next.config.ts forwards the request to PostHog.
+    const headers = new Headers(request.headers);
+    headers.delete("cookie");
+    headers.delete("authorization");
+    return NextResponse.next({ request: { headers } });
+  }
   return await updateSession(request);
 }
 
 export const config = {
   matcher: [
+    // Analytics images also need credential stripping despite the static
+    // extension exclusions in the general application matcher below.
+    "/ingest/:path*",
     /*
      * Match all request paths except:
      * - _next/static, _next/image (Next internals)
