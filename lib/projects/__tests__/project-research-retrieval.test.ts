@@ -4,6 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import { retrieveProjectResearchEvidence } from "../project-research-retrieval";
 import { passage } from "./project-grounded-test-fixtures";
+import { buildProjectAnswerArtifacts } from "../project-grounded-evidence";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -24,6 +25,73 @@ const coverage = { totalVideos: 1, readyVideos: 1, unavailableVideos: [], passag
 const noResults = { status: "no_results" as const, sourceSetRevision: 10, sourceLanguages: ["en"], coverage, passages: [] };
 
 describe("Project research retrieval", () => {
+  it("plans complementary evidence facets for a broad single-language research brief", async () => {
+    const queries = ["randomized trials metaanalysis inflammation", "seed oils health", "heated oils oxidation prolonged heating"];
+    const fetch = gateway(JSON.stringify({ queries: queries.map((query) => ({ language: "en", query })) }));
+    const sources = [
+      passage({ segmentOrdinal: 125, text: "The trial compares the measured result with the control group." }),
+      passage({ segmentOrdinal: 1, text: "The speaker introduces seed oils and the proposed mechanism." }),
+      passage({ segmentOrdinal: 253, text: "Prolonged repeated heating qualifies the conclusion." }),
+    ];
+    const search = vi.fn().mockImplementation(async ({ query }) => {
+      const index = queries.indexOf(query);
+      return index < 0 ? noResults : { ...noResults, status: "ready", passages: [sources[index]] };
+    });
+    const result = await retrieveProjectResearchEvidence({
+      passageSearch: { search }, question: "为种子油研究生成中立简报，比较证据和限制。",
+      signal: new AbortController().signal, onUsage: vi.fn(),
+    });
+    expect(result).toMatchObject({ status: "ready", passages: sources });
+    expect(search).toHaveBeenCalledTimes(4);
+    const prompt = JSON.parse(fetch.mock.calls[0][1].body).messages[0].content;
+    expect(prompt).toContain("up to three complementary queries");
+    expect(prompt).toContain("Do not repeat the same broad topic words in every query");
+    expect(prompt).toContain("Put the concrete findings query first");
+  });
+
+  it("keeps findings from all five sources in the final eight passages before filling other facets", async () => {
+    const queries = ["study results", "topic introduction", "evidence limitations"];
+    gateway(JSON.stringify({ queries: queries.map((query) => ({ language: "en", query })) }));
+    const findings = Array.from({ length: 5 }, (_, index) => passage({
+      videoId: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      segmentOrdinal: 101, startSeconds: 200, endSeconds: 220,
+      text: `Source ${index + 1} reports its measured finding and comparison.`,
+    }));
+    const introductions = findings.toReversed().map((source) => passage({ ...source,
+      passageId: `${source.videoId}:1:0:15`, segmentOrdinal: 1,
+      text: "Topic overview.", excerptEndCharacter: 15,
+    }));
+    const limitations = [...findings.slice(1), findings[0]].map((source) => passage({ ...source,
+      passageId: `${source.videoId}:201:0:18`, segmentOrdinal: 201,
+      text: "Limited follow-up.", excerptEndCharacter: 18,
+    }));
+    const initial = { ...noResults, coverage: { ...coverage, totalVideos: 5, readyVideos: 5, passagesExamined: 100 } };
+    const search = vi.fn().mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce({ ...initial, status: "ready", passages: findings })
+      .mockResolvedValueOnce({ ...initial, status: "ready", passages: introductions })
+      .mockResolvedValueOnce({ ...initial, status: "ready", passages: limitations });
+    const result = await retrieveProjectResearchEvidence({
+      passageSearch: { search }, question: "比较这些来源的研究证据与限制。",
+      signal: new AbortController().signal, onUsage: vi.fn(),
+    });
+    if (result.status !== "ready") throw new Error("Expected ready evidence");
+    const artifacts = buildProjectAnswerArtifacts({
+      projectId: "10000000-0000-4000-8000-000000000001", goal: "比较研究证据与限制", search: result, balanceSources: true,
+    });
+    expect(artifacts.evidenceSnapshot.passages).toHaveLength(8);
+    expect(artifacts.sourceManifest.sources).toHaveLength(5);
+    for (const finding of findings) expect(artifacts.evidenceSnapshot.passages).toContainEqual(finding);
+  });
+
+  it("bounds a single language to three facets within the five-query budget", async () => {
+    gateway(JSON.stringify({ queries: ["topic terms", "study results", "contrary evidence", "extra facet"].map((query) => ({ language: "en", query })) }));
+    const search = vi.fn().mockResolvedValue(noResults);
+    await expect(retrieveProjectResearchEvidence({
+      passageSearch: { search }, question: "生成研究简报", signal: new AbortController().signal, onUsage: vi.fn(),
+    })).rejects.toThrow("Research retrieval");
+    expect(search).toHaveBeenCalledOnce();
+  });
+
   it("retrieves original English evidence for a Chinese research question", async () => {
     const fetch = gateway(JSON.stringify({ queries: [{ language: "en", query: "seed oils health evidence" }] }));
     const source = passage({ text: "Seed oils health evidence is discussed in this source." });

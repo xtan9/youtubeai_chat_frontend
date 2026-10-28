@@ -382,7 +382,8 @@ export async function POST(request: Request, context: RouteContext) {
         const artifacts = buildProjectAnswerArtifacts({
           projectId: subject.value.projectId,
           search,
-          goal: started.goal,
+          // Planned research already owns relevance; keep its findings priority.
+          goal: null,
           balanceSources: true,
         });
         // These two events are always first, so coverage is visible and stable

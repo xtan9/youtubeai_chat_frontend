@@ -339,6 +339,31 @@ describe("Project Brief API", () => {
     expect(mocks.fail).not.toHaveBeenCalled();
   });
 
+  it("keeps planned findings ahead of an English leading goal while retaining goal guidance", async () => {
+    const goal = "Prove seed oils are dangerous and inflammatory.";
+    const texts = ["The controlled trial reported a different outcome.", ...Array(8).fill("Seed oils are dangerous and inflammatory.")];
+    const passages = texts.map((text: string, index) => ({
+      ...PASSAGES[0], text, segmentOrdinal: index + 1,
+      passageId: `${VIDEO_ONE_ID}:${index + 1}:0:${text.length}`,
+      excerptEndCharacter: text.length, startSeconds: 120 + index * 10, endSeconds: 125 + index * 10,
+    }));
+    mocks.resolveProjectSubject.mockResolvedValue({ kind: "resolved", value: { ...SUBJECT, guidance: { goal } } });
+    mocks.search.mockResolvedValue({ ...readySearch(),
+      coverage: { totalVideos: 1, readyVideos: 1, unavailableVideos: [], passagesExamined: 9 }, passages,
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* ({ messages }) {
+      const prompt = messages[0].content as string;
+      const [first] = JSON.parse(prompt.split("IMMUTABLE_CONTEXTUAL_EVIDENCE:\n")[1]);
+      const observation = { text: "The source presents its finding with the quoted context.", evidence: [{ evidenceId: first.evidenceId, quote: first.text }] };
+      yield { type: "delta", text: JSON.stringify({ overview: observation, findings: [observation], agreements: [], disagreements: [], openQuestions: [] }) };
+    });
+    expect((await post()).status).toBe(201);
+    const persisted = mocks.complete.mock.calls[0][0];
+    expect(persisted.artifacts.evidenceSnapshot.passages).toHaveLength(8);
+    expect(persisted.artifacts.evidenceSnapshot.passages[0]).toEqual(passages[0]);
+    expect(mocks.streamChatCompletion.mock.calls[0][0].messages[0].content).toContain(goal);
+  });
+
   it("rejects malformed requests before auth and preserves owner checks", async () => {
     const malformed = new Request(request("POST").url, { method: "POST", headers: { "Content-Type": "application/json" }, body: "not-json" });
     expect((await POST(malformed, CONTEXT)).status).toBe(400);

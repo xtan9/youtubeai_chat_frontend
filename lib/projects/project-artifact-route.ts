@@ -349,7 +349,8 @@ export function createProjectArtifactRoute(
       const artifacts = buildProjectAnswerArtifacts({
         projectId: subject.value.projectId,
         search,
-        goal: subject.value.guidance.goal,
+        // Planned research already owns relevance; keep its findings priority.
+        goal: null,
         balanceSources: true,
       });
       if (artifacts.evidenceSnapshot.passages.length === 0) {
