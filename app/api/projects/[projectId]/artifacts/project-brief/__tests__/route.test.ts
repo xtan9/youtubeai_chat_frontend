@@ -45,7 +45,8 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
 vi.mock("@/lib/projects/project-passage-search", () => ({
   createProjectResearchPassageSearchCapability: vi.fn(() => ({ search: mocks.search })),
 }));
-vi.mock("@/lib/projects/project-research-retrieval", () => ({
+vi.mock("@/lib/projects/project-research-retrieval", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/projects/project-research-retrieval")>(),
   retrieveProjectResearchEvidence: async (args: { question: string; onPlanningStart?: () => void; onUsage: (usage: unknown) => void }) => {
     args.onPlanningStart?.();
     const usage = mocks.researchUsage();
@@ -60,6 +61,7 @@ vi.mock("@/lib/analytics/project-server", () => ({
 
 import { GET, POST } from "../route";
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
+import { ProjectResearchRetrievalError } from "@/lib/projects/project-research-retrieval";
 import { createProjectArtifactRoute } from "@/lib/projects/project-artifact-route";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
@@ -426,6 +428,20 @@ describe("Project Brief API", () => {
     expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "validation", reason: validationReason }));
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(output.findings[0].text);
     expect(await response.text()).not.toContain(validationReason);
+  });
+
+  it("retains safe planner diagnostics through real artifact log redaction", async () => {
+    const failure = Object.assign(new ProjectResearchRetrievalError("planner_invalid_json"), { cause: new Error("private-planner-output") });
+    mocks.search.mockRejectedValue(failure);
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({
+      stage: "retrieval", errorCode: "planner_invalid_json",
+    }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-planner-output");
+    expect(await response.text()).not.toContain("planner_invalid_json");
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
   });
 
   it.each(["retrieval", "persistence", "reload"])("identifies the %s failure stage without logging exception text", async (failureStage) => {

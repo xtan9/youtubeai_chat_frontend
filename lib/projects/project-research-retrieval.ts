@@ -14,6 +14,7 @@ import {
 } from "./project-passage-search-contract";
 import type { ProjectConversationMessage } from "./project-grounded-answer-contract";
 import { selectProjectEvidencePassages } from "./project-grounded-evidence";
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 
 const QueryPlanSchema = z.object({
   queries: z.array(z.object({
@@ -33,11 +34,64 @@ const QueryPlanSchema = z.object({
   return true;
 });
 
+export type ProjectResearchFailureCode =
+  | "planner_unavailable"
+  | "planner_invalid_json"
+  | "planner_invalid_structure"
+  | "planner_language_mismatch"
+  | "planner_output_too_long"
+  | "planner_timeout"
+  | "planner_provider_http_error"
+  | "planner_provider_configuration_missing"
+  | "planner_provider_missing_body"
+  | "planner_provider_stream_failed"
+  | "source_set_changed";
+
 export class ProjectResearchRetrievalError extends Error {
-  constructor() {
+  constructor(
+    readonly failureCode: ProjectResearchFailureCode = "planner_unavailable",
+    readonly providerHttpStatus?: number,
+  ) {
     super("Research retrieval could not prepare relevant source passages.");
     this.name = "ProjectResearchRetrievalError";
   }
+}
+
+function plannerFailure(error: unknown, deadline: AbortSignal): ProjectResearchRetrievalError {
+  if (deadline.aborted) return new ProjectResearchRetrievalError("planner_timeout");
+  if (error instanceof ProjectResearchRetrievalError) return error;
+  if (error instanceof ChatGatewayError) {
+    return new ProjectResearchRetrievalError(
+      error.failureCode === "provider_http_error" ? "planner_provider_http_error"
+        : error.failureCode === "provider_missing_body" ? "planner_provider_missing_body"
+          : "planner_provider_configuration_missing",
+      error.httpStatus,
+    );
+  }
+  return new ProjectResearchRetrievalError("planner_provider_stream_failed");
+}
+
+function canRetryPlan(error: ProjectResearchRetrievalError) {
+  if (error.failureCode === "planner_provider_http_error") {
+    const status = error.providerHttpStatus ?? 0;
+    return status === 408 || status === 429 || (status >= 500 && status <= 599);
+  }
+  return error.failureCode === "planner_invalid_json" || error.failureCode === "planner_invalid_structure"
+    || error.failureCode === "planner_language_mismatch" || error.failureCode === "planner_output_too_long"
+    || error.failureCode === "planner_timeout" || error.failureCode === "planner_provider_missing_body"
+    || error.failureCode === "planner_provider_stream_failed";
+}
+
+function parseResearchQueries(output: string, languages: readonly string[]): string[] {
+  let rawPlan: unknown;
+  try { rawPlan = JSON.parse(output); } catch { throw new ProjectResearchRetrievalError("planner_invalid_json"); }
+  const plan = QueryPlanSchema.safeParse(rawPlan);
+  if (!plan.success) throw new ProjectResearchRetrievalError("planner_invalid_structure");
+  if (languages.length > 0 && (
+    plan.data.queries.some(({ language }) => !languages.includes(language)) ||
+    languages.some((language) => !plan.data.queries.some((query) => query.language === language))
+  )) throw new ProjectResearchRetrievalError("planner_language_mismatch");
+  return [...new Set(plan.data.queries.map(({ query }) => query))];
 }
 
 type SearchWithCoverage = Extract<ProjectPassageSearchResolution, {
@@ -121,40 +175,59 @@ PROJECT_TOPIC: ${JSON.stringify(args.projectName?.slice(0, 500) ?? null)}
 CONVERSATION_CONTEXT: ${JSON.stringify(boundedResearchHistory(args.history ?? []))}
 RESEARCH_QUESTION: ${JSON.stringify(args.question)}`;
 
-  let output = "";
-  let usage: ChatTokenUsage | undefined;
+  let queries: string[] | undefined;
+  let retryReason: ProjectResearchFailureCode | undefined;
+  const callUsage: Array<ChatTokenUsage | undefined> = [];
   args.onPlanningStart?.();
   try {
-    for await (const event of streamChatCompletion({
-      messages: [{ role: "user", content: prompt }],
-      signal: AbortSignal.any([args.signal, AbortSignal.timeout(20_000)]),
-      maxOutputTokens: 700,
-    })) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       args.signal.throwIfAborted();
-      if (event.type === "usage") usage = event.usage;
-      if (event.type === "delta") {
-        output += event.text;
-        if (output.length > 8_000) throw new ProjectResearchRetrievalError();
+      const deadline = AbortSignal.timeout(20_000);
+      const signal = AbortSignal.any([args.signal, deadline]);
+      let output = "";
+      let usage: ChatTokenUsage | undefined;
+      try {
+        const retryInstruction = retryReason
+          ? `\nPLANNING_RETRY_REASON: ${retryReason}\nReturn a fresh valid JSON retrieval plan following the exact contract above. Keep the same subject, cover every required source language, and obey all query limits. Do not include explanations or evidence.`
+          : "";
+        for await (const event of streamChatCompletion({
+          messages: [{ role: "user", content: prompt + retryInstruction }],
+          signal,
+          maxOutputTokens: 700,
+        })) {
+          signal.throwIfAborted();
+          if (event.type === "usage") usage = event.usage;
+          if (event.type === "delta") {
+            output += event.text;
+            if (output.length > 8_000) throw new ProjectResearchRetrievalError("planner_output_too_long");
+          }
+        }
+        signal.throwIfAborted();
+        queries = parseResearchQueries(output, languages);
+        break;
+      } catch (error) {
+        args.signal.throwIfAborted();
+        const failure = plannerFailure(error, deadline);
+        if (attempt === 1 || !canRetryPlan(failure)) throw failure;
+        retryReason = failure.failureCode;
+      } finally {
+        // A provider may emit multiple cumulative usage events; only its last
+        // value counts. Missing usage on any started call makes total unknown.
+        callUsage.push(usage);
       }
     }
-  } catch {
-    args.signal.throwIfAborted();
-    throw new ProjectResearchRetrievalError();
   } finally {
-    if (usage) args.onUsage(usage);
+    if (callUsage.length > 0 && callUsage.every((usage) => usage !== undefined)) {
+      args.onUsage(callUsage.reduce<ChatTokenUsage>((total, usage) => ({
+        inputTokens: total.inputTokens + usage!.inputTokens,
+        cachedInputTokens: total.cachedInputTokens + usage!.cachedInputTokens,
+        outputTokens: total.outputTokens + usage!.outputTokens,
+      }), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }));
+    }
   }
   args.signal.throwIfAborted();
+  if (!queries) throw new ProjectResearchRetrievalError();
 
-  let rawPlan: unknown;
-  try { rawPlan = JSON.parse(output); } catch { throw new ProjectResearchRetrievalError(); }
-  const plan = QueryPlanSchema.safeParse(rawPlan);
-  if (!plan.success) throw new ProjectResearchRetrievalError();
-  if (languages.length > 0 && (
-    plan.data.queries.some(({ language }) => !languages.includes(language)) ||
-    languages.some((language) => !plan.data.queries.some((query) => query.language === language))
-  )) throw new ProjectResearchRetrievalError();
-
-  const queries = [...new Set(plan.data.queries.map(({ query }) => query))];
   const searches: SearchWithCoverage[] = [];
   for (const query of queries) {
     args.signal.throwIfAborted();
@@ -165,7 +238,7 @@ RESEARCH_QUESTION: ${JSON.stringify(args.question)}`;
     });
     args.signal.throwIfAborted();
     if (!hasCoverage(search)) return search;
-    if (search.sourceSetRevision !== initial.sourceSetRevision) throw new ProjectResearchRetrievalError();
+    if (search.sourceSetRevision !== initial.sourceSetRevision) throw new ProjectResearchRetrievalError("source_set_changed");
     searches.push(search);
   }
   const passages = balancedPassages(searches);

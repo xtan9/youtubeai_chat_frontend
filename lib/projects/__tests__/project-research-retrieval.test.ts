@@ -7,6 +7,7 @@ import { passage } from "./project-grounded-test-fixtures";
 import { buildProjectAnswerArtifacts } from "../project-grounded-evidence";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -14,17 +15,137 @@ afterEach(() => {
 function gateway(content: string) {
   vi.stubEnv("LLM_GATEWAY_URL", "https://gateway.test");
   vi.stubEnv("LLM_GATEWAY_API_KEY", "test-key");
-  const fetch = vi.fn().mockResolvedValue(new Response(
-    `data: ${JSON.stringify({ choices: [{ delta: { content } }], usage: { prompt_tokens: 30, completion_tokens: 12 } })}\n\ndata: [DONE]\n\n`,
-  ));
+  const fetch = vi.fn().mockImplementation(() => response(content));
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
+
+function response(content: string, usage = true) {
+  return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content } }], ...(usage ? { usage: { prompt_tokens: 30, completion_tokens: 12 } } : {}) })}\n\ndata: [DONE]\n\n`);
+}
+
+const validPlan = JSON.stringify({ queries: [{ language: "en", query: "seed oils evidence" }] });
 
 const coverage = { totalVideos: 1, readyVideos: 1, unavailableVideos: [], passagesExamined: 1 };
 const noResults = { status: "no_results" as const, sourceSetRevision: 10, sourceLanguages: ["en"], coverage, passages: [] };
 
 describe("Project research retrieval", () => {
+  it("repairs malformed planning once without replaying raw output and aggregates last usage per call", async () => {
+    const partialUsage = { prompt_tokens: 5, completion_tokens: 2 };
+    const fetch = gateway(validPlan).mockResolvedValueOnce(new Response(
+      `data: ${JSON.stringify({ usage: partialUsage })}\n\n`
+      + `data: ${JSON.stringify({ choices: [{ delta: { content: "private-model-output" } }], usage: { prompt_tokens: 30, completion_tokens: 12 } })}\n\ndata: [DONE]\n\n`,
+    ));
+    const search = vi.fn().mockResolvedValue(noResults);
+    const onUsage = vi.fn();
+    const onPlanningStart = vi.fn();
+    await retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage, onPlanningStart });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(onPlanningStart).toHaveBeenCalledOnce();
+    expect(onUsage).toHaveBeenCalledExactlyOnceWith({ inputTokens: 60, cachedInputTokens: 0, outputTokens: 24 });
+    const retry = JSON.parse(fetch.mock.calls[1][1].body).messages[0].content;
+    expect(retry).toContain("planner_invalid_json");
+    expect(retry).not.toContain("private-model-output");
+  });
+
+  it.each([
+    ["invalid JSON", "private-output", "planner_invalid_json"],
+    ["invalid structure", JSON.stringify({ queries: [] }), "planner_invalid_structure"],
+    ["wrong source language", JSON.stringify({ queries: [{ language: "fr", query: "huile graines" }] }), "planner_language_mismatch"],
+    ["oversized output", "x".repeat(8_001), "planner_output_too_long"],
+  ])("bounds %s repair to two plans without a topic fallback", async (_name, content, failureCode) => {
+    const fetch = gateway(content);
+    const search = vi.fn().mockResolvedValue(noResults);
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage: vi.fn() }))
+      .rejects.toMatchObject({ name: "ProjectResearchRetrievalError", failureCode });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledOnce();
+  });
+
+  it("does not report partial usage when either planning call lacks usage", async () => {
+    for (const missing of [0, 1]) {
+      const fetch = gateway(validPlan).mockResolvedValueOnce(response("invalid", missing !== 0))
+        .mockResolvedValueOnce(response(validPlan, missing !== 1));
+      const onUsage = vi.fn();
+      await retrieveProjectResearchEvidence({ passageSearch: { search: vi.fn().mockResolvedValue(noResults) }, question: "种子油", signal: new AbortController().signal, onUsage });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(onUsage).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([429, 503])("retries transient provider HTTP %s once", async (status) => {
+    const fetch = gateway(validPlan).mockResolvedValueOnce(new Response("private-provider-body", { status }));
+    const onUsage = vi.fn();
+    await retrieveProjectResearchEvidence({ passageSearch: { search: vi.fn().mockResolvedValue(noResults) }, question: "种子油", signal: new AbortController().signal, onUsage });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onUsage).not.toHaveBeenCalled();
+    expect(JSON.parse(fetch.mock.calls[1][1].body).messages[0].content).not.toContain("private-provider-body");
+  });
+
+  it("exhausts a transient provider failure after exactly two attempts", async () => {
+    const fetch = gateway(validPlan).mockImplementation(() => Promise.resolve(new Response("private-provider-body", { status: 503 })));
+    const search = vi.fn().mockResolvedValue(noResults);
+    const onUsage = vi.fn();
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage }))
+      .rejects.toMatchObject({ failureCode: "planner_provider_http_error", providerHttpStatus: 503 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledOnce();
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it("does not omit a required minority source language during repair", async () => {
+    const fetch = gateway(validPlan);
+    const search = vi.fn().mockResolvedValue({ ...noResults, sourceLanguages: ["en", "es"] });
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "比较种子油证据", signal: new AbortController().signal, onUsage: vi.fn() }))
+      .rejects.toMatchObject({ failureCode: "planner_language_mismatch" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledOnce();
+  });
+
+  it("does not retry canonical search failures after successful planning", async () => {
+    const fetch = gateway(validPlan);
+    const search = vi.fn().mockResolvedValueOnce(noResults).mockRejectedValueOnce(new Error("search unavailable"));
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage: vi.fn() }))
+      .rejects.toThrow("search unavailable");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a permanent provider HTTP failure", async () => {
+    const fetch = gateway(validPlan).mockResolvedValueOnce(new Response("private-auth-response", { status: 401 }));
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search: vi.fn().mockResolvedValue(noResults) }, question: "种子油", signal: new AbortController().signal, onUsage: vi.fn() }))
+      .rejects.toMatchObject({ failureCode: "planner_provider_http_error", providerHttpStatus: 401 });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("preserves caller cancellation without retrying", async () => {
+    const controller = new AbortController();
+    const fetch = gateway(validPlan).mockImplementationOnce(async () => {
+      controller.abort(new Error("caller cancelled"));
+      throw controller.signal.reason;
+    });
+    const search = vi.fn().mockResolvedValue(noResults);
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: controller.signal, onUsage: vi.fn() })).rejects.toThrow("caller cancelled");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(search).toHaveBeenCalledOnce();
+  });
+
+  it("retries a planner deadline once while retaining the caller signal and 20s per-call budget", async () => {
+    const deadline = new AbortController();
+    const timer = vi.spyOn(AbortSignal, "timeout").mockReturnValueOnce(deadline.signal);
+    const fetch = gateway(validPlan).mockImplementationOnce(async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+      deadline.abort(new DOMException("deadline", "TimeoutError"));
+    }));
+    const onUsage = vi.fn();
+    await retrieveProjectResearchEvidence({ passageSearch: { search: vi.fn().mockResolvedValue(noResults) }, question: "种子油", signal: new AbortController().signal, onUsage });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(timer).toHaveBeenNthCalledWith(1, 20_000);
+    expect(timer).toHaveBeenNthCalledWith(2, 20_000);
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
   it("plans complementary evidence facets for a broad single-language research brief", async () => {
     const queries = ["randomized trials metaanalysis inflammation", "seed oils health", "heated oils oxidation prolonged heating"];
     const fetch = gateway(JSON.stringify({ queries: queries.map((query) => ({ language: "en", query })) }));
@@ -166,9 +287,11 @@ describe("Project research retrieval", () => {
   });
 
   it("rejects a changed Source Set instead of mixing evidence revisions", async () => {
-    gateway(JSON.stringify({ queries: [{ language: "en", query: "seed oils" }] }));
+    const fetch = gateway(JSON.stringify({ queries: [{ language: "en", query: "seed oils" }] }));
     const search = vi.fn().mockResolvedValueOnce(noResults).mockResolvedValueOnce({ ...noResults, sourceSetRevision: 11 });
-    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage: vi.fn() })).rejects.toThrow("Research retrieval");
+    await expect(retrieveProjectResearchEvidence({ passageSearch: { search }, question: "种子油", signal: new AbortController().signal, onUsage: vi.fn() })).rejects.toMatchObject({ failureCode: "source_set_changed" });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(search).toHaveBeenCalledTimes(2);
   });
 
   it("records planner usage but rejects invented evidence and malformed query plans", async () => {

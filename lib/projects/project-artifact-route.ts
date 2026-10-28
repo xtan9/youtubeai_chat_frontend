@@ -21,7 +21,7 @@ import type {
 } from "@/lib/projects/project-artifact-contract";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
 import { createProjectResearchPassageSearchCapability } from "@/lib/projects/project-passage-search";
-import { retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
+import { ProjectResearchRetrievalError, retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
@@ -500,7 +500,10 @@ export function createProjectArtifactRoute(
               errorCode: error.failureCode,
               ...(error.httpStatus === undefined ? {} : { status: error.httpStatus }),
             }
-          : failureCode ? { errorCode: failureCode } : {}),
+          : error instanceof ProjectResearchRetrievalError ? {
+              errorCode: error.failureCode,
+              ...(error.providerHttpStatus === undefined ? {} : { status: error.providerHttpStatus }),
+            } : failureCode ? { errorCode: failureCode } : {}),
         requestId,
       });
       return failureStage === "generation" || failureStage === "validation"

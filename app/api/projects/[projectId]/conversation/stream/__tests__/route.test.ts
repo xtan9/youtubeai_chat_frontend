@@ -62,6 +62,7 @@ vi.mock("@/lib/analytics/project-server", () => ({
 
 import { POST } from "../route";
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
+import { ProjectResearchRetrievalError } from "@/lib/projects/project-research-retrieval";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const USER_ID = "20000000-0000-4000-8000-000000000001";
@@ -375,6 +376,26 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({
       usage: { inputTokens: 130, cachedInputTokens: 25, outputTokens: 50 },
     }));
+  });
+
+  it("keeps safe planner diagnostics through the real logger while hiding provider content", async () => {
+    const failure = Object.assign(new ProjectResearchRetrievalError("planner_provider_http_error", 503), {
+      cause: new Error("private-provider-planning-content"),
+    });
+    mocks.retrieveResearch.mockImplementation(async ({ onPlanningStart }) => {
+      onPlanningStart();
+      throw failure;
+    });
+    const streamed = await events(await POST(request(), CONTEXT));
+    expect(console.error).toHaveBeenCalledWith("[project-grounded-answer] generation failed", expect.objectContaining({
+      stage: "retrieval", errorCode: "planner_provider_http_error", status: 503, requestId: REQUEST_ID,
+    }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-provider-planning-content");
+    expect(JSON.stringify(streamed)).not.toContain("planner_provider_http_error");
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
   });
 
   it("records paid planning work even if retrieval fails before an answer can start", async () => {
