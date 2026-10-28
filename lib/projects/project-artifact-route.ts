@@ -21,7 +21,7 @@ import type {
 } from "@/lib/projects/project-artifact-contract";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
 import { createProjectResearchPassageSearchCapability } from "@/lib/projects/project-passage-search";
-import { retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
+import { ProjectResearchRetrievalError, retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
@@ -61,6 +61,7 @@ type ProjectArtifactRouteBase = Readonly<{
 type ProjectArtifactGeneration = Readonly<{
   messages: readonly ChatGatewayMessage[];
   validate(content: string): ValidArtifact | InvalidArtifact;
+  repairMessages?(safeReason: string): readonly ChatGatewayMessage[] | null;
   generationMetadata?: Pick<
     z.infer<typeof ProjectArtifactGenerationMetadataSchema>,
     "normalizationAudit"
@@ -299,7 +300,7 @@ export function createProjectArtifactRoute(
     let plannerStarted = false;
     let plannerUsageReceived = false;
     let synthesisStarted = false;
-    let synthesisUsageReceived = false;
+    let synthesisUsageComplete = true;
     let activationOccurredAt: string | null = null;
     let failureStage: ArtifactFailureStage = "retrieval";
     let validationReason: string | undefined;
@@ -369,7 +370,7 @@ export function createProjectArtifactRoute(
 
       generationStartedAt ??= Date.now();
       failureStage = "preparation";
-      const generation = definition.prepareGeneration
+      const generation: ProjectArtifactGeneration = definition.prepareGeneration
         ? await definition.prepareGeneration({
             projectName: subject.value.name,
             goal: subject.value.guidance.goal,
@@ -398,36 +399,49 @@ export function createProjectArtifactRoute(
                 subject.value.guidance.goal,
               ),
           };
-      let generated = "";
-      synthesisStarted = true;
-      failureStage = "generation";
-      for await (const event of streamChatCompletion({
-        messages: generation.messages,
-        signal: request.signal,
-      })) {
-        if (event.type === "usage") {
-          synthesisUsageReceived = true;
-          generationUsage = accumulateChatTokenUsage(
-            generationUsage,
-            event.usage,
-          );
-          continue;
+      let messages = generation.messages;
+      let validated: ValidArtifact | undefined;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        request.signal.throwIfAborted();
+        let generated = "";
+        let attemptUsage: ChatTokenUsage | undefined;
+        synthesisStarted = true;
+        failureStage = "generation";
+        validationReason = undefined;
+        try {
+          for await (const event of streamChatCompletion({ messages, signal: request.signal })) {
+            if (event.type === "usage") {
+              attemptUsage = event.usage;
+              continue;
+            }
+            if (event.type !== "delta") continue;
+            generated += event.text;
+            if (generated.length > MAX_ARTIFACT_LENGTH) {
+              failureCode = "artifact_too_long";
+              throw new Error(`${definition.title} exceeded its technical limit.`);
+            }
+          }
+        } finally {
+          // Usage events are totals for one provider call. Keep its last total,
+          // and never present a partial aggregate as the whole operation cost.
+          if (attemptUsage) generationUsage = accumulateChatTokenUsage(generationUsage, attemptUsage);
+          else synthesisUsageComplete = false;
         }
-        if (event.type !== "delta") continue;
-        generated += event.text;
-        if (generated.length > MAX_ARTIFACT_LENGTH) {
-          failureCode = "artifact_too_long";
-          throw new Error(`${definition.title} exceeded its technical limit.`);
-        }
-      }
 
-      failureStage = "validation";
-      const validated = generation.validate(generated);
-      if (validated.status !== "valid") {
-        validationReason = SAFE_VALIDATION_REASONS.has(validated.reason)
-          ? validated.reason : "unrecognized_validation_reason";
-        throw new Error("Artifact validation failed.");
+        failureStage = "validation";
+        const result = generation.validate(generated);
+        if (result.status === "valid") {
+          validated = result;
+          break;
+        }
+        validationReason = SAFE_VALIDATION_REASONS.has(result.reason)
+          ? result.reason : "unrecognized_validation_reason";
+        const repair = attempt === 0 && validationReason !== "unrecognized_validation_reason"
+          ? generation.repairMessages?.(validationReason) : null;
+        if (!repair) throw new Error("Artifact validation failed.");
+        messages = repair;
       }
+      if (!validated) throw new Error("Artifact validation failed.");
       failureStage = "persistence";
       const completed = await subject.value.artifacts.complete({
         reservation,
@@ -479,22 +493,27 @@ export function createProjectArtifactRoute(
         errorId: `${definition.errorPrefix}_GENERATION_FAILED`,
         projectId: subject.value.projectId,
         errorName: error instanceof Error ? error.name : typeof error,
-        failureStage,
-        ...(validationReason ? { validationReason } : {}),
+        stage: failureStage,
+        ...(validationReason ? { reason: validationReason } : {}),
         ...(error instanceof ChatGatewayError
           ? {
-              failureCode: error.failureCode,
-              ...(error.httpStatus === undefined ? {} : { providerHttpStatus: error.httpStatus }),
+              errorCode: error.failureCode,
+              ...(error.httpStatus === undefined ? {} : { status: error.httpStatus }),
             }
-          : failureCode ? { failureCode } : {}),
+          : error instanceof ProjectResearchRetrievalError ? {
+              errorCode: error.failureCode,
+              ...(error.providerHttpStatus === undefined ? {} : { status: error.providerHttpStatus }),
+            } : failureCode ? { errorCode: failureCode } : {}),
         requestId,
       });
-      return projectUnavailableResponse(requestId);
+      return failureStage === "generation" || failureStage === "validation"
+        ? jsonError(503, `${definition.title} could not be generated. Please try again.`, requestId, `${definition.errorPrefix}_GENERATION_FAILED`)
+        : projectUnavailableResponse(requestId);
     } finally {
       if (generationStartedAt !== null) {
         const durationMs = Math.max(0, Date.now() - generationStartedAt);
         const usage = (!plannerStarted || plannerUsageReceived) &&
-          (!synthesisStarted || synthesisUsageReceived) ? generationUsage : undefined;
+          (!synthesisStarted || synthesisUsageComplete) ? generationUsage : undefined;
         scheduleAnalyticsAfterResponse(async () => {
           await recordProjectGenerationUsage({
             projectId: subject.value.projectId,

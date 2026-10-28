@@ -33,7 +33,8 @@ vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
 vi.mock("@/lib/projects/project-passage-search", () => ({
   createProjectResearchPassageSearchCapability: vi.fn(() => ({ search: mocks.search })),
 }));
-vi.mock("@/lib/projects/project-research-retrieval", () => ({
+vi.mock("@/lib/projects/project-research-retrieval", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/projects/project-research-retrieval")>(),
   retrieveProjectResearchEvidence: async (args: { question: string; onPlanningStart?: () => void }) => {
     args.onPlanningStart?.();
     return mocks.search({ query: args.question, limit: 10, balanceSources: true });

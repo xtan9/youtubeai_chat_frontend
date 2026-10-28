@@ -88,6 +88,18 @@ describe("Project Brief research generation", () => {
     expect(prompt).not.toContain("Output record IDs only");
   });
 
+  it("prepares bounded correction guidance using only known reasons and the same evidence", async () => {
+    const generation = await prepare();
+    const repaired = generation.repairMessages("altered_quotation");
+    expect(repaired).not.toBeNull();
+    expect(repaired?.slice(0, -1)).toEqual(generation.messages);
+    expect(repaired?.at(-1)?.content).toContain("altered_quotation");
+    expect(repaired?.at(-1)?.content).toContain("Do not translate");
+    expect(generation.repairMessages("private-invalid-model-output")).toBeNull();
+    expect(generation.validate(JSON.stringify(plan())).status).toBe("valid");
+    expect(streamChatCompletion).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["Our findings do not show that seed oils cause inflammation in humans.", "seed oils cause inflammation in humans", "The findings show that seed oils cause inflammation in humans."],
     ["The trial found no harm, but the sample was small and follow-up lasted only six months.", "The trial found no harm", "The trial establishes that no harm occurs."],

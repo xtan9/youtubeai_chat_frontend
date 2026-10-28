@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+
+afterEach(() => vi.restoreAllMocks());
 
 const { mocks, afterCallbacks } = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => void | Promise<void>>,
@@ -17,7 +19,6 @@ const { mocks, afterCallbacks } = vi.hoisted(() => ({
     fail: vi.fn(),
     search: vi.fn(),
     researchUsage: vi.fn(),
-    logAppEvent: vi.fn(),
     recordProjectAnalyticsTransition: vi.fn(),
     recordProjectGenerationUsage: vi.fn(),
   },
@@ -41,11 +42,11 @@ vi.mock("@/lib/services/rate-limit", () => ({
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
-vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
 vi.mock("@/lib/projects/project-passage-search", () => ({
   createProjectResearchPassageSearchCapability: vi.fn(() => ({ search: mocks.search })),
 }));
-vi.mock("@/lib/projects/project-research-retrieval", () => ({
+vi.mock("@/lib/projects/project-research-retrieval", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/projects/project-research-retrieval")>(),
   retrieveProjectResearchEvidence: async (args: { question: string; onPlanningStart?: () => void; onUsage: (usage: unknown) => void }) => {
     args.onPlanningStart?.();
     const usage = mocks.researchUsage();
@@ -60,6 +61,7 @@ vi.mock("@/lib/analytics/project-server", () => ({
 
 import { GET, POST } from "../route";
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
+import { ProjectResearchRetrievalError } from "@/lib/projects/project-research-retrieval";
 import { createProjectArtifactRoute } from "@/lib/projects/project-artifact-route";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
@@ -301,6 +303,7 @@ function post() { return POST(request("POST", { attemptToken: ATTEMPT_TOKEN }), 
 describe("Project Brief API", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
     afterCallbacks.length = 0;
     mocks.after.mockImplementation((callback: () => void | Promise<void>) => afterCallbacks.push(callback));
     mocks.requireRegisteredResearcher.mockResolvedValue({ kind: "resolved", principal: { userId: USER_ID, isAnonymous: false } });
@@ -334,7 +337,7 @@ describe("Project Brief API", () => {
     expect(completed.content).toContain("> The launch should happen in April because the team is ready. [S1 @ 00:12]");
     expect(completed.artifacts.sourceManifest).toEqual(SOURCE_MANIFEST);
     expect(completed.artifacts.evidenceSnapshot.passages).toEqual([PASSAGES[0], PASSAGES[2], PASSAGES[1], PASSAGES[3]]);
-    expect(completed.generationMetadata).toMatchObject({ promptVersion: "project-brief-v5", normalizationAudit: { version: "project-brief-context-v3", recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(completed.generationMetadata).toMatchObject({ promptVersion: "project-brief-v6", normalizationAudit: { version: "project-brief-context-v3", recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
     expect(mocks.fail).not.toHaveBeenCalled();
   });
@@ -419,11 +422,26 @@ describe("Project Brief API", () => {
     model(attack === "malformed JSON" ? "not-json" : JSON.stringify(output));
     const response = await post();
     expect(response.status).toBe(503);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
     expect(mocks.complete).not.toHaveBeenCalled();
     expect(mocks.fail).toHaveBeenCalledOnce();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "validation", validationReason }));
-    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain(output.findings[0].text);
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "validation", reason: validationReason }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(output.findings[0].text);
     expect(await response.text()).not.toContain(validationReason);
+  });
+
+  it("retains safe planner diagnostics through real artifact log redaction", async () => {
+    const failure = Object.assign(new ProjectResearchRetrievalError("planner_invalid_json"), { cause: new Error("private-planner-output") });
+    mocks.search.mockRejectedValue(failure);
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({
+      stage: "retrieval", errorCode: "planner_invalid_json",
+    }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-planner-output");
+    expect(await response.text()).not.toContain("planner_invalid_json");
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
   });
 
   it.each(["retrieval", "persistence", "reload"])("identifies the %s failure stage without logging exception text", async (failureStage) => {
@@ -434,8 +452,8 @@ describe("Project Brief API", () => {
     const response = await post();
     expect(response.status).toBe(503);
     expect(mocks.fail).toHaveBeenCalledOnce();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage }));
-    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain(error.message);
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: failureStage }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(error.message);
     expect(await response.text()).not.toContain(error.message);
   });
 
@@ -446,13 +464,14 @@ describe("Project Brief API", () => {
     });
     const response = await post();
     expect(response.status).toBe(503);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
     expect(mocks.complete).not.toHaveBeenCalled();
     expect(mocks.fail).toHaveBeenCalledOnce();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({
-      failureStage: "generation",
-      ...(httpFailure ? { failureCode: "provider_http_error", providerHttpStatus: 502 } : {}),
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({
+      stage: "generation",
+      ...(httpFailure ? { errorCode: "provider_http_error", status: 502 } : {}),
     }));
-    const logged = JSON.stringify(mocks.logAppEvent.mock.calls);
+    const logged = JSON.stringify(vi.mocked(console.error).mock.calls);
     expect(logged).not.toContain("private-generated-content");
     expect(logged).not.toContain("private-upstream-response");
     const body = await response.text();
@@ -470,8 +489,9 @@ describe("Project Brief API", () => {
     });
     const response = await validatePost(request("POST", { attemptToken: ATTEMPT_TOKEN }), CONTEXT);
     expect(response.status).toBe(503);
-    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "validation", validationReason: "unrecognized_validation_reason" }));
-    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-generated-validation-reason");
+    expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "validation", reason: "unrecognized_validation_reason" }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-generated-validation-reason");
     expect(await response.text()).not.toContain("private-generated-validation-reason");
   });
 
@@ -479,14 +499,101 @@ describe("Project Brief API", () => {
     model("private-generated-content".repeat(5_000));
     expect((await post()).status).toBe(503);
     expect(mocks.complete).not.toHaveBeenCalled();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "generation", failureCode: "artifact_too_long" }));
-    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-generated-content");
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "generation", errorCode: "artifact_too_long" }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-generated-content");
   });
 
   it("accepts formatted JSON and never stores provider evidence IDs as user prose", async () => {
     model(JSON.stringify(plan(), null, 2));
     expect((await post()).status).toBe(201);
     expect(mocks.complete.mock.calls[0][0].content).not.toContain("evidenceId");
+  });
+
+  it("repairs one invalid brief with unchanged evidence, persists once, and accounts for both calls", async () => {
+    const invalid = plan();
+    invalid.findings[0].text = "private-invalid-response";
+    invalid.findings[0].evidence[0].evidenceId = "E99";
+    mocks.researchUsage.mockReturnValue({ inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 });
+    let calls = 0;
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      const call = calls++;
+      yield { type: "delta", text: JSON.stringify(call === 0 ? invalid : plan()) };
+      yield { type: "usage", usage: { inputTokens: 30, cachedInputTokens: 2, outputTokens: 7 } };
+      yield { type: "usage", usage: call === 0
+        ? { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 }
+        : { inputTokens: 70, cachedInputTokens: 10, outputTokens: 20 } };
+    });
+    expect((await post()).status).toBe(201);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
+    const [first, second] = mocks.streamChatCompletion.mock.calls.map(([input]) => input.messages);
+    expect(second.slice(0, -1)).toEqual(first);
+    expect(second.at(-1).content).toContain("unknown_evidence");
+    expect(JSON.stringify(second)).not.toContain("private-invalid-response");
+    expect(mocks.reserve).toHaveBeenCalledOnce();
+    expect(mocks.search).toHaveBeenCalledOnce();
+    expect(mocks.complete).toHaveBeenCalledOnce();
+    expect(mocks.fail).not.toHaveBeenCalled();
+    expect(mocks.complete.mock.calls[0][0].artifacts.evidenceSnapshot.passages).toEqual([PASSAGES[0], PASSAGES[2], PASSAGES[1], PASSAGES[3]]);
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: { inputTokens: 230, cachedInputTokens: 35, outputTokens: 45 },
+    }));
+  });
+
+  it.each([["planner", -1], ["first synthesis", 0], ["repair", 1]] as const)("keeps the whole operation unmeasured when %s omits usage", async (_missing, missingCall) => {
+    if (missingCall !== -1) mocks.researchUsage.mockReturnValue({ inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 });
+    let calls = 0;
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      const call = calls++;
+      yield { type: "delta", text: call === 0 ? "invalid-json" : JSON.stringify(plan()) };
+      if (call !== missingCall) yield { type: "usage", usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 } };
+    });
+    expect((await post()).status).toBe(201);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
+  });
+
+  it("stops after a failed repair and leaves the existing artifact untouched", async () => {
+    model("invalid-json");
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("X-Error-ID")).toBe("PROJECT_BRIEF_GENERATION_FAILED");
+    expect(await response.json()).toEqual({ message: "Project Brief could not be generated. Please try again." });
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
+  });
+
+  it("stops on a failed repair provider call and does not count its missing usage as measured", async () => {
+    mocks.researchUsage.mockReturnValue({ inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 });
+    let calls = 0;
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      if (calls++ === 1) throw new ChatGatewayError("provider_http_error", 502);
+      yield { type: "delta", text: "invalid-json" };
+      yield { type: "usage", usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 } };
+    });
+    expect((await post()).status).toBe(503);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
+    expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "generation", errorCode: "provider_http_error", status: 502 }));
+  });
+
+  it("does not start repair after cancellation", async () => {
+    const controller = new AbortController();
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta", text: "invalid-json" };
+      controller.abort();
+    });
+    await POST(new Request(request("POST", { attemptToken: ATTEMPT_TOKEN }), { signal: controller.signal }), CONTEXT);
+    expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
   });
 
   it("preserves source-set conflict protection during completion", async () => {
