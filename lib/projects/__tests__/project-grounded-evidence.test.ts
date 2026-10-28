@@ -10,6 +10,38 @@ import {
 } from "./project-grounded-test-fixtures";
 
 describe("Project Grounded Answer evidence selection", () => {
+  it("keeps later findings and qualifications when earlier contextual windows overlap", () => {
+    const starts = [1, 13, 29, 45, 61, 77, 93, 109, 201, 241];
+    const passages = starts.map((start, index) => {
+      const source = passage({
+        segmentOrdinal: start,
+        text: index === 8 ? "The trial reports its measured outcome and comparator."
+          : index === 9 ? "The conclusion is qualified by the limited follow-up."
+            : `Repeated topic introduction and mechanism ${index + 1}.`,
+        startSeconds: start * 2, endSeconds: (start + 23) * 2,
+      });
+      return {
+        ...source,
+        endSegmentOrdinal: start + 23,
+        passageId: `${source.videoId}:${start}-${start + 23}:0:${source.text.length}`,
+      };
+    });
+    const artifacts = buildProjectAnswerArtifacts({
+      projectId: PROJECT_ID, goal: "中立研究证据与限制", balanceSources: true,
+      search: {
+        status: "ready", sourceSetRevision: 3, passages,
+        coverage: { totalVideos: 1, readyVideos: 1, unavailableVideos: [], passagesExamined: 300 },
+      },
+    });
+    const selected = artifacts.evidenceSnapshot.passages;
+    expect(selected).toHaveLength(8);
+    expect(selected).toContainEqual(passages[8]);
+    expect(selected).toContainEqual(passages[9]);
+    for (const source of selected) {
+      expect(source).toEqual(passages.find(({ passageId }) => passageId === source.passageId));
+    }
+  });
+
   it("lets Goal reorder only passages already returned by bounded retrieval", () => {
     const first = passage({ text: "General project context." });
     const goalMatch = passage({

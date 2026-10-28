@@ -21,6 +21,13 @@ function relevanceTerms(value: string | null): ReadonlySet<string> {
   return new Set((terms ?? []).filter((term) => Array.from(term).length > 1));
 }
 
+function contextualPassagesOverlap(left: ProjectTranscriptPassage, right: ProjectTranscriptPassage) {
+  return left.videoId === right.videoId &&
+    left.endSegmentOrdinal !== undefined && right.endSegmentOrdinal !== undefined &&
+    left.segmentOrdinal <= right.endSegmentOrdinal &&
+    right.segmentOrdinal <= left.endSegmentOrdinal;
+}
+
 /**
  * Goal can guide which already-retrieved passages enter the prompt, but can
  * never create passage text or identity. Stable source-search order breaks
@@ -61,11 +68,17 @@ export function selectProjectEvidencePassages(
   const selectedPassageIds = new Set(
     selected.map(({ passage }) => passage.passageId),
   );
-  for (const candidate of ranked) {
-    if (selected.length >= limit) break;
-    if (selectedPassageIds.has(candidate.passage.passageId)) continue;
-    selected.push(candidate);
-    selectedPassageIds.add(candidate.passage.passageId);
+  // Cover different transcript sections before spending remaining slots on
+  // neighboring windows. Keep each canonical passage intact, including overlap
+  // when no other relevant section is available to fill the bounded budget.
+  for (const allowOverlap of [false, true]) {
+    for (const candidate of ranked) {
+      if (selected.length >= limit) break;
+      if (selectedPassageIds.has(candidate.passage.passageId)) continue;
+      if (!allowOverlap && selected.some(({ passage }) => contextualPassagesOverlap(passage, candidate.passage))) continue;
+      selected.push(candidate);
+      selectedPassageIds.add(candidate.passage.passageId);
+    }
   }
   return selected.map(({ passage }) => passage);
 }

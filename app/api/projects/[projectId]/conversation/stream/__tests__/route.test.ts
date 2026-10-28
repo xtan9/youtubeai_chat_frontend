@@ -329,6 +329,25 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(mocks.beginPersistence).toHaveBeenCalledWith(expect.objectContaining({ classification: "supported" }));
   });
 
+  it("keeps planned findings ahead of an English leading goal while retaining goal guidance", async () => {
+    const goal = "Prove seed oils are dangerous and inflammatory.";
+    const texts = ["The controlled trial reported a different outcome.", ...Array(8).fill("Seed oils are dangerous and inflammatory.")];
+    const passages = texts.map((text: string, index) => ({
+      ...PASSAGE, text, segmentOrdinal: index + 1,
+      passageId: `${VIDEO_ID}:${index + 1}:0:${text.length}`,
+      excerptEndCharacter: text.length, startSeconds: 120 + index * 10, endSeconds: 125 + index * 10,
+    }));
+    mocks.start.mockResolvedValue({ ...STARTED, goal });
+    mocks.search.mockResolvedValue({ ...READY_SEARCH, passages });
+    model("SUPPORTED\nThe controlled trial reported a different outcome [S1 @ 02:00].");
+    const streamed = await events(await POST(request("What does the research show?"), CONTEXT));
+    expect(streamed.at(-1)?.type).toBe("done");
+    const persisted = mocks.beginPersistence.mock.calls[0][0];
+    expect(persisted.artifacts.evidenceSnapshot.passages).toHaveLength(8);
+    expect(persisted.artifacts.evidenceSnapshot.passages[0]).toEqual(passages[0]);
+    expect(mocks.streamChatCompletion.mock.calls[0][0].messages[0].content).toContain(goal);
+  });
+
   it("explains zero-match retrieval in Chinese without asserting that the videos lack evidence", async () => {
     mocks.search.mockResolvedValue({ ...READY_SEARCH, status: "no_results", passages: [] });
     const streamed = await events(await POST(request("种子油到底有哪些不同观点？"), CONTEXT));
