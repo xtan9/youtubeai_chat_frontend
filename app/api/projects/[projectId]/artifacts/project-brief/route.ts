@@ -7,14 +7,13 @@ const route = createProjectArtifactRoute({
   kind: "project_brief",
   title: "Project Brief",
   responseKey: "projectBrief",
-  promptVersion: "project-brief-v4",
+  promptVersion: "project-brief-v5",
   logScope: "project-brief",
   errorPrefix: "PROJECT_BRIEF",
-  balanceSources: true,
   evidenceNotReadyMessage:
     "A Project Brief needs at least one ready Project Transcript. Try again when processing finishes.",
   evidenceInsufficientMessage:
-    "The ready Project Transcripts do not contain enough evidence for a Project Brief.",
+    "We couldn't retrieve relevant passages for this Project Brief. Try a more specific research goal or add another source.",
   prepareGeneration: prepareProjectBriefGeneration,
 });
 

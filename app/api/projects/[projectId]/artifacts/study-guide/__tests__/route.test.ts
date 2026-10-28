@@ -30,6 +30,15 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
 vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
+vi.mock("@/lib/projects/project-passage-search", () => ({
+  createProjectResearchPassageSearchCapability: vi.fn(() => ({ search: mocks.search })),
+}));
+vi.mock("@/lib/projects/project-research-retrieval", () => ({
+  retrieveProjectResearchEvidence: async (args: { question: string; onPlanningStart?: () => void }) => {
+    args.onPlanningStart?.();
+    return mocks.search({ query: args.question, limit: 10, balanceSources: true });
+  },
+}));
 
 import { GET, POST } from "../route";
 
@@ -362,6 +371,7 @@ describe("Project Study Guide API", () => {
     expect(mocks.search).toHaveBeenCalledWith({
       query: expect.stringContaining("Study Guide"),
       limit: 10,
+      balanceSources: true,
     });
     expect(mocks.streamChatCompletion).toHaveBeenCalledWith(
       expect.objectContaining({

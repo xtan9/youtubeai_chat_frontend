@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState, type FormEvent } from "react";
-import { ArrowLeft, Lightbulb, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, FileText, Lightbulb, MessageSquare, Save, Search, Settings2, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +20,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   ProjectHistoryCandidatePage,
   ProjectSourceSet as ProjectSourceSetValue,
@@ -79,14 +81,17 @@ export function ProjectView({
   const [error, setError] = useState<ApiError | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState("research");
+  const [sourcesOpen, setSourcesOpen] = useState(initialSourceSet.videos.length === 0);
+  const [sourceVideos, setSourceVideos] = useState(initialSourceSet.videos);
   const [currentSourceSetRevision, setCurrentSourceSetRevision] = useState(
     initialSourceSet.revision,
   );
   const handleSourceSetChange = useCallback(
-    (next: ProjectSourceSetValue) =>
-      setCurrentSourceSetRevision((current) =>
-        Math.max(current, next.revision),
-      ),
+    (next: ProjectSourceSetValue) => {
+      setCurrentSourceSetRevision((current) => Math.max(current, next.revision));
+      setSourceVideos(next.videos);
+    },
     [],
   );
 
@@ -140,9 +145,11 @@ export function ProjectView({
     }
   }
 
+  // A 19rem source rail leaves readable video titles while the 1440px cap keeps
+  // the research column comfortable to read on wide desktop displays.
   return (
     <div
-      className="ph-no-capture mx-auto flex w-full max-w-page flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12"
+      className="ph-no-capture mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7"
       data-ph-no-autocapture
     >
       <Link
@@ -153,39 +160,74 @@ export function ProjectView({
         Back to Workspace
       </Link>
 
-      <header className="flex flex-col gap-3 border-b border-border-subtle pb-8">
-        <p className="text-body-sm font-medium text-text-muted">Project</p>
+      <header className="flex flex-col gap-2 border-b border-border-subtle pb-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-caption font-medium uppercase tracking-wider text-text-muted">Research project</p>
+          <Badge variant="outline">{sourceVideos.filter((video) => video.status === "ready").length}/{sourceVideos.length} videos ready</Badge>
+        </div>
         <h1 className="break-words text-h2 text-text-primary">{project.name}</h1>
         <p className="max-w-prose text-body-md text-text-secondary">
-          Curate a bounded Source Set, then use it as the evidence for grounded research.
+          {project.goal ?? "Bring your videos together. Ask questions, compare viewpoints, and follow the evidence."}
         </p>
       </header>
 
-      <ProjectSourceSet
-        projectId={project.id}
-        initialSourceSet={initialSourceSet}
-        initialCandidatePage={initialCandidatePage}
-        onSourceSetChange={handleSourceSetChange}
-      />
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
+        <Button
+          type="button"
+          variant="outline"
+          className="justify-between lg:hidden"
+          aria-controls="project-sources-panel"
+          aria-expanded={sourcesOpen}
+          onClick={() => setSourcesOpen((current) => !current)}
+        >
+          <span className="flex items-center gap-2"><BookOpen aria-hidden="true" />Sources · {sourceVideos.length} videos</span>
+          <span className="text-caption">{sourcesOpen ? "Hide" : "Show"}</span>
+        </Button>
+        <aside
+          id="project-sources-panel"
+          aria-label="Project sources"
+          className={`${sourcesOpen ? "block" : "hidden"} min-w-0 lg:sticky lg:top-6 lg:block`}
+        >
+          <ProjectSourceSet
+            projectId={project.id}
+            initialSourceSet={initialSourceSet}
+            initialCandidatePage={initialCandidatePage}
+            onSourceSetChange={handleSourceSetChange}
+            compact
+          />
+        </aside>
 
-      <ProjectArtifacts
-        projectId={project.id}
-        projectName={project.name}
-        currentSourceSetRevision={currentSourceSetRevision}
-        initialStudyGuide={initialStudyGuide}
-        initialCreatorBrief={initialCreatorBrief}
-        initialProjectBrief={initialProjectBrief}
-      />
-
-      <ProjectConversation
-        projectId={project.id}
-        initialConversation={initialConversation}
-        initialConversations={initialConversations}
-      />
-
-      <ProjectSearch projectId={project.id} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-4">
+          {/* The site header scrolls normally; keep section navigation available
+              at the viewport edge while reading a long conversation. */}
+          <TabsList aria-label="Project sections" className="sticky top-0 z-20 grid h-11 w-full grid-cols-4 shadow-sm">
+            <TabsTrigger value="research"><MessageSquare aria-hidden="true" className="hidden sm:block" /><span>Research</span></TabsTrigger>
+            <TabsTrigger value="outputs"><FileText aria-hidden="true" className="hidden sm:block" /><span>Outputs</span></TabsTrigger>
+            <TabsTrigger value="search"><Search aria-hidden="true" className="hidden sm:block" /><span>Search</span></TabsTrigger>
+            <TabsTrigger value="settings"><Settings2 aria-hidden="true" className="hidden sm:block" /><span>Settings</span></TabsTrigger>
+          </TabsList>
+          <TabsContent value="research" forceMount hidden={activeTab !== "research"}>
+            <ProjectConversation
+              projectId={project.id}
+              initialConversation={initialConversation}
+              initialConversations={initialConversations}
+            />
+          </TabsContent>
+          <TabsContent value="outputs" forceMount hidden={activeTab !== "outputs"}>
+            <ProjectArtifacts
+              projectId={project.id}
+              projectName={project.name}
+              currentSourceSetRevision={currentSourceSetRevision}
+              initialStudyGuide={initialStudyGuide}
+              initialCreatorBrief={initialCreatorBrief}
+              initialProjectBrief={initialProjectBrief}
+            />
+          </TabsContent>
+          <TabsContent value="search" forceMount hidden={activeTab !== "search"}>
+            <ProjectSearch projectId={project.id} />
+          </TabsContent>
+          <TabsContent value="settings" forceMount hidden={activeTab !== "settings"}>
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         <Card>
           <CardHeader>
             <h2 className="text-h4 font-semibold text-text-primary">Project details</h2>
@@ -222,7 +264,7 @@ export function ProjectView({
                     setSaved(false);
                   }}
                   maxLength={2000}
-                  rows={7}
+                  rows={4}
                   aria-invalid={Boolean(error?.fieldErrors?.goal)}
                   aria-describedby={
                     error?.fieldErrors?.goal
@@ -313,6 +355,9 @@ export function ProjectView({
             </CardContent>
           </Card>
         </aside>
+      </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

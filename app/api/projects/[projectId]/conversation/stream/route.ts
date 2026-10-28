@@ -14,7 +14,6 @@ import {
 import {
   ProjectGroundedQuestionRequestSchema,
   PROJECT_DEFAULT_CONVERSATION_MODE,
-  PROJECT_GROUNDED_RETRIEVAL_LIMIT,
   PROJECT_QUESTION_MESSAGE_ID_HEADER,
   type ProjectGroundedSseEvent,
   type ProjectQuestionReservation,
@@ -26,6 +25,12 @@ import {
 import { executeProjectGroundedAnswerStream } from "@/lib/projects/project-grounded-answer-stream";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
 import { buildProjectGroundedMessages } from "@/lib/projects/project-grounded-prompt";
+import { createProjectResearchPassageSearchCapability } from "@/lib/projects/project-passage-search";
+import {
+  ProjectResearchRetrievalError,
+  retrieveProjectResearchEvidence,
+} from "@/lib/projects/project-research-retrieval";
+import type { ChatTokenUsage } from "@/lib/services/llm-chat-client";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
@@ -41,6 +46,12 @@ const RETRIEVAL_ERROR =
   "Transcript retrieval is temporarily unavailable. Your question was saved and your Project is unchanged. Try again.";
 
 class ProjectRetrievalUnavailableError extends Error {}
+
+function noRelevantPassagesMessage(question: string) {
+  return /\p{Script=Han}/u.test(question) && !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(question)
+    ? "我还没有找到与这个问题相关的视频原文片段，因此暂时无法比较证据。这不代表这些视频没有答案，也不代表你的判断已被证实。试着把问题缩小到一个具体观点或概念。"
+    : "I couldn't find relevant transcript passages for this question, so I can't assess the evidence yet. This does not establish what the videos say or whether the claim is true. Try asking about one specific claim or concept.";
+}
 
 type GuidedAbstentionReason = Parameters<
   typeof buildProjectSynthesisAbstention
@@ -165,7 +176,7 @@ export async function POST(request: Request, context: RouteContext) {
     return projectUnavailableResponse(requestId);
   }
   const groundedAnswers = subject.value.groundedAnswers;
-  const passageSearch = subject.value.passageSearch;
+  const passageSearch = createProjectResearchPassageSearchCapability(supabase, subject.value);
 
   // Auth and owner resolution precede the existing global abuse gate. The
   // durable question reservation happens only after every preflight passes.
@@ -309,6 +320,18 @@ export async function POST(request: Request, context: RouteContext) {
   else request.signal.addEventListener("abort", abortGeneration, { once: true });
   const stream = new ReadableStream({
     async start(controller) {
+      let generationStartedAt: number | null = null;
+      let plannerStarted = false;
+      let plannerUsageReceived = false;
+      let usageComplete = true;
+      let totalUsage: ChatTokenUsage | undefined;
+      const addUsage = (usage: ChatTokenUsage) => {
+        totalUsage = {
+          inputTokens: (totalUsage?.inputTokens ?? 0) + usage.inputTokens,
+          cachedInputTokens: (totalUsage?.cachedInputTokens ?? 0) + usage.cachedInputTokens,
+          outputTokens: (totalUsage?.outputTokens ?? 0) + usage.outputTokens,
+        };
+      };
       const encoder = new TextEncoder();
       const send = (event: ProjectGroundedSseEvent) => {
         if (event.type === "persistence_started") persistenceStarted = true;
@@ -331,10 +354,20 @@ export async function POST(request: Request, context: RouteContext) {
           userMessageId: reservation.userMessageId,
         });
 
-        const search = await passageSearch.search({
-          query: parsed.data.question,
-          limit: PROJECT_GROUNDED_RETRIEVAL_LIMIT,
-          balanceSources: mode === "project_assessment",
+        const search = await retrieveProjectResearchEvidence({
+          passageSearch,
+          question: parsed.data.question,
+          projectName: subject.value.name,
+          history: started.history,
+          signal: generationController.signal,
+          onPlanningStart: () => {
+            plannerStarted = true;
+            generationStartedAt = Date.now();
+          },
+          onUsage: (usage) => {
+            plannerUsageReceived = true;
+            addUsage(usage);
+          },
         });
         if (
           search.status === "missing" ||
@@ -350,6 +383,7 @@ export async function POST(request: Request, context: RouteContext) {
           projectId: subject.value.projectId,
           search,
           goal: started.goal,
+          balanceSources: true,
         });
         // These two events are always first, so coverage is visible and stable
         // before any generated assistant text can arrive. The reservation event
@@ -374,11 +408,11 @@ export async function POST(request: Request, context: RouteContext) {
           ? {
               kind: "unsupported" as const,
               content:
-                mode === PROJECT_DEFAULT_CONVERSATION_MODE
-                  ? search.status === "not_ready"
+                search.status !== "not_ready" && artifacts.evidenceSnapshot.passages.length === 0
+                  ? noRelevantPassagesMessage(parsed.data.question)
+                  : mode === PROJECT_DEFAULT_CONVERSATION_MODE
                     ? "This Project has no ready Transcript evidence yet, so I can't answer from its Project Videos."
-                    : "The available Project passages do not support an answer to this question."
-                   : buildProjectSynthesisAbstention(
+                    : buildProjectSynthesisAbstention(
                        mode,
                        guidedAbstentionReason(
                          mode,
@@ -415,22 +449,9 @@ export async function POST(request: Request, context: RouteContext) {
           emit: send,
         });
         if (result.generation) {
-          scheduleAnalyticsAfterResponse(async () => {
-            await recordProjectGenerationUsage({
-              projectId: subject.value.projectId,
-              ownerId: researcher.principal.userId,
-              operationId: reservation.attemptToken,
-              generationKind: "grounded_answer",
-              usage: result.generation?.usage,
-              durationMs: result.generation?.durationMs ?? 0,
-              businessAnalyticsSuppressed:
-                researcher.principal.businessAnalyticsSuppressed,
-              activation: {
-                trigger: "message",
-                occurredAt: messageOccurredAt,
-              },
-            });
-          });
+          generationStartedAt ??= Date.now() - result.generation.durationMs;
+          if (result.generation.usage) addUsage(result.generation.usage);
+          else usageComplete = false;
         }
         if (result.outcome === "failed") {
           await cancelReservedQuestion();
@@ -463,12 +484,28 @@ export async function POST(request: Request, context: RouteContext) {
           send({
             type: "error",
             message:
-              error instanceof ProjectRetrievalUnavailableError
+              error instanceof ProjectRetrievalUnavailableError || error instanceof ProjectResearchRetrievalError
                 ? RETRIEVAL_ERROR
                 : GENERIC_ERROR,
           });
         }
       } finally {
+        if (generationStartedAt !== null) {
+          const usage = usageComplete && (!plannerStarted || plannerUsageReceived) ? totalUsage : undefined;
+          const durationMs = Math.max(0, Date.now() - generationStartedAt);
+          scheduleAnalyticsAfterResponse(async () => {
+            await recordProjectGenerationUsage({
+              projectId: subject.value.projectId,
+              ownerId: researcher.principal.userId,
+              operationId: reservation.attemptToken,
+              generationKind: "grounded_answer",
+              usage,
+              durationMs,
+              businessAnalyticsSuppressed: researcher.principal.businessAnalyticsSuppressed,
+              activation: { trigger: "message", occurredAt: messageOccurredAt },
+            });
+          });
+        }
         if (generationController.signal.aborted && !persistenceStarted) {
           await cancelReservedQuestion();
         }

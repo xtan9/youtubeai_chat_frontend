@@ -16,6 +16,7 @@ const { mocks, afterCallbacks } = vi.hoisted(() => {
       cancel: vi.fn(),
       beginPersistence,
       search: vi.fn(),
+      retrieveResearch: vi.fn(),
       streamChatCompletion: vi.fn(),
       logAppEvent: vi.fn(),
       captureProjectActivityEvent: vi.fn(),
@@ -43,6 +44,13 @@ vi.mock("@/lib/services/rate-limit", () => ({
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
+vi.mock("@/lib/projects/project-passage-search", () => ({
+  createProjectResearchPassageSearchCapability: () => ({ search: mocks.search }),
+}));
+vi.mock("@/lib/projects/project-research-retrieval", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/projects/project-research-retrieval")>();
+  return { ...original, retrieveProjectResearchEvidence: mocks.retrieveResearch };
+});
 vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
 vi.mock("@/lib/analytics/server", () => ({
   captureProjectActivityEvent: mocks.captureProjectActivityEvent,
@@ -286,6 +294,9 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     mocks.cancel.mockResolvedValue({ status: "cancelled" });
     mocks.beginPersistence.mockResolvedValue({ status: "started" });
     mocks.search.mockResolvedValue(READY_SEARCH);
+    mocks.retrieveResearch.mockImplementation(({ passageSearch, question }) => passageSearch.search({
+      query: question, limit: 10, balanceSources: true,
+    }));
     mocks.beginPersistence.mockImplementation(async (input) => ({
       outcome: "completed" as const,
       assistantMessageId: ASSISTANT_ID,
@@ -295,10 +306,91 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     model("SUPPORTED\nThe launch", " happened in April [S1 @ 00:42].");
   });
 
+  it("plans multilingual retrieval and sends the unchanged Chinese question to answer generation", async () => {
+    const question = "种子油真的有害吗？请比较不同来源的证据。";
+    const response = await POST(request(question), CONTEXT);
+    await events(response);
+
+    expect(mocks.retrieveResearch).toHaveBeenCalledWith(expect.objectContaining({ question }));
+    expect(mocks.streamChatCompletion.mock.calls[0]?.[0].messages.at(-1)).toEqual({ role: "user", content: question });
+  });
+
+  it("preserves a minority source when the Project Goal favors eight other passages", async () => {
+    const dominant = Array.from({ length: 8 }, (_, index) => ({
+      ...PASSAGE, segmentOrdinal: index + 1, passageId: `${VIDEO_ID}:${index + 1}:0:45`,
+    }));
+    mocks.start.mockResolvedValue({ ...STARTED, goal: "The launch happened in April." });
+    mocks.search.mockResolvedValue({ ...READY_SEARCH, passages: [...dominant, SECOND_PASSAGE] });
+    model("SUPPORTED\nOne source says April [S1 @ 00:42], while another says May [S2 @ 00:52].");
+    const streamed = await events(await POST(request("Compare these viewpoints"), CONTEXT));
+    const manifest = streamed.find((event) => event.type === "source_manifest")?.manifest as { sources: Array<{ videoId: string }> };
+    expect(manifest.sources.map(({ videoId }) => videoId)).toEqual([VIDEO_ID, SECOND_VIDEO_ID]);
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(expect.objectContaining({ classification: "supported" }));
+  });
+
+  it("explains zero-match retrieval in Chinese without asserting that the videos lack evidence", async () => {
+    mocks.search.mockResolvedValue({ ...READY_SEARCH, status: "no_results", passages: [] });
+    const streamed = await events(await POST(request("种子油到底有哪些不同观点？"), CONTEXT));
+    expect(streamed).toContainEqual(expect.objectContaining({
+      type: "delta", text: expect.stringContaining("这不代表这些视频没有答案"),
+    }));
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("accounts for both retrieval planning and answer generation once", async () => {
+    mocks.retrieveResearch.mockImplementation(async ({ onPlanningStart, onUsage }) => {
+      onPlanningStart();
+      onUsage({ inputTokens: 30, cachedInputTokens: 5, outputTokens: 10 });
+      return READY_SEARCH;
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "usage", usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 40 } };
+      yield { type: "delta", text: "SUPPORTED\nThe launch happened in April [S1 @ 00:42]." };
+      yield { type: "done" };
+    });
+    await events(await POST(request(), CONTEXT));
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: { inputTokens: 130, cachedInputTokens: 25, outputTokens: 50 },
+    }));
+  });
+
+  it("records paid planning work even if retrieval fails before an answer can start", async () => {
+    mocks.retrieveResearch.mockImplementation(async ({ onPlanningStart, onUsage }) => {
+      onPlanningStart();
+      onUsage({ inputTokens: 30, cachedInputTokens: 0, outputTokens: 10 });
+      throw new Error("Planner returned invalid data");
+    });
+    const streamed = await events(await POST(request(), CONTEXT));
+    for (const callback of afterCallbacks) await callback();
+    expect(streamed.at(-1)).toMatchObject({ type: "error" });
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    expect(mocks.beginPersistence).not.toHaveBeenCalled();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: { inputTokens: 30, cachedInputTokens: 0, outputTokens: 10 },
+    }));
+  });
+
+  it("does not report partial known tokens as the complete cost when a provider omits usage", async () => {
+    mocks.retrieveResearch.mockImplementation(async ({ onPlanningStart }) => {
+      onPlanningStart();
+      return READY_SEARCH;
+    });
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "usage", usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 40 } };
+      yield { type: "delta", text: "SUPPORTED\nThe launch happened in April [S1 @ 00:42]." };
+      yield { type: "done" };
+    });
+    await events(await POST(request(), CONTEXT));
+    for (const callback of afterCallbacks) await callback();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
+  });
+
   it("validates strict code-point-bounded input before any auth or database work", async () => {
     for (const body of [
       { questionId: USER_MESSAGE_ID, question: "x" },
-      { questionId: USER_MESSAGE_ID, question: "x".repeat(201) },
+      { questionId: USER_MESSAGE_ID, question: "x".repeat(4_001) },
       { questionId: USER_MESSAGE_ID, question: "valid", ownerId: USER_ID },
     ]) {
       const response = await POST(
@@ -712,7 +804,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     );
   });
 
-  it("names the evidence gap for a guided unexplored-angle request with no passages", async () => {
+  it("names the retrieval miss for a guided unexplored-angle request with no passages", async () => {
     mocks.search.mockResolvedValue({
       status: "no_results",
       sourceSetRevision: 4,
@@ -744,9 +836,26 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     });
     expect(streamed[4]).toEqual({
       type: "delta",
-      text: "The retrieved Evidence Snapshot does not support a useful gap or unexplored angle, so I can't identify gaps without guessing.",
+      text: "I couldn't find relevant transcript passages for this question, so I can't assess the evidence yet. This does not establish what the videos say or whether the claim is true. Try asking about one specific claim or concept.",
     });
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["common_themes", "What do these videos agree on?", "I couldn't find relevant transcript passages"],
+    ["compare_viewpoints", "Compare the evidence for each position.", "I couldn't find relevant transcript passages"],
+    ["find_gaps", "What questions still need investigation?", "I couldn't find relevant transcript passages"],
+    ["project_assessment", "Which position has stronger evidence?", "I couldn't find relevant transcript passages"],
+    ["common_themes", "这些视频同意哪些观点？", "这不代表这些视频没有答案"],
+    ["compare_viewpoints", "请比较不同来源的观点。", "这不代表这些视频没有答案"],
+    ["find_gaps", "哪些问题值得进一步研究？", "这不代表这些视频没有答案"],
+    ["project_assessment", "哪个观点有更充分的证据？", "这不代表这些视频没有答案"],
+  ] as const)("explains a %s retrieval miss without an evidence judgment for %s", async (mode, question, explanation) => {
+    mocks.search.mockResolvedValue({ ...READY_SEARCH, status: "no_results", passages: [] });
+    const streamed = await events(await POST(request(question, undefined, undefined, mode), CONTEXT));
+    expect(streamed).toContainEqual(expect.objectContaining({ type: "delta", text: expect.stringContaining(explanation) }));
+    expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
+    expect(mocks.beginPersistence).toHaveBeenCalledWith(expect.objectContaining({ classification: "unsupported", mode }));
   });
 
   it("abstains deterministically instead of persisting malformed gap sections", async () => {
@@ -1119,7 +1228,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     );
   });
 
-  it("completes a deterministic unsupported answer for no_results without calling the provider", async () => {
+  it("explains a retrieval miss without treating it as an evidence judgment", async () => {
     mocks.search.mockResolvedValue({
       status: "no_results",
       sourceSetRevision: 4,
@@ -1150,7 +1259,7 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     });
     expect(streamed[4]).toEqual({
       type: "delta",
-      text: "The available Project passages do not support an answer to this question.",
+      text: "I couldn't find relevant transcript passages for this question, so I can't assess the evidence yet. This does not establish what the videos say or whether the claim is true. Try asking about one specific claim or concept.",
     });
     expect(mocks.beginPersistence).toHaveBeenCalledWith(
       expect.objectContaining({ classification: "unsupported" }),

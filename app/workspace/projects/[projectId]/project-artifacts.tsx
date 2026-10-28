@@ -73,8 +73,8 @@ export function ProjectArtifacts({
               Artifacts
             </h2>
             <p className="max-w-prose text-body-sm text-text-secondary">
-              Choose the reusable output that fits your Project. Free includes
-              one generation total across Artifact types.
+              Turn your research into a reusable guide or brief.
+              {initialStudyGuide.tier === "free" ? " Free includes one generation across all output types." : " Each output includes its sources so you can check the evidence."}
             </p>
           </div>
         </CardHeader>

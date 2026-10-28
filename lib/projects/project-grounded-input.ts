@@ -6,7 +6,7 @@ import {
 
 export const PROJECT_QUESTION_MIN_LENGTH = 2;
 
-export const PROJECT_QUESTION_MAX_LENGTH = 200;
+export const PROJECT_QUESTION_MAX_LENGTH = 4_000;
 
 export const PROJECT_GROUNDED_PASSAGE_LIMIT = 8;
 
@@ -37,7 +37,7 @@ const ProjectQuestionSchema = z
     if (length > PROJECT_QUESTION_MAX_LENGTH) {
       context.addIssue({
         code: "custom",
-        message: "Questions must be 200 characters or fewer.",
+        message: "Questions must be 4,000 characters or fewer.",
       });
     }
   });

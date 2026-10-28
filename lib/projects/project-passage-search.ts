@@ -55,6 +55,7 @@ export function createProjectPassageSearchCapability(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, any, any>,
   target: ProjectPassageSearchTarget,
+  researchContext = false,
 ): ProjectPassageSearchCapability {
   return {
     async search(
@@ -62,7 +63,9 @@ export function createProjectPassageSearchCapability(
     ): Promise<ProjectPassageSearchResolution> {
       try {
         const result = await supabase.rpc(
-          input.balanceSources
+          researchContext
+            ? "search_project_research_passages"
+            : input.balanceSources
             ? "search_project_transcript_passages_balanced"
             : "search_project_transcript_passages",
           {
@@ -87,4 +90,13 @@ export function createProjectPassageSearchCapability(
       }
     },
   };
+}
+
+/** Research retrieves exact neighboring context; direct Search stays literal. */
+export function createProjectResearchPassageSearchCapability(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  target: ProjectPassageSearchTarget,
+): ProjectPassageSearchCapability {
+  return createProjectPassageSearchCapability(supabase, target, true);
 }

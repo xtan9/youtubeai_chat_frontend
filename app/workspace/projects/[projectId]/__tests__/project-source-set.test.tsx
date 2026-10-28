@@ -92,9 +92,12 @@ describe("ProjectSourceSet", () => {
       screen.getByText("2 of 3 Project Videos unavailable"),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Grounded actions will use only the 1 ready Video/i),
+      screen.getByText(/Answers can use 1 ready video/i),
     ).toBeTruthy();
     expect(screen.getByRole("status", { name: "3 of 5 Project Videos" })).toBeTruthy();
+    const reader = screen.getByRole("link", { name: /Read Source 1/ });
+    expect(reader.getAttribute("href")).toBe(`/summary?url=${encodeURIComponent(video(1).youtubeUrl)}`);
+    expect(reader.getAttribute("target")).toBe("_blank");
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
     expect(screen.getByRole("note")).toBeTruthy();
   });
@@ -145,7 +148,7 @@ describe("ProjectSourceSet", () => {
       screen.getByRole("button", { name: "Add from History" }).hasAttribute("disabled"),
     ).toBe(true);
     expect(screen.getByText("Source Set limit reached")).toBeTruthy();
-    expect(screen.getByText(/upgrading does not increase this grounding limit/i)).toBeTruthy();
+    expect(screen.getByText(/five video slots on every plan/i)).toBeTruthy();
     expect(screen.getByRole("status", { name: "5 of 5 Project Videos" })).toBeTruthy();
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
   });
