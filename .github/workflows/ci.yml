@@ -132,6 +132,11 @@ jobs:
           psql -X -q -v ON_ERROR_STOP=1
           -v migration_path="$GITHUB_WORKSPACE/supabase/migrations/20261028185810_project_research_context_windows.sql"
           -f supabase/test-fixtures/regression_project_research_owner_rollout.sql
+      - name: Research retrieval at transcript scale
+        run: |
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261028185810_project_research_context_windows.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261028195312_bound_project_research_metadata.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_research_scale.sql
 
   # Upgrade-path regression guard: replays prod's pre-migration shape and
   # then applies every migration in order. Catches the class of failure
@@ -354,6 +359,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search.sql
       - name: Research context and durable evidence - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_research_context.sql
+      - name: Research retrieval at transcript scale - representative legacy
+        run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_research_scale.sql
       - name: Project passage Search concurrency - representative legacy
         run: psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search_concurrency.sql
       - name: Project Video processing contract - representative legacy
@@ -477,6 +484,7 @@ jobs:
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_source_set_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_research_context.sql
+          PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_research_scale.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_passage_search_concurrency.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing.sql
           PGDATABASE=workspace_fresh psql -v ON_ERROR_STOP=1 -f supabase/test-fixtures/regression_project_video_processing_concurrency.sql
