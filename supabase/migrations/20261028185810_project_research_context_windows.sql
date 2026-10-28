@@ -798,8 +798,26 @@ revoke all on function
 -- migrations. Patch the core definitions in place so those wrappers and their
 -- grants remain intact on both fresh and upgraded installations.
 do $$
-declare fn record; definition text; updated integer := 0;
+declare
+  fn record; definition text; updated integer := 0;
+  temporary_owner_inheritance boolean := not pg_has_role(current_user, 'project_beta_rpc_owner', 'USAGE');
+  had_self_grant boolean;
 begin
+  -- Production migrations run without superuser privileges. The prior beta
+  -- migration moved these RPCs to a NOLOGIN owner. Its creator can administer
+  -- that role but does not inherit it. Use a separate self-grant inside this
+  -- atomic block, preserving the original grantor and membership options.
+  if temporary_owner_inheritance then
+    select exists(select 1 from pg_auth_members
+      where roleid = 'project_beta_rpc_owner'::regrole
+        and member = current_user::regrole and grantor = current_user::regrole)
+      into had_self_grant;
+    if current_setting('server_version_num')::integer >= 160000 then
+      execute format('grant project_beta_rpc_owner to %I with inherit true granted by %I', current_user, current_user);
+    else
+      execute format('grant project_beta_rpc_owner to %I', current_user);
+    end if;
+  end if;
   for fn in select p.oid from pg_proc p join pg_namespace n on n.oid=p.pronamespace
     where n.nspname='public' and p.proname like 'start_project_grounded_question%'
       and p.prosrc like '%char_length(normalized_question) not between 2 and 200%'
@@ -819,6 +837,15 @@ begin
       'or not project_private.project_research_windows_match_evidence(p_project_id,p_evidence_snapshot)
     or not project_private.project_grounded_artifact_is_coherent(');
   end loop;
+  if temporary_owner_inheritance then
+    if had_self_grant and current_setting('server_version_num')::integer >= 160000 then
+      execute format('grant project_beta_rpc_owner to %I with inherit false granted by %I', current_user, current_user);
+    elsif current_setting('server_version_num')::integer < 160000 then
+      execute format('revoke project_beta_rpc_owner from %I', current_user);
+    else
+      execute format('revoke project_beta_rpc_owner from %I granted by %I', current_user, current_user);
+    end if;
+  end if;
 end;
 $$;
 
@@ -872,8 +899,23 @@ alter table public.project_conversation_messages
 -- slots. Prepending missing sources and truncating could previously evict the
 -- only match from a different source at the tail of the base results.
 do $migration$
-declare fn record; definition text; updated integer := 0;
+declare
+  fn record; definition text; updated integer := 0;
+  temporary_owner_inheritance boolean := not pg_has_role(current_user, 'project_beta_rpc_owner', 'USAGE');
+  had_self_grant boolean;
 begin
+  -- Match the reservation patch above without changing this RPC's owner or ACL.
+  if temporary_owner_inheritance then
+    select exists(select 1 from pg_auth_members
+      where roleid = 'project_beta_rpc_owner'::regrole
+        and member = current_user::regrole and grantor = current_user::regrole)
+      into had_self_grant;
+    if current_setting('server_version_num')::integer >= 160000 then
+      execute format('grant project_beta_rpc_owner to %I with inherit true granted by %I', current_user, current_user);
+    else
+      execute format('grant project_beta_rpc_owner to %I', current_user);
+    end if;
+  end if;
   for fn in select p.oid from pg_proc p join pg_namespace n on n.oid=p.pronamespace
     where n.nspname='public' and p.proname like 'search_project_transcript_passages_balanced%'
       and p.prosrc like '%into merged%'
@@ -918,6 +960,15 @@ begin
     updated := updated + 1;
   end loop;
   if updated=0 then raise exception 'Research source balance implementation missing'; end if;
+  if temporary_owner_inheritance then
+    if had_self_grant and current_setting('server_version_num')::integer >= 160000 then
+      execute format('grant project_beta_rpc_owner to %I with inherit false granted by %I', current_user, current_user);
+    elsif current_setting('server_version_num')::integer < 160000 then
+      execute format('revoke project_beta_rpc_owner from %I', current_user);
+    else
+      execute format('revoke project_beta_rpc_owner from %I granted by %I', current_user, current_user);
+    end if;
+  end if;
 end;
 $migration$;
 

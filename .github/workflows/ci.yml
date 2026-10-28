@@ -85,6 +85,54 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
 
+  # PG17 tracks INHERIT and SET per membership grant. A superuser replay or
+  # PG15 cannot reproduce hosted postgres having ADMIN without those rights.
+  research-migration-owner-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      PGHOST: localhost
+      PGUSER: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v5
+      - name: Replay the research migration's Project dependencies
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/test-fixtures/supabase_stubs.sql
+          # The Project dependency chain precedes the unrelated Queues pilot.
+          # The complete PG15 replay below still covers every migration.
+          for f in supabase/migrations/*.sql; do
+            if [[ "$(basename "$f")" < "20260811020000" ]]; then
+              psql -X -q -v ON_ERROR_STOP=1 -f "$f"
+            fi
+          done
+          for f in \
+            20260811020002_durable_project_answer_feedback.sql \
+            20260811020003_record_activation_and_generation_usage.sql \
+            20260811055120_enforce_project_beta_access_at_database_boundary.sql \
+            20260811133052_make_projects_ga_for_registered_users.sql; do
+            psql -X -q -v ON_ERROR_STOP=1 -f "supabase/migrations/$f"
+          done
+      - name: Preserve hosted non-superuser ownership and exact role grants
+        run: >-
+          psql -X -q -v ON_ERROR_STOP=1
+          -v migration_path="$GITHUB_WORKSPACE/supabase/migrations/20261028185810_project_research_context_windows.sql"
+          -f supabase/test-fixtures/regression_project_research_owner_rollout.sql
+
   # Upgrade-path regression guard: replays prod's pre-migration shape and
   # then applies every migration in order. Catches the class of failure
   # where a migration works on a fresh DB (Vitest tests) but breaks on a
