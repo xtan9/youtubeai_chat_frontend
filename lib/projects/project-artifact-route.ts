@@ -19,8 +19,9 @@ import type {
   ProjectArtifactKind,
   ProjectArtifactReservation,
 } from "@/lib/projects/project-artifact-contract";
-import { PROJECT_GROUNDED_RETRIEVAL_LIMIT } from "@/lib/projects/project-grounded-answer-contract";
 import { buildProjectAnswerArtifacts } from "@/lib/projects/project-grounded-evidence";
+import { createProjectResearchPassageSearchCapability } from "@/lib/projects/project-passage-search";
+import { retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/request-id";
@@ -52,7 +53,6 @@ type ProjectArtifactRouteBase = Readonly<{
   promptVersion: string;
   errorPrefix: string;
   logScope: string;
-  balanceSources?: boolean;
   evidenceNotReadyMessage: string;
   evidenceInsufficientMessage: string;
 }>;
@@ -215,8 +215,9 @@ export function createProjectArtifactRoute(
     if (researcher.kind === "error") return researcher.response;
 
     let subject: Awaited<ReturnType<typeof resolveProjectSubject>>;
+    let supabase: Awaited<ReturnType<typeof createClient>>;
     try {
-      const supabase = await createClient();
+      supabase = await createClient();
       const { projectId } = await context.params;
       subject = await resolveProjectSubject(
         supabase,
@@ -281,6 +282,10 @@ export function createProjectArtifactRoute(
     };
     let generationStartedAt: number | null = null;
     let generationUsage: ChatTokenUsage | undefined;
+    let plannerStarted = false;
+    let plannerUsageReceived = false;
+    let synthesisStarted = false;
+    let synthesisUsageReceived = false;
     let activationOccurredAt: string | null = null;
     let released = false;
     const release = async () => {
@@ -301,18 +306,18 @@ export function createProjectArtifactRoute(
     };
 
     try {
-      const query = [
-        definition.title,
-        subject.value.name,
-        subject.value.guidance.goal,
-      ]
-        .filter((value): value is string => Boolean(value))
-        .join(": ")
-        .slice(0, 200);
-      const search = await subject.value.passageSearch.search({
-        query,
-        limit: PROJECT_GROUNDED_RETRIEVAL_LIMIT,
-        ...(definition.balanceSources ? { balanceSources: true } : {}),
+      const search = await retrieveProjectResearchEvidence({
+        passageSearch: createProjectResearchPassageSearchCapability(supabase, subject.value),
+        question: `Prepare a ${definition.title} about ${subject.value.name}. Research goal: ${subject.value.guidance.goal ?? "Understand the topic and compare the evidence."}`,
+        signal: request.signal,
+        onPlanningStart: () => {
+          plannerStarted = true;
+          generationStartedAt ??= Date.now();
+        },
+        onUsage: (usage) => {
+          plannerUsageReceived = true;
+          generationUsage = accumulateChatTokenUsage(generationUsage, usage);
+        },
       });
       if (search.status === "missing") {
         await release();
@@ -327,7 +332,7 @@ export function createProjectArtifactRoute(
         projectId: subject.value.projectId,
         search,
         goal: subject.value.guidance.goal,
-        balanceSources: definition.balanceSources,
+        balanceSources: true,
       });
       if (artifacts.evidenceSnapshot.passages.length === 0) {
         await release();
@@ -343,7 +348,7 @@ export function createProjectArtifactRoute(
         );
       }
 
-      generationStartedAt = Date.now();
+      generationStartedAt ??= Date.now();
       const generation = definition.prepareGeneration
         ? await definition.prepareGeneration({
             projectName: subject.value.name,
@@ -374,11 +379,13 @@ export function createProjectArtifactRoute(
               ),
           };
       let generated = "";
+      synthesisStarted = true;
       for await (const event of streamChatCompletion({
         messages: generation.messages,
         signal: request.signal,
       })) {
         if (event.type === "usage") {
+          synthesisUsageReceived = true;
           generationUsage = accumulateChatTokenUsage(
             generationUsage,
             event.usage,
@@ -453,13 +460,15 @@ export function createProjectArtifactRoute(
     } finally {
       if (generationStartedAt !== null) {
         const durationMs = Math.max(0, Date.now() - generationStartedAt);
+        const usage = (!plannerStarted || plannerUsageReceived) &&
+          (!synthesisStarted || synthesisUsageReceived) ? generationUsage : undefined;
         scheduleAnalyticsAfterResponse(async () => {
           await recordProjectGenerationUsage({
             projectId: subject.value.projectId,
             ownerId: researcher.principal.userId,
             operationId: reservation.attemptToken,
             generationKind: definition.kind,
-            usage: generationUsage,
+            usage,
             durationMs,
             businessAnalyticsSuppressed:
               researcher.principal.businessAnalyticsSuppressed,

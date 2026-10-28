@@ -226,6 +226,7 @@ let gatewayOutcome: "success" | "failure" = "success";
 let retrievalOutcome: "success" | "failure" = "success";
 let lastRetrievalObservation: FixtureRetrievalObservation | null = null;
 let gatewayRequests = 0;
+const researchPlans: Array<{ question: string; context: unknown }> = [];
 let failNextProjectBriefSelection = false;
 let gatewayGate = createGatewayGate();
 let groundedCancellationOutcome: "success" | "unavailable" = "success";
@@ -317,6 +318,7 @@ test.beforeEach(() => {
   retrievalOutcome = "success";
   lastRetrievalObservation = null;
   gatewayRequests = 0;
+  researchPlans.splice(0);
   failNextProjectBriefSelection = false;
   groundedCancellationOutcome = "success";
   groundedCancellationRequests = 0;
@@ -502,6 +504,38 @@ function seedSourceSetAuditConversation(projectId: string) {
   messageSequence = 1;
 }
 
+async function openProjectSection(page: Page, name: "Research" | "Outputs" | "Search" | "Settings") {
+  const tab = page.getByRole("tab", { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}
+
+async function showProjectSources(page: Page) {
+  const toggle = page.getByRole("button", { name: /^Sources ·/u });
+  if (await toggle.isVisible() && await toggle.getAttribute("aria-expanded") === "false") {
+    await toggle.click();
+  }
+}
+
+async function showSourceUrlInput(page: Page) {
+  await showProjectSources(page);
+  const disclosure = page.locator("details").filter({ has: page.getByText("Add a YouTube video", { exact: true }) });
+  if (await disclosure.getAttribute("open") === null) {
+    await disclosure.getByText("Add a YouTube video", { exact: true }).click();
+  }
+}
+
+async function showAnswerDetails(page: Page) {
+  const disclosures = page.locator("details").filter({
+    has: page.getByText("View sources and retrieval details", { exact: true }),
+  });
+  for (const disclosure of await disclosures.all()) {
+    if (await disclosure.getAttribute("open") === null) {
+      await disclosure.getByText("View sources and retrieval details", { exact: true }).click();
+    }
+  }
+}
+
 async function expectProjectQuestionComposerReady(page: Page) {
   const question = page.getByLabel("Ask the Project");
   await expect(question).toBeEnabled();
@@ -601,6 +635,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
     .click();
 
   async function addFixtureVideo(title: string) {
+    await showProjectSources(page);
     await page.getByRole("button", { name: "Add from History" }).press("Enter");
     const dialog = page.getByRole("dialog", { name: "Add a History Video" });
     await dialog.getByLabel("Search History").fill(title);
@@ -619,6 +654,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
     page.getByRole("status", { name: "2 of 5 Project Videos" }),
   ).toBeVisible();
 
+  await openProjectSection(page, "Search");
   await page
     .getByLabel("Search exact Transcript passages")
     .fill("climate adaptation");
@@ -658,6 +694,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   );
   await timestampPage.close();
 
+  await openProjectSection(page, "Research");
   await page.getByRole("button", { name: "Project Assessment" }).press("Enter");
   await expect(page.getByLabel("Ask the Project")).toHaveValue(
     /Which position is better supported/u,
@@ -665,7 +702,9 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   const askProject = page.getByRole("button", { name: "Ask Project" });
   await expect(askProject).toBeEnabled();
   await askProject.click();
-  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  await expect(page.getByLabel("Answer coverage summary").last()).toBeVisible();
+  await showAnswerDetails(page);
+  await expect(page.getByLabel("Answer source manifest").last()).toBeVisible();
   await expect.poll(() => gatewayRequests).toBeGreaterThan(0);
   await expect.poll(() => lastRetrievalObservation?.readyVideoIds.length).toBe(2);
   const retrievalObservation = lastRetrievalObservation;
@@ -717,6 +756,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
     page.getByRole("button", { name: /Artifact choices 0 messages/iu }),
   ).toBeVisible();
 
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).press("Enter");
   const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
   await creatorBrief
@@ -738,15 +778,18 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
   await expect(creatorBrief.getByRole("button", { name: "Copy Markdown" })).toBeVisible();
+  await openProjectSection(page, "Search");
+  await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
+  await openProjectSection(page, "Research");
+  await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Compare viewpoints" })).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
   expect(
     await page.locator("main").evaluate((main) =>
-      [...main.querySelectorAll<HTMLElement>("*")].every((element) => {
+      [...main.querySelectorAll<HTMLElement>("*")].filter((element) => !element.closest(".sr-only")).every((element) => {
         const style = getComputedStyle(element);
         const nestedVerticalScroll =
           /^(?:auto|scroll)$/u.test(style.overflowY) &&
@@ -794,12 +837,78 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await expect(
     page.getByRole("button", { name: /Artifact choices 1 message/iu }),
   ).toBeVisible();
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   await expect(
     page.getByRole("region", { name: "Creator Brief" }),
   ).toContainText("Source claims");
-  await expect(page.getByText("Alpha evidence", { exact: true })).toBeVisible();
-  await expect(page.getByText("Delta context", { exact: true })).toBeVisible();
+  await showProjectSources(page);
+  await expect(page.getByRole("link", { name: "Read Alpha evidence (opens in a new tab)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Read Delta context (opens in a new tab)" })).toBeVisible();
+});
+
+test("Researcher recovers from missing passages and keeps a detailed multilingual draft across sections @projects-research", async ({ context, page }, testInfo) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(context, "Compare climate evidence", { sourceCount: 2 });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByLabel("Ask the Project").fill("absent");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByText("No matching passages", { exact: true })).toBeVisible();
+  await expect(page.getByText(/does not establish whether the claim is true or false/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Compare viewpoints" })).toBeVisible();
+
+  const question = "我想比较这两个视频关于气候适应的观点，请分别解释他们如何使用本地证据和区域比较，不要预先假定任何一个结论正确。" + "请区分事实、推测和证据不足的部分，并为可以支持的说法提供视频时间戳。".repeat(7);
+  expect(Array.from(question).length).toBeGreaterThan(200);
+  await page.getByLabel("Ask the Project").fill(question);
+  await openProjectSection(page, "Outputs");
+  await openProjectSection(page, "Research");
+  await expect(page.getByLabel("Ask the Project")).toHaveValue(question);
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect(page.getByLabel("Answer coverage summary").last()).toContainText("2 of 2 videos used");
+  await expect(page.getByText("Preparing answer")).toBeVisible();
+  expect(researchPlans.at(-1)?.question).toBe(question);
+  gatewayGate.release();
+  await expect(page.getByText(/Climate adaptation is supported despite diagnostic examples/)).toBeVisible();
+  await expectProjectQuestionComposerReady(page);
+  const desktopScreenshot = testInfo.outputPath("research-desktop.png");
+  await page.screenshot({ path: desktopScreenshot, fullPage: true });
+  await testInfo.attach("Research workspace desktop", { path: desktopScreenshot, contentType: "image/png" });
+  await showAnswerDetails(page);
+  const passage = page.locator("details").filter({ has: page.locator("summary").filter({ hasText: /^Passage 1 · Alpha evidence/ }) }).last();
+  await passage.locator("summary").click();
+  await expect(passage.locator("blockquote")).toContainText("Climate adaptation");
+  await expect(passage.getByRole("link", { name: /^Watch Alpha evidence at/ })).toHaveAttribute("href", /https:\/\/www.youtube.com\/watch\?v=aaaaaaa0001&t=\d+s/);
+  const desktopEvidenceScreenshot = testInfo.outputPath("research-desktop-evidence.png");
+  await passage.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: desktopEvidenceScreenshot });
+  await testInfo.attach("Research evidence desktop", { path: desktopEvidenceScreenshot, contentType: "image/png" });
+  await passage.locator("summary").click();
+  await page.getByText("View sources and retrieval details", { exact: true }).last().click();
+
+  await page.getByLabel("Ask the Project").fill("那它们为什么得出了不同结论？");
+  await page.getByRole("button", { name: "Ask Project" }).click();
+  await expect.poll(() => researchPlans.length).toBe(3);
+  expect(JSON.stringify(researchPlans.at(-1)?.context)).toContain(question.slice(0, 80));
+  await expectProjectQuestionComposerReady(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Compare viewpoints" })).toBeVisible();
+  await page.getByLabel("Ask the Project").scrollIntoViewIfNeeded();
+  await expect.poll(async () => (await page.getByRole("tablist", { name: "Project sections" }).boundingBox())?.y).toBe(0);
+  const mobileScreenshot = testInfo.outputPath("research-mobile.png");
+  await page.screenshot({ path: mobileScreenshot, fullPage: true });
+  await testInfo.attach("Research workspace mobile", { path: mobileScreenshot, contentType: "image/png" });
+  await showAnswerDetails(page);
+  const mobilePassage = page.locator("details").filter({ has: page.locator("summary").filter({ hasText: /^Passage 1 · Alpha evidence/ }) }).last();
+  await mobilePassage.locator("summary").click();
+  await expect(mobilePassage.locator("blockquote")).toContainText("Climate adaptation");
+  await mobilePassage.scrollIntoViewIfNeeded();
+  const mobileEvidenceScreenshot = testInfo.outputPath("research-mobile-evidence.png");
+  await page.screenshot({ path: mobileEvidenceScreenshot });
+  await testInfo.attach("Research evidence mobile", { path: mobileEvidenceScreenshot, contentType: "image/png" });
+  await showProjectSources(page);
+  await expect(page.getByRole("link", { name: "Read Alpha evidence (opens in a new tab)" })).toHaveAttribute("href", `/summary?url=${encodeURIComponent("https://www.youtube.com/watch?v=aaaaaaa0001")}`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("concurrent Free Project limits expose exactly one public winner @projects-ga-race", async ({
@@ -934,6 +1043,7 @@ test("concurrent Free Project limits expose exactly one public winner @projects-
   await expect(
     page.getByText(questions[losingMessageIndex].question, { exact: true }),
   ).toHaveCount(0);
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   const creatorBrief = page.getByRole("region", { name: "Creator Brief" });
   await expect(creatorBrief.getByRole("heading", { name: "Source claims" })).toBeVisible();
@@ -942,6 +1052,7 @@ test("concurrent Free Project limits expose exactly one public winner @projects-
   await expect(
     page.getByRole("status", { name: "5 of 5 free Project messages used" }),
   ).toBeVisible();
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   await expect(
     page.getByRole("region", { name: "Creator Brief" }).getByRole("heading", {
@@ -992,9 +1103,11 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await firstCard.getByRole("link", { name: "Open Evidence review" }).click();
   await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001$/);
   await expect(page.getByRole("heading", { name: "Evidence review", level: 1 })).toBeVisible();
+  await openProjectSection(page, "Settings");
   await expect(page.getByRole("heading", { name: "Guidance, not evidence" })).toBeVisible();
   await expect(page.getByText("Only Project Videos can support grounded claims.")).toBeVisible();
 
+  await openProjectSection(page, "Settings");
   await page.getByLabel("Project name").fill("Evidence synthesis");
   await page.getByLabel("Project Goal (optional)").fill("Map agreement and disagreement.");
   await page.getByRole("button", { name: "Save changes" }).click();
@@ -1036,6 +1149,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
     .locator('[data-slot="card"]')
     .filter({ has: page.getByRole("heading", { name: "Evidence synthesis" }) });
   await renamedCard.getByRole("link", { name: "Open Evidence synthesis" }).click();
+  await openProjectSection(page, "Settings");
   await page.getByRole("button", { name: "Delete Project" }).click();
   const deleteDialog = page.getByRole("alertdialog", {
     name: "Delete “Evidence synthesis”?",
@@ -1068,8 +1182,10 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await page.getByLabel("Ask the Project").fill("What does the evidence support?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
-  // The fixture gateway holds its first token until these synchronous
-  // artifacts are visible. This proves ordering without a timing assumption.
+  // Coverage is visible before the fixture gateway releases the first answer token.
+  await expect(page.getByLabel("Answer coverage summary")).toContainText("1 of 1 videos used");
+  await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
+  await showAnswerDetails(page);
   await expect(page.getByLabel("Answer source manifest")).toContainText(
     "Alpha evidence",
   );
@@ -1123,6 +1239,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
   await expect(page.getByRole("heading", { name: "Project Conversation" }))
     .toBeVisible();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
+  await showAnswerDetails(page);
   await expect(page.getByLabel("Source Coverage")).toContainText(
     "Passages examined3",
   );
@@ -1174,7 +1291,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   await expect(question).toHaveValue(/Which position is better supported/);
   await question.fill("Which edited position is better supported?");
   await page.getByRole("button", { name: "Ask Project" }).click();
-  await expect(page.getByText("Project Assessment", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Project Assessment" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Preparing answer")).toBeVisible();
 
   gatewayGate.release();
@@ -1243,6 +1360,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
   const oldAnswer = page
     .locator("article")
     .filter({ hasText: "Historical answer from revision one." });
+  await showAnswerDetails(page);
   await expect(oldAnswer.getByLabel("Immutable Evidence Snapshot")).toContainText(
     "Source Set revision 1",
   );
@@ -1258,6 +1376,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
     .locator("article")
     .filter({ hasText: "Climate adaptation is supported" });
   await expect(newAnswer).toBeVisible();
+  await showAnswerDetails(page);
   await expect(newAnswer.getByLabel("Immutable Evidence Snapshot")).toContainText(
     "Source Set revision 2",
   );
@@ -1269,6 +1388,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
   await page.reload();
   await expect(page.getByText("Historical answer from revision one.")).toBeVisible();
   await expect(page.getByText("Climate adaptation is supported")).toBeVisible();
+  await showAnswerDetails(page);
   await expect(
     page.getByRole("status", { name: "Source Set change revision 2" }),
   ).toContainText("Revision 2");
@@ -1289,7 +1409,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
   ).toBe(true);
 });
 
-test("Project Conversation persists a classified fallback without calling the gateway", async ({
+test("Project Conversation persists a retrieval-miss fallback without generating an answer", async ({
   context,
   page,
 }) => {
@@ -1310,10 +1430,10 @@ test("Project Conversation persists a classified fallback without calling the ga
     "Passages selected0",
   );
   await expect(
-    page.getByText(/available Project passages do not support an answer/i),
+    page.getByText(/I couldn.t find relevant transcript passages for this question/i),
   ).toBeVisible();
   await expect(
-    page.getByText("Unsupported by sources", { exact: true }),
+    page.getByText("No matching passages", { exact: true }),
   ).toBeVisible();
   await expectProjectQuestionComposerReady(page);
 
@@ -1416,7 +1536,9 @@ test("Researcher switches, clears, and retries named Project Conversations on de
 
   await page.getByLabel("Ask the Project").fill("What does the evidence support?");
   await page.getByRole("button", { name: "Ask Project" }).click();
-  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  await expect(page.getByLabel("Answer coverage summary").last()).toBeVisible();
+  await showAnswerDetails(page);
+  await expect(page.getByLabel("Answer source manifest").last()).toBeVisible();
   gatewayGate.release();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
 
@@ -1436,7 +1558,7 @@ test("Researcher switches, clears, and retries named Project Conversations on de
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
   await page.getByRole("button", { name: "Clear Launch questions" }).click();
   await expect(page.getByText(/Climate adaptation is supported/i)).toHaveCount(0);
-  await expect(page.getByText("Ask your first Project question")).toBeVisible();
+  await expect(page.getByText("What would you like to understand?")).toBeVisible();
 
   gatewayOutcome = "failure";
   gatewayGate.release();
@@ -1448,7 +1570,9 @@ test("Researcher switches, clears, and retries named Project Conversations on de
   gatewayOutcome = "success";
   gatewayGate = createGatewayGate();
   await page.getByRole("button", { name: "Try again" }).click();
-  await expect(page.getByLabel("Answer source manifest")).toBeVisible();
+  await expect(page.getByLabel("Answer coverage summary").last()).toBeVisible();
+  await showAnswerDetails(page);
+  await expect(page.getByLabel("Answer source manifest").last()).toBeVisible();
   gatewayGate.release();
   await expect(page.getByText(/Climate adaptation is supported/i)).toBeVisible();
 
@@ -1476,6 +1600,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
   gatewayGate.release();
 
   await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await openProjectSection(page, "Outputs");
   const guide = page.getByRole("region", { name: "Study Guide" });
   await expect(guide.getByRole("button", { name: "Generate Study Guide" })).toBeVisible();
   await guide.getByRole("button", { name: "Generate Study Guide" }).click();
@@ -1550,6 +1675,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
     "[S1 @ 00:42](https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
   );
 
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
   await historyDialog.getByLabel("Search History").fill("Beta processing");
@@ -1603,6 +1729,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
     );
     const otherPage = await otherContext.newPage();
     await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    await openProjectSection(otherPage, "Outputs");
     const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
     await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
     await expect(
@@ -1646,6 +1773,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   gatewayGate.release();
 
   await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   const brief = page.getByRole("region", { name: "Creator Brief" });
   await brief.getByRole("button", { name: "Generate Creator Brief" }).click();
@@ -1670,6 +1798,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   ).toContainText("Source Set revision 1");
 
   await page.reload();
+  await openProjectSection(page, "Outputs");
   await expect(brief.getByText(/^Original angle:/u)).toBeVisible();
   await expect(
     brief.getByLabel("Creator Brief provenance", { exact: true }),
@@ -1728,6 +1857,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
     ),
   ).toBe(true);
 
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
   await historyDialog.getByLabel("Search History").fill("Beta processing");
@@ -1758,6 +1888,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
 
   await page.goto(`${appUrl}/workspace`);
   await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await openProjectSection(page, "Outputs");
   await expect(
     brief.getByLabel("Creator Brief provenance", { exact: true }),
   ).toContainText("Source Set revision 2");
@@ -1779,12 +1910,15 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
     );
     const otherPage = await otherContext.newPage();
     await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    await openProjectSection(otherPage, "Outputs");
     await otherPage.getByRole("button", { name: "Choose Creator Brief" }).click();
     const freeBrief = otherPage.getByRole("region", { name: "Creator Brief" });
     await freeBrief.getByRole("button", { name: "Generate Creator Brief" }).click();
     await expect(freeBrief.getByText(/^Original angle:/u)).toBeVisible();
 
+    await openProjectSection(otherPage, "Outputs");
     await otherPage.getByRole("button", { name: "Choose Study Guide" }).click();
+    await openProjectSection(otherPage, "Outputs");
     const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
     await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
     const quota = freeGuide.getByRole("alert");
@@ -1818,6 +1952,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   gatewayGate.release();
 
   await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
   await historyDialog.getByLabel("Search History").fill("Beta processing");
@@ -1827,6 +1962,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
     .click();
   await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
 
+  await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Project Brief" }).click();
   const brief = page.getByRole("region", { name: "Project Brief" });
   await brief.getByRole("button", { name: "Generate Project Brief" }).click();
@@ -1837,40 +1973,13 @@ test("Project Brief persists cited positions across desktop export, regeneration
     brief.getByRole("heading", { name: "Material disagreements", exact: true }),
   ).toBeVisible();
   await expect(brief.getByRole("heading", { name: "Open questions" })).toBeVisible();
-  await expect(
-    brief
-      .getByText(/possible conflict \(not server-certified\) position A/iu)
-      .first(),
-  ).toBeVisible();
-  await expect(
-    brief.getByText(
-      "A non-certified possible agreement, conflict, or open question does not establish that its cited clauses agree, contradict each other, or leave an issue unresolved.",
-    ),
-  ).toBeVisible();
-  await expect(
-    brief.getByText(
-      "No model-identified material disagreement in this Evidence Snapshot.",
-    ),
-  ).toHaveCount(0);
-  await expect(
-    brief.getByText(/adaptación climática no debe depender/iu).first(),
-  ).toBeVisible();
-  await expect(
-    brief.getByText(/La date exacte du lancement reste à déterminer/iu).first(),
-  ).toBeVisible();
-  await expect(
-    brief.getByText("No model-identified cross-source agreement in this Evidence Snapshot."),
-  ).toHaveCount(0);
-  await expect(
-    brief
-      .getByText(/possible agreement \(not server-certified\) position A/iu)
-      .first(),
-  ).toBeVisible();
-  await expect(
-    brief.getByText("No model-identified open question in this Evidence Snapshot."),
-  ).toHaveCount(0);
-  await expect(brief.getByText(/Only exact source-language clauses/iu)).toBeVisible();
-  await expect(brief.getByText(/Interpretation/iu).first()).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(brief.getByText(/first speaker prioritizes local evidence/)).toBeVisible();
+  await expect(brief.getByText(/Both speakers connect transparent evidence with public trust/)).toBeVisible();
+  await expect(brief.getByText(/not an independent fact check/)).toBeVisible();
+  await expect(brief.getByRole("heading", { name: "Supporting excerpts", exact: true })).toBeVisible();
+  await expect(brief.getByText(/adaptación climática no debe depender/iu).first()).toBeVisible();
+  await expect(brief.getByText(/La date exacte du lancement reste à déterminer/iu).first()).toBeVisible();
   await expect(
     brief.getByRole("link", { name: /@ 00:42.*Alpha evidence/iu }).first(),
   ).toHaveAttribute("href", "https://www.youtube.com/watch?v=aaaaaaa0001&t=42s");
@@ -1887,9 +1996,9 @@ test("Project Brief persists cited positions across desktop export, regeneration
         artifact.supersededAt === null,
     )?.generationMetadata,
   ).toMatchObject({
-    promptVersion: "project-brief-v4",
+    promptVersion: "project-brief-v5",
     normalizationAudit: {
-      version: "project-brief-normalization-v2",
+      version: "project-brief-context-v3",
       recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
     },
   });
@@ -1910,10 +2019,10 @@ test("Project Brief persists cited positions across desktop export, regeneration
     modelId: "gpt-6-luna",
     providerKind: "cliproxyapi",
     costStatus: "measured",
-    inputTokens: 160,
-    cachedInputTokens: 25,
-    outputTokens: 25,
-    costUsdMicros: 198,
+    inputTokens: 60,
+    cachedInputTokens: 5,
+    outputTokens: 15,
+    costUsdMicros: 88,
     rateCardVersion: "fixture-2026-08",
   });
   expect(projectGenerationUsage[0]?.durationMs).toBeGreaterThanOrEqual(0);
@@ -1932,8 +2041,8 @@ test("Project Brief persists cited positions across desktop export, regeneration
   await expect(brief.getByText("Markdown copied.")).toBeVisible();
   const copiedMarkdown = await page.evaluate(() => navigator.clipboard.readText());
   expect(copiedMarkdown).toContain("## Material disagreements");
-  expect(copiedMarkdown).toContain("non-authoritative model Interpretation");
-  expect(copiedMarkdown).toContain("Interpretation — possible open question");
+  expect(copiedMarkdown).toContain("not an independent fact check");
+  expect(copiedMarkdown).toContain("## Supporting excerpts");
   expect(copiedMarkdown).toContain(
     "(https://www.youtube.com/watch?v=aaaaaaa0001&t=42s)",
   );
@@ -1956,6 +2065,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   expect(markdown).toContain("La date exacte du lancement reste à déterminer");
   expect(markdown).not.toContain("javascript:");
 
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const updateDialog = page.getByRole("dialog", { name: "Add a History Video" });
   await updateDialog.getByLabel("Search History").fill("Delta context");
@@ -1980,7 +2090,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
           artifact.kind === "project_brief",
       )
       .map((artifact) => artifact.generationMetadata.promptVersion),
-  ).toEqual(["project-brief-v4", "project-brief-v4"]);
+  ).toEqual(["project-brief-v5", "project-brief-v5"]);
   await expect
     .poll(
       () =>
@@ -1993,16 +2103,16 @@ test("Project Brief persists cited positions across desktop export, regeneration
     .toBe(2);
   expect(projectGenerationUsage.slice(0, 2)).toEqual([
     expect.objectContaining({
-      inputTokens: 160,
-      cachedInputTokens: 25,
-      outputTokens: 25,
-      costUsdMicros: 198,
+      inputTokens: 60,
+      cachedInputTokens: 5,
+      outputTokens: 15,
+      costUsdMicros: 88,
     }),
     expect.objectContaining({
-      inputTokens: 160,
-      cachedInputTokens: 25,
-      outputTokens: 25,
-      costUsdMicros: 198,
+      inputTokens: 60,
+      cachedInputTokens: 5,
+      outputTokens: 15,
+      costUsdMicros: 88,
     }),
   ]);
   expect(projectGenerationUsage[1]?.operationId).not.toBe(
@@ -2021,6 +2131,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
+  await openProjectSection(page, "Outputs");
   const mobileBrief = page.getByRole("region", { name: "Project Brief" });
   await expect(
     mobileBrief.getByRole("heading", { name: "Material disagreements" }),
@@ -2037,10 +2148,10 @@ test("Project Brief persists cited positions across desktop export, regeneration
   expect(await reloadedBrief.json()).toMatchObject({
     projectBrief: {
       current: {
-        generationMetadata: { promptVersion: "project-brief-v4" },
+        generationMetadata: { promptVersion: "project-brief-v5" },
       },
       history: [
-        { generationMetadata: { promptVersion: "project-brief-v4" } },
+        { generationMetadata: { promptVersion: "project-brief-v5" } },
       ],
     },
   });
@@ -2094,11 +2205,11 @@ test("Project Brief persists cited positions across desktop export, regeneration
     projectId,
     ownerId: OWNER_ID,
     generationKind: "project_brief",
-    costStatus: "measured",
-    inputTokens: 100,
-    cachedInputTokens: 20,
-    outputTokens: 10,
-    costUsdMicros: 110,
+    costStatus: "unavailable",
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+    costUsdMicros: null,
   });
   expect(
     artifactAttempts
@@ -2147,12 +2258,14 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
   });
 
   await page.getByRole("link", { name: "Open Free research home" }).click();
+  await openProjectSection(page, "Search");
   await page.getByLabel("Search exact Transcript passages").fill("waiting");
   await page.getByRole("button", { name: "Search Transcripts" }).click();
   await expect(
     page.getByText("No ready Project Transcripts", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText(/never uses AI generation or a message allowance/i)).toBeVisible();
+  await openProjectSection(page, "Settings");
   await page.getByRole("button", { name: "Delete Project" }).click();
   await page
     .getByRole("alertdialog", { name: "Delete “Free research home”?" })
@@ -2219,11 +2332,10 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await page.getByRole("button", { name: "Create Project" }).last().click();
   await page.getByRole("link", { name: "Open Climate evidence map" }).click();
 
-  await expect(page.getByRole("heading", { name: "Source Set" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sources" })).toBeVisible();
   await expect(
     page.getByRole("status", { name: "0 of 5 Project Videos" }),
   ).toBeVisible();
-  await expect(page.getByText(/grounding limit for every plan/i)).toBeVisible();
   await expect(page.getByText("Add your first source")).toBeVisible();
 
   const projectId = projects.find((project) => project.name === "Climate evidence map")?.id;
@@ -2231,7 +2343,9 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   if (!projectId) return;
 
   async function addFromHistory(title: string) {
-    await page.getByRole("button", { name: "Add from History" }).click();
+    await showProjectSources(page);
+    await showProjectSources(page);
+  await page.getByRole("button", { name: "Add from History" }).click();
     await expect(page.getByRole("dialog", { name: "Add a History Video" })).toBeVisible();
     await page.getByRole("button", { name: `Add ${title} to Source Set` }).click();
     await expect(page.getByRole("dialog", { name: "Add a History Video" })).toBeHidden();
@@ -2241,6 +2355,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
     ).toBeVisible();
   }
 
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
   await expect(historyDialog.getByText("36 processed Videos available.")).toBeVisible();
@@ -2308,16 +2423,16 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await expect(page.getByText("Processing", { exact: true })).toBeVisible();
   await expect(page.getByText("Failed", { exact: true })).toBeVisible();
   await expect(page.getByText("2 of 3 Project Videos unavailable")).toBeVisible();
-  await expect(page.getByText(/Grounded actions will use only the 1 ready Video/i)).toBeVisible();
+  await expect(page.getByText(/Answers can use 1 ready video/i)).toBeVisible();
 
   await addFromHistory("Delta context");
   await addFromHistory("Epsilon counterpoint");
   await expect(
     page.getByRole("status", { name: "5 of 5 Project Videos" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add from History" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add from History" })).toBeHidden();
   await expect(page.getByText("Source Set limit reached")).toBeVisible();
-  await expect(page.getByText(/upgrading does not increase this grounding limit/i)).toBeVisible();
+  await expect(page.getByText(/five video slots on every plan/i)).toBeVisible();
 
   const generatedRequests: string[] = [];
   page.on("request", (request) => {
@@ -2331,6 +2446,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   const searchRequestPromise = page.waitForRequest((request) =>
     new URL(request.url()).pathname.endsWith(`/api/projects/${projectId}/search`),
   );
+  await openProjectSection(page, "Search");
   await page.getByLabel("Search exact Transcript passages").fill("climate");
   await page.getByRole("button", { name: "Search Transcripts" }).click();
   const searchRequest = await searchRequestPromise;
@@ -2374,6 +2490,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await selectedVideo.close();
   expect(generatedRequests).toEqual([]);
 
+  await openProjectSection(page, "Search");
   await page.getByLabel("Search exact Transcript passages").fill("absent");
   await page.getByRole("button", { name: "Search Transcripts" }).click();
   await expect(searchRegion.getByText("No matching Transcript passages")).toBeVisible();
@@ -2489,6 +2606,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   }
 
   const canonicalCount = canonicalVideos.length;
+  await openProjectSection(page, "Settings");
   await page.getByRole("button", { name: "Delete Project" }).click();
   const deleteDialog = page.getByRole("alertdialog", {
     name: "Delete “Climate evidence map”?",
@@ -2697,7 +2815,8 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   );
 
   const input = page.getByLabel("YouTube Video URL");
-  const sourceSetRegion = page.getByRole("region", { name: "Source Set" });
+  const sourceSetRegion = page.getByRole("region", { name: "Sources" });
+  await showSourceUrlInput(page);
   await input.fill("https://example.com/watch?v=projurl0001");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(sourceSetRegion.getByRole("alert")).toContainText(
@@ -2705,6 +2824,7 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   );
   expect(projectVideos).toHaveLength(0);
 
+  await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projurl0001");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(page.getByText("Pasted source")).toBeVisible();
@@ -2714,6 +2834,7 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   await expect(page.getByText("Processing", { exact: true })).toBeVisible();
   await expect(page.getByText("Ready", { exact: true })).toBeVisible();
 
+  await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projfail001");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(page.getByRole("button", { name: "Retry Retry source" })).toBeVisible();
@@ -2729,6 +2850,7 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
     ),
   ).toHaveLength(1);
 
+  await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projquota01");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(sourceSetRegion.getByRole("alert")).toContainText(
@@ -2777,12 +2899,13 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   await page.reload();
   await expect(page.getByText("Duplicate source")).toBeVisible();
   await expect(page.getByText("Ready", { exact: true })).toHaveCount(3);
+  await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projother01");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(
     page.getByRole("status", { name: "5 of 5 Project Videos" }),
   ).toBeVisible();
-  await expect(input).toBeDisabled();
+  await expect(input).toHaveCount(0);
   await expect(page.getByText("Source Set limit reached")).toBeVisible();
   const otherSource = page.getByRole("listitem").filter({ hasText: "Other source" });
   await expect(otherSource.getByText("Ready", { exact: true })).toBeVisible();
@@ -2819,12 +2942,24 @@ async function handleSupabaseRequest(
       typeof gatewayBody.messages?.[0]?.content === "string"
         ? gatewayBody.messages[0].content
         : "";
+    if (userPrompt.startsWith("Create a compact transcript retrieval plan for a research question.")) {
+      const languages = JSON.parse(userPrompt.match(/^SOURCE_LANGUAGES: (.+)$/mu)?.[1] ?? '["en"]') as string[];
+      const question = JSON.parse(userPrompt.match(/^RESEARCH_QUESTION: (.+)$/mu)?.[1] ?? '""') as string;
+      researchPlans.push({ question, context: JSON.parse(userPrompt.match(/^CONVERSATION_CONTEXT: (.+)$/mu)?.[1] ?? "[]") });
+      const queries = (languages.length ? languages : ["en"]).map((language) => ({
+        language,
+        query: question === "absent" ? "absent" : language.startsWith("es") ? "adaptación climática evidencia" : language.startsWith("zh") ? "气候 适应 本地 证据" : "climate adaptation evidence",
+      }));
+      response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ queries }) } }] })}\n\n`);
+      response.end("data: [DONE]\n\n");
+      return;
+    }
     const activeGatewayGate = gatewayGate;
     await activeGatewayGate.waitForRelease;
     if (response.destroyed || response.writableEnded) return;
-    const isProjectBriefSelection = userPrompt.includes(
-      "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n",
-    );
+    const isProjectBriefSelection = userPrompt.includes("EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n") ||
+      userPrompt.includes("IMMUTABLE_CONTEXTUAL_EVIDENCE:\n");
     if (
       gatewayOutcome === "failure" ||
       (failNextProjectBriefSelection && isProjectBriefSelection)
@@ -2842,7 +2977,24 @@ async function handleSupabaseRequest(
     const governedMarker =
       "EVIDENCE_RECORDS_WITH_NON_AUTHORITATIVE_INTERPRETATION:\n";
     let projectBriefResponse: string | null = null;
-    if (userPrompt.includes(normalizationMarker)) {
+    if (userPrompt.includes("IMMUTABLE_CONTEXTUAL_EVIDENCE:\n")) {
+      const marker = "IMMUTABLE_CONTEXTUAL_EVIDENCE:\n";
+      const evidence = JSON.parse(userPrompt.slice(userPrompt.indexOf(marker) + marker.length)) as Array<{ evidenceId: string; sourceId: string; text: string; title: string }>;
+      const firstBySource = new Map<string, (typeof evidence)[number]>();
+      for (const item of evidence) {
+        const isRelevantPosition = /climate adaptation depends on exact local evidence|adaptación climática no debe depender/iu.test(item.text);
+        if (!firstBySource.has(item.sourceId) || isRelevantPosition) firstBySource.set(item.sourceId, item);
+      }
+      const sources = [...firstBySource.values()];
+      const refs = sources.map((item) => ({ evidenceId: item.evidenceId, quote: item.text }));
+      projectBriefResponse = JSON.stringify({
+        overview: { text: "The speakers favor transparent evidence but differ over whether local observations or regional comparisons should guide adaptation.", evidence: refs },
+        findings: sources.map((item, index) => ({ text: index === 0 ? `${item.title} emphasizes measured local observations instead of dramatic anecdotes.` : `${item.title} favors regional comparisons while acknowledging unresolved timing.`, evidence: [{ evidenceId: item.evidenceId, quote: item.text }] })),
+        agreements: sources.length > 1 ? [{ text: "Both speakers connect transparent evidence with public trust.", evidence: refs.slice(0, 2) }] : [],
+        disagreements: sources.length > 1 ? [{ text: "The first speaker prioritizes local evidence; the second argues it should not be the only basis for decisions.", evidence: refs.slice(0, 2) }] : [],
+        openQuestions: sources.length > 1 ? [{ text: "What would resolve the uncertain launch timing mentioned by the second speaker?", evidence: [refs[1]] }] : [],
+      });
+    } else if (userPrompt.includes(normalizationMarker)) {
       const candidates = JSON.parse(
         userPrompt.slice(userPrompt.indexOf(normalizationMarker) + normalizationMarker.length),
       ) as Array<{
@@ -4216,7 +4368,8 @@ async function handleSourceSetRpc(
 
   if (
     url.pathname.endsWith("/search_project_transcript_passages") ||
-    url.pathname.endsWith("/search_project_transcript_passages_balanced")
+    url.pathname.endsWith("/search_project_transcript_passages_balanced") ||
+    url.pathname.endsWith("/search_project_research_passages")
   ) {
     const memberships = orderedMemberships(projectId);
     const ready = memberships.filter((membership) => membership.status === "ready");
@@ -4258,9 +4411,14 @@ async function handleSourceSetRpc(
       passagesExamined: transcriptCandidates.length,
     };
     const sourceSetRevision = sourceSetRevisions.get(projectId) ?? 0;
+    const researchMetadata = url.pathname.endsWith("/search_project_research_passages") ? {
+      sourceLanguages: [...new Set(transcriptCandidates.map((candidate) => candidate.language))],
+      sourceTitles: ready.map((membership) => canonicalVideos.find((video) => video.id === membership.video_id)?.title ?? "Untitled Video"),
+    } : {};
     if (ready.length === 0) {
       return sendJson(response, 200, {
         outcome: "not_ready",
+        ...researchMetadata,
         sourceSetRevision,
         coverage,
         passages: [],
@@ -4269,6 +4427,7 @@ async function handleSourceSetRpc(
     if (body.p_query?.trim().toLowerCase() === "absent") {
       return sendJson(response, 200, {
         outcome: "no_results",
+        ...researchMetadata,
         sourceSetRevision,
         coverage,
         passages: [],
@@ -4282,9 +4441,8 @@ async function handleSourceSetRpc(
       });
     }
 
-    const balanced = url.pathname.endsWith(
-      "/search_project_transcript_passages_balanced",
-    );
+    const balanced = url.pathname.endsWith("/search_project_transcript_passages_balanced") ||
+      url.pathname.endsWith("/search_project_research_passages");
     const normalizedQuery = body.p_query?.trim().toLocaleLowerCase() ?? "";
     const queryTerms = new Set(
       normalizedQuery
@@ -4358,6 +4516,7 @@ async function handleSourceSetRpc(
     };
     return sendJson(response, 200, {
       outcome: "ready",
+      ...researchMetadata,
       sourceSetRevision,
       coverage,
       passages,

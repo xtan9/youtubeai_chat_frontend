@@ -39,7 +39,7 @@ describe("Project guided synthesis contract", () => {
       ).toBe(true);
     }
 
-    const localizedQuestion = `${"证据🌍".repeat(50)}${"证据".repeat(25)}`;
+    const localizedQuestion = "🌍".repeat(PROJECT_QUESTION_MAX_LENGTH);
     expect(localizedQuestion.length).toBeGreaterThan(PROJECT_QUESTION_MAX_LENGTH);
     expect(projectGroundedQuestionCodePointLength(localizedQuestion)).toBe(
       PROJECT_QUESTION_MAX_LENGTH,

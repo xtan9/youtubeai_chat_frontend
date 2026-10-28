@@ -500,6 +500,7 @@ begin
       and procedures.prosrc like '%project_private.safe_transcript_seconds(%'
   ) is distinct from array[
     'project_private.project_grounded_live_source_projection_v2',
+    'project_private.project_research_context_window',
     'public.search_project_transcript_passages',
     'public.search_project_transcript_passages_balanced'
   ]::text[] then

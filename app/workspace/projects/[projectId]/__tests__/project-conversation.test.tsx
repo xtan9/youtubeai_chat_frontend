@@ -8,6 +8,7 @@ import type {
   ProjectConversation as Conversation,
 } from "@/lib/projects/project-grounded-answer-contract";
 import { ProjectConversation } from "../project-conversation";
+import { PROJECT_QUESTION_MAX_LENGTH } from "@/lib/projects/project-grounded-input";
 
 const mocks = vi.hoisted(() => ({ capture: vi.fn() }));
 
@@ -666,6 +667,115 @@ describe("ProjectConversation", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("waits for a new thread before enabling research actions or sending a draft", async () => {
+    let resolveCreate!: (response: Response) => void;
+    const fetch = vi.fn().mockImplementation(() => new Promise<Response>((resolve) => { resolveCreate = resolve; }));
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<ProjectConversation projectId={PROJECT_ID} initialConversation={conversation()} />);
+    fireEvent.change(screen.getByLabelText("Ask the Project"), { target: { value: "Keep this question for the new thread" } });
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    expect(screen.getByLabelText("Ask the Project").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Compare viewpoints" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Ask Project" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.submit(screen.getByRole("button", { name: "Ask Project" }).closest("form")!);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => resolveCreate(Response.json({ conversation: {
+      conversationId: "40000000-0000-4000-8000-000000000002",
+      name: "New conversation",
+      createdAt: "2026-08-09T13:00:00.000Z",
+      updatedAt: "2026-08-09T13:00:00.000Z",
+      messageCount: 0,
+    } })));
+    expect(screen.getByLabelText("Ask the Project").hasAttribute("disabled")).toBe(false);
+    expect((screen.getByLabelText("Ask the Project") as HTMLTextAreaElement).value).toBe("Keep this question for the new thread");
+    expect(screen.getByRole("button", { name: "Compare viewpoints" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps guided research available after a failed first answer without showing Free copy to Pro", () => {
+    renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          tier: "pro",
+          messagesLimit: null,
+          messagesUsed: 1,
+          messages: [{
+            id: USER_MESSAGE_ID,
+            inReplyToMessageId: null,
+            role: "user",
+            content: "Can these videos establish whether seed oils are harmful?",
+            createdAt: "2026-08-09T13:00:00.000Z",
+            answerClassification: null,
+            completionState: "completed",
+            sourceSetRevision: 2,
+            sourceManifest: null,
+            sourceCoverage: null,
+            evidenceSnapshot: null,
+            citationDiagnostics: null,
+          }],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Compare viewpoints" }));
+    expect((screen.getByLabelText("Ask the Project") as HTMLTextAreaElement).value).toMatch(/Compare the viewpoints/);
+    expect(screen.getByRole("button", { name: "Project Assessment" })).toBeTruthy();
+    expect(screen.queryByText(/Free includes five user messages/)).toBeNull();
+  });
+
+  it("collapses consecutive source activity without merging across a conversation turn", () => {
+    const event = (revision: number, createdAt: string) => ({
+      eventId: `70000000-0000-4000-8000-00000000000${revision}`,
+      projectId: PROJECT_ID,
+      revision,
+      kind: "added" as const,
+      videoId: VIDEO_ID,
+      videoTitle: `Source ${revision}`,
+      fromPosition: null,
+      toPosition: 1,
+      fromStatus: null,
+      toStatus: "ready" as const,
+      createdAt,
+    });
+    const { container } = renderWithProviders(
+      <ProjectConversation
+        projectId={PROJECT_ID}
+        initialConversation={conversation({
+          messages: [{
+            id: USER_MESSAGE_ID,
+            inReplyToMessageId: null,
+            role: "user",
+            content: "Compare the first two sources",
+            createdAt: "2026-08-09T13:00:00.000Z",
+            answerClassification: null,
+            completionState: "completed",
+            sourceSetRevision: 2,
+            sourceManifest: null,
+            sourceCoverage: null,
+            evidenceSnapshot: null,
+            citationDiagnostics: null,
+          }],
+          sourceSetEvents: [
+            event(1, "2026-08-09T12:58:00.000Z"),
+            event(2, "2026-08-09T12:59:00.000Z"),
+            event(3, "2026-08-09T13:01:00.000Z"),
+            event(4, "2026-08-09T13:02:00.000Z"),
+          ],
+        })}
+      />,
+    );
+    const earlier = screen.getByText("2 source updates · revision 2");
+    const later = screen.getByText("2 source updates · revision 4");
+    expect(earlier.closest("details")?.open).toBe(false);
+    expect(later.closest("details")?.open).toBe(false);
+    const log = container.querySelector('[role="log"]')!;
+    expect(log.textContent!.indexOf("revision 2")).toBeLessThan(log.textContent!.indexOf("Compare the first two sources"));
+    expect(log.textContent!.indexOf("revision 4")).toBeGreaterThan(log.textContent!.indexOf("Compare the first two sources"));
+    fireEvent.click(earlier);
+    expect(earlier.closest("details")?.open).toBe(true);
+    expect(screen.getByText(/Added Source 1 to the Source Set/)).toBeTruthy();
+    expect(screen.getByText(/Added Source 2 to the Source Set/)).toBeTruthy();
+  });
+
   it("uses shared code-point validation without a UTF-16 maxLength mismatch", () => {
     renderWithProviders(
       <ProjectConversation
@@ -677,17 +787,17 @@ describe("ProjectConversation", () => {
     expect(textarea.hasAttribute("maxlength")).toBe(false);
 
     fireEvent.change(textarea, { target: { value: "🧪".repeat(2) } });
-    expect(screen.getByText(/2\/200 characters/)).toBeTruthy();
-    fireEvent.change(textarea, { target: { value: "🧪".repeat(200) } });
-    expect(screen.getByText(/200\/200 characters/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`2/${PROJECT_QUESTION_MAX_LENGTH} characters`))).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: "🧪".repeat(PROJECT_QUESTION_MAX_LENGTH) } });
+    expect(screen.getByText(new RegExp(`${PROJECT_QUESTION_MAX_LENGTH}/${PROJECT_QUESTION_MAX_LENGTH} characters`))).toBeTruthy();
     expect(
       screen
         .getByRole("button", { name: "Ask Project" })
         .hasAttribute("disabled"),
     ).toBe(false);
 
-    fireEvent.change(textarea, { target: { value: "🧪".repeat(201) } });
-    expect(screen.getByText(/201\/200 characters/)).toBeTruthy();
+    fireEvent.change(textarea, { target: { value: "🧪".repeat(PROJECT_QUESTION_MAX_LENGTH + 1) } });
+    expect(screen.getByText(new RegExp(`${PROJECT_QUESTION_MAX_LENGTH + 1}/${PROJECT_QUESTION_MAX_LENGTH} characters`))).toBeTruthy();
     expect(
       screen
         .getByRole("button", { name: "Ask Project" })

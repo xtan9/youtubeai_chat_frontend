@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -91,12 +92,14 @@ export function VideoThumbnail({
 
 export function ProjectSourceList({
   videos,
+  compact = false,
   pendingAction,
   processUrl,
   move,
   remove,
 }: {
   videos: readonly ProjectVideo[];
+  compact?: boolean;
   pendingAction: string | null;
   processUrl: (url: string, retryVideoId?: string) => Promise<void>;
   move: (video: ProjectVideo, direction: -1 | 1) => Promise<void>;
@@ -112,23 +115,29 @@ export function ProjectSourceList({
         return (
           <li
             key={video.videoId}
-            className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md border border-border-subtle bg-surface-raised p-3 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:items-center"
+            className={compact ? "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-lg border border-border-subtle bg-surface-raised p-3" : "grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md border border-border-subtle bg-surface-raised p-3 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:items-center"}
           >
             <span
-              className="flex size-8 items-center justify-center rounded-full bg-surface-inverse text-caption font-semibold text-text-inverse"
+              className={compact ? "sr-only" : "flex size-8 items-center justify-center rounded-full bg-surface-inverse text-caption font-semibold text-text-inverse"}
               aria-label={`Position ${index + 1}`}
             >
               {index + 1}
             </span>
             <VideoThumbnail youtubeVideoId={video.youtubeVideoId} />
-            <div className="col-span-2 min-w-0 sm:col-span-1">
+            <div className={compact ? "min-w-0" : "col-span-2 min-w-0 sm:col-span-1"}>
               <div className="flex flex-wrap items-center gap-2">
-                <p
+                <Link
+                  href={`/summary?url=${encodeURIComponent(video.youtubeUrl)}`}
+                  prefetch={false}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   data-testid="project-source-title"
-                  className="truncate text-body-md font-medium text-text-primary"
+                  className={`${compact ? "line-clamp-2 text-body-sm" : "text-body-md"} min-w-0 break-words rounded-sm font-medium text-text-primary underline-offset-4 outline-none hover:text-accent-brand hover:underline focus-visible:ring-2 focus-visible:ring-state-focus`}
+                  aria-label={`Read ${title} (opens in a new tab)`}
+                  title={title}
                 >
                   {title}
-                </p>
+                </Link>
                 <SourceStatus video={video} />
               </div>
               {video.channelName ? (
@@ -142,7 +151,7 @@ export function ProjectSourceList({
                 </p>
               ) : null}
             </div>
-            <div className="col-span-2 flex items-center justify-end gap-1 sm:col-span-1">
+            <div className={compact ? "col-span-2 flex items-center justify-end gap-1" : "col-span-2 flex items-center justify-end gap-1 sm:col-span-1"}>
               {video.status === "failed" ? (
                 <Button
                   type="button"
@@ -161,6 +170,7 @@ export function ProjectSourceList({
               <Button
                 type="button"
                 size="icon"
+                className={compact ? "size-8 text-text-muted" : undefined}
                 variant="ghost"
                 onClick={() => void move(video, -1)}
                 disabled={index === 0 || Boolean(pendingAction)}
@@ -172,6 +182,7 @@ export function ProjectSourceList({
               <Button
                 type="button"
                 size="icon"
+                className={compact ? "size-8 text-text-muted" : undefined}
                 variant="ghost"
                 onClick={() => void move(video, 1)}
                 disabled={
@@ -185,6 +196,7 @@ export function ProjectSourceList({
               <Button
                 type="button"
                 size="icon"
+                className={compact ? "size-8 text-text-muted" : undefined}
                 variant="ghost"
                 onClick={() => void remove(video)}
                 disabled={Boolean(pendingAction)}

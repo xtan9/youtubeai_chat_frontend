@@ -25,7 +25,7 @@ import {
   type ProjectConversationMode,
 } from "@/lib/projects/project-grounded-synthesis";
 import {
-  SourceSetChangeEvent,
+  SourceSetChangeGroup,
   ModeBadge,
   AssistantAnswer,
   ConversationMessage,
@@ -77,7 +77,7 @@ export function ProjectConversation({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextQuestion = question.trim();
-    if (!questionIsValid || conversation.streaming) return;
+    if (!questionIsValid || conversation.streaming || conversation.conversationLoading) return;
     setQuestion("");
     void conversation.send(nextQuestion, questionMode);
   }
@@ -104,26 +104,38 @@ export function ProjectConversation({
     });
   }, [atCap, conversation.conversation.messagesUsed, projectId]);
   const hasMessages = conversation.conversation.messages.length > 0;
-  const timeline = useMemo(
-    () =>
-      [
-        ...conversation.conversation.messages.map((message) => ({
-          kind: "message" as const,
-          createdAt: message.createdAt,
-          message,
-        })),
-        ...(conversation.conversation.sourceSetEvents ?? []).map((event) => ({
-          kind: "source_set_event" as const,
-          createdAt: event.createdAt,
-          event,
-        })),
-      ].sort(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          (left.kind === right.kind ? 0 : left.kind === "source_set_event" ? -1 : 1),
-      ),
-    [conversation.conversation.messages, conversation.conversation.sourceSetEvents],
-  );
+  const timeline = useMemo(() => {
+    const entries = [
+      ...conversation.conversation.messages.map((message) => ({
+        kind: "message" as const,
+        createdAt: message.createdAt,
+        message,
+      })),
+      ...(conversation.conversation.sourceSetEvents ?? []).map((event) => ({
+        kind: "source_set_event" as const,
+        createdAt: event.createdAt,
+        event,
+      })),
+    ].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt) ||
+      (left.kind === right.kind ? 0 : left.kind === "source_set_event" ? -1 : 1),
+    );
+    type Entry = (typeof entries)[number];
+    type Group = Extract<Entry, { kind: "message" }> | {
+      kind: "source_set_events";
+      events: Extract<Entry, { kind: "source_set_event" }>["event"][];
+    };
+    return entries.reduce<Group[]>((groups, entry) => {
+      if (entry.kind === "message") {
+        groups.push(entry);
+      } else {
+        const previous = groups.at(-1);
+        if (previous?.kind === "source_set_events") previous.events.push(entry.event);
+        else groups.push({ kind: "source_set_events", events: [entry.event] });
+      }
+      return groups;
+    }, []);
+  }, [conversation.conversation.messages, conversation.conversation.sourceSetEvents]);
   const normalizedQuestion = question.trim();
   const questionLength = projectGroundedQuestionCodePointLength(
     normalizedQuestion,
@@ -149,8 +161,7 @@ export function ProjectConversation({
                 Project Conversation
               </h2>
               <p className="text-body-sm text-text-secondary">
-                Ask across ready Videos. Every answer shows its Evidence
-                Snapshot coverage before the response.
+                Ask questions, compare viewpoints, and check the cited video passages.
               </p>
             </div>
             {conversation.conversation.messagesLimit === 5 ? (
@@ -166,10 +177,10 @@ export function ProjectConversation({
             )}
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-5">
+        <CardContent className="flex flex-col gap-5 pt-4">
           <section
             aria-labelledby="project-conversation-list-heading"
-            className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-sunken p-3"
+            className="flex flex-col gap-2 border-b border-border-subtle pb-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3
@@ -328,51 +339,21 @@ export function ProjectConversation({
             {!hasMessages && !conversation.draft ? (
               <div className="rounded-lg border border-dashed border-border-default bg-surface-sunken p-6 text-center">
                 <p className="text-body-md font-medium text-text-primary">
-                  Ask your first Project question
+                  What would you like to understand?
                 </p>
                 <p className="mt-1 text-body-sm text-text-secondary">
-                  Answers use bounded Transcript passages only. Project Goals
-                  guide relevance but are never evidence.
+                  Ask in your own words, or choose a research action below.
+                  Answers cite your videos; they do not independently verify their claims.
                 </p>
-                <div
-                  className="mt-4 flex flex-col gap-2 text-left"
-                  aria-label="Guided Project Conversation actions"
-                >
-                  <p className="text-caption font-medium text-text-secondary">
-                    Start with a guided exploration
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {PROJECT_GUIDED_ACTIONS.map((action) => (
-                      <Button
-                        key={action.mode}
-                        type="button"
-                        variant="outline"
-                        className="h-auto min-h-14 justify-start whitespace-normal text-left"
-                        aria-label={action.label}
-                        onClick={() => {
-                          setQuestion(action.question);
-                          setQuestionMode(action.mode);
-                        }}
-                        disabled={conversation.streaming}
-                      >
-                        <span className="flex min-w-0 flex-col items-start gap-0.5">
-                          <span>{action.label}</span>
-                          <span className="text-caption font-normal text-text-muted">
-                            {action.description}
-                          </span>
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+
               </div>
             ) : null}
 
             {timeline.map((entry) =>
-              entry.kind === "source_set_event" ? (
-                <SourceSetChangeEvent
-                  key={`source-set-event-${entry.event.eventId}`}
-                  event={entry.event}
+              entry.kind === "source_set_events" ? (
+                <SourceSetChangeGroup
+                  key={`source-set-events-${entry.events[0].eventId}`}
+                  events={entry.events}
                 />
               ) : (
                 <ConversationMessage
@@ -449,7 +430,33 @@ export function ProjectConversation({
               </Button>
             </div>
           ) : (
-            <form onSubmit={submit} className="flex flex-col gap-3">
+            <form onSubmit={submit} className="sticky bottom-3 z-10 flex flex-col gap-3 rounded-xl border border-border-default bg-surface-base p-4 shadow-sm">
+              <div className="flex flex-wrap gap-2" aria-label="Guided Project Conversation actions">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={questionMode === PROJECT_DEFAULT_CONVERSATION_MODE ? "secondary" : "ghost"}
+                  aria-pressed={questionMode === PROJECT_DEFAULT_CONVERSATION_MODE}
+                  disabled={conversation.streaming || conversation.conversationLoading}
+                  onClick={() => setQuestionMode(PROJECT_DEFAULT_CONVERSATION_MODE)}
+                >Ask a question</Button>
+                {PROJECT_GUIDED_ACTIONS.map((action) => (
+                  <Button
+                    key={action.mode}
+                    type="button"
+                    size="sm"
+                    variant={questionMode === action.mode ? "secondary" : "ghost"}
+                    className="h-auto min-h-8 whitespace-normal text-left"
+                    title={action.description}
+                    aria-pressed={questionMode === action.mode}
+                    onClick={() => {
+                      setQuestion(action.question);
+                      setQuestionMode(action.mode);
+                    }}
+                    disabled={conversation.streaming || conversation.conversationLoading}
+                  >{action.label}</Button>
+                ))}
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="project-question">Ask the Project</Label>
                 {questionMode !== PROJECT_DEFAULT_CONVERSATION_MODE ? (
@@ -464,15 +471,15 @@ export function ProjectConversation({
                   id="project-question"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  rows={3}
-                  disabled={conversation.streaming}
+                  rows={4}
+                  disabled={conversation.streaming || conversation.conversationLoading}
                   aria-describedby="project-question-help"
                   aria-invalid={question.length > 0 && !questionIsValid}
-                  placeholder="What do these Project Videos say about…"
+                  placeholder="What do these videos agree on? Which claims have stronger evidence?"
                 />
                 <p id="project-question-help" className="text-caption text-text-muted">
-                  {questionLength}/200 characters. Free includes five user
-                  messages per Project.
+                  {questionLength}/{PROJECT_QUESTION_MAX_LENGTH} characters.
+                  {conversation.conversation.messagesLimit === 5 ? " Free includes five user messages per Project." : " Answers use the videos in this Project."}
                 </p>
               </div>
               <div className="flex justify-end">
@@ -495,7 +502,7 @@ export function ProjectConversation({
                         : "Stop"}
                   </Button>
                 ) : (
-                  <Button type="submit" disabled={!questionIsValid}>
+                  <Button type="submit" disabled={!questionIsValid || conversation.conversationLoading}>
                     <Send aria-hidden="true" />
                     Ask Project
                   </Button>

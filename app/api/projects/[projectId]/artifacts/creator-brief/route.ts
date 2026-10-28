@@ -13,11 +13,10 @@ const route = createProjectArtifactRoute({
   promptVersion: "creator-brief-v1",
   errorPrefix: "PROJECT_CREATOR_BRIEF",
   logScope: "project-creator-brief",
-  balanceSources: true,
   evidenceNotReadyMessage:
     "A Creator Brief needs at least one ready Project Transcript. Try again when processing finishes.",
   evidenceInsufficientMessage:
-    "The ready Project Transcripts do not contain enough evidence for a Creator Brief.",
+    "We couldn't retrieve relevant passages for this Creator Brief. Try a more specific research goal or add another source.",
   buildMessages: buildProjectCreatorBriefMessages,
   validate: validateProjectCreatorBrief,
 });

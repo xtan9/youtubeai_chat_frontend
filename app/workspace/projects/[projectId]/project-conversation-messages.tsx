@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { classifyProjectActionHttpFailure } from "@/lib/analytics/project-activity";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
+import { formatTimestamp } from "@/lib/utils/timestamp-citations";
 import {
   type ProjectAnswerClassification,
   type ProjectAnswerCoverage,
@@ -159,13 +160,38 @@ function EvidenceSnapshotLedger({
 }) {
   if (!snapshot) return null;
   return (
-    <p
-      className="text-caption text-text-muted"
-      aria-label="Immutable Evidence Snapshot"
-    >
-      Evidence Snapshot · Source Set revision {snapshot.sourceSetRevision} ·{" "}
-      {snapshot.passages.length} {snapshot.passages.length === 1 ? "passage" : "passages"}
-    </p>
+    <div className="flex min-w-0 flex-col gap-3" aria-label="Immutable Evidence Snapshot">
+      <p className="text-caption text-text-muted">
+        Evidence Snapshot · Source Set revision {snapshot.sourceSetRevision} ·{" "}
+        {snapshot.passages.length} {snapshot.passages.length === 1 ? "passage" : "passages"}
+      </p>
+      {snapshot.passages.map((passage, index) => {
+        const title = passage.title ?? "Untitled Video";
+        const start = formatTimestamp(passage.startSeconds);
+        const timestamp = passage.endSeconds === null
+          ? start
+          : `${start}–${formatTimestamp(passage.endSeconds)}`;
+        const href = `https://www.youtube.com/watch?v=${passage.youtubeVideoId}&t=${Math.floor(passage.startSeconds)}s`;
+        return (
+          <details key={passage.passageId} className="min-w-0 rounded-lg border border-border-subtle bg-surface-base px-3 py-2">
+            <summary className="cursor-pointer break-words rounded-sm text-body-sm font-medium text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">
+              Passage {index + 1} · {title} · {timestamp}
+            </summary>
+            <div className="mt-3 flex min-w-0 flex-col gap-3">
+              <blockquote className="whitespace-pre-wrap break-words border-l-2 border-border-default pl-3 text-body-sm text-text-secondary">
+                {passage.text}
+              </blockquote>
+              {passage.truncatedStart || passage.truncatedEnd ? (
+                <p className="text-caption text-text-muted">This excerpt starts or ends within a transcript segment.</p>
+              ) : null}
+              <a href={href} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 rounded-sm text-body-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus" aria-label={`Watch ${title} at ${start}`}>
+                Watch at {start}<ExternalLink aria-hidden="true" className="size-3" />
+              </a>
+            </div>
+          </details>
+        );
+      })}
+    </div>
   );
 }
 
@@ -182,23 +208,40 @@ export function SourceSetChangeEvent({ event }: { event: ProjectSourceSetEvent }
         </span>
         <Badge variant="outline">Revision {event.revision}</Badge>
       </div>
-      <span className="text-caption text-text-muted">
-        This boundary keeps answers grounded in the Source Set that existed when they were created.
-      </span>
+
     </div>
+  );
+}
+
+export function SourceSetChangeGroup({ events }: { events: readonly ProjectSourceSetEvent[] }) {
+  if (events.length === 1) return <SourceSetChangeEvent event={events[0]} />;
+  const latest = events[events.length - 1];
+  return (
+    <details className="rounded-lg border border-dashed border-border-default bg-surface-sunken px-3 py-2">
+      <summary className="cursor-pointer rounded-sm text-caption font-medium text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">
+        {events.length} source updates · revision {latest.revision}
+      </summary>
+      <div className="mt-3 flex flex-col gap-2" aria-label="Source update history">
+        {events.map((event) => <SourceSetChangeEvent key={event.eventId} event={event} />)}
+      </div>
+    </details>
   );
 }
 
 function ClassificationBadge({
   classification,
+  noMatchingPassages,
 }: {
   classification: ProjectAnswerClassification | null;
+  noMatchingPassages: boolean;
 }) {
   if (classification === null) {
     return <Badge variant="outline">Preparing answer</Badge>;
   }
   const label =
-    classification === "supported"
+    classification === "unsupported" && noMatchingPassages
+      ? "No matching passages"
+      : classification === "supported"
       ? "Evidence supported"
       : classification === "abstained"
         ? "Abstained"
@@ -345,13 +388,23 @@ export function AssistantAnswer({
         </p>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ModeBadge mode={mode} />
-          <ClassificationBadge classification={classification} />
+          <ClassificationBadge classification={classification} noMatchingPassages={coverage.passagesUsed === 0} />
         </div>
       </div>
       <ModeTrustBoundary mode={mode} />
-      <SourceManifest manifest={manifest} />
-      <CoverageLedger coverage={coverage} />
-      <EvidenceSnapshotLedger snapshot={evidenceSnapshot} />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-text-secondary" aria-label="Answer coverage summary">
+        <span>{coverage.usedVideos} of {coverage.totalVideos} videos used</span>
+        <span>{coverage.passagesUsed} evidence {coverage.passagesUsed === 1 ? "passage" : "passages"}</span>
+        {coverage.unavailableVideos.length > 0 ? <span className="text-accent-warning">{coverage.unavailableVideos.length} unavailable</span> : null}
+      </div>
+      <details className="rounded-lg bg-surface-sunken px-3 py-2">
+        <summary className="cursor-pointer rounded-sm text-caption font-medium text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">View sources and retrieval details</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <SourceManifest manifest={manifest} />
+          <CoverageLedger coverage={coverage} />
+          <EvidenceSnapshotLedger snapshot={evidenceSnapshot} />
+        </div>
+      </details>
       <p className="whitespace-pre-wrap text-body-md text-text-primary">
         {renderAnswer(
           content,
@@ -370,6 +423,11 @@ export function AssistantAnswer({
             : undefined,
         )}
       </p>
+      {classification === "unsupported" && coverage.passagesUsed === 0 && coverage.readyVideos > 0 ? (
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-body-sm text-text-secondary">
+          No relevant passages were found for this question. This does not establish whether the claim is true or false. Try naming the specific claim, or use Search to inspect the transcript.
+        </p>
+      ) : null}
       <DiagnosticNote diagnostics={diagnostics} />
       {analyticsIdentity ? (
         <div className="flex flex-wrap items-center gap-2" aria-label="Answer feedback">

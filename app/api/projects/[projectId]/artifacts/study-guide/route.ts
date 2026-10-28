@@ -16,7 +16,7 @@ const route = createProjectArtifactRoute({
   evidenceNotReadyMessage:
     "A Study Guide needs at least one ready Project Transcript. Try again when processing finishes.",
   evidenceInsufficientMessage:
-    "The ready Project Transcripts do not contain enough evidence for a Study Guide.",
+    "We couldn't retrieve relevant passages for this Study Guide. Try a more specific research goal or add another source.",
   buildMessages: buildProjectStudyGuideMessages,
   validate: (content, sourceManifest) =>
     validateProjectStudyGuide(content, sourceManifest),

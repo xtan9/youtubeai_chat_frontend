@@ -36,7 +36,7 @@ vi.mock("../project-artifacts", () => ({
     </output>
   ),
 }));
-vi.mock("../project-conversation", () => ({ ProjectConversation: () => null }));
+vi.mock("../project-conversation", () => ({ ProjectConversation: () => <input aria-label="Research draft" defaultValue="" /> }));
 vi.mock("../project-search", () => ({ ProjectSearch: () => null }));
 
 import { ProjectView } from "../project-view";
@@ -105,9 +105,15 @@ describe("ProjectView shared Source Set state", () => {
     expect(privacyBoundary?.tagName).toBe("DIV");
     expect(privacyBoundary?.classList.contains("ph-no-capture")).toBe(true);
     expect(privacyBoundary?.hasAttribute("data-ph-no-autocapture")).toBe(true);
+    expect(screen.getByRole("tab", { name: "Research" }).getAttribute("aria-selected")).toBe("true");
+    await user.type(screen.getByRole("textbox", { name: "Research draft" }), "Compare these claims");
+    await user.click(screen.getByRole("tab", { name: "Outputs" }));
+    expect(screen.queryByRole("textbox", { name: "Research draft" })).toBeNull();
     expect(screen.getByLabelText("Artifact Source Set revision").textContent).toBe("3");
     await user.click(screen.getByRole("button", { name: "Advance Source Set" }));
     expect(screen.getByLabelText("Artifact Source Set revision").textContent).toBe("4");
+    await user.click(screen.getByRole("tab", { name: "Research" }));
+    expect((screen.getByRole("textbox", { name: "Research draft" }) as HTMLInputElement).value).toBe("Compare these claims");
   });
 
   it("blocks the Project-name delete confirmation in its Radix portal", async () => {
@@ -167,6 +173,7 @@ describe("ProjectView shared Source Set state", () => {
       />,
     );
 
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Delete Project" }));
     const dialog = screen.getByRole("alertdialog");
     expect(dialog.classList.contains("ph-no-capture")).toBe(true);

@@ -3,6 +3,7 @@ import { z } from "zod";
 export const PROJECT_PASSAGE_SEARCH_DEFAULT_LIMIT = 8;
 export const PROJECT_PASSAGE_SEARCH_MAX_LIMIT = 10;
 export const PROJECT_PASSAGE_SEARCH_MAX_TEXT_LENGTH = 600;
+export const PROJECT_RESEARCH_PASSAGE_MAX_TEXT_LENGTH = 2_400;
 export const PROJECT_PASSAGE_SEARCH_QUERY_MIN_LENGTH = 2;
 export const PROJECT_PASSAGE_SEARCH_QUERY_MAX_LENGTH = 200;
 
@@ -109,6 +110,7 @@ export const ProjectTranscriptPassageSchema = z
     channelName: z.string().nullable(),
     text: z.string().min(1),
     segmentOrdinal: z.number().int().positive(),
+    endSegmentOrdinal: z.number().int().positive().optional(),
     excerptStartCharacter: z.number().int().nonnegative(),
     excerptEndCharacter: z.number().int().positive(),
     startSeconds: z.number().finite().nonnegative(),
@@ -120,7 +122,11 @@ export const ProjectTranscriptPassageSchema = z
   .strict()
   .superRefine((passage, context) => {
     const textLength = projectPassageSearchCodePointLength(passage.text);
-    if (textLength > PROJECT_PASSAGE_SEARCH_MAX_TEXT_LENGTH) {
+    const contextual = passage.endSegmentOrdinal !== undefined;
+    const textLimit = contextual
+      ? PROJECT_RESEARCH_PASSAGE_MAX_TEXT_LENGTH
+      : PROJECT_PASSAGE_SEARCH_MAX_TEXT_LENGTH;
+    if (textLength > textLimit) {
       context.addIssue({
         code: "custom",
         message: "Project Search passage text exceeds its code-point bound.",
@@ -128,7 +134,7 @@ export const ProjectTranscriptPassageSchema = z
     }
     const expectedPassageId = [
       passage.videoId,
-      passage.segmentOrdinal,
+      contextual ? `${passage.segmentOrdinal}-${passage.endSegmentOrdinal}` : passage.segmentOrdinal,
       passage.excerptStartCharacter,
       passage.excerptEndCharacter,
     ].join(":");
@@ -137,6 +143,13 @@ export const ProjectTranscriptPassageSchema = z
         code: "custom",
         message: "Project Search passage identity is incoherent.",
       });
+    }
+    if (contextual && (
+      passage.endSegmentOrdinal! < passage.segmentOrdinal ||
+      passage.endSegmentOrdinal! - passage.segmentOrdinal >= 32 ||
+      passage.excerptStartCharacter !== 0 || passage.truncatedStart || passage.truncatedEnd
+    )) {
+      context.addIssue({ code: "custom", message: "Research context must contain a complete bounded segment range." });
     }
     if (
       passage.excerptEndCharacter - passage.excerptStartCharacter !==
@@ -171,6 +184,8 @@ export type ProjectTranscriptPassage = z.infer<
 const SearchPayloadSchema = z
   .object({
     sourceSetRevision: z.number().int().nonnegative(),
+    sourceLanguages: z.array(z.string().min(1).max(35)).max(5).optional(),
+    sourceTitles: z.array(z.string().max(500)).max(5).optional(),
     coverage: ProjectSearchCoverageSchema,
     passages: z
       .array(ProjectTranscriptPassageSchema)

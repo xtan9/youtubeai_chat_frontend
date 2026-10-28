@@ -16,6 +16,7 @@ const { mocks, afterCallbacks } = vi.hoisted(() => ({
     complete: vi.fn(),
     fail: vi.fn(),
     search: vi.fn(),
+    researchUsage: vi.fn(),
     logAppEvent: vi.fn(),
     recordProjectAnalyticsTransition: vi.fn(),
     recordProjectGenerationUsage: vi.fn(),
@@ -41,6 +42,17 @@ vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: mocks.streamChatCompletion,
 }));
 vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
+vi.mock("@/lib/projects/project-passage-search", () => ({
+  createProjectResearchPassageSearchCapability: vi.fn(() => ({ search: mocks.search })),
+}));
+vi.mock("@/lib/projects/project-research-retrieval", () => ({
+  retrieveProjectResearchEvidence: async (args: { question: string; onPlanningStart?: () => void; onUsage: (usage: unknown) => void }) => {
+    args.onPlanningStart?.();
+    const usage = mocks.researchUsage();
+    if (usage) args.onUsage(usage);
+    return mocks.search({ query: args.question, limit: 10, balanceSources: true });
+  },
+}));
 vi.mock("@/lib/analytics/project-server", () => ({
   recordProjectAnalyticsTransition: mocks.recordProjectAnalyticsTransition,
   recordProjectGenerationUsage: mocks.recordProjectGenerationUsage,
@@ -57,24 +69,6 @@ const ATTEMPT_ID = "50000000-0000-4000-8000-000000000001";
 const ATTEMPT_TOKEN = "60000000-0000-4000-8000-000000000001";
 const ARTIFACT_ID = "70000000-0000-4000-8000-000000000001";
 const CONTEXT = { params: Promise.resolve({ projectId: PROJECT_ID }) };
-
-const NORMALIZATION = JSON.stringify({
-  records: [
-    { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "The launch should happen in April", interpretation: { issueKey: "launch-timing", relation: "supports", resolution: "settled" } },
-    { candidateId: "C2", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "the team is ready", interpretation: { issueKey: "team-readiness", relation: "states", resolution: "settled" } },
-    { candidateId: "C3", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "The launch should not happen in April", interpretation: { issueKey: "launch-timing", relation: "opposes", resolution: "settled" } },
-    { candidateId: "C4", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "testing is incomplete", interpretation: { issueKey: "testing-readiness", relation: "states", resolution: "settled" } },
-    { candidateId: "C5", sourceId: "S1", citation: "[S1 @ 00:24]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-    { candidateId: "C6", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-  ],
-});
-
-const PLAN = JSON.stringify({
-  importantFindingRecordIds: ["R1"],
-  agreementRecordIdPairs: [["R5", "R6"]],
-  disagreementRecordIdPairs: [["R1", "R3"]],
-  openQuestionRecordIds: [],
-});
 
 const RENDERED_CONTENT = `# Project Brief
 
@@ -266,705 +260,196 @@ function request(method: "GET" | "POST", body?: unknown) {
   );
 }
 
-function model(content = PLAN, normalization = NORMALIZATION) {
-  let call = 0;
+function plan() {
+  const reference = (evidenceId: string, passageIndex: number): { evidenceId: string; quote: string } => ({ evidenceId, quote: PASSAGES[passageIndex].text });
+  return {
+    overview: { text: "The speakers disagree about April timing while sharing an emphasis on transparent testing.", evidence: [reference("E1", 0), reference("E2", 2)] },
+    findings: [
+      { text: "The proposal favors April because its team is ready.", evidence: [reference("E1", 0)] },
+      { text: "The counterpoint opposes April because testing remains incomplete.", evidence: [reference("E2", 2)] },
+    ],
+    agreements: [{ text: "Both speakers describe transparent testing as a way to build trust.", evidence: [reference("E3", 1), reference("E4", 3)] }],
+    disagreements: [{ text: "Readiness leads the speakers to different recommendations on April timing.", evidence: [reference("E1", 0), reference("E2", 2)] }],
+    openQuestions: [{ text: "Which tests must be completed before the team can commit to a date?", evidence: [reference("E2", 2)] }],
+  };
+}
+
+function model(content = JSON.stringify(plan())) {
   mocks.streamChatCompletion.mockImplementation(async function* () {
-    const generated = call++ === 0 ? normalization : content;
-    yield { type: "delta", text: generated.slice(0, 80) };
-    yield { type: "delta", text: generated.slice(80) };
+    yield { type: "delta", text: content.slice(0, 80) };
+    yield { type: "delta", text: content.slice(80) };
     yield { type: "done" };
   });
 }
 
-function modelSequence(...contents: readonly string[]) {
-  for (const content of contents) {
-    mocks.streamChatCompletion.mockImplementationOnce(async function* () {
-      yield { type: "delta", text: content };
-      yield { type: "done" };
-    });
-  }
+function readySearch() {
+  return {
+    status: "ready", sourceSetRevision: 3,
+    coverage: { totalVideos: 2, readyVideos: 2, unavailableVideos: [], passagesExamined: 8 },
+    passages: PASSAGES,
+  };
 }
+
+function reservation() {
+  return { status: "started", attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN, kind: "project_brief", tier: "free", generationsUsed: 0, generationsLimit: 1 };
+}
+
+function post() { return POST(request("POST", { attemptToken: ATTEMPT_TOKEN }), CONTEXT); }
 
 describe("Project Brief API", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     afterCallbacks.length = 0;
-    mocks.after.mockImplementation((callback: () => void | Promise<void>) => {
-      afterCallbacks.push(callback);
-    });
-    mocks.requireRegisteredResearcher.mockResolvedValue({
-      kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
-    });
+    mocks.after.mockImplementation((callback: () => void | Promise<void>) => afterCallbacks.push(callback));
+    mocks.requireRegisteredResearcher.mockResolvedValue({ kind: "resolved", principal: { userId: USER_ID, isAnonymous: false } });
     mocks.createClient.mockResolvedValue({ fixture: true });
-    mocks.resolveProjectSubject.mockResolvedValue({
-      kind: "resolved",
-      value: SUBJECT,
-    });
+    mocks.resolveProjectSubject.mockResolvedValue({ kind: "resolved", value: SUBJECT });
     mocks.checkRateLimit.mockResolvedValue({ allowed: true });
     mocks.load.mockResolvedValue(LOADED);
-    mocks.reserve.mockResolvedValue({
-      status: "started",
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      kind: "project_brief",
-      tier: "free",
-      generationsUsed: 0,
-      generationsLimit: 1,
-    });
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 2,
-        unavailableVideos: [],
-        passagesExamined: 8,
-      },
-      passages: PASSAGES,
-    });
-    mocks.complete.mockResolvedValue({
-      status: "completed",
-      artifact: LOADED.current,
-    });
+    mocks.reserve.mockResolvedValue(reservation());
+    mocks.search.mockResolvedValue(readySearch());
+    mocks.complete.mockResolvedValue({ status: "completed", artifact: LOADED.current });
     mocks.fail.mockResolvedValue({ status: "failed" });
     model();
   });
 
-  it("loads only the owner-scoped current Project Brief and audit state", async () => {
+  it("keeps historical stored Briefs readable without reinterpreting their content", async () => {
     const response = await GET(request("GET"), CONTEXT);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ projectBrief: LOADED });
     expect(mocks.load).toHaveBeenCalledWith("project_brief");
   });
 
-  it("generates from source-balanced evidence, buffers model output, validates it, and persists provenance", async () => {
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
+  it("persists useful synthesis with exact supporting quotations, canonical citations and immutable provenance", async () => {
+    const response = await post();
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({ projectBrief: LOADED });
-    expect(mocks.reserve).toHaveBeenCalledWith("project_brief", ATTEMPT_TOKEN);
-    expect(mocks.search).toHaveBeenCalledWith({
-      query: expect.stringContaining("Project Brief"),
-      limit: 10,
-      balanceSources: true,
-    });
-    expect(mocks.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: RENDERED_CONTENT,
-        reservation: expect.objectContaining({ kind: "project_brief" }),
-        artifacts: expect.objectContaining({
-          sourceManifest: SOURCE_MANIFEST,
-          evidenceSnapshot: expect.objectContaining({
-            // #324 canonicalizes the immutable snapshot into balanced source
-            // order instead of preserving the grouped retrieval input.
-            passages: [PASSAGES[0], PASSAGES[2], PASSAGES[1], PASSAGES[3]],
-          }),
-        }),
-        generationMetadata: expect.objectContaining({
-          promptVersion: "project-brief-v4",
-          normalizationAudit: {
-            version: "project-brief-normalization-v2",
-            recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-          },
-        }),
-      }),
-    );
+    expect(mocks.search).toHaveBeenCalledWith({ query: expect.stringContaining("Compare launch timing"), limit: 10, balanceSources: true });
+    const completed = mocks.complete.mock.calls[0][0];
+    expect(completed.content).toContain("The proposal favors April because its team is ready. [S1 @ 00:12]");
+    expect(completed.content).toContain("The counterpoint opposes April because testing remains incomplete. [S2 @ 00:18]");
+    expect(completed.content).toContain("Both speakers describe transparent testing as a way to build trust. [S1 @ 00:24] [S2 @ 00:31]");
+    expect(completed.content).toContain("not an independent fact check");
+    expect(completed.content).toContain("> The launch should happen in April because the team is ready. [S1 @ 00:12]");
+    expect(completed.artifacts.sourceManifest).toEqual(SOURCE_MANIFEST);
+    expect(completed.artifacts.evidenceSnapshot.passages).toEqual([PASSAGES[0], PASSAGES[2], PASSAGES[1], PASSAGES[3]]);
+    expect(completed.generationMetadata).toMatchObject({ promptVersion: "project-brief-v5", normalizationAudit: { version: "project-brief-context-v3", recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
     expect(mocks.fail).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed requests before auth and preserves auth, owner, and adapter envelopes", async () => {
-    const malformed = new Request(request("POST").url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not-json",
-    });
-    const invalid = await POST(malformed, CONTEXT);
-    expect(invalid.status).toBe(400);
-    expect(invalid.headers.get("X-Error-ID")).toBe(
-      "PROJECT_BRIEF_REQUEST_INVALID",
-    );
+  it("rejects malformed requests before auth and preserves owner checks", async () => {
+    const malformed = new Request(request("POST").url, { method: "POST", headers: { "Content-Type": "application/json" }, body: "not-json" });
+    expect((await POST(malformed, CONTEXT)).status).toBe(400);
     expect(mocks.requireRegisteredResearcher).not.toHaveBeenCalled();
-
-    mocks.requireRegisteredResearcher.mockResolvedValueOnce({
-      kind: "error",
-      response: Response.json({ outcome: "unauthenticated" }, { status: 401 }),
-    });
-    expect(
-      (await POST(request("POST", { attemptToken: ATTEMPT_TOKEN }), CONTEXT))
-        .status,
-    ).toBe(401);
-
-    mocks.requireRegisteredResearcher.mockResolvedValue({
-      kind: "resolved",
-      principal: { userId: USER_ID, isAnonymous: false },
-    });
+    mocks.requireRegisteredResearcher.mockResolvedValueOnce({ kind: "error", response: Response.json({}, { status: 401 }) });
+    expect((await post()).status).toBe(401);
     mocks.resolveProjectSubject.mockResolvedValueOnce({ kind: "forbidden" });
-    expect(
-      (await POST(request("POST", { attemptToken: ATTEMPT_TOKEN }), CONTEXT))
-        .status,
-    ).toBe(403);
-
+    expect((await post()).status).toBe(403);
     mocks.createClient.mockRejectedValueOnce(new Error("cookies unavailable"));
     expect((await GET(request("GET"), CONTEXT)).status).toBe(503);
     expect(mocks.reserve).not.toHaveBeenCalled();
   });
 
-  it("shares the existing Free Artifact quota across kinds without retrieving or generating", async () => {
-    mocks.reserve.mockResolvedValue({
-      status: "limit_reached",
-      tier: "free",
-      generationsUsed: 1,
-      generationsLimit: 1,
-    });
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
+  it("checks the shared Free quota before retrieval or provider work", async () => {
+    mocks.reserve.mockResolvedValue({ status: "limit_reached", tier: "free", generationsUsed: 1, generationsLimit: 1 });
+    const response = await post();
     expect(response.status).toBe(402);
-    await expect(response.json()).resolves.toMatchObject({
-      errorCode: "free_artifact_generation_exceeded",
-      artifactGenerationsUsed: 1,
-      artifactGenerationsLimit: 1,
-    });
-    expect(response.headers.get("X-Error-ID")).toBe(
-      "PROJECT_ARTIFACT_QUOTA_EXCEEDED",
-    );
+    expect(response.headers.get("X-Error-ID")).toBe("PROJECT_ARTIFACT_QUOTA_EXCEEDED");
     expect(mocks.search).not.toHaveBeenCalled();
     expect(mocks.streamChatCompletion).not.toHaveBeenCalled();
   });
 
-  it("releases reservations for unavailable evidence, malformed model output, and revision conflict", async () => {
-    mocks.search.mockResolvedValueOnce({
-      status: "not_ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 0,
-        unavailableVideos: [
-          {
-            videoId: VIDEO_ONE_ID,
-            youtubeVideoId: "aaaaaaa0001",
-            title: "Launch proposal",
-            channelName: "Research channel",
-            status: "processing",
-            failureCode: null,
-          },
-          {
-            videoId: VIDEO_TWO_ID,
-            youtubeVideoId: "bbbbbbb0002",
-            title: "Launch counterpoint",
-            channelName: "Evidence lab",
-            status: "processing",
-            failureCode: null,
-          },
-        ],
-        passagesExamined: 0,
-      },
-    });
-    const notReady = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-    expect(notReady.status).toBe(409);
-    expect(notReady.headers.get("X-Error-ID")).toBe(
-      "PROJECT_BRIEF_EVIDENCE_NOT_READY",
-    );
+  it("releases a reservation when evidence is not ready or retrieval fails", async () => {
+    mocks.search.mockResolvedValueOnce({ status: "not_ready", sourceSetRevision: 3, coverage: { totalVideos: 0, readyVideos: 0, unavailableVideos: [], passagesExamined: 0 }, passages: [] });
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(response.headers.get("X-Error-ID")).toBe("PROJECT_BRIEF_EVIDENCE_NOT_READY");
     expect(mocks.fail).toHaveBeenCalledOnce();
+    mocks.search.mockRejectedValueOnce(new Error("query planning failed"));
+    expect((await post()).status).toBe(503);
+    expect(mocks.fail).toHaveBeenCalledTimes(2);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
 
-    vi.clearAllMocks();
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 2,
-        unavailableVideos: [],
-        passagesExamined: 8,
-      },
-      passages: PASSAGES,
-    });
-    mocks.reserve.mockResolvedValue({
-      status: "started",
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      kind: "project_brief",
-      tier: "free",
-      generationsUsed: 0,
-      generationsLimit: 1,
-    });
-    mocks.fail.mockResolvedValue({ status: "failed" });
-    model(PLAN.replace('"R1"', '"R99"'));
-    const malformed = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-    expect(malformed.status).toBe(503);
+  it.each(["unknown evidence", "altered quote", "single-source comparison", "model citation", "missing source", "malformed JSON"])("rejects %s without storing an artifact", async (attack) => {
+    const output = plan();
+    if (attack === "unknown evidence") output.findings[0].evidence[0].evidenceId = "E99";
+    if (attack === "altered quote") output.findings[0].evidence[0].quote = "The source actually opposed the launch.";
+    if (attack === "single-source comparison") output.disagreements[0].evidence = [output.findings[0].evidence[0]];
+    if (attack === "model citation") output.findings[0].text += " [S9 @ 99:99]";
+    if (attack === "missing source") {
+      output.overview.evidence = [output.findings[0].evidence[0]];
+      output.findings = [output.findings[0]];
+      output.agreements = []; output.disagreements = []; output.openQuestions = [];
+    }
+    model(attack === "malformed JSON" ? "not-json" : JSON.stringify(output));
+    expect((await post()).status).toBe(503);
     expect(mocks.complete).not.toHaveBeenCalled();
     expect(mocks.fail).toHaveBeenCalledOnce();
+  });
 
-    vi.clearAllMocks();
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 2,
-        unavailableVideos: [],
-        passagesExamined: 8,
-      },
-      passages: PASSAGES,
-    });
-    mocks.reserve.mockResolvedValue({
-      status: "started",
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      kind: "project_brief",
-      tier: "pro",
-      generationsUsed: 2,
-      generationsLimit: null,
-    });
+  it("accepts formatted JSON and never stores provider evidence IDs as user prose", async () => {
+    model(JSON.stringify(plan(), null, 2));
+    expect((await post()).status).toBe(201);
+    expect(mocks.complete.mock.calls[0][0].content).not.toContain("evidenceId");
+  });
+
+  it("preserves source-set conflict protection during completion", async () => {
     mocks.complete.mockResolvedValue({ status: "conflict" });
-    mocks.fail.mockResolvedValue({ status: "failed" });
-    model();
-    const conflict = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-    expect(conflict.status).toBe(409);
-    expect(conflict.headers.get("X-Error-ID")).toBe(
-      "PROJECT_BRIEF_SOURCE_SET_CHANGED",
-    );
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(response.headers.get("X-Error-ID")).toBe("PROJECT_BRIEF_SOURCE_SET_CHANGED");
     expect(mocks.fail).toHaveBeenCalledOnce();
   });
 
-  it("normalizes evidence before accepting a final plan made only from server-issued record IDs", async () => {
-    modelSequence(NORMALIZATION, PLAN);
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(201);
-    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
-    const normalizationPrompt = mocks.streamChatCompletion.mock.calls[0][0]
-      .messages[0].content as string;
-    const finalPrompt = mocks.streamChatCompletion.mock.calls[1][0].messages[0]
-      .content as string;
-    expect(normalizationPrompt).not.toContain("Compare launch timing");
-    expect(finalPrompt).toContain('"recordId":"R1"');
-    expect(finalPrompt).toContain("Compare launch timing");
-    expect(mocks.complete).toHaveBeenCalledOnce();
-    expect(mocks.fail).not.toHaveBeenCalled();
+  it("retains multilingual interpretation and original-language quotations separately", async () => {
+    const output = plan();
+    output.findings[0].text = "第一位讲者支持四月发布，因为团队已经准备好。";
+    output.findings[1].text = "第二位讲者反对四月发布，因为测试尚未完成。";
+    model(JSON.stringify(output));
+    expect((await post()).status).toBe(201);
+    const content = mocks.complete.mock.calls[0][0].content;
+    expect(content).toContain("第一位讲者支持四月发布，因为团队已经准备好。 [S1 @ 00:12]");
+    expect(content).toContain(PASSAGES[0].text);
+    expect(content).toContain(PASSAGES[2].text);
   });
 
-  it("accepts formatted JSON in both stages and persists only canonical governed output", async () => {
-    modelSequence(
-      `\n${JSON.stringify(JSON.parse(NORMALIZATION), null, 2)}\n`,
-      `\n${JSON.stringify(JSON.parse(PLAN), null, 2)}\n`,
-    );
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(201);
-    expect(mocks.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: RENDERED_CONTENT,
-        generationMetadata: expect.objectContaining({
-          normalizationAudit: {
-            version: "project-brief-normalization-v2",
-            recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
-          },
-        }),
-      }),
-    );
-    expect(mocks.complete.mock.calls[0][0].content).not.toContain(
-      "importantFindingRecordIds",
-    );
-  });
-
-  it("records one aggregate usage event and total duration for normalization plus selection", async () => {
+  it("aggregates query-planning and synthesis usage once, including failure consumption", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
-    mocks.requireRegisteredResearcher.mockResolvedValue({
-      kind: "resolved",
-      principal: {
-        userId: USER_ID,
-        isAnonymous: false,
-        businessAnalyticsSuppressed: false,
-      },
-    });
-    let call = 0;
-    mocks.streamChatCompletion.mockImplementation(async function* () {
-      if (call++ === 0) {
+    try {
+      vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+      mocks.requireRegisteredResearcher.mockResolvedValue({ kind: "resolved", principal: { userId: USER_ID, isAnonymous: false, businessAnalyticsSuppressed: false } });
+      mocks.researchUsage.mockImplementation(() => {
         vi.advanceTimersByTime(40);
-        yield { type: "delta", text: NORMALIZATION };
-        yield {
-          type: "usage",
-          usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 },
-        };
-      } else {
+        return { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 };
+      });
+      mocks.streamChatCompletion.mockImplementation(async function* () {
         vi.advanceTimersByTime(30);
-        yield { type: "delta", text: PLAN };
-        yield {
-          type: "usage",
-          usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 },
-        };
-      }
-      yield { type: "done" };
-    });
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-    expect(response.status).toBe(201);
-    for (const callback of afterCallbacks) await callback();
-
-    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
-    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
-      ownerId: USER_ID,
-      operationId: ATTEMPT_TOKEN,
-      generationKind: "project_brief",
-      usage: { inputTokens: 160, cachedInputTokens: 25, outputTokens: 25 },
-      durationMs: 70,
-      businessAnalyticsSuppressed: false,
-      activation: {
-        trigger: "artifact",
-        occurredAt: "2026-08-09T18:00:00.000Z",
-      },
-    });
-    vi.useRealTimers();
+        yield { type: "delta", text: JSON.stringify(plan()) };
+        yield { type: "usage", usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 } };
+      });
+      expect((await post()).status).toBe(201);
+      for (const callback of afterCallbacks) await callback();
+      expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
+      expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: { inputTokens: 160, cachedInputTokens: 25, outputTokens: 25 }, durationMs: 70 }));
+      afterCallbacks.length = 0;
+      mocks.recordProjectGenerationUsage.mockClear();
+      model("not-json");
+      expect((await post()).status).toBe(503);
+      for (const callback of afterCallbacks) await callback();
+      expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined, durationMs: 40 }));
+      expect(mocks.fail).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
   });
 
-  it("records consumed normalization usage when malformed normalization releases the reservation", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
-    mocks.requireRegisteredResearcher.mockResolvedValue({
-      kind: "resolved",
-      principal: {
-        userId: USER_ID,
-        isAnonymous: false,
-        businessAnalyticsSuppressed: false,
-      },
-    });
+  it.each(["planner", "synthesis"])("does not report a partial total when %s usage is missing", async (missing) => {
+    if (missing !== "planner") mocks.researchUsage.mockReturnValue({ inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 });
     mocks.streamChatCompletion.mockImplementation(async function* () {
-      vi.advanceTimersByTime(40);
-      yield { type: "delta", text: "not-json" };
-      yield {
-        type: "usage",
-        usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 3 },
-      };
-      yield { type: "done" };
+      yield { type: "delta", text: JSON.stringify(plan()) };
+      if (missing !== "synthesis") yield { type: "usage", usage: { inputTokens: 60, cachedInputTokens: 5, outputTokens: 15 } };
     });
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-    expect(response.status).toBe(503);
-    expect(mocks.fail).toHaveBeenCalledOnce();
-    expect(mocks.complete).not.toHaveBeenCalled();
+    expect((await post()).status).toBe(201);
     for (const callback of afterCallbacks) await callback();
-
-    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledOnce();
-    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
-      ownerId: USER_ID,
-      operationId: ATTEMPT_TOKEN,
-      generationKind: "project_brief",
-      usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 3 },
-      durationMs: 40,
-      businessAnalyticsSuppressed: false,
-    });
-    vi.useRealTimers();
+    expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
   });
-
-  it.each([
-    [
-      "possible agreement from model-interpreted opposition",
-      { ...JSON.parse(PLAN), agreementRecordIdPairs: [["R1", "R3"]] },
-    ],
-    [
-      "possible disagreement from model-interpreted support",
-      { ...JSON.parse(PLAN), disagreementRecordIdPairs: [["R5", "R6"]] },
-    ],
-    [
-      "possible disagreement across unrelated model issue labels",
-      { ...JSON.parse(PLAN), disagreementRecordIdPairs: [["R4", "R5"]] },
-    ],
-    [
-      "Important finding with an unknown evidence record",
-      { ...JSON.parse(PLAN), importantFindingRecordIds: ["R99"] },
-    ],
-    [
-      "possible open question from a model-settled record",
-      { ...JSON.parse(PLAN), openQuestionRecordIds: ["R1"] },
-    ],
-  ])("releases a v2 ID-only selector attack: %s", async (_label, invalidPlan) => {
-    model(JSON.stringify(invalidPlan));
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(503);
-    expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
-    expect(mocks.complete).not.toHaveBeenCalled();
-    expect(mocks.fail).toHaveBeenCalledOnce();
-  });
-
-  it("keeps a cross-language opposing clause as a distinct cited finding when the server cannot adjudicate the proposition", async () => {
-    const affirmativeText = "Climate adaptation depends on exact local evidence.";
-    const affirmativeLength = Array.from(affirmativeText).length;
-    const affirmativePassage = {
-      ...PASSAGES[0],
-      passageId: `${VIDEO_ONE_ID}:1:0:${affirmativeLength}`,
-      text: affirmativeText,
-      excerptEndCharacter: affirmativeLength,
-    };
-    const spanishText =
-      "La adaptación climática no debe depender solo de evidencia local exacta; debe priorizar comparaciones regionales.";
-    const spanishLength = Array.from(spanishText).length;
-    const spanishPassage = {
-      ...PASSAGES[2],
-      passageId: `${VIDEO_TWO_ID}:1:0:${spanishLength}`,
-      text: spanishText,
-      excerptEndCharacter: spanishLength,
-      language: "es",
-    };
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 2,
-        unavailableVideos: [],
-        passagesExamined: 8,
-      },
-      passages: [affirmativePassage, PASSAGES[1], spanishPassage, PASSAGES[3]],
-    });
-    const multilingualNormalization = JSON.stringify({
-      records: [
-        { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:24]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-        { candidateId: "C2", sourceId: "S2", citation: "[S2 @ 00:31]", clause: "Transparent testing helps people trust the launch", interpretation: { issueKey: "launch-trust", relation: "states", resolution: "settled" } },
-        { candidateId: "C3", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "Climate adaptation depends on exact local evidence", interpretation: { issueKey: "climate-evidence", relation: "supports", resolution: "settled" } },
-        { candidateId: "C4", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "La adaptación climática no debe depender solo de evidencia local exacta", interpretation: { issueKey: "climate-evidence", relation: "opposes", resolution: "settled" } },
-        { candidateId: "C5", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "debe priorizar comparaciones regionales", interpretation: { issueKey: "regional-comparison", relation: "states", resolution: "settled" } },
-      ],
-    });
-    const multilingualPlan = JSON.stringify({
-      importantFindingRecordIds: ["R3", "R4"],
-      agreementRecordIdPairs: [["R1", "R2"]],
-      disagreementRecordIdPairs: [["R3", "R4"]],
-      openQuestionRecordIds: [],
-    });
-    model(multilingualPlan, multilingualNormalization);
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(201);
-    const persistedContent = mocks.complete.mock.calls[0][0].content as string;
-    expect(persistedContent).toContain(
-      "- Climate adaptation depends on exact local evidence [S1 @ 00:12].",
-    );
-    expect(persistedContent).toContain(
-      "- La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
-    );
-    expect(persistedContent).toContain(
-      "Interpretation — possible conflict (not server-certified) position A: Climate adaptation depends on exact local evidence [S1 @ 00:12].",
-    );
-    expect(persistedContent).toContain(
-      "Interpretation — possible conflict (not server-certified) position B: La adaptación climática no debe depender solo de evidencia local exacta [S2 @ 00:18].",
-    );
-    expect(persistedContent).not.toContain(
-      "No model-identified material disagreement in this Evidence Snapshot.",
-    );
-    expect(persistedContent).not.toContain(
-      "Interpretation — possible disagreement position",
-    );
-    expect(mocks.fail).not.toHaveBeenCalled();
-  });
-
-  it("persists independently cited cross-language agreement interpretations without claiming certification", async () => {
-    const englishText = "Transparent evidence strengthens public trust.";
-    const spanishText = "La evidencia transparente ayuda a generar confianza.";
-    const englishPassage = {
-      ...PASSAGES[0],
-      passageId: `${VIDEO_ONE_ID}:1:0:${Array.from(englishText).length}`,
-      text: englishText,
-      excerptEndCharacter: Array.from(englishText).length,
-    };
-    const spanishPassage = {
-      ...PASSAGES[2],
-      passageId: `${VIDEO_TWO_ID}:1:0:${Array.from(spanishText).length}`,
-      text: spanishText,
-      excerptEndCharacter: Array.from(spanishText).length,
-      language: "es",
-    };
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 2,
-        readyVideos: 2,
-        unavailableVideos: [],
-        passagesExamined: 2,
-      },
-      passages: [englishPassage, spanishPassage],
-    });
-    const multilingualNormalization = JSON.stringify({
-      records: [
-        { candidateId: "C1", sourceId: "S1", citation: "[S1 @ 00:12]", clause: "Transparent evidence strengthens public trust", interpretation: { issueKey: "evidence-trust", relation: "supports", resolution: "settled" } },
-        { candidateId: "C2", sourceId: "S2", citation: "[S2 @ 00:18]", clause: "La evidencia transparente ayuda a generar confianza", interpretation: { issueKey: "evidence-trust", relation: "supports", resolution: "settled" } },
-      ],
-    });
-    const multilingualPlan = JSON.stringify({
-      importantFindingRecordIds: ["R1", "R2"],
-      agreementRecordIdPairs: [["R1", "R2"]],
-      disagreementRecordIdPairs: [],
-      openQuestionRecordIds: [],
-    });
-    model(multilingualPlan, multilingualNormalization);
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(201);
-    const persistedContent = mocks.complete.mock.calls[0][0].content as string;
-    expect(persistedContent).toContain(
-      "Interpretation — possible agreement (not server-certified) position A: Transparent evidence strengthens public trust [S1 @ 00:12].",
-    );
-    expect(persistedContent).toContain(
-      "Interpretation — possible agreement (not server-certified) position B: La evidencia transparente ayuda a generar confianza [S2 @ 00:18].",
-    );
-    expect(persistedContent).not.toContain(
-      "No model-identified cross-source agreement in this Evidence Snapshot.",
-    );
-    expect(mocks.fail).not.toHaveBeenCalled();
-  });
-
-  it("persists a French unresolved interpretation without claiming source certification", async () => {
-    const frenchGap = "La date exacte du lancement reste à déterminer.";
-    const gapLength = Array.from(frenchGap).length;
-    const gapPassage = {
-      ...PASSAGES[0],
-      passageId: `${VIDEO_ONE_ID}:1:0:${gapLength}`,
-      text: frenchGap,
-      excerptEndCharacter: gapLength,
-      language: "fr",
-    };
-    mocks.search.mockResolvedValue({
-      status: "ready",
-      sourceSetRevision: 3,
-      coverage: {
-        totalVideos: 1,
-        readyVideos: 1,
-        unavailableVideos: [],
-        passagesExamined: 1,
-      },
-      passages: [gapPassage],
-    });
-    const frenchNormalization = JSON.stringify({
-      records: [{
-        candidateId: "C1",
-        sourceId: "S1",
-        citation: "[S1 @ 00:12]",
-        clause: "La date exacte du lancement reste à déterminer",
-        interpretation: {
-          issueKey: "launch-timing",
-          relation: "states",
-          resolution: "unresolved",
-        },
-      }],
-    });
-    const frenchPlan = JSON.stringify({
-      importantFindingRecordIds: ["R1"],
-      agreementRecordIdPairs: [],
-      disagreementRecordIdPairs: [],
-      openQuestionRecordIds: ["R1"],
-    });
-    model(frenchPlan, frenchNormalization);
-
-    const response = await POST(
-      request("POST", { attemptToken: ATTEMPT_TOKEN }),
-      CONTEXT,
-    );
-
-    expect(response.status).toBe(201);
-    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.stringContaining(
-        "Interpretation — possible open question (not server-certified): La date exacte du lancement reste à déterminer [S1 @ 00:12].",
-      ),
-    }));
-    expect(mocks.fail).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["malformed JSON", "not-json"],
-    [
-      "incomplete coverage",
-      JSON.stringify({ records: JSON.parse(NORMALIZATION).records.slice(0, -1) }),
-    ],
-    [
-      "fabricated clause",
-      NORMALIZATION.replace("the team is ready", "Shakira is ready"),
-    ],
-    [
-      "cross-source identity",
-      NORMALIZATION.replace('"sourceId":"S1"', '"sourceId":"S2"'),
-    ],
-  ])(
-    "releases before final generation when normalization has %s",
-    async (_label, invalidNormalization) => {
-      model(PLAN, invalidNormalization);
-
-      const response = await POST(
-        request("POST", { attemptToken: ATTEMPT_TOKEN }),
-        CONTEXT,
-      );
-
-      expect(response.status).toBe(503);
-      expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
-      expect(mocks.complete).not.toHaveBeenCalled();
-      expect(mocks.fail).toHaveBeenCalledOnce();
-    },
-  );
-
-  it.each([
-    ["unknown record", PLAN.replace('"R1"', '"R99"')],
-    ["issue override", JSON.stringify({ ...JSON.parse(PLAN), issue: "celebrity-location" })],
-    ["relation override", JSON.stringify({ ...JSON.parse(PLAN), relation: "states" })],
-    ["resolution override", JSON.stringify({ ...JSON.parse(PLAN), resolution: "unresolved" })],
-  ])(
-    "releases without persistence when the final selector attempts an %s",
-    async (_label, invalidPlan) => {
-      model(invalidPlan);
-
-      const response = await POST(
-        request("POST", { attemptToken: ATTEMPT_TOKEN }),
-        CONTEXT,
-      );
-
-      expect(response.status).toBe(503);
-      expect(mocks.streamChatCompletion).toHaveBeenCalledTimes(2);
-      expect(mocks.complete).not.toHaveBeenCalled();
-      expect(mocks.fail).toHaveBeenCalledOnce();
-    },
-  );
 });

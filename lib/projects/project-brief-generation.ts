@@ -1,46 +1,10 @@
 import "server-only";
 
-import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import {
-  streamChatCompletion,
-  type ChatTokenUsage,
-} from "@/lib/services/llm-chat-client";
-import {
-  buildProjectBriefMessages,
-  validateProjectBrief,
-} from "./project-brief";
-import type {
-  ProjectAnswerSourceManifest,
-  ProjectEvidenceSnapshot,
-} from "./project-grounded-answer-contract";
-import {
-  buildProjectBriefNormalizationMessages,
-  projectBriefNormalizationAudit,
-  validateProjectBriefNormalization,
-} from "./project-brief-normalization";
+import type { ChatTokenUsage } from "@/lib/services/llm-chat-client";
+import type { ProjectAnswerSourceManifest, ProjectEvidenceSnapshot } from "./project-grounded-answer-contract";
+import { buildProjectBriefResearchMessages, projectBriefResearchEvidence, validateProjectBriefResearch } from "./project-brief-research";
 
-const MAX_NORMALIZATION_LENGTH = 100_000;
-
-async function generateNormalization(
-  messages: readonly ChatGatewayMessage[],
-  signal: AbortSignal,
-  onUsage: (usage: ChatTokenUsage) => void,
-) {
-  let generated = "";
-  for await (const event of streamChatCompletion({ messages, signal })) {
-    if (event.type === "usage") {
-      onUsage(event.usage);
-      continue;
-    }
-    if (event.type !== "delta") continue;
-    generated += event.text;
-    if (generated.length > MAX_NORMALIZATION_LENGTH) {
-      throw new Error("Project Brief normalization exceeded its technical limit.");
-    }
-  }
-  return generated;
-}
-
+/** Historical briefs remain stored Markdown; only new generation uses this contract. */
 export async function prepareProjectBriefGeneration(args: {
   readonly projectName: string;
   readonly goal: string | null;
@@ -49,38 +13,13 @@ export async function prepareProjectBriefGeneration(args: {
   readonly signal: AbortSignal;
   readonly onUsage: (usage: ChatTokenUsage) => void;
 }) {
-  const normalizationMessages = buildProjectBriefNormalizationMessages({
-    sourceManifest: args.sourceManifest,
-    evidenceSnapshot: args.evidenceSnapshot,
-  });
-  const rawNormalization = await generateNormalization(
-    normalizationMessages,
-    args.signal,
-    args.onUsage,
-  );
-  const validated = await validateProjectBriefNormalization(
-    rawNormalization,
-    args.sourceManifest,
-    args.evidenceSnapshot,
-  );
-  if (validated.status !== "valid") {
-    throw new Error(
-      `Project Brief evidence normalization failed: ${validated.reason}`,
-    );
-  }
-
+  const evidence = projectBriefResearchEvidence(args.sourceManifest, args.evidenceSnapshot);
+  if (!evidence.length) throw new TypeError("A research brief requires contextual evidence.");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(evidence)));
+  const recordSetHash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return {
-    generationMetadata: {
-      normalizationAudit: projectBriefNormalizationAudit(
-        validated.normalization,
-      ),
-    },
-    messages: buildProjectBriefMessages({
-      projectName: args.projectName,
-      goal: args.goal,
-      normalization: validated.normalization,
-    }),
-    validate: (content: string) =>
-      validateProjectBrief(content, validated.normalization),
+    generationMetadata: { normalizationAudit: { version: "project-brief-context-v3", recordSetHash } },
+    messages: buildProjectBriefResearchMessages({ projectName: args.projectName, goal: args.goal, evidence }),
+    validate: (content: string) => validateProjectBriefResearch(content, evidence),
   };
 }

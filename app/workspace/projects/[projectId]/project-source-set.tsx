@@ -32,6 +32,7 @@ type ProjectSourceSetProps = {
   initialSourceSet: ProjectSourceSetValue;
   initialCandidatePage: ProjectHistoryCandidatePage | null;
   onSourceSetChange?: (sourceSet: ProjectSourceSetValue) => void;
+  compact?: boolean;
 };
 
 type SourceSetPayload = {
@@ -62,6 +63,7 @@ export function ProjectSourceSet({
   initialSourceSet,
   initialCandidatePage,
   onSourceSetChange,
+  compact = false,
 }: ProjectSourceSetProps) {
   const [sourceSet, setSourceSet] = useState(initialSourceSet);
   const sourceSetRevisionRef = useRef(initialSourceSet.revision);
@@ -386,13 +388,13 @@ export function ProjectSourceSet({
 
   return (
     <section aria-labelledby="source-set-heading">
-      <Card className="overflow-hidden">
-        <CardHeader className="border-b border-border-subtle bg-surface-sunken/50">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <Card className={compact ? "gap-0 overflow-hidden py-0" : "overflow-hidden"}>
+        <CardHeader className={compact ? "border-b border-border-subtle p-4" : "border-b border-border-subtle bg-surface-sunken/50"}>
+          <div className={compact ? "flex flex-col gap-3" : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"}>
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
                 <h2 id="source-set-heading" className="text-h4 font-semibold text-text-primary">
-                  Source Set
+                  {compact ? "Sources" : "Source Set"}
                 </h2>
                 <Badge
                   variant="secondary"
@@ -405,13 +407,13 @@ export function ProjectSourceSet({
                 </Badge>
               </div>
               <p className="max-w-prose text-body-sm text-text-secondary">
-                Order the canonical Videos this Project can use as evidence.
+                {compact ? "Open a video to inspect its transcript and summary." : "Order the Videos this Project can use as evidence."}
               </p>
             </div>
 
             <Dialog open={pickerOpen} onOpenChange={changePickerOpen}>
               <DialogTrigger asChild>
-                <Button disabled={atLimit || Boolean(pendingAction)}>
+                <Button size={compact ? "sm" : "default"} variant="outline" disabled={atLimit || Boolean(pendingAction)} className={compact && atLimit ? "hidden" : undefined}>
                   <Plus aria-hidden="true" />
                   Add from History
                 </Button>
@@ -423,7 +425,7 @@ export function ProjectSourceSet({
                 <DialogHeader>
                   <DialogTitle>Add a History Video</DialogTitle>
                   <DialogDescription>
-                    Choose a processed canonical Video whose Transcript and Summary are ready. Project membership reuses that evidence without copying it.
+                    Choose a video you have already processed. Its transcript and summary will be ready to use here.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -555,16 +557,42 @@ export function ProjectSourceSet({
           </div>
         </CardHeader>
 
-        <CardContent className="flex flex-col gap-4 pt-6">
-          <p className="text-body-sm text-text-secondary">
-            Five Videos is the grounding limit for every plan. A bounded Source Set keeps retrieval and Source Coverage honest.
-          </p>
+        <CardContent className={compact ? "flex flex-col gap-4 p-4" : "flex flex-col gap-4 pt-6"}>
+          {sourceSet.videos.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-border-default bg-surface-sunken px-6 py-10 text-center">
+              <Video className="text-text-muted" aria-hidden="true" />
+              <div className="flex flex-col gap-1">
+                <p className="text-body-md font-medium text-text-primary">
+                  Add your first source
+                </p>
+                <p className="text-body-sm text-text-muted">
+                  Paste a YouTube URL below or choose a processed Video from History.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <ProjectSourceList
+              compact={compact}
+              videos={sourceSet.videos}
+              pendingAction={pendingAction}
+              processUrl={processUrl}
+              move={move}
+              remove={remove}
+            />
+          )}
 
+          {!compact ? <p className="text-body-sm text-text-secondary">
+            Up to five Videos per Project. Answers show which Videos contributed evidence.
+          </p> : null}
+
+          {!compact || !atLimit ? (
+            <details open={!compact || sourceSet.videos.length === 0} className="group">
+              <summary className={compact ? "cursor-pointer rounded-md py-1 text-body-sm font-medium text-accent-brand outline-none focus-visible:ring-2 focus-visible:ring-state-focus" : "hidden"}>Add a YouTube video</summary>
           <form
             className="rounded-md border border-border-subtle bg-surface-sunken p-4"
             onSubmit={submitUrl}
           >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className={compact ? "flex flex-col gap-3" : "flex flex-col gap-2 sm:flex-row sm:items-end"}>
               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <Label htmlFor="project-youtube-url">YouTube Video URL</Label>
                 <Input
@@ -583,7 +611,7 @@ export function ProjectSourceSet({
                   id="project-youtube-url-description"
                   className="text-caption text-text-muted"
                 >
-                  Paste one Video. Its canonical Transcript and Summary will be reused when available.
+                  Paste a link to add a video and prepare its transcript.
                 </p>
               </div>
               <Button
@@ -597,13 +625,15 @@ export function ProjectSourceSet({
               </Button>
             </div>
           </form>
+            </details>
+          ) : null}
 
           {atLimit ? (
             <Alert role="note">
               <AlertTriangle aria-hidden="true" />
               <AlertTitle>Source Set limit reached</AlertTitle>
               <AlertDescription>
-                Remove a Video before adding another; upgrading does not increase this grounding limit.
+                Projects include five video slots on every plan. Remove a video to add a different one.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -615,7 +645,7 @@ export function ProjectSourceSet({
                 {unavailableCount} of {sourceSet.videos.length} Project Videos unavailable
               </AlertTitle>
               <AlertDescription>
-                Grounded actions will use only the {readyCount} ready {readyCount === 1 ? "Video" : "Videos"}; processing and failed Project Videos are never silently included.
+                Answers can use {readyCount} ready {readyCount === 1 ? "video" : "videos"}. The others will be included once ready.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -641,27 +671,7 @@ export function ProjectSourceSet({
             </p>
           ) : null}
 
-          {sourceSet.videos.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-border-default bg-surface-sunken px-6 py-10 text-center">
-              <Video className="text-text-muted" aria-hidden="true" />
-              <div className="flex flex-col gap-1">
-                <p className="text-body-md font-medium text-text-primary">
-                  Add your first source
-                </p>
-                <p className="text-body-sm text-text-muted">
-                  Paste a YouTube URL above or choose a processed Video from History.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <ProjectSourceList
-              videos={sourceSet.videos}
-              pendingAction={pendingAction}
-              processUrl={processUrl}
-              move={move}
-              remove={remove}
-            />
-          )}
+
         </CardContent>
       </Card>
     </section>
