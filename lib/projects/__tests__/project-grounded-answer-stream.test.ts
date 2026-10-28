@@ -136,6 +136,47 @@ describe("Project Grounded Answer stream transaction", () => {
     mocks.beginPersistence.mockResolvedValue(completed("supported"));
   });
 
+  it.each([["ABSTAINED"], ["ABS", "TAINED"], ["ABSTAINED\n"]])(
+    "persists a complete abstention with or without a final newline: %j",
+    async (...chunks) => {
+      model(...chunks);
+      mocks.beginPersistence.mockResolvedValue(completed("abstained"));
+      const emitted: ProjectGroundedSseEvent[] = [];
+      const result = await executeProjectGroundedAnswerStream({
+        mode: { kind: "provider", messages: [{ role: "user", content: "fixture" }] },
+        artifacts: artifacts(), reservation, groundedAnswers,
+        signal: new AbortController().signal,
+        emit: (event) => emitted.push(event),
+      });
+      expect(result).toMatchObject({ outcome: "completed" });
+      expect(mocks.beginPersistence).toHaveBeenCalledWith(expect.objectContaining({
+        classification: "abstained",
+        assistantContent: "The Evidence Snapshot does not support a confident answer to this question.",
+      }));
+      expect(JSON.stringify(emitted)).not.toContain("ABSTAINED");
+      expect(emitted.at(-1)).toEqual({ type: "done", assistantMessageId: ASSISTANT_ID });
+    },
+  );
+
+  it.each([
+    ["", "missing_control_line"],
+    ["SUPPORTED", "empty_answer"],
+    ["ABSTAINED extra", "invalid_control_line"],
+    ["ABS", "invalid_control_line"],
+    ["MAYBE\nprivate-answer", "invalid_control_line"],
+    ["SUPPORTED\nABSTAINED\nprivate-answer", "duplicate_control_line"],
+  ])("classifies malformed or incomplete protocol %j safely", async (text, failureCode) => {
+    model(text);
+    const result = await executeProjectGroundedAnswerStream({
+      mode: { kind: "provider", messages: [{ role: "user", content: "fixture" }] },
+      artifacts: artifacts(), reservation, groundedAnswers,
+      signal: new AbortController().signal, emit: () => undefined,
+    });
+    expect(result).toMatchObject({ outcome: "failed", stage: "generation", failureCode });
+    expect(JSON.stringify(result)).not.toContain("private-answer");
+    expect(mocks.beginPersistence).not.toHaveBeenCalled();
+  });
+
   it("hides the control line and emits done only after durable completion", async () => {
     model("SUP", "PORTED\nGrounded [S1 @ 00:42].");
     const emitted: ProjectGroundedSseEvent[] = [];

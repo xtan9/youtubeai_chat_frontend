@@ -117,27 +117,44 @@ describe("streamChatCompletion", () => {
     expect(requestBody).not.toHaveProperty("max_tokens");
   });
 
-  it("throws on non-2xx", async () => {
+  it("classifies HTTP failure without retaining the provider response body", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response("nope", { status: 500 }))
+      vi.fn().mockResolvedValue(new Response("private-provider-payload", { status: 500 }))
     );
     const { streamChatCompletion } = await loadFresh();
-    await expect(async () => {
+    const failure = (async () => {
       for await (const _ of streamChatCompletion({ messages: [{ role: "user", content: "hi" }] })) {
         void _;
       }
-    }).rejects.toThrow(/gateway 500/);
+    })();
+    await expect(failure).rejects.toMatchObject({
+      failureCode: "provider_http_error",
+      httpStatus: 500,
+    });
+    await expect(failure).rejects.not.toThrow(/private-provider-payload/);
   });
 
   it("throws when env is missing", async () => {
     vi.stubEnv("LLM_GATEWAY_URL", "");
     const { streamChatCompletion } = await loadFresh();
+    const failure = (async () => {
+      for await (const _ of streamChatCompletion({ messages: [{ role: "user", content: "hi" }] })) {
+        void _;
+      }
+    })();
+    await expect(failure).rejects.toMatchObject({ failureCode: "provider_configuration_missing" });
+    await expect(failure).rejects.toThrow(/must be configured/);
+  });
+
+  it("classifies an absent provider response body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    const { streamChatCompletion } = await loadFresh();
     await expect(async () => {
       for await (const _ of streamChatCompletion({ messages: [{ role: "user", content: "hi" }] })) {
         void _;
       }
-    }).rejects.toThrow(/must be configured/);
+    }).rejects.toMatchObject({ failureCode: "provider_missing_body" });
   });
 
   it("re-throws non-TypeError errors from reader.releaseLock instead of swallowing them", async () => {

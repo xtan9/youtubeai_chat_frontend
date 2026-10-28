@@ -2,6 +2,7 @@ import "server-only";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
 import { LUNA, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
+import { ChatGatewayError } from "./llm-chat-error";
 
 export type ChatTokenUsage = Readonly<{
   inputTokens: number;
@@ -68,7 +69,7 @@ export async function* streamChatCompletion(
   const gatewayUrl = process.env.LLM_GATEWAY_URL?.trim();
   const gatewayKey = process.env.LLM_GATEWAY_API_KEY?.trim();
   if (!gatewayUrl || !gatewayKey) {
-    throw new Error("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured");
+    throw new ChatGatewayError("provider_configuration_missing");
   }
   // Chat is intentionally pinned to Luna for every video and every turn.
   // Do not let a stale deployment-level LLM_MODEL value silently route chat
@@ -98,13 +99,11 @@ export async function* streamChatCompletion(
     }
   );
   if (!response.ok) {
-    const bodyExcerpt = await response.text().catch(() => "");
-    throw new Error(
-      `[llm-chat-client] gateway ${response.status}: ${bodyExcerpt.slice(0, 200)}`
-    );
+    await response.body?.cancel().catch(() => undefined);
+    throw new ChatGatewayError("provider_http_error", response.status);
   }
   if (!response.body) {
-    throw new Error("[llm-chat-client] gateway returned no response body");
+    throw new ChatGatewayError("provider_missing_body");
   }
 
   const reader = response.body.getReader();
