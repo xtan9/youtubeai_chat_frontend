@@ -463,8 +463,9 @@ export async function POST(request: Request, context: RouteContext) {
                 : "PROJECT_GROUNDED_GENERATION_FAILED",
             projectId: subject.value.projectId,
             errorClass: result.errorClass,
-            ...(result.failureCode ? { failureCode: result.failureCode } : {}),
-            ...(result.providerHttpStatus === undefined ? {} : { providerHttpStatus: result.providerHttpStatus }),
+            stage: result.stage,
+            ...(result.failureCode ? { errorCode: result.failureCode } : {}),
+            ...(result.providerHttpStatus === undefined ? {} : { status: result.providerHttpStatus }),
             requestId,
           });
           send({

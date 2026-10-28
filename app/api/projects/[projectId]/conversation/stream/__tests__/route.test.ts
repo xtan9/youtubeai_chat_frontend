@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+
+afterEach(() => vi.restoreAllMocks());
 
 const { mocks, afterCallbacks } = vi.hoisted(() => {
   const beginPersistence = vi.fn();
@@ -18,7 +20,6 @@ const { mocks, afterCallbacks } = vi.hoisted(() => {
       search: vi.fn(),
       retrieveResearch: vi.fn(),
       streamChatCompletion: vi.fn(),
-      logAppEvent: vi.fn(),
       captureProjectActivityEvent: vi.fn(),
       recordProjectAnalyticsTransition: vi.fn(),
       recordProjectGenerationUsage: vi.fn(),
@@ -51,7 +52,6 @@ vi.mock("@/lib/projects/project-research-retrieval", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/projects/project-research-retrieval")>();
   return { ...original, retrieveProjectResearchEvidence: mocks.retrieveResearch };
 });
-vi.mock("@/lib/observability", () => ({ logAppEvent: mocks.logAppEvent }));
 vi.mock("@/lib/analytics/server", () => ({
   captureProjectActivityEvent: mocks.captureProjectActivityEvent,
 }));
@@ -277,6 +277,7 @@ function assessmentEnvelope(input?: {
 describe("POST /api/projects/[projectId]/conversation/stream", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
     afterCallbacks.length = 0;
     mocks.after.mockImplementation((callback: () => void | Promise<void>) => {
       afterCallbacks.push(callback);
@@ -438,10 +439,10 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(streamed.at(-1)).toMatchObject({ type: "error" });
     expect(mocks.beginPersistence).not.toHaveBeenCalled();
     expect(mocks.cancel).toHaveBeenCalledOnce();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith(
-      "error", "[project-grounded-answer] stream transaction failed",
+    expect(console.error).toHaveBeenCalledWith(
+      "[project-grounded-answer] stream transaction failed",
       expect.objectContaining({
-        failureCode: "provider_http_error", providerHttpStatus: 502,
+        errorCode: "provider_http_error", status: 502,
         errorClass: "ChatGatewayError", requestId: REQUEST_ID,
       }),
     );
@@ -1351,11 +1352,11 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     expect(streamed.some((event) => event.type === "done")).toBe(false);
     expect(mocks.start).toHaveBeenCalledOnce();
     expect(mocks.beginPersistence).not.toHaveBeenCalled();
-    expect(mocks.logAppEvent).toHaveBeenCalledWith(
-      "error", "[project-grounded-answer] stream transaction failed",
-      expect.objectContaining({ failureCode, requestId: REQUEST_ID }),
+    expect(console.error).toHaveBeenCalledWith(
+      "[project-grounded-answer] stream transaction failed",
+      expect.objectContaining({ stage: "generation", errorCode: failureCode, requestId: REQUEST_ID }),
     );
-    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-provider-payload");
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private-provider-payload");
     expect(mocks.cancel).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: STARTED.conversationId,

@@ -2003,7 +2003,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
         artifact.supersededAt === null,
     )?.generationMetadata,
   ).toMatchObject({
-    promptVersion: "project-brief-v5",
+    promptVersion: "project-brief-v6",
     normalizationAudit: {
       version: "project-brief-context-v3",
       recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
@@ -2097,7 +2097,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
           artifact.kind === "project_brief",
       )
       .map((artifact) => artifact.generationMetadata.promptVersion),
-  ).toEqual(["project-brief-v5", "project-brief-v5"]);
+  ).toEqual(["project-brief-v6", "project-brief-v6"]);
   await expect
     .poll(
       () =>
@@ -2155,10 +2155,10 @@ test("Project Brief persists cited positions across desktop export, regeneration
   expect(await reloadedBrief.json()).toMatchObject({
     projectBrief: {
       current: {
-        generationMetadata: { promptVersion: "project-brief-v5" },
+        generationMetadata: { promptVersion: "project-brief-v6" },
       },
       history: [
-        { generationMetadata: { promptVersion: "project-brief-v5" } },
+        { generationMetadata: { promptVersion: "project-brief-v6" } },
       ],
     },
   });
@@ -2196,7 +2196,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
     .getByRole("button", { name: "Regenerate Project Brief" })
     .click();
   await expect(mobileBrief.getByRole("alert")).toContainText(
-    "Projects are temporarily unavailable.",
+    "Project Brief could not be generated. Please try again.",
   );
   await expect
     .poll(
