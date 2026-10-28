@@ -783,7 +783,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await expect(page.getByRole("region", { name: "Project Search" })).toBeVisible();
   await openProjectSection(page, "Research");
   await expect(page.getByRole("heading", { name: "Conversation threads" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Compare viewpoints" })).toBeVisible();
+  await expect(page.getByLabel("Research action", { exact: true })).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
@@ -879,6 +879,7 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   await passage.locator("summary").click();
   await expect(passage.locator("blockquote")).toContainText("Climate adaptation");
   await expect(passage.getByRole("link", { name: /^Watch Alpha evidence at/ })).toHaveAttribute("href", /https:\/\/www.youtube.com\/watch\?v=aaaaaaa0001&t=\d+s/);
+  await passage.getByRole("link", { name: /^Watch Alpha evidence at/ }).click({ trial: true });
   const desktopEvidenceScreenshot = testInfo.outputPath("research-desktop-evidence.png");
   await passage.scrollIntoViewIfNeeded();
   await page.screenshot({ path: desktopEvidenceScreenshot });
@@ -892,7 +893,12 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   expect(JSON.stringify(researchPlans.at(-1)?.context)).toContain(question.slice(0, 80));
   await expectProjectQuestionComposerReady(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "Compare viewpoints" })).toBeVisible();
+  const mobileAction = page.getByLabel("Research action", { exact: true });
+  await expect(mobileAction).toBeVisible();
+  await mobileAction.selectOption("compare_viewpoints");
+  await expect(page.getByLabel("Ask the Project")).toHaveValue(/Compare the viewpoints/);
+  await mobileAction.selectOption("question");
+  await page.getByLabel("Ask the Project").fill("");
   await page.getByLabel("Ask the Project").scrollIntoViewIfNeeded();
   await expect.poll(async () => (await page.getByRole("tablist", { name: "Project sections" }).boundingBox())?.y).toBe(0);
   const mobileScreenshot = testInfo.outputPath("research-mobile.png");
@@ -902,6 +908,7 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   const mobilePassage = page.locator("details").filter({ has: page.locator("summary").filter({ hasText: /^Passage 1 · Alpha evidence/ }) }).last();
   await mobilePassage.locator("summary").click();
   await expect(mobilePassage.locator("blockquote")).toContainText("Climate adaptation");
+  await mobilePassage.getByRole("link", { name: /^Watch Alpha evidence at/ }).click({ trial: true });
   await mobilePassage.scrollIntoViewIfNeeded();
   const mobileEvidenceScreenshot = testInfo.outputPath("research-mobile-evidence.png");
   await page.screenshot({ path: mobileEvidenceScreenshot });
@@ -2019,10 +2026,10 @@ test("Project Brief persists cited positions across desktop export, regeneration
     modelId: "gpt-6-luna",
     providerKind: "cliproxyapi",
     costStatus: "measured",
-    inputTokens: 60,
-    cachedInputTokens: 5,
-    outputTokens: 15,
-    costUsdMicros: 88,
+    inputTokens: 100,
+    cachedInputTokens: 10,
+    outputTokens: 25,
+    costUsdMicros: 145,
     rateCardVersion: "fixture-2026-08",
   });
   expect(projectGenerationUsage[0]?.durationMs).toBeGreaterThanOrEqual(0);
@@ -2103,16 +2110,16 @@ test("Project Brief persists cited positions across desktop export, regeneration
     .toBe(2);
   expect(projectGenerationUsage.slice(0, 2)).toEqual([
     expect.objectContaining({
-      inputTokens: 60,
-      cachedInputTokens: 5,
-      outputTokens: 15,
-      costUsdMicros: 88,
+      inputTokens: 100,
+      cachedInputTokens: 10,
+      outputTokens: 25,
+      costUsdMicros: 145,
     }),
     expect.objectContaining({
-      inputTokens: 60,
-      cachedInputTokens: 5,
-      outputTokens: 15,
-      costUsdMicros: 88,
+      inputTokens: 100,
+      cachedInputTokens: 10,
+      outputTokens: 25,
+      costUsdMicros: 145,
     }),
   ]);
   expect(projectGenerationUsage[1]?.operationId).not.toBe(
@@ -2952,6 +2959,7 @@ async function handleSupabaseRequest(
       }));
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
       response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ queries }) } }] })}\n\n`);
+      response.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 40, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 5 } } })}\n\n`);
       response.end("data: [DONE]\n\n");
       return;
     }

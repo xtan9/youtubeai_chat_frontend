@@ -249,7 +249,7 @@ export function ProjectConversation({
                         <>
                           <button
                             type="button"
-                            className="min-w-0 max-w-full rounded px-2 py-1 text-left text-body-sm font-medium text-text-primary outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-state-focus"
+                            className="min-w-0 max-w-full scroll-mt-16 rounded px-2 py-1 text-left text-body-sm font-medium text-text-primary outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-state-focus"
                             aria-pressed={active}
                             onClick={() => void conversation.selectConversation(item.conversationId)}
                           >
@@ -430,8 +430,26 @@ export function ProjectConversation({
               </Button>
             </div>
           ) : (
-            <form onSubmit={submit} className="sticky bottom-3 z-10 flex flex-col gap-3 rounded-xl border border-border-default bg-surface-base p-4 shadow-sm">
-              <div className="flex flex-wrap gap-2" aria-label="Guided Project Conversation actions">
+            <form onSubmit={submit} className="flex scroll-mt-16 flex-col gap-3 rounded-xl border border-border-default bg-surface-base p-4 shadow-sm">
+              <div className="sm:hidden">
+                <Label htmlFor="project-research-action" className="sr-only">Research action</Label>
+                <select
+                  id="project-research-action"
+                  value={questionMode}
+                  disabled={conversation.streaming || conversation.conversationLoading}
+                  onChange={(event) => {
+                    const mode = event.target.value as ProjectConversationMode;
+                    setQuestionMode(mode);
+                    const action = PROJECT_GUIDED_ACTIONS.find((item) => item.mode === mode);
+                    if (action) setQuestion(action.question);
+                  }}
+                  className="h-10 w-full min-w-0 rounded-md border border-border-default bg-surface-base px-3 text-body-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus disabled:opacity-50"
+                >
+                  <option value={PROJECT_DEFAULT_CONVERSATION_MODE}>Ask a question</option>
+                  {PROJECT_GUIDED_ACTIONS.map((action) => <option key={action.mode} value={action.mode}>{action.label}</option>)}
+                </select>
+              </div>
+              <div className="hidden flex-wrap gap-2 sm:flex" aria-label="Guided Project Conversation actions">
                 <Button
                   type="button"
                   size="sm"
@@ -463,7 +481,7 @@ export function ProjectConversation({
                   <div className="flex flex-wrap items-center gap-2" role="status">
                     <ModeBadge mode={questionMode} />
                     <span className="text-caption text-text-muted">
-                      Edit this question before sending; the selected grounded action will be preserved.
+                      Edit this question before sending.
                     </span>
                   </div>
                 ) : null}

@@ -675,6 +675,7 @@ describe("ProjectConversation", () => {
     fireEvent.change(screen.getByLabelText("Ask the Project"), { target: { value: "Keep this question for the new thread" } });
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
     expect(screen.getByLabelText("Ask the Project").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByLabelText("Research action").hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Compare viewpoints" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Ask Project" }).hasAttribute("disabled")).toBe(true);
     fireEvent.submit(screen.getByRole("button", { name: "Ask Project" }).closest("form")!);
@@ -689,6 +690,9 @@ describe("ProjectConversation", () => {
     expect(screen.getByLabelText("Ask the Project").hasAttribute("disabled")).toBe(false);
     expect((screen.getByLabelText("Ask the Project") as HTMLTextAreaElement).value).toBe("Keep this question for the new thread");
     expect(screen.getByRole("button", { name: "Compare viewpoints" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Research action"), { target: { value: "compare_viewpoints" } });
+    expect((screen.getByLabelText("Ask the Project") as HTMLTextAreaElement).value).toMatch(/Compare the viewpoints/);
+    expect(screen.getByRole("button", { name: "Compare viewpoints" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("keeps guided research available after a failed first answer without showing Free copy to Pro", () => {
