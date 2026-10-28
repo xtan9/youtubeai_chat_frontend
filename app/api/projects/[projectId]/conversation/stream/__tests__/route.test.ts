@@ -61,6 +61,7 @@ vi.mock("@/lib/analytics/project-server", () => ({
 }));
 
 import { POST } from "../route";
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const USER_ID = "20000000-0000-4000-8000-000000000001";
@@ -408,6 +409,24 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     }
     expect(mocks.requireRegisteredResearcher).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("logs only a classified provider HTTP status and cancels the attempt", async () => {
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      throw new ChatGatewayError("provider_http_error", 502);
+    });
+    const streamed = await events(await POST(request(), CONTEXT));
+    expect(streamed.at(-1)).toMatchObject({ type: "error" });
+    expect(mocks.beginPersistence).not.toHaveBeenCalled();
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith(
+      "error", "[project-grounded-answer] stream transaction failed",
+      expect.objectContaining({
+        failureCode: "provider_http_error", providerHttpStatus: 502,
+        errorClass: "ChatGatewayError", requestId: REQUEST_ID,
+      }),
+    );
+    expect(JSON.stringify(streamed)).not.toContain("provider_http_error");
   });
 
   it.each([
@@ -1162,8 +1181,8 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
     );
   });
 
-  it("replaces model prose after ABSTAINED with the deterministic safe abstention", async () => {
-    model("ABSTAINED\nInvented claim that must never be shown or persisted.");
+  it.each(["ABSTAINED", "ABSTAINED\nInvented claim that must never be shown or persisted."])("persists deterministic abstention for %j", async (content) => {
+    model(content);
 
     const streamed = await events(await POST(request(), CONTEXT));
 
@@ -1272,12 +1291,14 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
       async function* () {
         yield { type: "delta", text: "MAYBE\nanswer" };
       },
+      "invalid_control_line",
     ],
     [
       "control line with extra text",
       async function* () {
         yield { type: "delta", text: "SUPPORTED extra\nanswer [S1 @ 00:42]." };
       },
+      "invalid_control_line",
     ],
     [
       "contradictory control line",
@@ -1287,27 +1308,35 @@ describe("POST /api/projects/[projectId]/conversation/stream", () => {
           text: "SUPPORTED\nABSTAINED\nanswer [S1 @ 00:42].",
         };
       },
+      "duplicate_control_line",
     ],
     [
       "empty answer",
       async function* () {
         yield { type: "delta", text: "SUPPORTED\n" };
       },
+      "empty_answer",
     ],
     [
       "provider failure",
       async function* () {
         yield { type: "delta", text: "SUPPORTED\npartial" };
-        throw new Error("gateway failed");
+        throw new Error("private-provider-payload");
       },
+      "provider_stream_failed",
     ],
-  ])("cancels the reserved attempt after %s", async (_name, generator) => {
+  ])("cancels the reserved attempt after %s", async (_name, generator, failureCode) => {
     mocks.streamChatCompletion.mockImplementation(generator);
     const streamed = await events(await POST(request(), CONTEXT));
     expect(streamed.at(-1)).toMatchObject({ type: "error" });
     expect(streamed.some((event) => event.type === "done")).toBe(false);
     expect(mocks.start).toHaveBeenCalledOnce();
     expect(mocks.beginPersistence).not.toHaveBeenCalled();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith(
+      "error", "[project-grounded-answer] stream transaction failed",
+      expect.objectContaining({ failureCode, requestId: REQUEST_ID }),
+    );
+    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-provider-payload");
     expect(mocks.cancel).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: STARTED.conversationId,

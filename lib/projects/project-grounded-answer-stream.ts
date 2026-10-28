@@ -20,10 +20,28 @@ import {
   type ProjectConversationMode,
 } from "./project-grounded-synthesis";
 import { consumeProjectAssessmentEvidence } from "./project-assessment-contract";
+import {
+  ChatGatewayError,
+  type ChatGatewayFailureCode,
+} from "@/lib/services/llm-chat-error";
 
 const MAX_CLASSIFICATION_LINE_LENGTH = 32;
 const SAFE_ABSTENTION =
   "The Evidence Snapshot does not support a confident answer to this question.";
+
+type ProtocolFailureCode =
+  | "invalid_control_line"
+  | "missing_control_line"
+  | "empty_answer"
+  | "answer_too_long"
+  | "duplicate_control_line";
+
+class GroundedAnswerProtocolError extends Error {
+  readonly name = "GroundedAnswerProtocolError";
+  constructor(readonly failureCode: ProtocolFailureCode) {
+    super(failureCode);
+  }
+}
 
 type AnswerMode =
   | {
@@ -43,6 +61,8 @@ export type ProjectGroundedAnswerStreamResult =
       readonly outcome: "failed";
       readonly stage: "generation" | "persistence";
       readonly errorClass: string;
+      readonly failureCode?: ProtocolFailureCode | ChatGatewayFailureCode | "provider_stream_failed";
+      readonly providerHttpStatus?: number;
       readonly generation?: ProjectGenerationAccounting;
     };
 
@@ -98,7 +118,7 @@ async function inspectAndPersist(
   if (input.signal.aborted) return { outcome: "aborted" };
   const contentLength = Array.from(content).length;
   if (contentLength < 1 || contentLength > PROJECT_GROUNDED_ANSWER_MAX_LENGTH) {
-    throw new Error("Grounded answer exceeded its technical limit.");
+    throw new GroundedAnswerProtocolError(contentLength < 1 ? "empty_answer" : "answer_too_long");
   }
 
   const citationInspection = inspectProjectCitations(
@@ -221,7 +241,7 @@ export async function executeProjectGroundedAnswerStream(
       if (completeText.length === 0) return;
       answerCodePoints += Array.from(completeText).length;
       if (answerCodePoints > PROJECT_GROUNDED_ANSWER_MAX_LENGTH) {
-        throw new Error("Grounded answer exceeded its technical limit.");
+        throw new GroundedAnswerProtocolError("answer_too_long");
       }
       assistantChunks.push(completeText);
     };
@@ -243,7 +263,7 @@ export async function executeProjectGroundedAnswerStream(
         const newlineIndex = protocolBuffer.indexOf("\n");
         if (newlineIndex < 0) {
           if (protocolBuffer.length > MAX_CLASSIFICATION_LINE_LENGTH) {
-            throw new Error("Grounded answer classification line is invalid.");
+            throw new GroundedAnswerProtocolError("invalid_control_line");
           }
           continue;
         }
@@ -253,7 +273,7 @@ export async function executeProjectGroundedAnswerStream(
           .replace(/\r$/, "");
         if (controlLine === "SUPPORTED") classification = "supported";
         else if (controlLine === "ABSTAINED") classification = "abstained";
-        else throw new Error("Grounded answer classification line is invalid.");
+        else throw new GroundedAnswerProtocolError("invalid_control_line");
         appendAnswer(protocolBuffer.slice(newlineIndex + 1));
         protocolBuffer = "";
       } else {
@@ -261,11 +281,20 @@ export async function executeProjectGroundedAnswerStream(
       }
     }
 
-    if (classification === null) throw new Error("Grounded answer was empty.");
+    // The abstention protocol is a complete token; EOF is also a line boundary.
+    if (classification === null && protocolBuffer === "ABSTAINED") {
+      classification = "abstained";
+    }
+    if (classification === null) {
+      throw new GroundedAnswerProtocolError(
+        protocolBuffer === "" ? "missing_control_line"
+          : protocolBuffer === "SUPPORTED" ? "empty_answer" : "invalid_control_line",
+      );
+    }
     if (pendingHighSurrogate) {
       answerCodePoints += 1;
       if (answerCodePoints > PROJECT_GROUNDED_ANSWER_MAX_LENGTH) {
-        throw new Error("Grounded answer exceeded its technical limit.");
+        throw new GroundedAnswerProtocolError("answer_too_long");
       }
       assistantChunks.push(pendingHighSurrogate);
     }
@@ -273,12 +302,12 @@ export async function executeProjectGroundedAnswerStream(
     if (
       /(?:^|\r?\n)(?:SUPPORTED|ABSTAINED)(?:\r?\n|$)/u.test(assistantBuffer)
     ) {
-      throw new Error("Grounded answer contained an extra control line.");
+      throw new GroundedAnswerProtocolError("duplicate_control_line");
     }
     if (classification === "abstained") {
       assistantBuffer = input.mode.abstentionContent ?? SAFE_ABSTENTION;
     } else if (assistantBuffer.trim().length === 0) {
-      throw new Error("Grounded answer was empty.");
+      throw new GroundedAnswerProtocolError("empty_answer");
     } else {
       const conversationMode =
         input.conversationMode ?? PROJECT_DEFAULT_CONVERSATION_MODE;
@@ -324,6 +353,10 @@ export async function executeProjectGroundedAnswerStream(
       outcome: "failed",
       stage: "generation",
       errorClass: errorClass(error),
+      failureCode: error instanceof GroundedAnswerProtocolError || error instanceof ChatGatewayError
+        ? error.failureCode : "provider_stream_failed",
+      ...(error instanceof ChatGatewayError && error.httpStatus !== undefined
+        ? { providerHttpStatus: error.httpStatus } : {}),
     });
   }
 }

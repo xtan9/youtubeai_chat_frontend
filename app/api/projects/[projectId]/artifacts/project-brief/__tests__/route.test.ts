@@ -59,6 +59,8 @@ vi.mock("@/lib/analytics/project-server", () => ({
 }));
 
 import { GET, POST } from "../route";
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
+import { createProjectArtifactRoute } from "@/lib/projects/project-artifact-route";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const USER_ID = "20000000-0000-4000-8000-000000000001";
@@ -371,7 +373,14 @@ describe("Project Brief API", () => {
     expect(mocks.complete).not.toHaveBeenCalled();
   });
 
-  it.each(["unknown evidence", "altered quote", "single-source comparison", "model citation", "missing source", "malformed JSON"])("rejects %s without storing an artifact", async (attack) => {
+  it.each([
+    ["unknown evidence", "unknown_evidence"],
+    ["altered quote", "altered_quotation"],
+    ["single-source comparison", "comparison_requires_distinct_sources"],
+    ["model citation", "untrusted_presentation"],
+    ["missing source", "missing_source"],
+    ["malformed JSON", "invalid_structure"],
+  ])("rejects %s with a safe server-only validation reason", async (attack, validationReason) => {
     const output = plan();
     if (attack === "unknown evidence") output.findings[0].evidence[0].evidenceId = "E99";
     if (attack === "altered quote") output.findings[0].evidence[0].quote = "The source actually opposed the launch.";
@@ -383,9 +392,70 @@ describe("Project Brief API", () => {
       output.agreements = []; output.disagreements = []; output.openQuestions = [];
     }
     model(attack === "malformed JSON" ? "not-json" : JSON.stringify(output));
-    expect((await post()).status).toBe(503);
+    const response = await post();
+    expect(response.status).toBe(503);
     expect(mocks.complete).not.toHaveBeenCalled();
     expect(mocks.fail).toHaveBeenCalledOnce();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "validation", validationReason }));
+    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain(output.findings[0].text);
+    expect(await response.text()).not.toContain(validationReason);
+  });
+
+  it.each(["retrieval", "persistence", "reload"])("identifies the %s failure stage without logging exception text", async (failureStage) => {
+    const error = new Error("private-provider-or-project-content");
+    if (failureStage === "retrieval") mocks.search.mockRejectedValue(error);
+    if (failureStage === "persistence") mocks.complete.mockRejectedValue(error);
+    if (failureStage === "reload") mocks.load.mockRejectedValue(error);
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(mocks.fail).toHaveBeenCalledOnce();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage }));
+    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain(error.message);
+    expect(await response.text()).not.toContain(error.message);
+  });
+
+  it.each([true, false])("logs safe generation diagnostics for HTTP failure=%s", async (httpFailure) => {
+    mocks.streamChatCompletion.mockImplementation(async function* () {
+      yield { type: "delta", text: "private-generated-content" };
+      throw httpFailure ? new ChatGatewayError("provider_http_error", 502) : new Error("private-upstream-response");
+    });
+    const response = await post();
+    expect(response.status).toBe(503);
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.fail).toHaveBeenCalledOnce();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({
+      failureStage: "generation",
+      ...(httpFailure ? { failureCode: "provider_http_error", providerHttpStatus: 502 } : {}),
+    }));
+    const logged = JSON.stringify(mocks.logAppEvent.mock.calls);
+    expect(logged).not.toContain("private-generated-content");
+    expect(logged).not.toContain("private-upstream-response");
+    const body = await response.text();
+    expect(body).not.toContain("private-");
+    expect(body).not.toContain("provider_http_error");
+  });
+
+  it("redacts arbitrary validation reasons before logging", async () => {
+    const { POST: validatePost } = createProjectArtifactRoute({
+      kind: "project_brief", title: "Project Brief", responseKey: "projectBrief",
+      promptVersion: "test", errorPrefix: "PROJECT_BRIEF", logScope: "project-brief",
+      evidenceNotReadyMessage: "Evidence not ready.", evidenceInsufficientMessage: "Evidence insufficient.",
+      buildMessages: () => [{ role: "user", content: "fixture" }],
+      validate: () => ({ status: "invalid", reason: "private-generated-validation-reason" }),
+    });
+    const response = await validatePost(request("POST", { attemptToken: ATTEMPT_TOKEN }), CONTEXT);
+    expect(response.status).toBe(503);
+    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "validation", validationReason: "unrecognized_validation_reason" }));
+    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-generated-validation-reason");
+    expect(await response.text()).not.toContain("private-generated-validation-reason");
+  });
+
+  it("identifies an oversized generated artifact without logging its content", async () => {
+    model("private-generated-content".repeat(5_000));
+    expect((await post()).status).toBe(503);
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.logAppEvent).toHaveBeenCalledWith("error", "[project-brief] generation failed", expect.objectContaining({ failureStage: "generation", failureCode: "artifact_too_long" }));
+    expect(JSON.stringify(mocks.logAppEvent.mock.calls)).not.toContain("private-generated-content");
   });
 
   it("accepts formatted JSON and never stores provider evidence IDs as user prose", async () => {

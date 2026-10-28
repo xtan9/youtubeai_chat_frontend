@@ -29,6 +29,7 @@ import {
   streamChatCompletion,
   type ChatTokenUsage,
 } from "@/lib/services/llm-chat-client";
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 import { LUNA } from "@/lib/services/models";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 import { createClient } from "@/lib/supabase/server";
@@ -99,6 +100,19 @@ export type ProjectArtifactRouteDefinition = ProjectArtifactRouteBase &
   (StandardProjectArtifactRouteDefinition | PreparedProjectArtifactRouteDefinition);
 
 const MAX_ARTIFACT_LENGTH = 100_000;
+type ArtifactFailureStage =
+  | "retrieval" | "evidence_selection" | "preparation" | "generation"
+  | "validation" | "persistence" | "reload";
+
+// Validators may return strings, but diagnostics must never echo model prose
+// or arbitrary exception text. Unknown/new reasons stay redacted until reviewed.
+const SAFE_VALIDATION_REASONS = new Set([
+  "empty", "insufficient_evidence", "invalid_structure", "invalid_citation",
+  "uncited_claim", "source_similarity", "structure_similarity", "goal_irrelevant",
+  "unsupported_inspiration", "missing_source_representation", "untrusted_presentation",
+  "duplicate_evidence", "unknown_evidence", "altered_quotation",
+  "comparison_requires_distinct_sources", "missing_source",
+]);
 const GenerationRequestSchema = z
   .object({ attemptToken: z.uuid().optional() })
   .strict();
@@ -287,6 +301,9 @@ export function createProjectArtifactRoute(
     let synthesisStarted = false;
     let synthesisUsageReceived = false;
     let activationOccurredAt: string | null = null;
+    let failureStage: ArtifactFailureStage = "retrieval";
+    let validationReason: string | undefined;
+    let failureCode: "artifact_too_long" | undefined;
     let released = false;
     const release = async () => {
       if (released) return;
@@ -328,6 +345,7 @@ export function createProjectArtifactRoute(
         return projectUnavailableResponse(requestId);
       }
 
+      failureStage = "evidence_selection";
       const artifacts = buildProjectAnswerArtifacts({
         projectId: subject.value.projectId,
         search,
@@ -349,6 +367,7 @@ export function createProjectArtifactRoute(
       }
 
       generationStartedAt ??= Date.now();
+      failureStage = "preparation";
       const generation = definition.prepareGeneration
         ? await definition.prepareGeneration({
             projectName: subject.value.name,
@@ -380,6 +399,7 @@ export function createProjectArtifactRoute(
           };
       let generated = "";
       synthesisStarted = true;
+      failureStage = "generation";
       for await (const event of streamChatCompletion({
         messages: generation.messages,
         signal: request.signal,
@@ -395,16 +415,19 @@ export function createProjectArtifactRoute(
         if (event.type !== "delta") continue;
         generated += event.text;
         if (generated.length > MAX_ARTIFACT_LENGTH) {
+          failureCode = "artifact_too_long";
           throw new Error(`${definition.title} exceeded its technical limit.`);
         }
       }
 
+      failureStage = "validation";
       const validated = generation.validate(generated);
       if (validated.status !== "valid") {
-        throw new Error(
-          `${definition.title} validation failed: ${validated.reason}`,
-        );
+        validationReason = SAFE_VALIDATION_REASONS.has(validated.reason)
+          ? validated.reason : "unrecognized_validation_reason";
+        throw new Error("Artifact validation failed.");
       }
+      failureStage = "persistence";
       const completed = await subject.value.artifacts.complete({
         reservation,
         content: validated.content,
@@ -435,6 +458,7 @@ export function createProjectArtifactRoute(
         return projectUnavailableResponse(requestId);
       }
 
+      failureStage = "reload";
       const loaded = await subject.value.artifacts.load(definition.kind);
       if (loaded.status !== "ready") {
         return projectUnavailableResponse(requestId);
@@ -454,6 +478,14 @@ export function createProjectArtifactRoute(
         errorId: `${definition.errorPrefix}_GENERATION_FAILED`,
         projectId: subject.value.projectId,
         errorName: error instanceof Error ? error.name : typeof error,
+        failureStage,
+        ...(validationReason ? { validationReason } : {}),
+        ...(error instanceof ChatGatewayError
+          ? {
+              failureCode: error.failureCode,
+              ...(error.httpStatus === undefined ? {} : { providerHttpStatus: error.httpStatus }),
+            }
+          : failureCode ? { failureCode } : {}),
         requestId,
       });
       return projectUnavailableResponse(requestId);
