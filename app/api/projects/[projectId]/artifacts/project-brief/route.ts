@@ -1,13 +1,15 @@
 import { createProjectArtifactRoute } from "@/lib/projects/project-artifact-route";
 import { prepareProjectBriefGeneration } from "@/lib/projects/project-brief-generation";
 
-export const maxDuration = 120;
+// Two bounded synthesis calls plus retrieval and durable persistence.
+export const maxDuration = 300;
 
 const route = createProjectArtifactRoute({
   kind: "project_brief",
   title: "Project Brief",
   responseKey: "projectBrief",
-  promptVersion: "project-brief-v6",
+  promptVersion: "project-brief-v7",
+  synthesisTimeoutMs: 100_000,
   logScope: "project-brief",
   errorPrefix: "PROJECT_BRIEF",
   evidenceNotReadyMessage:

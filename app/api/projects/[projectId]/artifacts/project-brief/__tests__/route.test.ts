@@ -59,7 +59,7 @@ vi.mock("@/lib/analytics/project-server", () => ({
   recordProjectGenerationUsage: mocks.recordProjectGenerationUsage,
 }));
 
-import { GET, POST } from "../route";
+import { GET, POST, maxDuration } from "../route";
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 import { ProjectResearchRetrievalError } from "@/lib/projects/project-research-retrieval";
 import { createProjectArtifactRoute } from "@/lib/projects/project-artifact-route";
@@ -337,7 +337,7 @@ describe("Project Brief API", () => {
     expect(completed.content).toContain("> The launch should happen in April because the team is ready. [S1 @ 00:12]");
     expect(completed.artifacts.sourceManifest).toEqual(SOURCE_MANIFEST);
     expect(completed.artifacts.evidenceSnapshot.passages).toEqual([PASSAGES[0], PASSAGES[2], PASSAGES[1], PASSAGES[3]]);
-    expect(completed.generationMetadata).toMatchObject({ promptVersion: "project-brief-v6", normalizationAudit: { version: "project-brief-context-v3", recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(completed.generationMetadata).toMatchObject({ promptVersion: "project-brief-v7", normalizationAudit: { version: "project-brief-context-v3", recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
     expect(mocks.fail).not.toHaveBeenCalled();
   });
@@ -582,6 +582,46 @@ describe("Project Brief API", () => {
     for (const callback of afterCallbacks) await callback();
     expect(mocks.recordProjectGenerationUsage).toHaveBeenCalledWith(expect.objectContaining({ usage: undefined }));
     expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "generation", errorCode: "provider_http_error", status: 502 }));
+  });
+
+  it("lets two valid-duration synthesis calls finish beyond the old 120-second platform limit", async () => {
+    expect(maxDuration).toBe(300);
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      mocks.streamChatCompletion.mockImplementation(async function* ({ signal }: { signal: AbortSignal }) {
+        const call = calls++;
+        await new Promise((resolve) => setTimeout(resolve, 65_000));
+        signal.throwIfAborted();
+        yield { type: "delta", text: call === 0 ? "invalid-json" : JSON.stringify(plan()) };
+      });
+      const pending = post();
+      await vi.waitFor(() => expect(mocks.streamChatCompletion).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(130_000);
+      expect((await pending).status).toBe(201);
+      expect(mocks.complete).toHaveBeenCalledOnce();
+      expect(mocks.fail).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("aborts stalled synthesis, releases its reservation and never starts repair", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.streamChatCompletion.mockImplementation(async function* ({ signal }: { signal: AbortSignal }) {
+        await new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+        yield { type: "delta", text: "unreachable" };
+      });
+      const pending = post();
+      await vi.waitFor(() => expect(mocks.streamChatCompletion).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect((await pending).status).toBe(503);
+      expect(mocks.streamChatCompletion).toHaveBeenCalledOnce();
+      expect(mocks.complete).not.toHaveBeenCalled();
+      expect(mocks.fail).toHaveBeenCalledOnce();
+      expect(console.error).toHaveBeenCalledWith("[project-brief] generation failed", expect.objectContaining({ stage: "generation", errorCode: "generation_timeout" }));
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("does not start repair after cancellation", async () => {

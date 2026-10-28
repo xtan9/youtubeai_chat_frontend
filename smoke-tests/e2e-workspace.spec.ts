@@ -2003,7 +2003,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
         artifact.supersededAt === null,
     )?.generationMetadata,
   ).toMatchObject({
-    promptVersion: "project-brief-v6",
+    promptVersion: "project-brief-v7",
     normalizationAudit: {
       version: "project-brief-context-v3",
       recordSetHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
@@ -2097,7 +2097,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
           artifact.kind === "project_brief",
       )
       .map((artifact) => artifact.generationMetadata.promptVersion),
-  ).toEqual(["project-brief-v6", "project-brief-v6"]);
+  ).toEqual(["project-brief-v7", "project-brief-v7"]);
   await expect
     .poll(
       () =>
@@ -2155,10 +2155,10 @@ test("Project Brief persists cited positions across desktop export, regeneration
   expect(await reloadedBrief.json()).toMatchObject({
     projectBrief: {
       current: {
-        generationMetadata: { promptVersion: "project-brief-v6" },
+        generationMetadata: { promptVersion: "project-brief-v7" },
       },
       history: [
-        { generationMetadata: { promptVersion: "project-brief-v6" } },
+        { generationMetadata: { promptVersion: "project-brief-v7" } },
       ],
     },
   });

@@ -56,6 +56,7 @@ type ProjectArtifactRouteBase = Readonly<{
   logScope: string;
   evidenceNotReadyMessage: string;
   evidenceInsufficientMessage: string;
+  synthesisTimeoutMs?: number;
 }>;
 
 type ProjectArtifactGeneration = Readonly<{
@@ -304,7 +305,7 @@ export function createProjectArtifactRoute(
     let activationOccurredAt: string | null = null;
     let failureStage: ArtifactFailureStage = "retrieval";
     let validationReason: string | undefined;
-    let failureCode: "artifact_too_long" | undefined;
+    let failureCode: "artifact_too_long" | "generation_timeout" | undefined;
     let released = false;
     const release = async () => {
       if (released) return;
@@ -408,8 +409,15 @@ export function createProjectArtifactRoute(
         synthesisStarted = true;
         failureStage = "generation";
         validationReason = undefined;
+        const deadline = new AbortController();
+        const timer = definition.synthesisTimeoutMs === undefined ? undefined : setTimeout(
+          () => deadline.abort(new DOMException("Artifact generation timed out.", "TimeoutError")),
+          definition.synthesisTimeoutMs,
+        );
+        const signal = AbortSignal.any([request.signal, deadline.signal]);
         try {
-          for await (const event of streamChatCompletion({ messages, signal: request.signal })) {
+          for await (const event of streamChatCompletion({ messages, signal })) {
+            signal.throwIfAborted();
             if (event.type === "usage") {
               attemptUsage = event.usage;
               continue;
@@ -421,7 +429,10 @@ export function createProjectArtifactRoute(
               throw new Error(`${definition.title} exceeded its technical limit.`);
             }
           }
+          signal.throwIfAborted();
         } finally {
+          clearTimeout(timer);
+          if (deadline.signal.aborted) failureCode = "generation_timeout";
           // Usage events are totals for one provider call. Keep its last total,
           // and never present a partial aggregate as the whole operation cost.
           if (attemptUsage) generationUsage = accumulateChatTokenUsage(generationUsage, attemptUsage);
