@@ -140,7 +140,9 @@ describe("active project research", () => {
   });
   it("reports partial search coverage instead of calling it an exhaustive search", async () => {
     search.mockRejectedValueOnce(new Error("unavailable"));
-    expect((await runProjectResearch(args)).warnings.join(" ")).toContain("partial search coverage");
+    expect((await runProjectResearch(args)).warnings.join(" ")).toContain(
+      "partial search coverage",
+    );
   });
   it("repairs once, then rejects invented citations", async () => {
     let calls = 0;
@@ -177,8 +179,61 @@ export const researchFixture: ResearchDocument = {
 };
 
 it("does not make removed historical video passages citable in a new source revision", async () => {
- const previous = {...researchFixture, evidence:[external,{...external,id:"V1234567890123456",kind:"video" as const,originId:"removed-video:1",url:"https://www.youtube.com/watch?v=removed0001&t=0s"}]};
- const result = await runProjectResearch({...args,previous});
- expect(result.evidence.every((item)=>item.kind !== "video")).toBe(true);
- expect(result.warnings.join(" ")).toContain("No relevant project video passages");
+  const previous = {
+    ...researchFixture,
+    evidence: [
+      external,
+      {
+        ...external,
+        id: "V1234567890123456",
+        kind: "video" as const,
+        originId: "removed-video:1",
+        url: "https://www.youtube.com/watch?v=removed0001&t=0s",
+      },
+    ],
+  };
+  const result = await runProjectResearch({ ...args, previous });
+  expect(result.evidence.every((item) => item.kind !== "video")).toBe(true);
+  expect(result.warnings.join(" ")).toContain(
+    "No relevant project video passages",
+  );
+});
+
+it("retries one malformed external plan before any literature request", async () => {
+  let calls = 0;
+  stream.mockImplementation(async function* () {
+    const call = calls++;
+    yield {
+      type: "delta",
+      text: call === 0 ? "" : JSON.stringify(call === 1 ? plan : synthesis),
+    };
+  });
+  expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
+    observation,
+  );
+  expect(stream).toHaveBeenCalledTimes(3);
+  expect(search).toHaveBeenCalledTimes(2);
+});
+it("accepts complete fenced JSON while retaining strict plan and citation validation", async () => {
+  let calls = 0;
+  stream.mockImplementation(async function* () {
+    yield {
+      type: "delta",
+      text:
+        "```json\n" +
+        JSON.stringify(calls++ === 0 ? plan : synthesis) +
+        "\n```",
+    };
+  });
+  expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
+    observation,
+  );
+});
+it("stops after two invalid plans without external requests", async () => {
+  stream.mockImplementation(async function* () {
+    yield { type: "delta", text: "not JSON" };
+  });
+  await expect(runProjectResearch(args)).rejects.toThrow();
+  expect(stream).toHaveBeenCalledTimes(2);
+  expect(search).not.toHaveBeenCalled();
 });

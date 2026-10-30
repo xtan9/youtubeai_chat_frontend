@@ -81,12 +81,20 @@ export const ResearchRequestSchema = z
   })
   .strict();
 
+/** Accept one complete JSON object, optionally wrapped in a Markdown fence.
+ * Never extract a guessed object from commentary or repair source content. */
+export function parseResearchJson(raw: string): unknown {
+  const text = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/iu.exec(text);
+  return JSON.parse(fenced ? fenced[1] : text);
+}
+
 /** Refuse hallucinated references/URLs and altered quotations; semantic analysis remains AI interpretation. */
 export function validateResearchSynthesis(
   raw: string,
   evidence: readonly ResearchEvidence[],
 ) {
-  const parsed = ResearchSynthesisSchema.parse(JSON.parse(raw));
+  const parsed = ResearchSynthesisSchema.parse(parseResearchJson(raw));
   const byId = new Map(evidence.map((item) => [item.id, item]));
   for (const item of [parsed.judgment, ...parsed.findings, parsed.reasoning]) {
     if (/https?:\/\/|\[[VE][a-f0-9]{16}\]/iu.test(item.text))
