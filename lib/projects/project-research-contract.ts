@@ -91,16 +91,19 @@ export function validateResearchSynthesis(
   for (const item of [parsed.judgment, ...parsed.findings, parsed.reasoning]) {
     if (/https?:\/\/|\[[VE][a-f0-9]{16}\]/iu.test(item.text))
       throw new Error("untrusted_presentation");
-    if (
-      new Set(item.references.map((ref) => ref.id)).size !==
-      item.references.length
-    )
-      throw new Error("duplicate_reference");
     for (const ref of item.references) {
       if (!byId.has(ref.id)) throw new Error("unknown_reference");
       if (!byId.get(ref.id)!.text.includes(ref.quote))
         throw new Error("altered_quotation");
     }
+    // Multiple supporting excerpts from one source are legitimate. Validate
+    // every excerpt first, then render one citation to the complete source.
+    const seen = new Set<string>();
+    item.references = item.references.filter((reference) => {
+      if (seen.has(reference.id)) return false;
+      seen.add(reference.id);
+      return true;
+    });
   }
   if (
     evidence.some((item) => item.kind === "publication_abstract") &&
