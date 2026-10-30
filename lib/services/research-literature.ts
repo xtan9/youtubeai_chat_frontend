@@ -52,17 +52,45 @@ const RecordSchema = z.object({
 export async function searchResearchLiterature(
   query: string,
   callerSignal: AbortSignal,
-): Promise<ResearchEvidence[]> {
+): Promise<{ evidence: ResearchEvidence[]; partial: boolean }> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(15_000)]);
+  // Relevance in Europe PMC favors recent records. Also discover established
+  // work by citation count; neither ranking is a measure of study quality.
+  const rankings = await Promise.allSettled(
+    ["score desc", "CITED desc"].map((sort) =>
+      searchRankedLiterature(query, sort, signal),
+    ),
+  );
+  callerSignal.throwIfAborted();
+  if (rankings.every((ranking) => ranking.status === "rejected"))
+    throw new Error("literature_provider_unavailable");
+  const selected = new Map<string, ResearchEvidence>();
+  for (let index = 0; index < 5; index++)
+    for (const ranking of rankings) {
+      const item = ranking.status === "fulfilled" ? ranking.value[index] : undefined;
+      if (item && selected.size < 5) selected.set(item.originId, item);
+    }
+  return {
+    evidence: [...selected.values()],
+    partial: rankings.some((ranking) => ranking.status === "rejected"),
+  };
+}
+
+async function searchRankedLiterature(
+  query: string,
+  sort: string,
+  signal: AbortSignal,
+): Promise<ResearchEvidence[]> {
   const url = new URL(
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
   );
   const today = new Date().toISOString().slice(0, 10);
   url.search = new URLSearchParams({
-    query: `(${query}) AND HAS_ABSTRACT:y AND FIRST_PDATE:[1900-01-01 TO ${today}]`,
+    query: `TITLE_ABS:(${query}) AND HAS_ABSTRACT:y AND FIRST_PDATE:[1900-01-01 TO ${today}]`,
     resultType: "core",
     format: "json",
     pageSize: "5",
+    sort,
   }).toString();
   const response = await fetch(url, {
     signal,
@@ -96,7 +124,7 @@ export async function searchResearchLiterature(
     if (
       row.isRetracted === "Y" ||
       row.pubTypeList?.pubType.some((type) =>
-        /retract|preprint/iu.test(type),
+        /retract|preprint|erratum|correction/iu.test(type),
       ) ||
       Number(row.pubYear) > new Date().getUTCFullYear()
     )
