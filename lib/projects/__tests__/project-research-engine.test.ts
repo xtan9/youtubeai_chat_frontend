@@ -131,6 +131,21 @@ describe("active project research", () => {
       previous.synthesis.judgment.text,
     );
     expect(result.synthesis.changes).toContain("remains qualified");
+    const prompt = stream.mock.calls[1][0].messages[0].content;
+    expect(prompt).toContain(
+      'ACQUISITION:{"newlyFoundPublicationIds":[],"retrievedAgainPublicationIds":["E1234567890123456"],"carriedForwardPublicationIds":[]}',
+    );
+  });
+  it("distinguishes new evidence from retained publications in a follow-up", async () => {
+    const old = { ...external, id: "E0000000000000001", originId: "10.1/old" };
+    await runProjectResearch({
+      ...args,
+      previous: { ...researchFixture, evidence: [old] },
+    });
+    const prompt = stream.mock.calls[1][0].messages[0].content;
+    expect(prompt).toContain(
+      'ACQUISITION:{"newlyFoundPublicationIds":["E1234567890123456"],"retrievedAgainPublicationIds":[],"carriedForwardPublicationIds":["E0000000000000001"]}',
+    );
   });
   it("does not publish an update if every external search fails", async () => {
     search.mockRejectedValue(new Error("private provider error"));

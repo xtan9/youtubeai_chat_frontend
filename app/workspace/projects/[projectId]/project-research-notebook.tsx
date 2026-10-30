@@ -292,7 +292,9 @@ export function ProjectResearchNotebook({
           literature, and build a judgment that evolves with the evidence.
         </p>
         <p className="text-caption text-text-muted">
-          Searches Europe PMC publication abstracts. Free includes one research
+          Searches Europe PMC titles and abstracts using relevance and citation
+          discovery. Citation count does not establish study quality. Free includes
+          one research
           update; Pro supports continued research.
         </p>
       </header>

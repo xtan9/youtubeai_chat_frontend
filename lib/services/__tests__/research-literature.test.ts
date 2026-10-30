@@ -17,7 +17,9 @@ describe("external literature HTTP boundary", () => {
   it("searches a fixed provider and returns traceable abstract evidence", async () => {
     const fetch = vi
       .fn()
-      .mockResolvedValue(Response.json({ resultList: { result: [record] } }));
+      .mockImplementation(() =>
+        Response.json({ resultList: { result: [record] } }),
+      );
     vi.stubGlobal("fetch", fetch);
     const result = await searchResearchLiterature(
       "dietary linoleic acid trials",
@@ -25,6 +27,13 @@ describe("external literature HTTP boundary", () => {
     );
     expect(fetch.mock.calls[0][0].origin).toBe("https://www.ebi.ac.uk");
     expect(fetch.mock.calls[0][0].searchParams.get("resultType")).toBe("core");
+    expect(fetch.mock.calls[0][0].searchParams.get("query")).toMatch(
+      /^TITLE_ABS:\(dietary linoleic acid trials\) AND HAS_ABSTRACT:y/u,
+    );
+    expect(
+      fetch.mock.calls.map(([url]) => url.searchParams.get("sort")),
+    ).toEqual(["score desc", "CITED desc"]);
+    expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       kind: "publication_abstract",
       url: "https://europepmc.org/article/MED/123",
@@ -35,13 +44,14 @@ describe("external literature HTTP boundary", () => {
   it("drops records without abstracts, preprints, and retracted records", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
+      vi.fn().mockImplementation(() =>
         Response.json({
           resultList: {
             result: [
               { ...record, abstractText: "" },
               { ...record, source: "PPR" },
               { ...record, isRetracted: "Y" },
+              { ...record, pubTypeList: { pubType: ["Published Erratum"] } },
             ],
           },
         }),
@@ -51,12 +61,46 @@ describe("external literature HTTP boundary", () => {
       await searchResearchLiterature("fats", new AbortController().signal),
     ).toEqual([]);
   });
+  it("interleaves established and relevance-ranked publications without duplicate votes", async () => {
+    const paper = (id: number, year: string) => ({
+      ...record,
+      id: String(id),
+      doi: `10.1/${id}`,
+      pubYear: year,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: URL) =>
+        Response.json({
+          resultList: {
+            result:
+              url.searchParams.get("sort") === "score desc"
+                ? [
+                    paper(1, "2025"), paper(2, "2024"),
+                    paper(3, "2023"), paper(4, "2022"),
+                  ]
+                : [
+                    paper(10, "2013"), paper(1, "2025"),
+                    paper(11, "2016"), paper(12, "2000"),
+                  ],
+          },
+        }),
+      ),
+    );
+    const result = await searchResearchLiterature(
+      '"dietary fat" AND mortality',
+      new AbortController().signal,
+    );
+    expect(result.map((item) => item.originId)).toEqual([
+      "10.1/1", "10.1/10", "10.1/2", "10.1/3", "10.1/11",
+    ]);
+  });
   it("does not treat provider failure as an empty search", async () => {
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
-        .mockResolvedValue(
+        .mockImplementation(() =>
           new Response("private provider body", { status: 503 }),
         ),
     );

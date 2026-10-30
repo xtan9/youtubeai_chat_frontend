@@ -54,15 +54,37 @@ export async function searchResearchLiterature(
   callerSignal: AbortSignal,
 ): Promise<ResearchEvidence[]> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(15_000)]);
+  // Relevance in Europe PMC favors recent records. Also discover established
+  // work by citation count; neither ranking is a measure of study quality.
+  const rankings = await Promise.all(
+    ["score desc", "CITED desc"].map((sort) =>
+      searchRankedLiterature(query, sort, signal),
+    ),
+  );
+  const selected = new Map<string, ResearchEvidence>();
+  for (let index = 0; index < 5; index++)
+    for (const ranking of rankings) {
+      const item = ranking[index];
+      if (item && selected.size < 5) selected.set(item.originId, item);
+    }
+  return [...selected.values()];
+}
+
+async function searchRankedLiterature(
+  query: string,
+  sort: string,
+  signal: AbortSignal,
+): Promise<ResearchEvidence[]> {
   const url = new URL(
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
   );
   const today = new Date().toISOString().slice(0, 10);
   url.search = new URLSearchParams({
-    query: `(${query}) AND HAS_ABSTRACT:y AND FIRST_PDATE:[1900-01-01 TO ${today}]`,
+    query: `TITLE_ABS:(${query}) AND HAS_ABSTRACT:y AND FIRST_PDATE:[1900-01-01 TO ${today}]`,
     resultType: "core",
     format: "json",
     pageSize: "5",
+    sort,
   }).toString();
   const response = await fetch(url, {
     signal,
@@ -96,7 +118,7 @@ export async function searchResearchLiterature(
     if (
       row.isRetracted === "Y" ||
       row.pubTypeList?.pubType.some((type) =>
-        /retract|preprint/iu.test(type),
+        /retract|preprint|erratum|correction/iu.test(type),
       ) ||
       Number(row.pubYear) > new Date().getUTCFullYear()
     )
