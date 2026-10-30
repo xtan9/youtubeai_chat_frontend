@@ -3278,6 +3278,10 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
     return sendJson(response, 200, subscription ? [subscription] : []);
   }
 
+  if (url.pathname === "/rest/v1/project_research_runs" && request.method === "GET") {
+    return sendJson(response, 200, []);
+  }
+
   if (url.pathname === "/rest/v1/projects") {
     return handleProjects(request, response, url, userId, serviceRole);
   }
@@ -5078,3 +5082,66 @@ async function waitForApp(
   }
   throw new Error(`Timed out starting Next.js fixture app:\n${output.join("")}`);
 }
+
+test("Research notebook supplements evidence and preserves evolving judgments across follow-up and mobile reload @projects-research-notebook @projects-ga-critical", async ({ context, page }, testInfo) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(context, "Seed oil research", { sourceCount: 2 });
+  const evidence = { id: "E1234567890123456", kind: "publication_abstract", originId: "10.1/trial", title: "Dietary fat randomized trial", url: "https://europepmc.org/article/MED/123", text: "The randomized trial did not establish long term clinical effects.", retrievedAt: "2026-10-29T00:00:00.000Z", year: "2024", authors: "A Author", publicationTypes: ["Randomized Controlled Trial"] };
+  const observation = { text: "现有人体试验不足以支持关于所有种子油的笼统结论，需要考察比较对象和长期结局。", references: [{ id: evidence.id, quote: evidence.text }] };
+  const versions: Array<{ id: string; created_at: string; document: unknown }> = [];
+  let rejectUpdate = false;
+  let releaseOlder = () => {};
+  const olderGate = new Promise<void>((resolve) => { releaseOlder = resolve; });
+  await page.route(`**/api/projects/${projectId}/research**`, async (route) => {
+    if (route.request().method() === "GET") {
+      const beforeId = new URL(route.request().url()).searchParams.get("before");
+      if (beforeId) await olderGate;
+      const offset = beforeId ? versions.findIndex((version) => version.id === beforeId) + 1 : 0;
+      const pageVersions = versions.slice(offset, offset + 10);
+      return route.fulfill({ json: { versions: pageVersions, nextCursor: offset + 10 < versions.length ? pageVersions.at(-1)!.id : null } });
+    }
+    if (rejectUpdate) return route.fulfill({ status: 503, json: { message: "Research could not finish. Your previous judgment is preserved." } });
+    const body = route.request().postDataJSON();
+    expect(body.baseVersionId).toBe(versions[0]?.id ?? null);
+    versions.unshift({ id: `aa000000-0000-4000-8000-${String(versions.length + 1).padStart(12, "0")}`, created_at: new Date().toISOString(), document: {
+      question: body.question, synthesis: { judgment: observation, findings: [observation], reasoning: observation,
+        changes: versions.length ? "补充检索后维持谨慎判断，长期临床结局仍需研究。" : "建立初步研究判断，区分讲者观点与论文结果。",
+        uncertainties: ["更长期的人体试验能否回答临床结局问题？"], nextSteps: ["进一步检查长期试验的研究设计。"] },
+      evidence: [evidence], searches: [{ query: "dietary linoleic acid trials", purpose: "寻找人体试验", results: 1 }], warnings: [], sourceSetRevision: sourceSetRevisions.get(projectId) ?? 0, promptVersion: "project-research-v1",
+    } });
+    return route.fulfill({ status: 201, json: { versions } });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.getByLabel("Research question", { exact: true }).fill("种子油确实有害吗？请检查外部研究。");
+  await page.getByRole("button", { name: "Start research", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Current research judgment" })).toContainText("现有人体试验");
+  await page.getByText("Evidence & searches (1 item)", { exact: true }).click();
+  await expect(page.getByText("dietary linoleic acid trials", { exact: true })).toBeVisible();
+  await page.getByText("[1] Publication abstract · 2024 — Dietary fat randomized trial", { exact: true }).click();
+  await expect(page.getByText(evidence.text, { exact: true })).toBeVisible();
+  await page.getByLabel("Continue your research", { exact: true }).fill("那长期人体研究呢？");
+  await openProjectSection(page, "Outputs"); await openProjectSection(page, "Research");
+  await expect(page.getByLabel("Continue your research", { exact: true })).toHaveValue("那长期人体研究呢？");
+  await page.getByRole("button", { name: "Research & update judgment", exact: true }).click();
+  await expect(page.getByText("补充检索后维持谨慎判断，长期临床结局仍需研究。", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Research history").locator("option")).toHaveCount(2);
+  rejectUpdate = true;
+  await page.getByLabel("Continue your research", { exact: true }).fill("再查一轮。");
+  await page.getByRole("button", { name: "Research & update judgment", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Project research", exact: true }).getByRole("alert")).toContainText("previous judgment is preserved");
+  await expect(page.getByRole("region", { name: "Current research judgment" })).toContainText("现有人体试验");
+  for (let index = 3; index <= 11; index++) versions.push({ ...versions[1], id: `aa000000-0000-4000-8000-${String(index).padStart(12, "0")}` });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
+  await expect(page.getByText("补充检索后维持谨慎判断，长期临床结局仍需研究。", { exact: true })).toBeVisible();
+  await page.getByLabel("Continue your research", { exact: true }).fill("继续检查证据。");
+  await page.getByRole("button", { name: "Load older judgments", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Research & update judgment", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reload research history", exact: true })).toBeDisabled();
+  releaseOlder();
+  await expect(page.getByLabel("Research history").locator("option")).toHaveCount(11);
+  await page.getByLabel("Research history").selectOption(versions[10].id);
+  await expect(page.getByText("建立初步研究判断，区分讲者观点与论文结果。", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("research-notebook-mobile.png"), fullPage: true });
+});
