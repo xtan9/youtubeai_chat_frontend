@@ -331,3 +331,48 @@ it.each([401, 429, 503])(
     }
   },
 );
+
+it.each([
+  {
+    queries: [
+      {
+        query:
+          '"linoleic acid" AND "saturated fat" AND ("cardiovascular mortality" OR "coronary events") AND ("randomized controlled trial" OR "systematic review") AND ("long term" OR followup)',
+        purpose: "长期结局",
+      },
+    ],
+  },
+  { queries: ["linoleic acid cardiovascular mortality trials"] },
+  { queries: [{ query: "linoleic acid long term trials", language: "en" }] },
+])(
+  "uses bounded valid search terms without requiring verbose planner metadata",
+  async (candidate) => {
+    let calls = 0;
+    stream.mockImplementation(async function* () {
+      yield {
+        type: "delta",
+        text: JSON.stringify(calls++ === 0 ? candidate : synthesis),
+      };
+    });
+    const result = await runProjectResearch(args);
+    expect(result.synthesis.judgment).toEqual(observation);
+    expect(search).toHaveBeenCalledOnce();
+    expect(result.searches[0].query.length).toBeLessThanOrEqual(500);
+  },
+);
+it("rejects a plan that exceeds the three-search call budget", async () => {
+  stream.mockImplementation(async function* () {
+    yield {
+      type: "delta",
+      text: JSON.stringify({
+        queries: Array.from({ length: 4 }, () => ({
+          query: "linoleic acid trials",
+          purpose: "Related research",
+        })),
+      }),
+    };
+  });
+  await expect(runProjectResearch(args)).rejects.toThrow();
+  expect(stream).toHaveBeenCalledTimes(2);
+  expect(search).not.toHaveBeenCalled();
+});

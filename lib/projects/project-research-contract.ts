@@ -53,7 +53,7 @@ export const ResearchDocumentSchema = z
       .array(
         z
           .object({
-            query: z.string().max(200),
+            query: z.string().max(500),
             purpose: z.string().max(400),
             results: z.number().int().nonnegative(),
           })
