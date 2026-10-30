@@ -180,6 +180,7 @@ export async function POST(request: Request, context: Context) {
       ...(cause instanceof Error &&
       [
         "unknown_reference",
+        "unknown_excerpt",
         "altered_quotation",
         "duplicate_reference",
         "missing_external_evidence",
