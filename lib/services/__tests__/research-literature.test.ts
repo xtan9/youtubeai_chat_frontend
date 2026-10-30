@@ -33,8 +33,9 @@ describe("external literature HTTP boundary", () => {
     expect(
       fetch.mock.calls.map(([url]) => url.searchParams.get("sort")),
     ).toEqual(["score desc", "CITED desc"]);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
+    expect(result.evidence).toHaveLength(1);
+    expect(result.partial).toBe(false);
+    expect(result.evidence[0]).toMatchObject({
       kind: "publication_abstract",
       url: "https://europepmc.org/article/MED/123",
       text: "Results No benefit & no harm was established in this trial.",
@@ -59,7 +60,7 @@ describe("external literature HTTP boundary", () => {
     );
     expect(
       await searchResearchLiterature("fats", new AbortController().signal),
-    ).toEqual([]);
+    ).toEqual({ evidence: [], partial: false });
   });
   it("interleaves established and relevance-ranked publications without duplicate votes", async () => {
     const paper = (id: number, year: string) => ({
@@ -91,9 +92,19 @@ describe("external literature HTTP boundary", () => {
       '"dietary fat" AND mortality',
       new AbortController().signal,
     );
-    expect(result.map((item) => item.originId)).toEqual([
+    expect(result.evidence.map((item) => item.originId)).toEqual([
       "10.1/1", "10.1/10", "10.1/2", "10.1/3", "10.1/11",
     ]);
+  });
+  it("preserves healthy ranking evidence and reports partial coverage when the other fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: URL) =>
+      url.searchParams.get("sort") === "CITED desc"
+        ? new Response("unavailable", { status: 503 })
+        : Response.json({ resultList: { result: [record] } }),
+    ));
+    const result = await searchResearchLiterature("dietary fats", new AbortController().signal);
+    expect(result.evidence).toHaveLength(1);
+    expect(result.partial).toBe(true);
   });
   it("does not treat provider failure as an empty search", async () => {
     vi.stubGlobal(

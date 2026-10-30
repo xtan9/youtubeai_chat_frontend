@@ -82,7 +82,7 @@ const plan = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
-  search.mockResolvedValue([external]);
+  search.mockResolvedValue({ evidence: [external], partial: false });
   let calls = 0;
   stream.mockImplementation(async function* () {
     yield {
@@ -133,7 +133,7 @@ describe("active project research", () => {
     expect(result.synthesis.changes).toContain("remains qualified");
     const prompt = stream.mock.calls[1][0].messages[0].content;
     expect(prompt).toContain(
-      'ACQUISITION:{"newlyFoundPublicationIds":[],"retrievedAgainPublicationIds":["E1234567890123456"],"carriedForwardPublicationIds":[]}',
+      'ACQUISITION:{"addedSincePreviousVersionIds":[],"retrievedAgainPublicationIds":["E1234567890123456"],"carriedForwardPublicationIds":[]}',
     );
   });
   it("distinguishes new evidence from retained publications in a follow-up", async () => {
@@ -144,8 +144,9 @@ describe("active project research", () => {
     });
     const prompt = stream.mock.calls[1][0].messages[0].content;
     expect(prompt).toContain(
-      'ACQUISITION:{"newlyFoundPublicationIds":["E1234567890123456"],"retrievedAgainPublicationIds":[],"carriedForwardPublicationIds":["E0000000000000001"]}',
+      'ACQUISITION:{"addedSincePreviousVersionIds":["E1234567890123456"],"retrievedAgainPublicationIds":[],"carriedForwardPublicationIds":["E0000000000000001"]}',
     );
+    expect(prompt).toContain("do not claim any paper is new to the entire notebook");
   });
   it("does not publish an update if every external search fails", async () => {
     search.mockRejectedValue(new Error("private provider error"));
@@ -159,6 +160,12 @@ describe("active project research", () => {
     expect((await runProjectResearch(args)).warnings.join(" ")).toContain(
       "partial search coverage",
     );
+  });
+  it("keeps usable evidence and discloses a failed discovery ranking", async () => {
+    search.mockResolvedValueOnce({ evidence: [external], partial: true });
+    const result = await runProjectResearch(args);
+    expect(result.evidence).toHaveLength(1);
+    expect(result.warnings.join(" ")).toContain("partial ranking coverage");
   });
   it("repairs once, then rejects invented citations", async () => {
     let calls = 0;

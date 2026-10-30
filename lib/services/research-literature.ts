@@ -52,22 +52,28 @@ const RecordSchema = z.object({
 export async function searchResearchLiterature(
   query: string,
   callerSignal: AbortSignal,
-): Promise<ResearchEvidence[]> {
+): Promise<{ evidence: ResearchEvidence[]; partial: boolean }> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(15_000)]);
   // Relevance in Europe PMC favors recent records. Also discover established
   // work by citation count; neither ranking is a measure of study quality.
-  const rankings = await Promise.all(
+  const rankings = await Promise.allSettled(
     ["score desc", "CITED desc"].map((sort) =>
       searchRankedLiterature(query, sort, signal),
     ),
   );
+  callerSignal.throwIfAborted();
+  if (rankings.every((ranking) => ranking.status === "rejected"))
+    throw new Error("literature_provider_unavailable");
   const selected = new Map<string, ResearchEvidence>();
   for (let index = 0; index < 5; index++)
     for (const ranking of rankings) {
-      const item = ranking[index];
+      const item = ranking.status === "fulfilled" ? ranking.value[index] : undefined;
       if (item && selected.size < 5) selected.set(item.originId, item);
     }
-  return [...selected.values()];
+  return {
+    evidence: [...selected.values()],
+    partial: rankings.some((ranking) => ranking.status === "rejected"),
+  };
 }
 
 async function searchRankedLiterature(

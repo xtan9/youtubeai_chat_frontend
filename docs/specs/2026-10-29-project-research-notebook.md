@@ -30,5 +30,7 @@ Validate the complete flow on the original five-video seed-oil project.
   scope literature matching to titles/abstracts and combine relevance with
   citation-based discovery so recent incidental mentions do not hide older
   studies. Citation count is a discovery aid, not evidence quality. Keep queries
-  broad enough for recall and distinguish newly found publications from records
-  retrieved again or carried forward when explaining a judgment update.
+  broad enough for recall and distinguish publications added relative to the
+  immediately previous version from records retrieved again or carried forward.
+  Bounded version context does not establish notebook-wide novelty. Disclose
+  partial ranking coverage while preserving usable results from healthy ranks.
