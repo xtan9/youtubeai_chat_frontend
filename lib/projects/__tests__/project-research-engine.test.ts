@@ -13,6 +13,7 @@ vi.mock("@/lib/services/research-literature", async (importOriginal) => ({
   >()),
   searchResearchLiterature: search,
 }));
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 import { runProjectResearch } from "../project-research-engine";
 import type {
   ResearchDocument,
@@ -237,3 +238,96 @@ it("stops after two invalid plans without external requests", async () => {
   expect(stream).toHaveBeenCalledTimes(2);
   expect(search).not.toHaveBeenCalled();
 });
+
+it("keeps complete video text for synthesis without sending it through the query planner", async () => {
+  const text = "COMPLETE_VIDEO_CONTEXT ".repeat(90);
+  const passage = {
+    passageId: "video:1-24:0:1980",
+    videoId: "20000000-0000-4000-8000-000000000001",
+    youtubeVideoId: "seedOil0001",
+    title: "Seed oil trial",
+    channelName: null,
+    text,
+    segmentOrdinal: 1,
+    endSegmentOrdinal: 24,
+    excerptStartCharacter: 0,
+    excerptEndCharacter: text.length,
+    startSeconds: 0,
+    endSeconds: 60,
+    language: "en",
+    truncatedStart: false,
+    truncatedEnd: false,
+  };
+  const result = await runProjectResearch({
+    ...args,
+    artifacts: {
+      ...args.artifacts,
+      evidenceSnapshot: {
+        ...args.artifacts.evidenceSnapshot,
+        passages: [passage],
+      },
+    },
+  });
+  expect(stream.mock.calls[0][0].messages[0].content).not.toContain(text);
+  expect(stream.mock.calls[0][0].messages[0].content).toContain(
+    text.slice(0, 240),
+  );
+  expect(stream.mock.calls[0][0].messages[0].content.length).toBeLessThan(6500);
+  expect(stream.mock.calls[1][0].messages[0].content).toContain(text);
+  expect(result.evidence.some((item) => item.text === text)).toBe(true);
+});
+it("recovers one internal planning timeout without starting extra literature searches", async () => {
+  let calls = 0;
+  stream.mockImplementation(async function* () {
+    const call = calls++;
+    if (call === 0) throw new DOMException("Timed out", "TimeoutError");
+    yield {
+      type: "delta",
+      text: JSON.stringify(call === 1 ? plan : synthesis),
+    };
+  });
+  expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
+    observation,
+  );
+  expect(stream).toHaveBeenCalledTimes(3);
+  expect(search).toHaveBeenCalledTimes(2);
+});
+
+it("does not retry cancellation while planning", async () => {
+  const controller = new AbortController();
+  stream.mockImplementation(async function* () {
+    controller.abort();
+    if (controller.signal.aborted)
+      throw new DOMException("Timed out", "TimeoutError");
+    yield { type: "done" };
+  });
+  await expect(
+    runProjectResearch({ ...args, signal: controller.signal }),
+  ).rejects.toThrow();
+  expect(stream).toHaveBeenCalledOnce();
+  expect(search).not.toHaveBeenCalled();
+});
+it.each([401, 429, 503])(
+  "keeps external planning recovery bounded for provider HTTP %i",
+  async (status) => {
+    let calls = 0;
+    stream.mockImplementation(async function* () {
+      const call = calls++;
+      if (call === 0) throw new ChatGatewayError("provider_http_error", status);
+      yield {
+        type: "delta",
+        text: JSON.stringify(call === 1 ? plan : synthesis),
+      };
+    });
+    if (status === 401) {
+      await expect(runProjectResearch(args)).rejects.toThrow();
+      expect(stream).toHaveBeenCalledOnce();
+      expect(search).not.toHaveBeenCalled();
+    } else {
+      expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
+        observation,
+      );
+      expect(stream).toHaveBeenCalledTimes(3);
+    }
+  },
+);
