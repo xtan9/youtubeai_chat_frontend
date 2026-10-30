@@ -21,6 +21,8 @@ Validate the complete flow on the original five-video seed-oil project.
   Synthesis selects numbered original excerpts; the server supplies their exact
   text. All excerpts together retain the complete source, including qualifiers.
   Invalid source/excerpt selectors fail validation without replacing a judgment.
+  Abstract cleanup must preserve statistical inequalities and intervening results
+  when removing formatting tags; comparison signs are scientific content.
 - Publication failure, stale sources, cancellation or concurrency cannot replace
   a good prior judgment. Owner-only append-only history survives reload. Bound
   provider calls/output/deadlines, serialize project updates, and enforce the

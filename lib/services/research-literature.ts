@@ -13,7 +13,9 @@ export function researchEvidenceId(kind: "V" | "E", identity: string) {
 }
 function plainText(value: string) {
   return value
-    .replace(/<[^>]*>/gu, " ")
+    // Statistical comparisons (P<0.001) are text, not the start of a tag.
+    // A broad angle-bracket matcher can swallow the entire remaining Results section.
+    .replace(/<\/?[a-z][^<>]*>/giu, " ")
     .replace(/&#(x[0-9a-f]+|[0-9]+);/giu, (_, code: string) => {
       const point =
         code[0].toLowerCase() === "x"

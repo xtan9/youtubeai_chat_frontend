@@ -14,6 +14,16 @@ const record = {
   pubTypeList: { pubType: ["Randomized Controlled Trial"] },
 };
 describe("external literature HTTP boundary", () => {
+  it("preserves statistical inequalities and all results between HTML headings", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ resultList: { result: [{
+      ...record,
+      abstractText: '<h4>Results</h4>Cholesterol changed -13.8% vs -1.0%; P<0.001. Mortality hazard ratio 1.22, 95% confidence interval 1.14 to 1.32; P<0.001. Five trials (n=10,808): coronary death 1.13 (0.83 to 1.54), all-cause death 1.07 (0.90 to 1.27).<h4>Conclusions</h4>No evidence of mortality benefit; not proof of equivalence.',
+    }] } })));
+    const result = await searchResearchLiterature('"dietary fat" AND mortality', new AbortController().signal);
+    expect(result.evidence[0].text).toBe(
+      'Results Cholesterol changed -13.8% vs -1.0%; P<0.001. Mortality hazard ratio 1.22, 95% confidence interval 1.14 to 1.32; P<0.001. Five trials (n=10,808): coronary death 1.13 (0.83 to 1.54), all-cause death 1.07 (0.90 to 1.27). Conclusions No evidence of mortality benefit; not proof of equivalence.',
+    );
+  });
   it("searches a fixed provider and returns traceable abstract evidence", async () => {
     const fetch = vi
       .fn()
