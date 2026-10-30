@@ -18,6 +18,9 @@ Validate the complete flow on the original five-video seed-oil project.
   questions and useful next steps. Previous judgments are context, not evidence.
 - Exact quotes and server-issued references are validated before publication;
   external URLs and bibliographic fields never come from generated text.
+  Synthesis selects numbered original excerpts; the server supplies their exact
+  text. All excerpts together retain the complete source, including qualifiers.
+  Invalid source/excerpt selectors fail validation without replacing a judgment.
 - Publication failure, stale sources, cancellation or concurrency cannot replace
   a good prior judgment. Owner-only append-only history survives reload. Bound
   provider calls/output/deadlines, serialize project updates, and enforce the

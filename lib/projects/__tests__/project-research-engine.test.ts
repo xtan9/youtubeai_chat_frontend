@@ -43,6 +43,16 @@ const synthesis = {
   uncertainties: ["Are longer trials available?"],
   nextSteps: ["Find longer human trials."],
 };
+const selectedObservation = {
+  text: observation.text,
+  references: [{ id: external.id, excerptIndex: 0 }],
+};
+const generatedSynthesis = {
+  ...synthesis,
+  judgment: selectedObservation,
+  findings: [selectedObservation],
+  reasoning: selectedObservation,
+};
 const args = {
   name: "Seed oils",
   goal: "Show they kill",
@@ -87,7 +97,7 @@ beforeEach(() => {
   stream.mockImplementation(async function* () {
     yield {
       type: "delta",
-      text: JSON.stringify(calls++ === 0 ? plan : synthesis),
+      text: JSON.stringify(calls++ === 0 ? plan : generatedSynthesis),
     };
     yield {
       type: "usage",
@@ -115,7 +125,7 @@ describe("active project research", () => {
           calls++ === 0
             ? plan
             : {
-                ...synthesis,
+                ...generatedSynthesis,
                 changes: "The judgment remains qualified after another search.",
               },
         ),
@@ -176,11 +186,11 @@ describe("active project research", () => {
           calls++ === 0
             ? plan
             : {
-                ...synthesis,
+                ...generatedSynthesis,
                 judgment: {
-                  ...observation,
+                  ...selectedObservation,
                   references: [
-                    { id: "E0000000000000000", quote: external.text },
+                    { id: "E0000000000000000", excerptIndex: 0 },
                   ],
                 },
               },
@@ -189,6 +199,26 @@ describe("active project research", () => {
     });
     await expect(runProjectResearch(args)).rejects.toThrow("unknown_reference");
     expect(stream).toHaveBeenCalledTimes(3);
+  });
+  it("repairs an invalid excerpt selector using canonical server text", async () => {
+    let calls = 0;
+    stream.mockImplementation(async function* () {
+      const call = calls++;
+      yield {
+        type: "delta",
+        text: JSON.stringify(call === 0 ? plan : call === 1 ? {
+          ...generatedSynthesis,
+          judgment: {
+            ...selectedObservation,
+            references: [{ id: external.id, excerptIndex: 99 }],
+          },
+        } : generatedSynthesis),
+      };
+    });
+    const result = await runProjectResearch(args);
+    expect(result.synthesis.judgment.references).toEqual(observation.references);
+    expect(stream).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 });
 export const researchFixture: ResearchDocument = {
@@ -228,7 +258,7 @@ it("retries one malformed external plan before any literature request", async ()
     const call = calls++;
     yield {
       type: "delta",
-      text: call === 0 ? "" : JSON.stringify(call === 1 ? plan : synthesis),
+      text: call === 0 ? "" : JSON.stringify(call === 1 ? plan : generatedSynthesis),
     };
   });
   expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
@@ -244,7 +274,7 @@ it("accepts complete fenced JSON while retaining strict plan and citation valida
       type: "delta",
       text:
         "```json\n" +
-        JSON.stringify(calls++ === 0 ? plan : synthesis) +
+        JSON.stringify(calls++ === 0 ? plan : generatedSynthesis) +
         "\n```",
     };
   });
@@ -295,7 +325,12 @@ it("keeps complete video text for synthesis without sending it through the query
     text.slice(0, 240),
   );
   expect(stream.mock.calls[0][0].messages[0].content.length).toBeLessThan(6500);
-  expect(stream.mock.calls[1][0].messages[0].content).toContain(text);
+  const sourceContext = JSON.parse(
+    stream.mock.calls[1][0].messages[0].content.split("IMMUTABLE_EVIDENCE:")[1],
+  );
+  expect(sourceContext.some((source: { excerpts: { text: string }[] }) =>
+    source.excerpts.map((excerpt) => excerpt.text).join("") === text,
+  )).toBe(true);
   expect(result.evidence.some((item) => item.text === text)).toBe(true);
 });
 it("recovers one internal planning timeout without starting extra literature searches", async () => {
@@ -305,7 +340,7 @@ it("recovers one internal planning timeout without starting extra literature sea
     if (call === 0) throw new DOMException("Timed out", "TimeoutError");
     yield {
       type: "delta",
-      text: JSON.stringify(call === 1 ? plan : synthesis),
+      text: JSON.stringify(call === 1 ? plan : generatedSynthesis),
     };
   });
   expect((await runProjectResearch(args)).synthesis.judgment).toEqual(
@@ -338,7 +373,7 @@ it.each([401, 429, 503])(
       if (call === 0) throw new ChatGatewayError("provider_http_error", status);
       yield {
         type: "delta",
-        text: JSON.stringify(call === 1 ? plan : synthesis),
+        text: JSON.stringify(call === 1 ? plan : generatedSynthesis),
       };
     });
     if (status === 401) {
@@ -373,7 +408,7 @@ it.each([
     stream.mockImplementation(async function* () {
       yield {
         type: "delta",
-        text: JSON.stringify(calls++ === 0 ? candidate : synthesis),
+        text: JSON.stringify(calls++ === 0 ? candidate : generatedSynthesis),
       };
     });
     const result = await runProjectResearch(args);
