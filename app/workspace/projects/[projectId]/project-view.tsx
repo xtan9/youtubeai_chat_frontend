@@ -36,6 +36,7 @@ import { ProjectConversation } from "./project-conversation";
 import { ProjectArtifacts } from "./project-artifacts";
 import { ProjectSourceSet } from "./project-source-set";
 import { ProjectSearch } from "./project-search";
+import { ProjectResearchNotebook } from "./project-research-notebook";
 
 type ApiError = {
   message?: string;
@@ -207,6 +208,8 @@ export function ProjectView({
             <TabsTrigger value="settings"><Settings2 aria-hidden="true" className="hidden sm:block" /><span>Settings</span></TabsTrigger>
           </TabsList>
           <TabsContent value="research" forceMount hidden={activeTab !== "research"}>
+            <ProjectResearchNotebook key={project.id} projectId={project.id} currentSourceSetRevision={currentSourceSetRevision} />
+            <p className="mb-3 text-body-sm text-text-secondary">Video-only conversation · Ask about the project transcripts without external research.</p>
             <ProjectConversation
               projectId={project.id}
               initialConversation={initialConversation}
