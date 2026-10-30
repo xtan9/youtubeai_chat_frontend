@@ -60,3 +60,30 @@ describe("research publication boundary", () => {
     ).toThrow("altered_quotation");
   });
 });
+
+it("coalesces repeated source IDs only after checking every exact quotation", () => {
+  const output = plan();
+  output.judgment = {
+    ...observation,
+    references: [
+      ...observation.references,
+      { id: evidence[0].id, quote: "did not establish long term effects" },
+    ],
+  };
+  const result = validateResearchSynthesis(JSON.stringify(output), evidence);
+  expect(result.judgment.references).toEqual(observation.references);
+  expect(result.judgment.text).toBe(observation.text);
+});
+it("still rejects an altered second quote even when its source was already cited", () => {
+  const output = plan();
+  output.judgment = {
+    ...observation,
+    references: [
+      ...observation.references,
+      { id: evidence[0].id, quote: "established long term effects" },
+    ],
+  };
+  expect(() =>
+    validateResearchSynthesis(JSON.stringify(output), evidence),
+  ).toThrow("altered_quotation");
+});
