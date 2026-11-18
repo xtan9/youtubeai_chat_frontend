@@ -1,16 +1,19 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>城南图书馆 · 写作空间</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f4f3ec;color:#242f29;font:15px/1.65 system-ui,sans-serif}header,main,footer{max-width:1390px;margin:auto;padding:20px 4vw}header{border-bottom:1px solid #c9cec5;display:flex;align-items:center;gap:18px}small,label{color:#516458}h1{font:600 clamp(26px,3vw,42px)/1.25 Georgia,serif;margin:0}h2{font-size:16px;margin:0 0 16px}main{display:grid;grid-template-columns:minmax(150px,.65fr) minmax(260px,1.75fr) minmax(260px,1.2fr);gap:14px}section{background:#fffefa;border:1px solid #d5d8cf;border-radius:12px;padding:22px;min-width:0}aside{font-size:14px}summary,button{cursor:pointer}details{margin:12px 0}button{border:1px solid #cad2c9;background:#fffefa;color:#274438;padding:7px 12px;border-radius:7px;font:inherit}button:hover,button[aria-pressed=true]{background:#e4efe4}button:disabled{opacity:.5;cursor:default}.primary{background:#245640;color:white}.primary:hover{background:#356d55}#draft{width:100%;min-height:290px;resize:vertical;border:0;background:transparent;font:19px/1.95 Georgia,serif;color:inherit}#draft:focus{outline:1px dashed #95aa98}#draft::selection,mark{background:#c9e4b4;color:#13291c}#paper{position:relative}#mirror{position:absolute;inset:0;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;padding:2px;font:19px/1.95 Georgia,serif;background:#fffefa;overflow:hidden}#mirror[hidden]{display:none}#chip,blockquote{background:#edf4e9;border-left:3px solid #69966b;padding:8px 12px;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}#chip button{float:right;padding:0 6px}#ask{width:100%;font:inherit;padding:10px;border:1px solid #bac5b9;border-radius:7px;margin:8px 0}#thread{max-height:350px;overflow:auto}article{border-top:1px solid #ddd;padding:10px 0}article p{margin:6px 0}footer{padding-top:0}footer button{margin:3px}#notice{color:#31583f} @media(max-width:820px){main{grid-template-columns:1fr}#draft{min-height:190px}}
-nav{display:grid;gap:4px;margin:8px 0 22px}nav button{text-align:left;border:0;background:transparent}nav button[aria-current=page]{background:#deeadf;font-weight:600}#title{width:100%;border:0;background:transparent;color:inherit;font:inherit}aside details small{display:block}footer details{color:#516458}
+*{box-sizing:border-box}body{margin:0;background:#f4f3ec;color:#242f29;font:15px/1.65 system-ui,sans-serif}header,main{max-width:1390px;margin:auto;padding:20px 4vw}header{border-bottom:1px solid #c9cec5;display:flex;align-items:center;gap:18px}small,label{color:#516458}h1{font:600 clamp(26px,3vw,42px)/1.25 Georgia,serif;margin:0}h2{font-size:16px;margin:0 0 16px}main{display:grid;grid-template-columns:minmax(150px,.65fr) minmax(260px,1.75fr) minmax(260px,1.2fr);gap:14px}section{background:#fffefa;border:1px solid #d5d8cf;border-radius:12px;padding:22px;min-width:0}aside{font-size:14px}summary,button{cursor:pointer}details{margin:12px 0}button{border:1px solid #cad2c9;background:#fffefa;color:#274438;padding:7px 12px;border-radius:7px;font:inherit}button:hover,button[aria-pressed=true]{background:#e4efe4}button:disabled{opacity:.5;cursor:default}.primary{background:#245640;color:white}.primary:hover{background:#356d55}#draft{width:100%;min-height:290px;resize:vertical;border:0;background:transparent;font:19px/1.95 Georgia,serif;color:inherit}#draft:focus{outline:1px dashed #95aa98}#draft::selection,mark{background:#c9e4b4;color:#13291c}#paper{position:relative}#mirror{position:absolute;inset:0;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;padding:2px;font:19px/1.95 Georgia,serif;background:#fffefa;overflow:hidden}#mirror[hidden]{display:none}#chip,blockquote{background:#edf4e9;border-left:3px solid #69966b;padding:8px 12px;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}#chip button{float:right;padding:0 6px}#ask{width:100%;font:inherit;padding:10px;border:1px solid #bac5b9;border-radius:7px;margin:8px 0}#thread{max-height:350px;overflow:auto}article{border-top:1px solid #ddd;padding:10px 0}article p{margin:6px 0}#notice{color:#31583f} @media(max-width:820px){main{grid-template-columns:1fr}#draft{min-height:190px}}
+nav{display:grid;gap:4px;margin:8px 0 22px}nav button{text-align:left;border:0;background:transparent}nav button[aria-current=page]{background:#deeadf;font-weight:600}#title{width:100%;border:0;background:transparent;color:inherit;font:inherit}aside details small{display:block}
+#paper{margin-top:20px}
+#actions{position:absolute;z-index:2;display:flex;gap:2px;padding:3px;background:#fffefa;border:1px solid #c1cec1;border-radius:8px;box-shadow:0 3px 12px #273e2520}
+#actions[hidden]{display:none}#actions button{border:0;font-size:13px;padding:4px 9px}
+
 </style><header><strong>写作空间</strong><span>／ 城南图书馆</span><small>原型 · 模拟素材与回复</small></header><main>
 <aside><h2>项目文稿</h2><nav id="documents" aria-label="项目文稿"></nav><button id="newDoc">＋ 空白文稿</button><hr><h2>参考资料</h2>
 <details><summary>闭馆前的一个小时</summary><small>现场笔记</small>五点，窗边还有三个人。管理员给一位读者留了盏灯。</details>
 <details><summary>旧馆平面图</summary><small>PDF · 第 2 页</small>阅览室朝西，借阅台靠近南门。</details>
 <details><summary>图书馆的开放时间</summary><small>网页 · 公告摘录</small>工作日下午五点半闭馆。</details>
 <details><summary>管理员的一天</summary><small>YouTube · 访谈摘录</small>“每天最后一件事，是把窗边的椅子推回去。”</details></aside>
-<section><label for="title">文稿标题</label><h1><input id="title" placeholder="无标题" aria-label="文稿标题"></h1><p>选中正文中的文字，即可带到对话里讨论。</p><div id="paper"><textarea id="draft" aria-label="正文" placeholder="从这里写起……" spellcheck="false" wrap="soft"></textarea><div id="mirror" hidden aria-hidden="true"></div></div></section>
+<section><label for="title">文稿标题</label><h1><input id="title" placeholder="无标题" aria-label="文稿标题"></h1><div id="paper"><textarea id="draft" aria-label="正文" placeholder="从这里写起……" spellcheck="false" wrap="soft"></textarea><div id="mirror" hidden aria-hidden="true"></div><div id="actions" role="group" aria-label="选区快捷操作" hidden><button type="button" id="discuss">讨论</button><button type="button" id="rewrite">改写</button><button type="button" id="verify">查依据</button></div></div></section>
 <section><h2>和 AI 讨论</h2><div id="thread"></div><div id="chip"></div><form><input id="ask" aria-label="给 AI 发消息" placeholder="比如：这句怎么说更自然？" autocomplete="off"><button class="primary">发送</button></form><small id="notice" role="status"></small></section></main>
-<footer><details><summary>试走一遍</summary><div id="tabs"></div><p id="explain"></p><div id="steps"></div></details></footer>
 <script>
 const examples=[
  ['日落以前','五点以后，图书馆里还有三个人。','靠窗的读者把书翻过一页。管理员经过时，替她开了灯。','五点过了，馆里还剩三个人。'],
@@ -29,7 +32,8 @@ function transition(state, action){
   const rewrite=/改|自然|口语|重写/.test(action.question);
   const match=examples.find(example=>example[1]===ref?.text);
   const suggestion=ref && rewrite ? (match?.[3] ?? '我记得这样的细节：'+ref.text) : null;
-  const answer=suggestion?'改写预览：'+suggestion:ref?'你想让读者从这段里记住什么？我们可以先挑一个值得留下的细节。':'可以从一段草稿、一个问题，或一份你想讨论的资料开始。';
+  const checking=action.question.includes('参考资料里有依据');
+  const answer=checking?(ref?.text.includes('三个人')?'现场笔记《闭馆前的一个小时》写的是“五点，窗边还有三个人”。它支持这个时刻和地点的人数；要写整座馆或五点以后的情况，还需要别的记录。':'这份示例暂时没有为该选段核对出直接依据。'):suggestion?'改写预览：'+suggestion:ref?'你想让读者从这段里记住什么？我们可以先挑一个值得留下的细节。':'可以从一段草稿、一个问题，或一份你想讨论的资料开始。';
   s.messages=[...s.messages,{question:action.question,ref,suggestion,answer}];
  }
  if(action.type==='apply'){
@@ -43,9 +47,9 @@ function transition(state, action){
 const el=id=>document.getElementById(id);
 const draft=el('draft'),ask=el('ask'),mirror=el('mirror');
 const docs=examples.map(fresh);
-let active=0,state=docs[0],scenario=0,step=0;
+let active=0,state=docs[0];
 function switchDoc(index){
- docs[active]=state;active=index;state=docs[index];step=0;ask.value='';render();
+ docs[active]=state;active=index;state=docs[index];ask.value='';render();
 }
 el('newDoc').onclick=()=>{docs.push(fresh(['','','']));switchDoc(docs.length-1);el('title').focus()};
 function listDocs(){
@@ -56,8 +60,24 @@ function node(tag,text){const item=document.createElement(tag);item.textContent=
 function button(text,run){const b=node('button',text);b.type='button';b.onclick=run;return b}
 function dispatch(action){state=transition(state,action);render()}
 function paint(){
- const r=state.selection;mirror.hidden=!r||document.activeElement===draft;
- if(!mirror.hidden){mirror.replaceChildren(state.draft.slice(0,r.start),node('mark',r.text),state.draft.slice(r.end));mirror.scrollTop=draft.scrollTop}
+ const r=state.selection, actions=el('actions');
+ const editing=document.activeElement===draft;
+ actions.hidden=true;mirror.hidden=!r;
+ if(!r)return;
+ const mark=node('mark',r.text);
+ mirror.replaceChildren(state.draft.slice(0,r.start),mark,state.draft.slice(r.end));
+ mirror.style.height=draft.clientHeight+'px';
+ mirror.scrollTop=draft.scrollTop;
+ if(editing||actions.contains(document.activeElement)){
+  const box=mirror.getBoundingClientRect();
+  const line=Array.from(mark.getClientRects()).find(rect=>rect.bottom>box.top&&rect.top<box.bottom);
+  if(line){
+   actions.hidden=false;
+   actions.style.left=Math.min(Math.max(0,line.left-box.left),box.width-actions.offsetWidth)+'px';
+   actions.style.top=(line.top-box.top-actions.offsetHeight-4)+'px';
+  }
+ }
+ mirror.hidden=editing;
 }
 function render(){
  el('title').value=state.title;listDocs();
@@ -66,23 +86,24 @@ function render(){
  if(state.selection){const remove=button('×',()=>dispatch({type:'clear'}));remove.ariaLabel='移除选区引用';chip.append(remove,'选自稿子 · '+state.selection.text)}else chip.textContent='当前讨论整份稿子';
  const thread=el('thread');thread.replaceChildren();
  state.messages.forEach((m,index)=>{const a=node('article','');if(m.ref)a.append(node('blockquote',m.ref.text));a.append(node('strong',m.question),node('p',m.answer));if(m.suggestion)a.append(button('采用这段改写',()=>dispatch({type:'apply',index})));thread.append(a)});
- thread.scrollTop=thread.scrollHeight;el('notice').textContent=state.note;guides();
+ thread.scrollTop=thread.scrollHeight;el('notice').textContent=state.note;
 }
-function capture(){if(document.activeElement===draft && draft.selectionEnd>draft.selectionStart)dispatch({type:'select',start:draft.selectionStart,end:draft.selectionEnd})}
+function capture(){
+ if(document.activeElement!==draft)return;
+ const start=draft.selectionStart,end=draft.selectionEnd;
+ if(end>start)dispatch({type:'select',start,end});
+ else if(state.selection)dispatch({type:'clear'});
+}
+const actions=el('actions');
+actions.onmousedown=e=>e.preventDefault();
+actions.onfocusout=()=>requestAnimationFrame(paint);
+el('discuss').onclick=()=>ask.focus();
+function quickAsk(question){ask.focus();dispatch({type:'send',question});}
+el('rewrite').onclick=()=>quickAsk('帮我改写这段。');
+el('verify').onclick=()=>quickAsk('这段在参考资料里有依据吗？');
+draft.onscroll=paint;
+window.addEventListener('resize',paint);
 draft.onselect=capture;draft.onpointerup=capture;draft.onkeyup=capture;draft.onfocus=paint;draft.onblur=()=>requestAnimationFrame(paint);draft.oninput=()=>dispatch({type:'edit',value:draft.value});
 document.querySelector('form').onsubmit=e=>{e.preventDefault();if(!ask.value.trim())return;dispatch({type:'send',question:ask.value.trim()});ask.value='';ask.focus()};
-function pick(line){const text=state.draft.split('\n\n')[line],start=state.draft.indexOf(text);if(text&&start>=0){draft.focus();draft.setSelectionRange(start,start+text.length);capture();ask.focus()}}
-const send=q=>dispatch({type:'send',question:q});
-const scenarios=[
- ['选中后追问','观察连续两条消息引用的原文。',[['选中开头',()=>pick(0)],['问依据',()=>send('这句有依据吗？')],['继续追问',()=>send('怎么说更自然？')],['采用改写',()=>dispatch({type:'apply',index:1})]]],
- ['换一句聊','第二次选区只影响接下来发送的消息。',[['选中开头',()=>pick(0)],['发出消息',()=>send('这句有依据吗？')],['换到第二段',()=>pick(1)],['讨论第二段',()=>send('这句怎么查？')]]],
- ['自己先改了稿','看看旧的改写建议还能不能覆盖你的编辑。',[['选中开头',()=>pick(0)],['请 AI 改写',()=>send('说得自然些')],['手动改开头',()=>dispatch({type:'edit',value:'那天，我比平时晚到了一会儿。\n\n'+state.draft.split('\n\n').slice(1).join('\n\n')})],['尝试采用旧建议',()=>dispatch({type:'apply',index:0})]]]
-];
-function reset(i){scenario=i;let index=docs.findIndex(doc=>doc.walkthrough);const sample={...fresh(examples[0]),title:'练习草稿',walkthrough:true};if(index<0){index=docs.length;docs.push(sample)}if(active===index)state=sample;docs[index]=sample;switchDoc(index)}
-function guides(){
- el('tabs').replaceChildren(...scenarios.map(([label],i)=>{const b=button(label,()=>reset(i));b.setAttribute('aria-pressed',i===scenario);return b}));
- const [,desc,actions]=scenarios[scenario];el('explain').textContent=desc;
- el('steps').replaceChildren(...actions.map(([label,fn],i)=>{const b=button(label,()=>{step++;fn()});b.disabled=!state.walkthrough||i!==step;return b}));
-}
 render();
 </script></html>
