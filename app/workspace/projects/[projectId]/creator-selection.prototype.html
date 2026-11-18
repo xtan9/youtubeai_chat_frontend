@@ -1,0 +1,67 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Seed oil · 创作室原型</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f3ec;color:#242f29;font:15px/1.65 system-ui,sans-serif}header,main,footer{max-width:1390px;margin:auto;padding:20px 4vw}header{border-bottom:1px solid #c9cec5;display:flex;align-items:center;gap:18px}small,label{color:#516458}h1{font:600 clamp(26px,3vw,42px)/1.25 Georgia,serif;margin:0}h2{font-size:16px;margin:0 0 16px}main{display:grid;grid-template-columns:minmax(150px,.65fr) minmax(260px,1.75fr) minmax(260px,1.2fr);gap:14px}section{background:#fffefa;border:1px solid #d5d8cf;border-radius:12px;padding:22px;min-width:0}aside{font-size:14px}summary,button{cursor:pointer}details{margin:12px 0}button{border:1px solid #cad2c9;background:#fffefa;color:#274438;padding:7px 12px;border-radius:7px;font:inherit}button:hover,button[aria-pressed=true]{background:#e4efe4}button:disabled{opacity:.5;cursor:default}.primary{background:#245640;color:white}.primary:hover{background:#356d55}#draft{width:100%;min-height:290px;resize:vertical;border:0;background:transparent;font:19px/1.95 Georgia,serif;color:inherit}#draft:focus{outline:1px dashed #95aa98}#draft::selection,mark{background:#c9e4b4;color:#13291c}#paper{position:relative}#mirror{position:absolute;inset:0;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;padding:2px;font:19px/1.95 Georgia,serif;background:#fffefa;overflow:hidden}#mirror[hidden]{display:none}#chip,blockquote{background:#edf4e9;border-left:3px solid #69966b;padding:8px 12px;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}#chip button{float:right;padding:0 6px}#ask{width:100%;font:inherit;padding:10px;border:1px solid #bac5b9;border-radius:7px;margin:8px 0}#thread{max-height:350px;overflow:auto}article{border-top:1px solid #ddd;padding:10px 0}article p{margin:6px 0}footer{padding-top:0}footer button{margin:3px}#notice{color:#31583f} @media(max-width:820px){main{grid-template-columns:1fr}#draft{min-height:190px}}
+</style><header><strong>创作室</strong><small>交互原型 · 模拟对话</small></header><main>
+<aside><h2>项目素材</h2><details><summary>视频 A · 日常用油</summary>示例片段讨论家庭烹饪。</details><details><summary>视频 B · 高温油炸</summary>示例片段讨论反复加热。</details></aside>
+<section><small>Seed oil ／ 口播稿</small><h1>他们在争同一件事吗？</h1><p>选中稿子里的文字，再去右边提问。离开编辑器后，你还能看清正在讨论哪一句吗？</p><div id="paper"><textarea id="draft" aria-label="口播稿" spellcheck="false" wrap="soft"></textarea><div id="mirror" hidden aria-hidden="true"></div></div></section>
+<section><h2>和 AI 讨论</h2><div id="thread"></div><div id="chip"></div><form><input id="ask" aria-label="给 AI 发消息" placeholder="比如：这句怎么说更自然？" autocomplete="off"><button class="primary">发送</button></form><small id="notice" role="status"></small></section></main>
+<footer><details open><summary>试走一遍</summary><div id="tabs"></div><p id="explain"></p><div id="steps"></div></details></footer>
+<script>
+const initialDraft='我本来以为他们在争同一件事。\n\n一个人讲的是家里炒菜，另一个人讲的是反复加热的炸油。\n\n我想先把这两句话放回各自的上下文。';
+const fresh=()=>({draft:initialDraft,selection:null,messages:[],revision:0,note:''});
+function transition(state, action){
+ const s={...state,note:''};
+ if(action.type==='select') s.selection={start:action.start,end:action.end,text:s.draft.slice(action.start,action.end),revision:s.revision};
+ if(action.type==='clear') s.selection=null;
+ if(action.type==='edit') return {...s,draft:action.value,revision:s.revision+1,selection:null};
+ if(action.type==='send'){
+  const ref=s.selection;
+  const rewrite=/改|自然|口语|重写/.test(action.question);
+  const suggestion=ref && rewrite ? (ref.text===initialDraft.split('。')[0]+'。'?'我一开始听着，还以为他俩说的是一回事。':'我想问的是：'+ref.text.replace(/[。？！]$/,'')+'。') : null;
+  const answer=suggestion?'改写预览：'+suggestion:ref?'可以先对照两段视频里各自讨论的用油场景，再决定这句话能说到什么程度。':'可以从两位创作者各自想回答的问题聊起。';
+  s.messages=[...s.messages,{question:action.question,ref,suggestion,answer}];
+ }
+ if(action.type==='apply'){
+  const msg=s.messages[action.index], ref=msg.ref;
+  if(ref.revision!==s.revision) return {...s,note:'稿子已经改过。请重新选中目标文字，再生成改写。'};
+  return {...s,draft:s.draft.slice(0,ref.start)+msg.suggestion+s.draft.slice(ref.end),revision:s.revision+1,selection:null,note:'改写已放进稿子。'};
+ }
+ return s;
+}
+</script><script>
+const el=id=>document.getElementById(id);
+const draft=el('draft'),ask=el('ask'),mirror=el('mirror');
+let state=fresh(),scenario=0,step=0;
+function node(tag,text){const item=document.createElement(tag);item.textContent=text;return item}
+function button(text,run){const b=node('button',text);b.type='button';b.onclick=run;return b}
+function dispatch(action){state=transition(state,action);render()}
+function paint(){
+ const r=state.selection;mirror.hidden=!r||document.activeElement===draft;
+ if(!mirror.hidden){mirror.replaceChildren(state.draft.slice(0,r.start),node('mark',r.text),state.draft.slice(r.end));mirror.scrollTop=draft.scrollTop}
+}
+function render(){
+ if(draft.value!==state.draft)draft.value=state.draft;
+ paint();const chip=el('chip');chip.replaceChildren();
+ if(state.selection){const remove=button('×',()=>dispatch({type:'clear'}));remove.ariaLabel='移除选区引用';chip.append(remove,'选自稿子 · '+state.selection.text)}else chip.textContent='当前讨论整份稿子';
+ const thread=el('thread');thread.replaceChildren();
+ state.messages.forEach((m,index)=>{const a=node('article','');if(m.ref)a.append(node('blockquote',m.ref.text));a.append(node('strong',m.question),node('p',m.answer));if(m.suggestion)a.append(button('采用这段改写',()=>dispatch({type:'apply',index})));thread.append(a)});
+ thread.scrollTop=thread.scrollHeight;el('notice').textContent=state.note;guides();
+}
+function capture(){if(document.activeElement===draft && draft.selectionEnd>draft.selectionStart)dispatch({type:'select',start:draft.selectionStart,end:draft.selectionEnd})}
+draft.onselect=capture;draft.onpointerup=capture;draft.onkeyup=capture;draft.onfocus=paint;draft.onblur=()=>requestAnimationFrame(paint);draft.oninput=()=>dispatch({type:'edit',value:draft.value});
+document.querySelector('form').onsubmit=e=>{e.preventDefault();if(!ask.value.trim())return;dispatch({type:'send',question:ask.value.trim()});ask.value='';ask.focus()};
+function pick(line){const text=initialDraft.split('\n\n')[line],start=state.draft.indexOf(text);if(start>=0){draft.focus();draft.setSelectionRange(start,start+text.length);capture();ask.focus()}}
+const send=q=>dispatch({type:'send',question:q});
+const scenarios=[
+ ['选中后追问','观察连续两条消息引用的原文。',[['选中开头',()=>pick(0)],['问依据',()=>send('这句有依据吗？')],['继续追问',()=>send('怎么说更自然？')],['采用改写',()=>dispatch({type:'apply',index:1})]]],
+ ['换一句聊','第二次选区只影响接下来发送的消息。',[['选中开头',()=>pick(0)],['发出消息',()=>send('这句有依据吗？')],['换到第二段',()=>pick(1)],['讨论第二段',()=>send('这句怎么查？')]]],
+ ['自己先改了稿','看看旧的改写建议还能不能覆盖你的编辑。',[['选中开头',()=>pick(0)],['请 AI 改写',()=>send('说得自然些')],['手动改开头',()=>dispatch({type:'edit',value:'我重新听了一遍。'+state.draft.slice(initialDraft.indexOf('。')+1)})],['尝试采用旧建议',()=>dispatch({type:'apply',index:0})]]]
+];
+function reset(i){scenario=i;step=0;state=fresh();ask.value='';render()}
+function guides(){
+ el('tabs').replaceChildren(...scenarios.map(([label],i)=>{const b=button(label,()=>reset(i));b.setAttribute('aria-pressed',i===scenario);return b}));
+ const [,desc,actions]=scenarios[scenario];el('explain').textContent=desc;
+ el('steps').replaceChildren(...actions.map(([label,fn],i)=>{const b=button(label,()=>{step++;fn()});b.disabled=i!==step;return b}));
+}
+render();
+</script></html>
