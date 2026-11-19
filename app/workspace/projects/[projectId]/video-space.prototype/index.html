@@ -2,6 +2,7 @@
 <!-- Compare the same research-to-script task on a parallel desk and a focused manuscript using ?variant=A or B. -->
 <style>
 :root{color-scheme:light;--ink:#202e2b;--muted:#586b65;--line:#d9ddd3;--fern:#135540;--paper:#fffcf5}*{box-sizing:border-box}body{margin:0;background:#f2f3ed;color:var(--ink);font:15px/1.65 system-ui,sans-serif}header{background:#1a3731;color:white;padding:13px 3vw;display:flex;gap:18px;align-items:center}header small{margin-left:auto;color:#d9e4d7}header strong{letter-spacing:.03em}main{display:grid;grid-template-columns:minmax(245px,1fr) minmax(320px,1.65fr) minmax(260px,1.05fr);gap:14px;padding:0 3vw 84px}section{border:1px solid var(--line);background:#fff;border-radius:12px;padding:20px;min-width:0}h1,h2,h3,p{margin:0 0 12px}h1{font:600 clamp(27px,3.5vw,48px)/1.25 Georgia,serif}h2{font-size:18px}h3{font-size:15px}.heading{padding:28px 3vw 20px;display:flex;align-items:end;justify-content:space-between;gap:12px}.heading small,small{color:var(--muted)}button,summary,a{cursor:pointer}button,input,textarea{font:inherit}button{border:1px solid var(--line);background:white;color:var(--ink);padding:5px 10px;border-radius:7px}button:hover,button[aria-pressed=true]{background:#e6f0e7}button:disabled{opacity:.4}button.primary{background:var(--fern);color:white}.bar,.row{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.row{justify-content:space-between}details{border-top:1px solid var(--line);padding:9px 0}summary{font-weight:550}details p{font-size:14px;margin:8px 0}small{font-size:12px}.bar{margin:8px 0}article{margin:10px 0;padding:11px;background:#f4f6ef;border-radius:7px;overflow-wrap:anywhere}article button{font-size:13px}#writing{background:var(--paper)}#editor{min-height:310px;padding:12px 0;font:19px/1.95 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere;outline:none}#editor:empty:before{content:attr(data-placeholder);color:#748179;pointer-events:none}#editor::selection,::highlight(passage){background:#d6e8b9}#editTools{position:fixed;z-index:6;background:white;padding:3px;border:1px solid var(--line);border-radius:8px}#log{min-height:110px;max-height:46vh;overflow:auto}#quote{border-left:3px solid #497a55;padding-left:8px;overflow-wrap:anywhere}textarea{width:100%;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px}sup button{font:12px system-ui;padding:1px 5px;color:var(--fern)}#switcher{position:fixed;bottom:13px;left:50%;transform:translateX(-50%);background:#203a33;color:white;border-radius:24px;padding:5px;display:flex;align-items:center;gap:10px;font-size:13px;z-index:8;white-space:nowrap}#switcher button{background:transparent;color:white;border:0}a{color:#145941}dialog{width:min(460px,95vw);border:1px solid var(--line);border-radius:12px;padding:22px}dialog label{display:block;padding:6px}#focusNav{display:none}body.focus main{display:block;max-width:880px;margin:auto}body.focus #writing{padding:clamp(24px,5vw,64px);min-height:58vh}body.focus #focusNav{display:flex}body.focus #library,body.focus #chat{display:none}body.focus[data-panel=library] #library,body.focus[data-panel=chat] #chat{display:block;position:fixed;right:12px;top:110px;bottom:65px;overflow:auto;width:min(380px,94vw);box-shadow:0 12px 50px #13251e36;z-index:4}body.focus .close{display:inline}body .close{display:none}[hidden]{display:none!important}@media(max-width:920px){main{grid-template-columns:1fr}#editor{min-height:200px}.heading{align-items:start;flex-direction:column}.focus #focusNav{flex-wrap:wrap}header{gap:8px}section{padding:16px}}
+.resource{padding:12px 0;border-top:1px solid var(--line)}.resource .row h3{margin:0;flex:1}.summary-toggle{color:var(--fern);border-color:#a9c3b5}.digest{margin:9px 0;padding:10px 12px;background:#f3f6ee;border-radius:6px}.digest p{margin:4px 0}.resource details{border:0;font-size:14px}
 </style>
 <header><strong>Workspace</strong><span>／ 视频 Space</span><small>本地原型 · 模拟对话与调查</small></header>
 <div class="heading"><div><small>视频选题</small><h1>Seed oil，争议在哪里？</h1></div><div id="focusNav" class="bar"><button data-open="library">素材与证据</button><button data-open="chat">创作搭档</button></div></div>
@@ -46,11 +47,25 @@ function investigate(i,origin){
  activeTopic=i;researched.add(i);refreshEvidence();listSources();
  message('你',topics[i][0],origin);const m=message('创作搭档',topics[i][1]);m.append(btn('查看证据',()=>evidence(i)),btn('写进开场',()=>write(i)));openPanel('chat')
 }
+const openSummaries=new Set([0]);
 function listSources(){
- const expanded=new Set(Array.from($('sources').querySelectorAll('details[open]'),e=>e.dataset.id));$('sources').replaceChildren();$('sourcesTab').textContent='素材 '+selected.size;
- for(const n of selected){const [type,title,summary,claims,url]=resources[n],d=tag('details','');d.dataset.id=n;d.open=expanded.has(String(n));
- const head=tag('summary','');head.append(tag('small',type),tag('div',title));d.append(head,tag('h3','Summary'),tag('p',summary));if(url)d.append(link('打开文献 ↗',url));
- for(const [where,quote,i] of claims){const item=tag('article','');item.append(tag('small',where+' · '+(researched.has(i)?'已有调研':'待核实')),tag('p',quote),btn('继续深究',()=>investigate(i,title+' · '+where+' · '+quote)));if(researched.has(i))item.append(btn('查看判断',()=>evidence(i)));d.append(item)}$('sources').append(d)}
+ const expanded=new Set(Array.from($('sources').querySelectorAll('details[open]'),e=>e.dataset.id));
+ $('sources').replaceChildren();$('sourcesTab').textContent='素材 '+selected.size;
+ for(const n of selected){
+  const [type,title,summary,claims,url]=resources[n];
+  const entry=tag('div','');entry.className='resource';
+  const row=tag('div','');row.className='row';
+  const digest=tag('div','');digest.className='digest';digest.id='summary-'+n;
+  digest.append(tag('strong','摘要 · Summary'),tag('p',summary));
+  if(url)digest.append(link('打开文献 ↗',url));
+  const toggle=btn('',()=>{if(openSummaries.has(n))openSummaries.delete(n);else openSummaries.add(n);paintSummary()});
+  toggle.className='summary-toggle';toggle.setAttribute('aria-controls',digest.id);
+  function paintSummary(){const open=openSummaries.has(n);digest.hidden=!open;toggle.textContent=open?'收起摘要':'查看摘要';toggle.setAttribute('aria-expanded',String(open))}
+  paintSummary();row.append(tag('h3',title),toggle);
+  const d=tag('details','');d.dataset.id=n;d.open=expanded.has(String(n));d.append(tag('summary','关键说法（'+claims.length+'）'));
+  for(const [where,quote,i] of claims){const item=tag('article','');item.append(tag('small',where+' · '+(researched.has(i)?'已有调研':'待核实')),tag('p',quote),btn('继续深究',()=>investigate(i,title+' · '+where+' · '+quote)));if(researched.has(i))item.append(btn('查看判断',()=>evidence(i)));d.append(item)}
+  entry.append(tag('small',type),row,digest,d);$('sources').append(entry)
+ }
 }
 function clearSelection(){passage=null;CSS.highlights?.delete('passage');$('editTools').hidden=true;$('quote').hidden=true}
 function capture(){
