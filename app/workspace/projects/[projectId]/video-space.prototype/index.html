@@ -1,0 +1,95 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seed oil · 视频 Space 原型</title>
+<!-- Compare the same research-to-script task on a parallel desk and a focused manuscript using ?variant=A or B. -->
+<style>
+:root{color-scheme:light;--ink:#202e2b;--muted:#586b65;--line:#d9ddd3;--fern:#135540;--paper:#fffcf5}*{box-sizing:border-box}body{margin:0;background:#f2f3ed;color:var(--ink);font:15px/1.65 system-ui,sans-serif}header{background:#1a3731;color:white;padding:13px 3vw;display:flex;gap:18px;align-items:center}header small{margin-left:auto;color:#d9e4d7}header strong{letter-spacing:.03em}main{display:grid;grid-template-columns:minmax(245px,1fr) minmax(320px,1.65fr) minmax(260px,1.05fr);gap:14px;padding:0 3vw 84px}section{border:1px solid var(--line);background:#fff;border-radius:12px;padding:20px;min-width:0}h1,h2,h3,p{margin:0 0 12px}h1{font:600 clamp(27px,3.5vw,48px)/1.25 Georgia,serif}h2{font-size:18px}h3{font-size:15px}.heading{padding:28px 3vw 20px;display:flex;align-items:end;justify-content:space-between;gap:12px}.heading small,small{color:var(--muted)}button,summary,a{cursor:pointer}button,input,textarea{font:inherit}button{border:1px solid var(--line);background:white;color:var(--ink);padding:5px 10px;border-radius:7px}button:hover,button[aria-pressed=true]{background:#e6f0e7}button:disabled{opacity:.4}button.primary{background:var(--fern);color:white}.bar,.row{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.row{justify-content:space-between}details{border-top:1px solid var(--line);padding:9px 0}summary{font-weight:550}details p{font-size:14px;margin:8px 0}small{font-size:12px}.bar{margin:8px 0}article{margin:10px 0;padding:11px;background:#f4f6ef;border-radius:7px;overflow-wrap:anywhere}article button{font-size:13px}#writing{background:var(--paper)}#editor{min-height:310px;padding:12px 0;font:19px/1.95 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere;outline:none}#editor:empty:before{content:attr(data-placeholder);color:#748179;pointer-events:none}#editor::selection,::highlight(passage){background:#d6e8b9}#editTools{position:fixed;z-index:6;background:white;padding:3px;border:1px solid var(--line);border-radius:8px}#log{min-height:110px;max-height:46vh;overflow:auto}#quote{border-left:3px solid #497a55;padding-left:8px;overflow-wrap:anywhere}textarea{width:100%;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px}sup button{font:12px system-ui;padding:1px 5px;color:var(--fern)}#switcher{position:fixed;bottom:13px;left:50%;transform:translateX(-50%);background:#203a33;color:white;border-radius:24px;padding:5px;display:flex;align-items:center;gap:10px;font-size:13px;z-index:8;white-space:nowrap}#switcher button{background:transparent;color:white;border:0}a{color:#145941}dialog{width:min(460px,95vw);border:1px solid var(--line);border-radius:12px;padding:22px}dialog label{display:block;padding:6px}#focusNav{display:none}body.focus main{display:block;max-width:880px;margin:auto}body.focus #writing{padding:clamp(24px,5vw,64px);min-height:58vh}body.focus #focusNav{display:flex}body.focus #library,body.focus #chat{display:none}body.focus[data-panel=library] #library,body.focus[data-panel=chat] #chat{display:block;position:fixed;right:12px;top:110px;bottom:65px;overflow:auto;width:min(380px,94vw);box-shadow:0 12px 50px #13251e36;z-index:4}body.focus .close{display:inline}body .close{display:none}[hidden]{display:none!important}@media(max-width:920px){main{grid-template-columns:1fr}#editor{min-height:200px}.heading{align-items:start;flex-direction:column}.focus #focusNav{flex-wrap:wrap}header{gap:8px}section{padding:16px}}
+</style>
+<header><strong>Workspace</strong><span>／ 视频 Space</span><small>本地原型 · 模拟对话与调查</small></header>
+<div class="heading"><div><small>视频选题</small><h1>Seed oil，争议在哪里？</h1></div><div id="focusNav" class="bar"><button data-open="library">素材与证据</button><button data-open="chat">创作搭档</button></div></div>
+<main><section id="library"><div class="row"><h2>研究台</h2><button class="close" aria-label="关闭研究台">×</button></div><nav class="bar"><button id="sourcesTab">素材</button><button id="evidenceTab">证据</button><button id="add" aria-label="添加示例素材">＋</button></nav><div id="sources"></div><div id="evidence" hidden></div></section>
+<section id="writing"><div class="row"><h2>开场脚本</h2><button id="undo" disabled>撤销 AI 编辑</button></div><div id="editor" role="textbox" aria-label="脚本正文" aria-multiline="true" contenteditable="true" data-placeholder="写下你想对观众说的第一句话……"></div><small id="count"></small></section>
+<section id="chat"><div class="row"><h2>创作搭档</h2><button class="close" aria-label="关闭对话">×</button></div><div id="log" aria-live="polite"><small>这期视频，你想从哪个问题讲起？</small></div><div id="quote" hidden></div><form><textarea id="prompt" rows="2" aria-label="消息" placeholder="讨论一个角度，或让我接着写……"></textarea><div class="row"><button type="button" id="continue">续写开场</button><button class="primary">发送</button></div></form></section></main>
+<div id="editTools" hidden><button id="discuss">讨论</button><button id="rewrite">改写</button></div>
+<div id="switcher" aria-label="比较布局"><button id="prev" aria-label="上一布局">←</button><span id="label"></span><button id="next" aria-label="下一布局">→</button></div>
+<dialog id="picker"><h2>添加示例素材</h2><p>选择这次想试用的素材。</p><div id="choices"></div><form method="dialog" class="bar"><button id="import" class="primary">添加到 Space</button><button value="cancel">关闭</button></form></dialog>
+<script>
+const $=id=>document.getElementById(id);
+const paper='https://pubmed.ncbi.nlm.nih.gov/27071971/';
+const original='https://pubmed.ncbi.nlm.nih.gov/2643423/';
+const topics=[
+ ['这项试验比较了什么？','研究比较两种饮食，干预组用富含亚油酸的玉米油产品替代部分饱和脂肪。','直接支持较强 · 论文描述了干预和对照饮食。','高 · 两份论文对干预设计的描述一致。','有支持','先弄清楚锅里换了什么，才知道这项试验究竟在比什么。'],
+ ['胆固醇下降意味着活得更久吗？','干预组的胆固醇降幅更大，但在这项试验中没有观察到死亡率获益。','对推论的支持弱 · 两个结局需要分别看。','高 · 摘要分别报告了指标变化和死亡结果。','有问题','如果一项指标变好了，人就一定活得更久吗？在这项试验里，这是两个不同的答案。'],
+ ['能把结果推广到所有烹饪场景吗？','试验发生在特定机构和饮食条件下。这个摘要无法单独回答家庭反复加热油的问题。','不足 · 干预没有直接比较这些烹饪方式。','高 · 研究问题和这个推广问题不同。','待研究','先别急着把结论搬进自家厨房。研究人员当时测的，和我们今天想问的，是同一件事吗？']
+];
+const resources=[
+ ['YouTube · 示例片段','换一种油，指标会怎样？','片段从换油对胆固醇的影响谈起，继而把指标变化延伸到寿命。',[['00:18','这项试验换了饮食里的油。',0],['02:06','指标下降，人就会活得更久。',1],['04:12','这是否适用于家里的炸锅？',2]]],
+ ['YouTube · 示例片段','同一试验，另一个问题','片段关注试验对象、死亡结局，以及从机构供餐推到家庭厨房时遗漏的问题。',[['00:41','这里比较的是两组饮食。',0],['01:53','光看胆固醇，够吗？',1],['03:08','家庭油炸还需要另外的证据。',2]]],
+ ['PDF · 论文样例','Minnesota 试验再分析','2016 年论文重新分析试验资料，对胆固醇变化和死亡结局分别作了报告。',[['摘要 · 干预','比较两种饮食中的脂肪替代。',0],['摘要 · 结果','报告了胆固醇和死亡两个结局。',1]],paper],
+ ['网页 · 文献记录','1989 年试验报告','原报告描述了受试环境、干预方案及总体结局，可与再分析对读。',[['摘要 · 设计','受试者来自机构环境。',2]],original]
+];
+const selected=new Set([0,1]), researched=new Set();
+let activeTopic=null, passage=null, oldHTML=null, variant=new URLSearchParams(location.search).get('variant')==='B'?'B':'A';
+const editor=$('editor');
+function tag(name,text){const x=document.createElement(name);x.textContent=text;return x}
+function btn(text,fn){const b=tag('button',text);b.type='button';b.onclick=fn;return b}
+function link(text,url){const a=tag('a',text);a.href=url;a.target='_blank';a.rel='noopener';return a}
+function openPanel(panel){document.body.dataset.panel=panel;if(variant==='A'&&innerWidth<=920)$(panel).scrollIntoView({block:'start'})}
+function tabs(showEvidence){$('sources').hidden=showEvidence;$('evidence').hidden=!showEvidence;$('sourcesTab').setAttribute('aria-pressed',!showEvidence);$('evidenceTab').setAttribute('aria-pressed',showEvidence)}
+function record(i){const t=topics[i],box=tag('article','');box.append(tag('small',t[4]),tag('h3',t[0]),tag('p',t[1]),tag('p','证据强度 · '+t[2]),tag('p','判断把握 · '+t[3]),link('再分析摘要 ↗',paper),' · ',link('原报告 ↗',original));return box}
+function evidence(i){tabs(true);openPanel('library');if(i!=null)$('finding'+i)?.scrollIntoView({block:'nearest'})}
+function refreshEvidence(){
+ $('evidenceTab').textContent='证据 '+researched.size;$('evidence').replaceChildren();
+ if(!researched.size)$('evidence').append(tag('p','点击素材中的「继续深究」，调查结果会留在这里。'));
+ for(const i of researched){const box=record(i);box.id='finding'+i;box.append(btn('用这个角度续写',()=>write(i)));$('evidence').append(box)}
+}
+function message(who,text,ref){const m=tag('article','');m.append(tag('small',who));if(ref)m.append(tag('blockquote',ref));m.append(tag('p',text));$('log').append(m);$('log').scrollTop=$('log').scrollHeight;return m}
+function investigate(i,origin){
+ activeTopic=i;researched.add(i);refreshEvidence();listSources();
+ message('你',topics[i][0],origin);const m=message('创作搭档',topics[i][1]);m.append(btn('查看证据',()=>evidence(i)),btn('写进开场',()=>write(i)));openPanel('chat')
+}
+function listSources(){
+ const expanded=new Set(Array.from($('sources').querySelectorAll('details[open]'),e=>e.dataset.id));$('sources').replaceChildren();$('sourcesTab').textContent='素材 '+selected.size;
+ for(const n of selected){const [type,title,summary,claims,url]=resources[n],d=tag('details','');d.dataset.id=n;d.open=expanded.has(String(n));
+ const head=tag('summary','');head.append(tag('small',type),tag('div',title));d.append(head,tag('h3','Summary'),tag('p',summary));if(url)d.append(link('打开文献 ↗',url));
+ for(const [where,quote,i] of claims){const item=tag('article','');item.append(tag('small',where+' · '+(researched.has(i)?'已有调研':'待核实')),tag('p',quote),btn('继续深究',()=>investigate(i,title+' · '+where+' · '+quote)));if(researched.has(i))item.append(btn('查看判断',()=>evidence(i)));d.append(item)}$('sources').append(d)}
+}
+function clearSelection(){passage=null;CSS.highlights?.delete('passage');$('editTools').hidden=true;$('quote').hidden=true}
+function capture(){
+ const sel=getSelection();if(!sel.rangeCount||!editor.contains(sel.anchorNode)||!editor.contains(sel.focusNode))return;
+ if(sel.isCollapsed){clearSelection();return}
+ passage=sel.getRangeAt(0).cloneRange();if(window.Highlight)CSS.highlights.set('passage',new Highlight(passage));
+ $('quote').hidden=false;$('quote').replaceChildren(tag('small','选自开场脚本'),tag('p',passage.toString()),btn('移除引用',clearSelection));
+ const r=passage.getBoundingClientRect();$('editTools').hidden=false;$('editTools').style.left=Math.max(4,Math.min(innerWidth-145,r.left))+'px';$('editTools').style.top=Math.max(4,r.top-42)+'px'
+}
+function tally(){$('count').textContent=editor.innerText.trim().length+' 字';$('undo').disabled=oldHTML===null}
+function write(i,replace=false){
+ const ref=replace&&passage?passage.cloneRange():null;if(replace&&!ref)return;
+ oldHTML=editor.innerHTML;
+ const text=ref?'说得直白一点，'+ref.toString().replace(/^(说得直白一点，|换句话说，)/,''):i!=null?topics[i][5]:'两段视频都在聊 seed oil。我想从一个具体的问题开始：它们各自在拿什么作比较？';
+ const chunk=document.createDocumentFragment();chunk.append(document.createTextNode(text));if(i!=null){const marker=tag('sup','');marker.contentEditable='false';const b=tag('button','↗');b.dataset.topic=i;b.title='查看这句的证据';marker.append(b);chunk.append(marker)}
+ if(ref){ref.deleteContents();ref.insertNode(chunk)}else{if(editor.innerText.trim())editor.append(document.createTextNode('\n\n'));editor.append(chunk)}
+ clearSelection();getSelection().removeAllRanges();tally();document.body.dataset.panel='';message('创作搭档',replace?'已改写选中的文字。':'已把开场接在现有稿子后面。')
+}
+editor.onclick=e=>{const n=e.target.closest('[data-topic]');if(n)evidence(Number(n.dataset.topic))};
+editor.onpaste=e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'))};
+editor.onpointerup=capture;editor.onkeyup=capture;editor.oninput=()=>{clearSelection();oldHTML=null;tally()};
+$('undo').onclick=()=>{if(oldHTML!==null){editor.innerHTML=oldHTML;oldHTML=null;clearSelection();tally()}};
+$('editTools').onmousedown=e=>e.preventDefault();
+function focusChat(){openPanel('chat');$('editTools').hidden=true;$('prompt').focus()}
+$('discuss').onclick=focusChat;$('rewrite').onclick=()=>write(null,true);$('prompt').onfocus=()=>$('editTools').hidden=true;
+$('continue').onclick=()=>write(activeTopic);
+$('chat').querySelector('form').onsubmit=e=>{e.preventDefault();const q=$('prompt').value.trim();if(!q)return;$('prompt').value='';
+ if(/查|深究|文献|依据/.test(q)){const subject=q+' '+(passage?.toString()||'');const i=/厨房|油炸|家庭/.test(subject)?2:/比较|干预组/.test(subject)?0:1;investigate(i,q);return}
+ message('你',q,passage?.toString());
+ if(passage&&/^(请|帮我|把|改成|改写|改短|重写)/.test(q)&&/改|重写/.test(q)){write(null,true);return}
+ if(/续写|写进|写个开场|写一段|写成开场/.test(q)){write(activeTopic);return}
+ message('创作搭档',passage?'这句里你最想让观众记住什么？可以先说观察到的现象，再把疑问留到下一句。':'可以从两段视频共同提到的试验入手。一个关心指标，另一个问结局。你想先查哪一个？')
+};
+$('sourcesTab').onclick=()=>tabs(false);$('evidenceTab').onclick=()=>tabs(true);
+$('add').onclick=()=>{$('choices').replaceChildren();resources.forEach(([type,name],i)=>{if(selected.has(i))return;const l=tag('label',''),input=document.createElement('input');input.type='checkbox';input.value=i;l.append(input,' '+name+' · '+type);$('choices').append(l)});if(selected.size===resources.length)$('choices').append(tag('p','示例素材均已加入。'));$('picker').showModal()};
+$('import').onclick=()=>{for(const c of $('choices').querySelectorAll(':checked'))selected.add(+c.value);listSources();tabs(false)};
+function layout(){const focus=variant==='B';document.body.classList.toggle('focus',focus);document.body.dataset.panel='';$('label').textContent=focus?'B · 脚本优先':'A · 并排工作台';$('editTools').hidden=true}
+function cycle(){variant=variant==='A'?'B':'A';const url=new URL(location.href);url.searchParams.set('variant',variant);history.replaceState(null,'',url);layout()}
+$('prev').onclick=$('next').onclick=cycle;document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.body.dataset.panel='';$('editTools').hidden=true}if(['ArrowLeft','ArrowRight'].includes(e.key)&&!e.target.closest('input,textarea,[contenteditable],dialog')){e.preventDefault();cycle()}});
+document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openPanel(b.dataset.open));document.querySelectorAll('.close').forEach(b=>b.onclick=()=>document.body.dataset.panel='');
+listSources();refreshEvidence();tabs(false);layout();tally();
+</script></html>

@@ -3,6 +3,7 @@
   "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "next dev",
+    "prototype:video-space": "node 'app/workspace/projects/[projectId]/video-space.prototype/serve.mjs'",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
