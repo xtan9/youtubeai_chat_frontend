@@ -65,33 +65,45 @@ export function useSpace(url: string) {
   const live = useRef<Space | null>(null),
     saved = useRef<Space | null>(null),
     revision = useRef(0);
-  const busy = useRef(false),
+  const saving = useRef<Promise<boolean> | null>(null),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPdf = useRef<{ id: string; contents: string } | null>(null);
   const flush = useCallback(async () => {
-    if (busy.current || !live.current || live.current === saved.current) return;
-    busy.current = true;
-    try {
-      while (live.current !== saved.current) {
-        const document: Space = live.current!;
-        const file = pendingPdf.current;
-        const receipt = file
-          ? await writePdf(url, revision.current, document, file)
-          : await requestJson<{ revision: number }>(url, "PUT", {
-              revision: revision.current,
-              document,
-            });
-        if (file) pendingPdf.current = null;
-        revision.current = receipt.revision;
-        saved.current = document;
+    if (saving.current) return saving.current;
+    if (!live.current || live.current === saved.current) return true;
+    saving.current = (async () => {
+      try {
+        while (live.current !== saved.current) {
+          const document: Space = live.current!;
+          const file = pendingPdf.current;
+          const receipt = file
+            ? await writePdf(url, revision.current, document, file)
+            : await requestJson<{ revision: number }>(url, "PUT", {
+                revision: revision.current,
+                document,
+              });
+          if (file) pendingPdf.current = null;
+          revision.current = receipt.revision;
+          saved.current = document;
+        }
+        setStatus("已保存");
+        return true;
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : "保存失败");
+        return false;
+      } finally {
+        saving.current = null;
       }
-      setStatus("已保存");
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      busy.current = false;
-    }
+    })();
+    return saving.current;
   }, [url]);
+  const ensureReadingSaved = useCallback(async () => {
+    const current = live.current, previous = saved.current;
+    if (!current || !previous) return false;
+    if (current.resources === previous.resources && current.customClaims === previous.customClaims &&
+        current.researchAttempts === previous.researchAttempts && current.claimDiscussion === previous.claimDiscussion) return true;
+    return flush();
+  }, [flush]);
   useEffect(() => {
     let active = true;
     void requestJson<{ document: Space; revision: number }>(url)
@@ -160,5 +172,5 @@ export function useSpace(url: string) {
     pendingPdf.current = { id: resource.id, contents };
     void flush();
   }
-  return { space, live, status, update, flush, attachPdf };
+  return { space, live, status, update, flush, ensureReadingSaved, attachPdf };
 }

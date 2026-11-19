@@ -7,26 +7,29 @@ const state = vi.hoisted(() => ({
   rateCount: 1,
   databaseError: false,
 }));
+function queryRows(table: string) {
+  const filters: Array<[string, unknown]> = [];
+  let fields: string[];
+  const query = {
+    select(columns: string) { fields = columns.split(",").map(column => column.trim()); return query; },
+    eq(key: string, value: unknown) { filters.push([key, value]); return query; },
+    is(key: string, value: unknown) { filters.push([key, value]); return query; },
+    async maybeSingle() {
+      const row = state.rows[table]?.find(r => filters.every(([k,v]) => r[k] === v));
+      return {
+        data: row ? Object.fromEntries(fields.map(k => [k, row[k]])) : null,
+        error: state.databaseError ? { code: "08006" } : null,
+      };
+    },
+  };
+  return query;
+}
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({ auth: { getUser: async () => ({ data: { user: state.user }, error: null }) } }),
+  createClient: async () => ({ from: queryRows, auth: { getUser: async () => ({ data: { user: state.user }, error: null }) } }),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({
   getServiceRoleClient: () => ({
-    from(table: string) {
-      const filters: Array<[string, unknown]> = [];
-      const query = {
-        select() { return query; },
-        eq(key: string, value: unknown) { filters.push([key, value]); return query; },
-        is(key: string, value: unknown) { filters.push([key, value]); return query; },
-        async maybeSingle() {
-          return {
-            data: (state.rows[table] ?? []).find(row => filters.every(([key, value]) => row[key] === value)) ?? null,
-            error: state.databaseError ? { code: "08006" } : null,
-          };
-        },
-      };
-      return query;
-    },
+    from: queryRows,
     rpc: async () => ({ data: state.rateCount, error: null }),
   }),
 }));
@@ -313,5 +316,70 @@ describe("POST /api/translate", () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe("Project highlight translation", () => {
+  const projectId = "6e200000-0000-4000-8000-000000000001";
+  const versionId = "6e200000-0000-4000-8000-000000000002";
+  const title = "Cooking oils were compared.";
+  const reply = "The change was measured over time.";
+  const quote = "Measured changes in the intervention group.";
+  const evidenceId = "E0123456789abcdef";
+  function translate(context: string, text: string, patch = {}) {
+    return POST(new Request("http://localhost/api/translate", { method: "POST", body: JSON.stringify({
+      projectId, claimId: versionId, section: "claim", targetLanguage: "zh", text, context, selectionStart: context.indexOf(text), ...patch,
+    }) }));
+  }
+  beforeEach(() => {
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "pro", status: "active" };
+    state.rows.workspaces = [{ id: "workspace", owner_id: "learner-1" }];
+    state.rows.projects = [{ id: projectId, workspace_id: "workspace" }];
+    state.rows.video_spaces = [{ project_id: projectId, document: {
+      resources: [], messages: [], drafts: [{ id: "draft", title: "Opening", text: "Private draft text", markers: [] }],
+      customClaims: [{ id: versionId, text: title }],
+      claimDiscussion: [{ id: versionId, claimId: versionId, created: "now", question: "When?", reply }],
+    } }];
+    const observation = { text: reply, references: [{ id: evidenceId, quote }] };
+    state.rows.project_research_runs = [{ id: versionId, project_id: projectId, state: "completed", created_at: "now",
+      document: {
+        question: title, space: { claimId: versionId }, promptVersion: "project-research-v1", sourceSetRevision: 0, searches: [], warnings: [],
+        evidence: [{ id: evidenceId, kind: "publication_abstract", originId: "paper", title: "Cooking oils trial",
+          url: "https://europepmc.org/article/MED/123456", text: quote, retrievedAt: "2026-11-19T00:00:00Z", year: null, authors: null, publicationTypes: [] }],
+        synthesis: { judgment: observation, reasoning: observation, findings: [observation], uncertainties: ["Limited data"],
+          nextSteps: ["Compare trials"], changes: "First judgment" },
+      },
+    }];
+  });
+  it.each([[title, "Cooking", {}], [reply, "measured", { section: "discussion" }], [quote, "intervention", { section: "evidence", versionId }]])(
+    "translates only the selected expression in its saved context: %s", async (context, text, patch) => {
+      expect((await translate(context, text, patch)).status).toBe(200);
+      const prompt = JSON.parse(gateway.mock.calls[0][1].body).messages[0].content;
+      expect(JSON.parse(prompt.split("\n").at(-1))).toMatchObject({ selection: text, paragraph: context, targetLanguage: "zh" });
+      expect(prompt).not.toContain("Private draft text");
+    },
+  );
+  it("binds excerpts to the open claim and its reading section", async () => {
+    const otherClaim = "6e200000-0000-4000-8000-000000000003";
+    const current = state.rows.video_spaces[0].document as { customClaims: Array<{id: string; text: string}> };
+    current.customClaims.push({ id: otherClaim, text: "Other comparison" });
+    expect((await translate(reply, "measured", { section: "discussion", claimId: otherClaim })).status).toBe(409);
+    expect((await translate(quote, "intervention", { section: "evidence", claimId: otherClaim, versionId })).status).toBe(409);
+    expect((await translate(reply, "measured", { section: "claim" })).status).toBe(409);
+    expect(gateway).not.toHaveBeenCalled();
+  });
+  it("rejects a Project owned by another workspace before translation", async () => {
+    state.rows.projects[0].workspace_id = "other";
+    expect((await translate(title, "Cooking")).status).toBe(404);
+    expect(gateway).not.toHaveBeenCalled();
+  });
+  it("rejects another Project's evidence, forged context, private drafts and unpaid requests", async () => {
+    state.rows.project_research_runs[0].project_id = "other";
+    expect((await translate(quote, "intervention", { section: "evidence", versionId })).status).toBe(409);
+    expect((await translate(title + " Added context.", "Cooking")).status).toBe(409);
+    expect((await translate("Private draft text", "draft")).status).toBe(409);
+    state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "free", status: null };
+    expect((await translate(title, "Cooking")).status).toBe(403);
+    expect(gateway).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,19 @@ export const TranslationRequestSchema = z.object({
 }).strict();
 export type TranslationRequest = z.infer<typeof TranslationRequestSchema>;
 
+export const ProjectTranslationRequestSchema = TranslationRequestSchema.pick({
+  targetLanguage: true,
+  selectionStart: true,
+  text: true,
+  context: true,
+}).extend({
+  projectId: z.uuid(),
+  claimId: z.string().min(1).max(120),
+  section: z.enum(["claim", "evidence", "discussion"]),
+  versionId: z.uuid().optional(),
+}).strict();
+export type ProjectTranslationRequest = z.infer<typeof ProjectTranslationRequestSchema>;
+
 export const TranslationResultSchema = z.object({
   translation: z.string().trim().min(1).max(1500),
   explanation: z.string().trim().min(1).max(2000),

@@ -26,6 +26,9 @@ import {
   groupClaimSpaces,
   type ResearchAttempt,
 } from "@/lib/video-space/claim-spaces";
+import { HighlightTranslation } from "@/app/summary/components/highlight-translation";
+import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 import { Library } from "./library";
 import "./workbench.css";
 
@@ -83,6 +86,7 @@ function Desk({
   update,
   status,
   flush,
+  ensureReadingSaved,
   api,
   projectId,
   name,
@@ -110,6 +114,7 @@ function Desk({
     Record<string, string>
   >({});
   const discussionLock = useRef(false);
+  const roomRef = useRef<HTMLElement>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [newClaim, setNewClaim] = useState<string | null>(null);
   const params = useSearchParams();
@@ -566,8 +571,21 @@ function Desk({
           </aside>
         )}
         {inRoom && (
-          <section className="vs-panel vs-claim-room" aria-label="观点空间">
-            <ClaimRoomHeader room={active} onBack={() => navigate()} />
+          <section ref={roomRef} data-translation-room=""
+            data-translation-version={active && !active.resource && !space.customClaims?.some(c => c.id === active.id) ? active.versions[0]?.id : undefined}
+            className="vs-panel vs-claim-room" aria-label="观点空间">
+            <ClaimRoomHeader room={active} onBack={() => navigate()}>
+              {active && (
+                <HighlightTranslation
+                  key={active.id}
+                  projectId={projectId}
+                  claimId={active.id}
+                  ensureSaved={ensureReadingSaved}
+                  readingRef={roomRef}
+                  browserLanguage={pickDefaultLanguage(Array.from(navigator.languages ?? []), SUPPORTED_LANGUAGE_CODES)}
+                />
+              )}
+            </ClaimRoomHeader>
             <div className="vs-room-tools">
               <button
                 id="vs-toggle-directory"

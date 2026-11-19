@@ -1,3 +1,4 @@
+import { checkClaimHighlightTranslation } from "./claim-highlight-translation";
 import { expect, type Page, type TestInfo } from "@playwright/test";
 import type { Resource } from "../../lib/video-space/contract";
 import type { ResearchVersion } from "../../lib/projects/project-research-contract";
@@ -298,6 +299,7 @@ export async function videoSpaceJourney(
   await expect(
     room.getByRole("link", { name: /Re-evaluation/ }),
   ).toHaveAttribute("href", publication.url);
+  await checkClaimHighlightTranslation(page, projectId, versions[0].id);
   await room.getByRole("button", { name: "交给创作搭档" }).click();
   await expect(right).toBeHidden();
   await expect(editor).toHaveValue(opening);

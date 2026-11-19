@@ -345,26 +345,31 @@
   margin-top: 10px;
 }
 .vs-room-header {
-  position: relative;
   min-height: 44px;
   border-bottom: 1px solid var(--rule);
   padding-bottom: 12px;
 }
-.vs-room-header > small,
-.vs-room-header > h2 {
-  padding-inline-end: 44px;
+.vs-room-toolbar,
+.vs-room-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.vs .vs-room-back {
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-end: 0;
+.vs-room-toolbar {
+  justify-content: space-between;
+}
+.vs .vs-room-actions button {
   display: grid;
   place-items: center;
   width: 34px;
   height: 34px;
   padding: 0;
 }
-.vs-room-header > small {
+.vs-room-actions button[data-enabled="true"] {
+  color: var(--fern);
+  background: var(--note);
+}
+.vs-room-toolbar > small {
   color: var(--fern);
 }
 .vs-room-header > h2 {

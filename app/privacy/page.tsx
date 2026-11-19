@@ -95,7 +95,8 @@ export default function PrivacyPolicy() {
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Highlight Translation</h2>
         <p className="mb-4">
-          When you enable Highlight to translate and select text in a Summary,
+          When you enable Highlight to translate and select text in a Summary or a
+          New Workspace claim title, source passage, evidence, or discussion,
           we send the selection, nearby text from its paragraph, and the nearest
           section heading to our AI service to translate and explain its meaning.
           This feature does not send the full video transcript.
