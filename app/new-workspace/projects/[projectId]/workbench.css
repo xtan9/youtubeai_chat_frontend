@@ -364,6 +364,23 @@
   height: 34px;
   padding: 0;
 }
+.vs-translation-tools,
+.vs-translation-tools label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vs-translation-tools {
+  margin: 8px 0;
+  color: var(--soft);
+  font-size: 13px;
+}
+.vs-translation-tools input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  accent-color: var(--fern);
+}
 .vs-room-header > small {
   color: var(--fern);
 }

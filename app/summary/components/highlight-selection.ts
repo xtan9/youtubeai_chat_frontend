@@ -2,7 +2,7 @@ import { boundContext, HEADING_LIMIT, isSingleSentence, normalizePassage } from 
 
 export type PassageSelection = {
   range: Range;
-  passage: { text: string; context: string; heading: string; blockStart: number; selectionStart: number } | null;
+  passage: { versionId?: string; text: string; context: string; heading: string; blockStart: number; selectionStart: number } | null;
 };
 
 export function readPassageSelection(root: HTMLElement): PassageSelection | null {
@@ -38,7 +38,8 @@ export function readPassageSelection(root: HTMLElement): PassageSelection | null
       heading = Array.from(normalizePassage(node.textContent ?? "")).slice(0, HEADING_LIMIT).join("");
     }
   }
-  return { range: range.cloneRange(), passage: { text, selectionStart, blockStart, context: boundContext(paragraph, selectionStart), heading } };
+  const versionId = block.closest<HTMLElement>("[data-translation-version]")?.dataset.translationVersion;
+  return { range: range.cloneRange(), passage: { ...(versionId ? { versionId } : {}), text, selectionStart, blockStart, context: boundContext(paragraph, selectionStart), heading } };
 }
 
 export function positionTranslation(range: Range, root: HTMLElement, height: number) {

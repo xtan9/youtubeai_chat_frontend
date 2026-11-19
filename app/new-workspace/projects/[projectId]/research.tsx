@@ -24,9 +24,9 @@ export function Finding({ version }: { version: ResearchVersion }) {
     { judgment, assessment } = d.synthesis;
   const citations = findingReferences(d);
   return (
-    <article className="vs-finding">
+    <article className="vs-finding" data-translation-version={version.id}>
       <strong>目前的判断</strong>
-      <p>{judgment.text}</p>
+      <p data-translation-block="0">{judgment.text}</p>
       <details>
         <summary>核查范围与判断依据</summary>
         {assessment && (
@@ -36,7 +36,7 @@ export function Finding({ version }: { version: ResearchVersion }) {
             </p>
             <p>
               <b>证据强度</b> · {labels[assessment.direction]}，
-              {labels[assessment.strength]}。{assessment.strengthReason}
+              {labels[assessment.strength]}。<span data-translation-block="0">{assessment.strengthReason}</span>
             </p>
             <p>
               <b>判断把握</b> · {labels[assessment.confidence]}。
@@ -51,29 +51,29 @@ export function Finding({ version }: { version: ResearchVersion }) {
           段视频原文
         </small>
         {d.warnings.map((w) => (
-          <p key={w}>{w}</p>
+          <p key={w} data-translation-block="0">{w}</p>
         ))}
       </details>
       <details>
         <summary>调查发现与出处</summary>
         {d.synthesis.findings.map((f, i) => (
-          <p key={i}>{f.text}</p>
+          <p key={i} data-translation-block="0">{f.text}</p>
         ))}
-        <p>{d.synthesis.reasoning.text}</p>
+        <p data-translation-block="0">{d.synthesis.reasoning.text}</p>
         {d.synthesis.uncertainties.map((u) => (
-          <p key={u}>{u}</p>
+          <p key={u} data-translation-block="0">{u}</p>
         ))}
         {d.evidence.map((e) => (
           <div key={e.id}>
             <a href={e.url} target="_blank" rel="noreferrer">
-              {e.title} ↗
+              <span data-translation-block="0">{e.title}</span> ↗
             </a>
             {[
               ...new Set(
                 citations.filter((r) => r.id === e.id).map((r) => r.quote),
               ),
             ].map((q) => (
-              <blockquote key={q}>{q}</blockquote>
+              <blockquote key={q} data-translation-block="0">{q}</blockquote>
             ))}
           </div>
         ))}

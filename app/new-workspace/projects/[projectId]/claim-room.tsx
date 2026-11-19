@@ -70,6 +70,10 @@ export function ClaimRoomHeader({
   onBack: () => void;
 }) {
   const sourceLink = room && claimSourceLink(room);
+  const titleVersion = !room?.resource && room?.versions.find(({document}) =>
+    (document.space?.claimTitle ?? document.question) === room.title);
+  const originVersion = !room?.resource && room?.versions.find(({document}) =>
+    document.space?.origin?.quote === room.origin?.quote);
   return (
     <header className="vs-room-header">
       <small>观点空间</small>
@@ -83,7 +87,7 @@ export function ClaimRoomHeader({
         <ArrowLeft size={17} aria-hidden="true" />
       </button>
       {room && (
-        <h2 id="vs-room-title" tabIndex={-1}>
+        <h2 id="vs-room-title" tabIndex={-1} data-translation-block="0" data-translation-version={titleVersion ? titleVersion.id : undefined}>
           {room.title}
         </h2>
       )}
@@ -94,14 +98,14 @@ export function ClaimRoomHeader({
           </p>
           <details key={room.id}>
             <summary>查看素材出处</summary>
-            <blockquote>{room.origin.quote}</blockquote>
+            <blockquote data-translation-block="0" data-translation-version={originVersion ? originVersion.id : undefined}>{room.origin.quote}</blockquote>
             {sourceLink && (
               <a href={sourceLink} target="_blank" rel="noreferrer">
                 {room.origin.location} ↗
               </a>
             )}
             {room.resource?.kind === "pdf" && (
-              <p>
+              <p data-translation-block="0">
                 {
                   room.resource.pages.find(
                     (p) => p.label === room.origin?.location,
@@ -160,18 +164,19 @@ export function ClaimRoom({
   const parent = room.versions.find((v) => v.id === target) ?? finding;
   const evidence = new Map<
     string,
-    { source: ResearchEvidence; quotes: Set<string> }
+    { source: ResearchEvidence; versionId: string; quotes: Map<string, string> }
   >();
-  for (const { document: d } of room.versions) {
+  for (const { id: versionId, document: d } of room.versions) {
     const byId = new Map(d.evidence.map((source) => [source.id, source]));
     for (const ref of findingReferences(d)) {
       const source = byId.get(ref.id);
       if (!source) continue;
       const entry = evidence.get(source.id) ?? {
         source,
-        quotes: new Set<string>(),
+        versionId,
+        quotes: new Map<string, string>(),
       };
-      entry.quotes.add(ref.quote);
+      entry.quotes.set(ref.quote, versionId);
       evidence.set(source.id, entry);
     }
   }
@@ -222,14 +227,14 @@ export function ClaimRoom({
             {ready ? "这个观点还没有保存的证据。" : "正在读取证据…"}
           </p>
         )}
-        {[...evidence.values()].map(({ source, quotes }) => (
+        {[...evidence.values()].map(({ source, quotes, versionId }) => (
           <details key={source.id} className="vs-evidence-source">
             <summary>
               <small>{source.kind === "video" ? "视频原文" : "论文摘要"}</small>{" "}
-              {source.title}
+              <span data-translation-block="0" data-translation-version={versionId}>{source.title}</span>
             </summary>
-            {[...quotes].map((quote) => (
-              <blockquote key={quote}>{quote}</blockquote>
+            {[...quotes].map(([quote, quoteVersion]) => (
+              <blockquote key={quote} data-translation-block="0" data-translation-version={quoteVersion}>{quote}</blockquote>
             ))}
             <a href={source.url} target="_blank" rel="noreferrer">
               打开来源 ↗
@@ -251,9 +256,9 @@ export function ClaimRoom({
             chat ? (
               <div key={chat.id} className="vs-turn">
                 <small>你</small>
-                <p>{chat.question}</p>
+                <p data-translation-block="0">{chat.question}</p>
                 <small>研究搭档</small>
-                <p>{chat.reply}</p>
+                <p data-translation-block="0">{chat.reply}</p>
                 {chat.finding && (
                   <button onClick={() => chat.finding && select(chat.finding)}>
                     讨论引用的证据
@@ -261,11 +266,11 @@ export function ClaimRoom({
                 )}
               </div>
             ) : v ? (
-              <div key={v.id} className="vs-turn">
+              <div key={v.id} className="vs-turn" data-translation-version={v.id}>
                 <small>你</small>
-                <p>{v.document.question}</p>
+                <p data-translation-block="0">{v.document.question}</p>
                 <small>研究搭档</small>
-                <p>{v.document.synthesis.judgment.text}</p>
+                <p data-translation-block="0">{v.document.synthesis.judgment.text}</p>
                 <button onClick={() => select(v.id)}>查看本次证据</button>{" "}
                 {v.id !== latest?.id && (
                   <button
@@ -281,7 +286,7 @@ export function ClaimRoom({
             ) : (
               a && (
                 <div className="vs-turn" key={a.id}>
-                  <strong>{a.question}</strong>
+                  <strong data-translation-block="0">{a.question}</strong>
                   <p role="alert">
                     {a.evidenceGap ? "证据不足 · " : ""}
                     {a.message}
