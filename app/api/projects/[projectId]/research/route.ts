@@ -8,6 +8,7 @@ import {
   completeResearch,
   failResearch,
   loadResearchVersions,
+  loadResearchVersion,
   reserveResearch,
 } from "@/lib/projects/project-research-journal";
 import { retrieveProjectResearchEvidence } from "@/lib/projects/project-research-retrieval";
@@ -81,12 +82,21 @@ export async function POST(request: Request, context: Context) {
       );
     stage = "reservation";
     const versions = await loadResearchVersions(client!, subject!.projectId);
-    const previous = versions[0] ?? null;
-    if ((previous?.id ?? null) !== body.data.baseVersionId)
+    const latest = versions[0] ?? null;
+    if ((latest?.id ?? null) !== body.data.baseVersionId)
       return error(
         409,
         "Research has changed. Reload the latest judgment before updating.",
       );
+    const followUpTo = body.data.space?.followUpTo;
+    const previous =
+      followUpTo && followUpTo !== latest?.id
+        ? await loadResearchVersion(client!, subject!.projectId, followUpTo)
+        : body.data.space && !followUpTo
+          ? null
+          : latest;
+    if (followUpTo && !previous)
+      return error(404, "Research question not found.");
     const reserved = await reserveResearch(
       subject!.projectId,
       principal!.userId,
@@ -145,6 +155,7 @@ export async function POST(request: Request, context: Context) {
       goal: subject!.guidance.goal,
       question: body.data.question,
       previous: previous?.document ?? null,
+      space: body.data.space,
       artifacts,
       onStage: (next) => {
         stage = next;
@@ -193,6 +204,11 @@ export async function POST(request: Request, context: Context) {
         ? { reason: cause.message }
         : {}),
     });
+    if (cause instanceof Error && cause.message === "literature_no_abstracts")
+      return error(
+        422,
+        "检索已完成，但没有找到可核查的相关摘要。现有证据不足。",
+      );
     return error(
       503,
       "Research could not finish. Your previous judgment is preserved. Please try again.",

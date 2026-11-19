@@ -12,6 +12,8 @@ export const POSTHOG_CAPTURE_OPTIONS = {
 };
 
 const PRIVATE_PROJECT_NETWORK_PATHS = [
+  /^\/new-workspace(?:\/|$)/,
+  /^\/rest\/v1\/(?:video_space_pdfs|rpc\/save_video_space_pdf)(?:\/|$)/,
   /^\/workspace(?:\/|$)/,
   /^\/api\/projects(?:\/|$)/,
   /^\/api\/workspace\/projects(?:\/|$)/,

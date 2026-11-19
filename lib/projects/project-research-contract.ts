@@ -12,8 +12,38 @@ export const ResearchObservationSchema = z
     references: z.array(ResearchReferenceSchema).min(1).max(6),
   })
   .strict();
+const AssessmentSchema = z
+  .object({
+    category: z.enum(["supported", "problematic", "open"]),
+    direction: z.enum(["supports", "challenges", "mixed", "unclear"]),
+    strength: z.enum([
+      "strong",
+      "moderate",
+      "weak",
+      "insufficient",
+      "unassessed",
+    ]),
+    strengthReason: z.string().trim().min(5).max(900),
+    confidence: z.enum(["high", "medium", "low"]),
+    confidenceReason: z.string().trim().min(5).max(900),
+  })
+  .strict();
+const SpaceContextSchema = z
+  .object({
+    origin: z
+      .object({
+        id: z.string().max(80),
+        title: z.string().max(1000),
+        location: z.string().max(140),
+        quote: z.string().max(1800),
+      })
+      .optional(),
+    followUpTo: z.uuid().optional(),
+  })
+  .strict();
 export const ResearchSynthesisSchema = z
   .object({
+    assessment: AssessmentSchema.optional(),
     judgment: ResearchObservationSchema,
     findings: z.array(ResearchObservationSchema).min(1).max(8),
     reasoning: ResearchObservationSchema,
@@ -46,6 +76,7 @@ export type ResearchEvidence = z.infer<typeof ResearchEvidenceSchema>;
 export type ResearchSynthesis = z.infer<typeof ResearchSynthesisSchema>;
 export const ResearchDocumentSchema = z
   .object({
+    space: SpaceContextSchema.optional(),
     question: z.string().trim().min(3).max(2000),
     synthesis: ResearchSynthesisSchema,
     evidence: z.array(ResearchEvidenceSchema).min(1).max(24),
@@ -76,6 +107,7 @@ export const ResearchVersionSchema = z
 export type ResearchVersion = z.infer<typeof ResearchVersionSchema>;
 export const ResearchRequestSchema = z
   .object({
+    space: SpaceContextSchema.optional(),
     question: z.string().trim().min(3).max(2000),
     baseVersionId: z.uuid().nullable(),
   })

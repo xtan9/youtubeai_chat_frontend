@@ -1,3 +1,4 @@
+import {videoSpaceJourney} from "./helpers/video-space-journey";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
@@ -297,6 +298,7 @@ test.beforeEach(() => {
   gatewayGate.release();
   gatewayGate = createGatewayGate();
   projects.splice(0);
+  videoSpaceRows.clear();
   canonicalVideos.splice(0);
   historyRows.splice(0);
   projectVideos.splice(0);
@@ -2929,6 +2931,7 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   ).toBeVisible();
 });
 
+const videoSpaceRows = new Map<string,{revision:number;document:unknown}>();
 async function handleSupabaseRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -3278,6 +3281,29 @@ Climate adaptation depends on exact local evidence [S1 @ 00:42].
     return sendJson(response, 200, subscription ? [subscription] : []);
   }
 
+  if (["/rest/v1/rpc/save_video_space_pdf","/rest/v1/video_space_pdfs"].includes(url.pathname) && request.headers.origin===appUrl) {
+    response.setHeader("Access-Control-Allow-Origin",appUrl);
+    response.setHeader("Access-Control-Allow-Methods","POST,GET,OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers",request.headers["access-control-request-headers"]??"authorization,apikey,content-type");
+    if(request.method==="OPTIONS"){response.writeHead(204);response.end();return;}
+  }
+  if(url.pathname==="/rest/v1/rpc/save_video_space_pdf" && userId===OWNER_ID){
+    const b=await readJson(request) as {p_revision:number;p_project:string;p_document:unknown;p_contents:string};
+    if(!b.p_contents.startsWith("JVBER") || videoSpaceRows.get(b.p_project)?.revision!==b.p_revision)return sendJson(response,409,{code:"40001"});
+    videoSpaceRows.set(b.p_project,{revision:b.p_revision+1,document:b.p_document});return sendJson(response,200,b.p_revision+1);
+  }
+  if (url.pathname === "/rest/v1/video_spaces") {
+    const body=request.method==="GET"?{}:await readJson(request) as Record<string,unknown>;
+    const id=String(body.project_id??filterValue(url,"project_id"));
+    if(!projects.some(p=>p.id===id && p.workspace_id===(userId===OWNER_ID?OWNER_WORKSPACE_ID:OTHER_WORKSPACE_ID)))return sendJson(response,403,{});
+    const row=videoSpaceRows.get(id);
+    if(request.method==="GET")return sendJson(response,200,row?[row]:[]);
+    if(request.method==="POST" && row)return sendJson(response,409,{code:"23505"});
+    if(request.method==="PATCH" && row?.revision!==Number(filterValue(url,"revision")))return sendJson(response,200,[]);
+    const next={revision:Number(body.revision),document:body.document};
+    videoSpaceRows.set(id,next);
+    return sendJson(response,200,next);
+  }
   if (url.pathname === "/rest/v1/project_research_runs" && request.method === "GET") {
     return sendJson(response, 200, []);
   }
@@ -5144,4 +5170,28 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
   await expect(page.getByText("建立初步研究判断，区分讲者观点与论文结果。", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("research-notebook-mobile.png"), fullPage: true });
+});
+
+test("New Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const projectId = await createGroundedFixtureProject(context, "Seed oil，争议在哪里？", {sourceCount: 2});
+  await page.goto(appUrl + "/workspace");
+  await page.getByRole("navigation", {name:"Primary", exact:true}).getByRole("link",{name:"New Workspace"}).click({timeout:5000});
+  await expect(page.getByRole("heading",{name:"Video Spaces"})).toBeVisible();
+  await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
+  await expect(page).toHaveURL(appUrl + "/new-workspace/projects/" + projectId);
+  const editor = page.getByRole("textbox",{name:"脚本正文"});
+  await editor.fill("厨房里的这瓶油，究竟改变了什么？");
+  await expect(page.getByText("已保存",{exact:true})).toBeVisible();
+  await page.reload();
+  await expect(editor).toHaveValue("厨房里的这瓶油，究竟改变了什么？");
+  await addSessionCookie(context,OTHER_ID,"other@example.test");
+  expect((await context.request.get(appUrl+"/api/projects/"+projectId+"/space")).status()).toBe(404);
+  await page.reload();await expect(editor).toHaveCount(0);
+});
+
+test("Video Space research, evidence, co-writing and comparative layouts @projects-ga-critical",async({context,page},testInfo)=>{
+  await addSessionCookie(context,OWNER_ID,"owner@example.test");
+  const projectId=await createGroundedFixtureProject(context,"Seed oil，争议在哪里？",{sourceCount:2});
+  await videoSpaceJourney(page,testInfo,appUrl,projectId,canonicalVideos.slice(0,2).map(v=>v.id));
 });
