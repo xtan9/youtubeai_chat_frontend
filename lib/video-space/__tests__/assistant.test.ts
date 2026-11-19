@@ -6,7 +6,7 @@ const { stream } = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: stream,
 }));
-import { summarize } from "../assistant";
+import { summarize, writeScript } from "../assistant";
 
 const resource: Resource = {
   id: "video",
@@ -56,4 +56,32 @@ it("attaches an exact passage within a long PDF page at the original page number
 });
 it("rejects a selector outside the supplied source", async () => {
   await expect(answer(2)).rejects.toThrow("unknown_source_excerpt");
+});
+
+it("repairs an invalid co-writing turn within one request and keeps an explicit edit scoped", async () => {
+  const reply = {
+    mode: "edit",
+    target: "append",
+    reply: "已续写。",
+    options: ["先看比较对象。"],
+    usedFinding: true,
+  };
+  stream
+    .mockReturnValueOnce([{ type: "delta", text: "已续写。" }])
+    .mockReturnValueOnce([{ type: "delta", text: JSON.stringify(reply) }]);
+  const result = await writeScript(
+    {
+      action: "write",
+      script: "开场",
+      appendOnly: true,
+      prompt: "续写一句",
+      history: [],
+    },
+    new AbortController().signal,
+  );
+  expect(result).toEqual(reply);
+  const invocation = stream.mock.lastCall![0];
+  expect(invocation.messages).toHaveLength(1);
+  expect(invocation.messages[0].content).toContain("续写一句");
+  expect(invocation.messages[0].content).toContain("could not be validated");
 });
