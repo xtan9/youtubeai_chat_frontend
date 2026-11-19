@@ -433,3 +433,15 @@ it("rejects a plan that exceeds the three-search call budget", async () => {
   expect(stream).toHaveBeenCalledTimes(2);
   expect(search).not.toHaveBeenCalled();
 });
+
+it("regenerates a Japanese judgment for a Chinese follow-up with an English paper title", async () => {
+  const japanese = { ...generatedSynthesis, judgment: { ...selectedObservation, text: "これは観察された関連を示しますが、群間の比較ではありません。" } };
+  const chinese = { ...generatedSynthesis, judgment: { ...selectedObservation, text: "这是回归关联，不能替代随机组间比较。" } };
+  const replies = [plan, japanese, chinese];
+  stream.mockImplementation(async function* () {
+    yield { type: "delta", text: JSON.stringify(replies.shift()) };
+  });
+  const result = await runProjectResearch({ ...args, question: "Minnesota Coronary Experiment 的 HR 1.22 表示什么？请用一句话解释。" });
+  expect(result.synthesis.judgment.text).toBe(chinese.judgment.text);
+  expect(replies).toHaveLength(0);
+});

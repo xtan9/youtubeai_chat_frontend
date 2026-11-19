@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { logAppEvent } from "@/lib/observability";
+import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { createClient } from "@/lib/supabase/server";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
@@ -118,7 +120,27 @@ export async function POST(request: Request, context: Context) {
     if (body.action === "summary")
       return Response.json(await summarize(body.resource, request.signal));
     return Response.json(await writeScript(body, request.signal));
-  } catch {
-    return fail(503, "暂时无法完成请求，请重试。");
+  } catch (error) {
+    let reason = error instanceof Error ? error.name : "unknown";
+    if (error instanceof ChatGatewayError) reason = error.failureCode;
+    if (
+      error instanceof Error &&
+      ["missing_source_summary", "unknown_source_excerpt"].includes(
+        error.message,
+      )
+    ) {
+      reason = error.message;
+    }
+    logAppEvent("warn", "[video-space] request failed", {
+      stage: body.action,
+      errorCode: reason,
+      ...(error instanceof ChatGatewayError && { status: error.httpStatus }),
+    });
+    return fail(
+      503,
+      body.action === "summary"
+        ? "暂时无法整理这份素材的摘要与出处，请重试。"
+        : "暂时无法完成请求，请重试。",
+    );
   }
 }
