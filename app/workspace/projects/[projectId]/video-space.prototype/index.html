@@ -3,10 +3,23 @@
 <style>
 :root{color-scheme:light;--ink:#202e2b;--muted:#586b65;--line:#d9ddd3;--fern:#135540;--paper:#fffcf5}*{box-sizing:border-box}body{margin:0;background:#f2f3ed;color:var(--ink);font:15px/1.65 system-ui,sans-serif}header{background:#1a3731;color:white;padding:13px 3vw;display:flex;gap:18px;align-items:center}header small{margin-left:auto;color:#d9e4d7}header strong{letter-spacing:.03em}main{display:grid;grid-template-columns:minmax(245px,1fr) minmax(320px,1.65fr) minmax(260px,1.05fr);gap:14px;padding:0 3vw 84px}section{border:1px solid var(--line);background:#fff;border-radius:12px;padding:20px;min-width:0}h1,h2,h3,p{margin:0 0 12px}h1{font:600 clamp(27px,3.5vw,48px)/1.25 Georgia,serif}h2{font-size:18px}h3{font-size:15px}.heading{padding:28px 3vw 20px;display:flex;align-items:end;justify-content:space-between;gap:12px}.heading small,small{color:var(--muted)}button,summary,a{cursor:pointer}button,input,textarea{font:inherit}button{border:1px solid var(--line);background:white;color:var(--ink);padding:5px 10px;border-radius:7px}button:hover,button[aria-pressed=true]{background:#e6f0e7}button:disabled{opacity:.4}button.primary{background:var(--fern);color:white}.bar,.row{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.row{justify-content:space-between}details{border-top:1px solid var(--line);padding:9px 0}summary{font-weight:550}details p{font-size:14px;margin:8px 0}small{font-size:12px}.bar{margin:8px 0}article{margin:10px 0;padding:11px;background:#f4f6ef;border-radius:7px;overflow-wrap:anywhere}article button{font-size:13px}#writing{background:var(--paper)}#editor{min-height:310px;padding:12px 0;font:19px/1.95 Georgia,serif;white-space:pre-wrap;overflow-wrap:anywhere;outline:none}#editor:empty:before{content:attr(data-placeholder);color:#748179;pointer-events:none}#editor::selection,::highlight(passage){background:#d6e8b9}#editTools{position:fixed;z-index:6;background:white;padding:3px;border:1px solid var(--line);border-radius:8px}#log{min-height:110px;max-height:46vh;overflow:auto}#quote{border-left:3px solid #497a55;padding-left:8px;overflow-wrap:anywhere}textarea{width:100%;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px}sup button{font:12px system-ui;padding:1px 5px;color:var(--fern)}#switcher{position:fixed;bottom:13px;left:50%;transform:translateX(-50%);background:#203a33;color:white;border-radius:24px;padding:5px;display:flex;align-items:center;gap:10px;font-size:13px;z-index:8;white-space:nowrap}#switcher button{background:transparent;color:white;border:0}a{color:#145941}dialog{width:min(460px,95vw);border:1px solid var(--line);border-radius:12px;padding:22px}dialog label{display:block;padding:6px}#focusNav{display:none}body.focus main{display:block;max-width:880px;margin:auto}body.focus #writing{padding:clamp(24px,5vw,64px);min-height:58vh}body.focus #focusNav{display:flex}body.focus #library,body.focus #chat{display:none}body.focus[data-panel=library] #library,body.focus[data-panel=chat] #chat{display:block;position:fixed;right:12px;top:110px;bottom:65px;overflow:auto;width:min(380px,94vw);box-shadow:0 12px 50px #13251e36;z-index:4}body.focus .close{display:inline}body .close{display:none}[hidden]{display:none!important}@media(max-width:920px){main{grid-template-columns:1fr}#editor{min-height:200px}.heading{align-items:start;flex-direction:column}.focus #focusNav{flex-wrap:wrap}header{gap:8px}section{padding:16px}}
 .resource{padding:12px 0;border-top:1px solid var(--line)}.resource .row h3{margin:0;flex:1}.summary-toggle{color:var(--fern);border-color:#a9c3b5}.digest{margin:9px 0;padding:10px 12px;background:#f3f6ee;border-radius:6px}.digest p{margin:4px 0}.resource details{border:0;font-size:14px}
+
+.panel-controls{display:flex;gap:3px}.panel-controls button{font-size:13px;padding:3px 7px}
+.rail{display:none}
+body:not(.focus) .folded{padding:5px}
+body:not(.focus) .folded>:not(.rail){display:none}
+body:not(.focus) .folded>.rail{display:block;margin:auto;writing-mode:vertical-rl;padding:9px 4px}
+@media(min-width:921px){body:not(.focus) main{grid-template-columns:var(--left,minmax(245px,1fr)) minmax(320px,1.65fr) var(--right,minmax(260px,1.05fr))}}
+@media(max-width:920px){body:not(.focus) .folded>.rail{writing-mode:horizontal-tb}}
+body[data-max=library] main,body[data-max=chat] main{display:block;max-width:none}
+body[data-max=library] main>:not(#library),body[data-max=chat] main>:not(#chat){display:none!important}
+body[data-max=library] main #library,body[data-max=chat] main #chat{display:block;position:static;width:auto;min-height:65vh;padding:24px max(20px,calc((100% - 900px)/2));box-shadow:none}
+body[data-max=chat] #log,body[data-max=library] #researchLog{max-height:50vh}
+#researchLog{max-height:38vh;overflow:auto}
 </style>
 <header><strong>Workspace</strong><span>／ 视频 Space</span><small>本地原型 · 模拟对话与调查</small></header>
 <div class="heading"><div><small>视频选题</small><h1>Seed oil，争议在哪里？</h1></div><div id="focusNav" class="bar"><button data-open="library">素材与证据</button><button data-open="chat">创作搭档</button></div></div>
-<main><section id="library"><div class="row"><h2>研究台</h2><button class="close" aria-label="关闭研究台">×</button></div><nav class="bar"><button id="sourcesTab">素材</button><button id="evidenceTab">证据</button><button id="add" aria-label="添加示例素材">＋</button></nav><div id="sources"></div><div id="evidence" hidden></div></section>
+<main><section id="library"><div class="row"><h2>研究台</h2><button class="close" aria-label="关闭研究台">×</button></div><nav class="bar"><button id="sourcesTab">素材</button><button id="evidenceTab">证据</button><button id="researchTab">研究对话</button><button id="add" aria-label="添加示例素材">＋</button></nav><div id="sources"></div><div id="evidence" hidden></div><div id="research" hidden><div id="researchLog" aria-live="polite"></div><form id="researchForm"><textarea id="researchPrompt" rows="2" aria-label="研究问题" placeholder="追问这项研究，或比较素材里的说法……"></textarea><button class="primary">调查</button></form></div></section>
 <section id="writing"><div class="row"><h2>开场脚本</h2><button id="undo" disabled>撤销 AI 编辑</button></div><div id="editor" role="textbox" aria-label="脚本正文" aria-multiline="true" contenteditable="true" data-placeholder="写下你想对观众说的第一句话……"></div><small id="count"></small></section>
 <section id="chat"><div class="row"><h2>创作搭档</h2><button class="close" aria-label="关闭对话">×</button></div><div id="log" aria-live="polite"><small>这期视频，你想从哪个问题讲起？</small></div><div id="quote" hidden></div><form><textarea id="prompt" rows="2" aria-label="消息" placeholder="讨论一个角度，或让我接着写……"></textarea><div class="row"><button type="button" id="continue">续写开场</button><button class="primary">发送</button></div></form></section></main>
 <div id="editTools" hidden><button id="discuss">讨论</button><button id="rewrite">改写</button></div>
@@ -33,20 +46,58 @@ const editor=$('editor');
 function tag(name,text){const x=document.createElement(name);x.textContent=text;return x}
 function btn(text,fn){const b=tag('button',text);b.type='button';b.onclick=fn;return b}
 function link(text,url){const a=tag('a',text);a.href=url;a.target='_blank';a.rel='noopener';return a}
-function openPanel(panel){document.body.dataset.panel=panel;if(variant==='A'&&innerWidth<=920)$(panel).scrollIntoView({block:'start'})}
-function tabs(showEvidence){$('sources').hidden=showEvidence;$('evidence').hidden=!showEvidence;$('sourcesTab').setAttribute('aria-pressed',!showEvidence);$('evidenceTab').setAttribute('aria-pressed',showEvidence)}
+const panels=['library','chat'];
+function setFolded(id,value){
+ $(id).classList.toggle('folded',value);
+ document.body.style.setProperty(id==='library'?'--left':'--right',value?'44px':'');
+}
+function setMax(id=''){
+ document.body.dataset.max=id;
+ for(const panel of panels){
+  const b=$(panel+'Max');if(!b)continue;
+  b.textContent=id===panel?'还原':'放大';b.setAttribute('aria-pressed',String(id===panel));
+ }
+}
+for(const id of panels){
+ const panel=$(id),name=id==='library'?'研究台':'创作搭档';
+ const rail=btn('展开'+name,()=>{openPanel(id);$(id+'Min').focus()});rail.className='rail';panel.prepend(rail);
+ const controls=tag('span','');controls.className='panel-controls';
+ const min=btn('收起',()=>{
+  setMax();setFolded(id,true);document.body.dataset.panel='';
+  if(variant==='A')rail.focus();else document.querySelector('[data-open="'+id+'"]').focus();
+ });
+ min.id=id+'Min';min.ariaLabel='收起'+name;
+ const max=btn('放大',()=>{const restore=document.body.dataset.max===id;openPanel(id);setMax(restore?'':id)});max.id=id+'Max';max.title='切换'+name+'大小';
+ controls.append(min,max);panel.querySelector('.close').replaceWith(controls)
+}
+function openPanel(panel){if(document.body.dataset.max&&document.body.dataset.max!==panel)setMax();setFolded(panel,false);document.body.dataset.panel=panel;if(variant==='A'&&innerWidth<=920)$(panel).scrollIntoView({block:'start'})}
+function tabs(which){
+ for(const [tab,id] of [['sourcesTab','sources'],['evidenceTab','evidence'],['researchTab','research']]){
+  $(id).hidden=id!==which;$(tab).setAttribute('aria-pressed',String(id===which));
+ }
+}
 function record(i){const t=topics[i],box=tag('article','');box.append(tag('small',t[4]),tag('h3',t[0]),tag('p',t[1]),tag('p','证据强度 · '+t[2]),tag('p','判断把握 · '+t[3]),link('再分析摘要 ↗',paper),' · ',link('原报告 ↗',original));return box}
-function evidence(i){tabs(true);openPanel('library');if(i!=null)$('finding'+i)?.scrollIntoView({block:'nearest'})}
+function evidence(i){tabs('evidence');openPanel('library');if(i!=null)$('finding'+i)?.scrollIntoView({block:'nearest'})}
 function refreshEvidence(){
  $('evidenceTab').textContent='证据 '+researched.size;$('evidence').replaceChildren();
  if(!researched.size)$('evidence').append(tag('p','点击素材中的「继续深究」，调查结果会留在这里。'));
- for(const i of researched){const box=record(i);box.id='finding'+i;box.append(btn('用这个角度续写',()=>write(i)));$('evidence').append(box)}
+ for(const i of researched){const box=record(i);box.id='finding'+i;box.append(btn('交给创作搭档',()=>handover(i)));$('evidence').append(box)}
 }
-function message(who,text,ref){const m=tag('article','');m.append(tag('small',who));if(ref)m.append(tag('blockquote',ref));m.append(tag('p',text));$('log').append(m);$('log').scrollTop=$('log').scrollHeight;return m}
-function investigate(i,origin){
- activeTopic=i;researched.add(i);refreshEvidence();listSources();
- message('你',topics[i][0],origin);const m=message('创作搭档',topics[i][1]);m.append(btn('查看证据',()=>evidence(i)),btn('写进开场',()=>write(i)));openPanel('chat')
+function message(who,text,ref,log=$('log')){const m=tag('article','');m.append(tag('small',who));if(ref)m.append(tag('blockquote',ref));m.append(tag('p',text));log.append(m);log.scrollTop=log.scrollHeight;return m}
+let researchTopic=null;
+function handover(i){
+ activeTopic=i;openPanel('chat');const m=message('来自研究台',topics[i][1],topics[i][0]);
+ m.append(btn('写进开场',()=>write(i)));$('prompt').focus()
 }
+function investigate(i,origin,question=topics[i][0]){
+ researchTopic=i;researched.add(i);refreshEvidence();listSources();tabs('research');openPanel('library');
+ const log=$('researchLog');message('你',question,origin,log);
+ const answer=message('研究台 AI',topics[i][1],null,log);
+ answer.append(btn('查看证据',()=>evidence(i)),btn('交给创作搭档',()=>handover(i)));log.scrollTop=log.scrollHeight
+}
+function topicFor(q){return /厨房|油炸|家庭/.test(q)?2:/比较|干预组|对照/.test(q)?0:/胆固醇|寿命|死亡/.test(q)?1:researchTopic??1}
+$('researchForm').onsubmit=e=>{e.preventDefault();const q=$('researchPrompt').value.trim();if(q){$('researchPrompt').value='';investigate(topicFor(q),null,q)}};
+$('researchTab').onclick=()=>tabs('research');
 const openSummaries=new Set([0]);
 function listSources(){
  const expanded=new Set(Array.from($('sources').querySelectorAll('details[open]'),e=>e.dataset.id));
@@ -93,18 +144,21 @@ function focusChat(){openPanel('chat');$('editTools').hidden=true;$('prompt').fo
 $('discuss').onclick=focusChat;$('rewrite').onclick=()=>write(null,true);$('prompt').onfocus=()=>$('editTools').hidden=true;
 $('continue').onclick=()=>write(activeTopic);
 $('chat').querySelector('form').onsubmit=e=>{e.preventDefault();const q=$('prompt').value.trim();if(!q)return;$('prompt').value='';
- if(/查|深究|文献|依据/.test(q)){const subject=q+' '+(passage?.toString()||'');const i=/厨房|油炸|家庭/.test(subject)?2:/比较|干预组/.test(subject)?0:1;investigate(i,q);return}
+ if(/查|深究|文献|依据/.test(q)){
+  const ref=passage?.toString();message('你',q,ref);
+  message('创作搭档','可以把这个问题带到研究台查文献。').append(btn('转到研究台调查',()=>investigate(topicFor(q+' '+(ref||'')),ref,q)));return
+ }
  message('你',q,passage?.toString());
  if(passage&&/^(请|帮我|把|改成|改写|改短|重写)/.test(q)&&/改|重写/.test(q)){write(null,true);return}
  if(/续写|写进|写个开场|写一段|写成开场/.test(q)){write(activeTopic);return}
  message('创作搭档',passage?'这句里你最想让观众记住什么？可以先说观察到的现象，再把疑问留到下一句。':'可以从两段视频共同提到的试验入手。一个关心指标，另一个问结局。你想先查哪一个？')
 };
-$('sourcesTab').onclick=()=>tabs(false);$('evidenceTab').onclick=()=>tabs(true);
+$('sourcesTab').onclick=()=>tabs('sources');$('evidenceTab').onclick=()=>tabs('evidence');
 $('add').onclick=()=>{$('choices').replaceChildren();resources.forEach(([type,name],i)=>{if(selected.has(i))return;const l=tag('label',''),input=document.createElement('input');input.type='checkbox';input.value=i;l.append(input,' '+name+' · '+type);$('choices').append(l)});if(selected.size===resources.length)$('choices').append(tag('p','示例素材均已加入。'));$('picker').showModal()};
-$('import').onclick=()=>{for(const c of $('choices').querySelectorAll(':checked'))selected.add(+c.value);listSources();tabs(false)};
-function layout(){const focus=variant==='B';document.body.classList.toggle('focus',focus);document.body.dataset.panel='';$('label').textContent=focus?'B · 脚本优先':'A · 并排工作台';$('editTools').hidden=true}
+$('import').onclick=()=>{for(const c of $('choices').querySelectorAll(':checked'))selected.add(+c.value);listSources();tabs('sources')};
+function layout(){setMax();const focus=variant==='B';document.body.classList.toggle('focus',focus);document.body.dataset.panel='';$('label').textContent=focus?'B · 脚本优先':'A · 并排工作台';$('editTools').hidden=true}
 function cycle(){variant=variant==='A'?'B':'A';const url=new URL(location.href);url.searchParams.set('variant',variant);history.replaceState(null,'',url);layout()}
-$('prev').onclick=$('next').onclick=cycle;document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.body.dataset.panel='';$('editTools').hidden=true}if(['ArrowLeft','ArrowRight'].includes(e.key)&&!e.target.closest('input,textarea,[contenteditable],dialog')){e.preventDefault();cycle()}});
+$('prev').onclick=$('next').onclick=cycle;document.addEventListener('keydown',e=>{if(e.key==='Escape'){setMax();document.body.dataset.panel='';$('editTools').hidden=true}if(['ArrowLeft','ArrowRight'].includes(e.key)&&!e.target.closest('input,textarea,[contenteditable],dialog')){e.preventDefault();cycle()}});
 document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openPanel(b.dataset.open));document.querySelectorAll('.close').forEach(b=>b.onclick=()=>document.body.dataset.panel='');
-listSources();refreshEvidence();tabs(false);layout();tally();
+listSources();refreshEvidence();tabs('sources');layout();tally();
 </script></html>
