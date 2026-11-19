@@ -26,6 +26,15 @@ export async function videoSpaceJourney(
     authors: null,
     publicationTypes: ["Clinical Trial"],
   };
+  const secondVideoClip = {
+    ...publication,
+    id: "V1234567890123456",
+    kind: "video" as const,
+    url: "https://www.youtube.com/watch?v=aaaaaaa0002&t=126s",
+    originId: "second-video-passage",
+    title: "同一试验，另一个问题",
+    text: "这段视频比较了干预组和对照组的死亡结局。",
+  };
   const observation = {
     text: judgment,
     references: [{ id: publication.id, quote: publication.text }],
@@ -48,10 +57,12 @@ export async function videoSpaceJourney(
       document: {
         question: body.question,
         space: body.space,
-        evidence: [publication],
+        evidence: [publication, secondVideoClip],
         synthesis: {
           judgment: observation,
-          reasoning: observation,
+          reasoning: body.space?.followUpTo
+            ? { text: judgment, references: [{ id: secondVideoClip.id, quote: secondVideoClip.text }] }
+            : observation,
           findings: [observation],
           uncertainties: ["家庭用油的影响有待研究。"],
           nextSteps: ["调查其他比较条件。"],
@@ -322,6 +333,22 @@ export async function videoSpaceJourney(
   await expect(right.getByText("可以让这句更口语一点。")).toBeVisible();
   await page.getByLabel("当前脚本").selectOption("opening");
   await expect(editor).toHaveValue(/手写的收尾。$/);
+  await left.getByRole("button", { name: "素材", exact: true }).click();
+  const originCard = left.locator(".vs-source").filter({ has: page.getByRole("heading", { name: docs[0].title }) });
+  const citedCard = left.locator(".vs-source").filter({ has: page.getByRole("heading", { name: docs[1].title }) });
+  const initialQuestion = versions[1].document.question;
+  const followUpQuestion = versions[0].document.question;
+  await expect(originCard.getByRole("button", { name: initialQuestion, exact: true })).toHaveCount(0);
+  await expect(originCard.getByRole("button", { name: "查看相关调查 · 2" })).toBeVisible();
+  await expect(citedCard.getByText(followUpQuestion, { exact: true })).toHaveCount(0);
+  await expect(citedCard.getByRole("button", { name: /查看相关调查/ })).toHaveCount(0);
+  await citedCard.getByRole("button", { name: /摘要/ }).click();
+  await citedCard.getByRole("button", { name: "查看相关调查 · 1" }).click();
+  await expect(left.getByRole("heading", { name: docs[1].title + " · 相关调查" })).toBeFocused();
+  await expect(left.getByRole("heading", { name: followUpQuestion, exact: true })).toBeVisible();
+  await expect(left.getByRole("heading", { name: initialQuestion, exact: true })).toHaveCount(0);
+  await left.getByRole("button", { name: "查看全部证据" }).click();
+  await expect(left.getByRole("heading", { name: initialQuestion, exact: true })).toBeVisible();
   expect(requests).toBe(3);
   expect(writes).toBe(4);
 }
