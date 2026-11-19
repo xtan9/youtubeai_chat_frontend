@@ -302,7 +302,7 @@ function CreateProjectDialog({
   );
 }
 
-export function WorkspaceView({ initialWorkspace }: { initialWorkspace: PersonalWorkspace }) {
+export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initialWorkspace: PersonalWorkspace; videoSpace?: boolean }) {
   const [projects, setProjects] = useState([...initialWorkspace.projects]);
   const entitlements = useEntitlements();
   const capViewCaptured = useRef(false);
@@ -328,11 +328,11 @@ export function WorkspaceView({ initialWorkspace }: { initialWorkspace: Personal
         <div className="flex max-w-3xl flex-col gap-3">
           <div className="flex items-center gap-2 text-body-sm font-medium text-text-muted">
             <FolderKanban aria-hidden="true" />
-            Personal Workspace
+            {videoSpace ? "New Workspace" : "Personal Workspace"}
           </div>
-          <h1 className="text-h2 text-text-primary">Your research, ready to resume</h1>
+          <h1 className="text-h2 text-text-primary">{videoSpace ? "Video Spaces" : "Your research, ready to resume"}</h1>
           <p className="text-body-lg text-text-secondary">
-            Projects gather related YouTube research around one evolving Goal.
+            {videoSpace ? "Open an episode to research your sources and write its script." : "Projects gather related YouTube research around one evolving Goal."}
           </p>
         </div>
         {projects.length > 0 ? (
@@ -401,8 +401,8 @@ export function WorkspaceView({ initialWorkspace }: { initialWorkspace: Personal
                 </CardContent>
                 <CardFooter className="justify-end pl-7">
                   <Button asChild variant="outline">
-                    <Link href={`/workspace/projects/${project.id}`} aria-label={`Open ${project.name}`}>
-                      Open Project
+                    <Link href={`${videoSpace ? "/new-workspace" : "/workspace"}/projects/${project.id}`} aria-label={`Open ${project.name}`}>
+                      {videoSpace ? "Open Video Space" : "Open Project"}
                       <ArrowRight aria-hidden="true" />
                     </Link>
                   </Button>

@@ -85,12 +85,20 @@ export function Header() {
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
               {user && !user.is_anonymous ? (
-                <Link
-                  href="/workspace"
-                  className="text-text-muted hover:text-text-primary transition-colors"
-                >
-                  Workspace
-                </Link>
+                <>
+                  <Link
+                    href="/workspace"
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    Workspace
+                  </Link>
+                  <Link
+                    href="/new-workspace"
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    New Workspace
+                  </Link>
+                </>
               ) : null}
             </nav>
           </div>
@@ -205,6 +213,12 @@ export function Header() {
               className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
             >
               Workspace
+            </Link>
+            <Link
+              href="/new-workspace"
+              className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
+            >
+              New Workspace
             </Link>
           </nav>
         ) : null}

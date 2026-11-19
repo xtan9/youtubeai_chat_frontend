@@ -40,6 +40,9 @@ describe("PostHogProvider", () => {
 
   it("drops all private Project API traffic from session replay", () => {
     const privateRequests = [
+      {name:"https://youtubeai.chat/new-workspace/projects/id?_rsc=private"},
+      {name:"https://example.supabase.co/rest/v1/rpc/save_video_space_pdf"},
+      {name:"https://example.supabase.co/rest/v1/video_space_pdfs?select=contents"},
       {
         name: "https://youtubeai.chat/api/projects/project-1/search",
         requestBody: JSON.stringify({ query: "private research" }),

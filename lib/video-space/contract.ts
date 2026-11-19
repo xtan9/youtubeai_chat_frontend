@@ -1,0 +1,139 @@
+import { z } from "zod";
+
+export const publicLink = z.url({ protocol: /^https?$/ }).max(3000);
+const id = z.string().min(1).max(80);
+export const pageText = z.object({
+  label: z.string().max(140),
+  text: z.string().max(16000),
+  seconds: z.number().nonnegative().optional(),
+});
+export const digestSchema = z.object({
+  summary: z.string().max(60000),
+  claims: z
+    .array(
+      z.object({
+        text: z.string().max(1400),
+        quote: z.string().max(1800),
+        location: z.string().max(140),
+        seconds: z.number().nonnegative().optional(),
+      }),
+    )
+    .max(25),
+});
+export const resourceSchema = z.object({
+  id,
+  references: z
+    .array(
+      z.object({
+        url: publicLink,
+        label: z.string().max(300),
+        location: z.string().max(140),
+      }),
+    )
+    .max(80)
+    .optional(),
+  originalPdf: z.boolean().optional(),
+  analyzed: z.boolean().optional(),
+  kind: z.enum(["web", "pdf", "video"]),
+  title: z.string().min(1).max(1000),
+  url: publicLink.optional(),
+  pages: z.array(pageText).max(200),
+  coverage: z.string().max(300),
+  digest: digestSchema.optional(),
+});
+export type Resource = z.infer<typeof resourceSchema>;
+export const passageSchema = z.object({
+  draft: id,
+  title: z.string().max(140),
+  start: z.number().int().nonnegative(),
+  text: z.string().max(80000),
+});
+const marker = z.object({
+  start: z.number().int().nonnegative(),
+  text: z.string().max(12000),
+  finding: z.uuid(),
+});
+const draft = z.object({
+  id,
+  version: z.uuid().optional(),
+  title: z.string().min(1).max(140),
+  text: z.string().max(80000),
+  markers: z.array(marker).max(300),
+});
+export const messageSchema = z.object({
+  suggestion: z
+    .object({
+      draft: id,
+      version: z.uuid().optional(),
+      start: z.number().int().nonnegative(),
+      length: z.number().int().nonnegative(),
+      options: z.array(z.string().max(10000)).max(4),
+    })
+    .optional(),
+  role: z.enum(["user", "assistant", "handoff"]),
+  text: z.string().max(16000),
+  passage: passageSchema.optional(),
+  finding: z.uuid().optional(),
+});
+export const spaceSchema = z.object({
+  activeDraft: id.optional(),
+  researchParent: z.uuid().nullable().optional(),
+  researchAttempts: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        question: z.string().max(2000),
+        message: z.string().max(1000),
+        evidenceGap: z.boolean().optional(),
+        created: z.string(),
+        origin: z
+          .object({
+            id: z.string(),
+            title: z.string(),
+            location: z.string(),
+            quote: z.string(),
+          })
+          .optional(),
+        parent: z.uuid().optional(),
+      }),
+    )
+    .max(150)
+    .optional(),
+  drafts: z.array(draft).min(1).max(50),
+  messages: z.array(messageSchema).max(2000),
+  resources: z.array(resourceSchema).max(80),
+});
+export type Space = z.infer<typeof spaceSchema>;
+export type Draft = Space["drafts"][number];
+export type Passage = z.infer<typeof passageSchema>;
+export type Message = z.infer<typeof messageSchema>;
+export const emptySpace = (): Space => ({
+  drafts: [{ id: "opening", title: "开场脚本", text: "", markers: [] }],
+  messages: [],
+  resources: [],
+});
+
+// Move intact references with their sentence. An edit through a citation removes it.
+export function editDraft(draft: Draft, text: string): Draft {
+  let start = 0,
+    oldEnd = draft.text.length,
+    end = text.length;
+  while (start < oldEnd && start < end && draft.text[start] === text[start])
+    start++;
+  while (
+    oldEnd > start &&
+    end > start &&
+    draft.text[oldEnd - 1] === text[end - 1]
+  ) {
+    oldEnd--;
+    end--;
+  }
+  const markers = draft.markers.flatMap((m) =>
+    m.start + m.text.length <= start
+      ? [m]
+      : m.start >= oldEnd
+        ? [{ ...m, start: m.start + end - oldEnd }]
+        : [],
+  );
+  return { ...draft, text, markers, version: crypto.randomUUID() };
+}

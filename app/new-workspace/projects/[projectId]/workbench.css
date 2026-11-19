@@ -1,0 +1,293 @@
+.vs {
+  --ink: var(--color-text-primary);
+  --soft: var(--color-text-secondary);
+  --rule: var(--color-border-subtle);
+  --fern: color-mix(
+    in srgb,
+    var(--color-accent-success) 45%,
+    var(--color-text-primary)
+  );
+  --sheet: var(--color-surface-raised);
+  --wash: color-mix(
+    in srgb,
+    var(--color-surface-sunken) 98%,
+    var(--color-accent-success)
+  );
+  --note: color-mix(
+    in srgb,
+    var(--color-surface-base) 94%,
+    var(--color-accent-success)
+  );
+  --paper: color-mix(
+    in srgb,
+    var(--color-surface-raised) 96%,
+    var(--color-accent-warning)
+  );
+  min-height: calc(100svh - 60px);
+  padding: 24px 3vw 64px;
+  color: var(--ink);
+  background: var(--wash);
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.vs [hidden] {
+  display: none !important;
+}
+.vs-heading,
+.vs-row,
+.vs-actions,
+.vs-tabs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.vs-heading,
+.vs-row {
+  justify-content: space-between;
+}
+.vs-heading {
+  margin: 0 0 22px;
+  align-items: end;
+}
+.vs-heading span,
+.vs small,
+.vs-hint {
+  color: var(--soft);
+  font-size: 12px;
+}
+.vs-heading a,
+.vs-source a,
+.vs-finding a {
+  color: var(--fern);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.vs svg {
+  display: inline;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.vs h1 {
+  font:
+    600 clamp(28px, 3.4vw, 48px) / 1.25 Georgia,
+    serif;
+  margin: 6px 0 0;
+}
+.vs h2 {
+  font-size: 18px;
+  font-weight: 650;
+}
+.vs h3 {
+  font-size: 15px;
+  font-weight: 650;
+}
+.vs-grid {
+  display: grid;
+  grid-template-columns: var(--left) minmax(0, 1.65fr) var(--right);
+  gap: 14px;
+  align-items: stretch;
+}
+.vs-panel {
+  min-width: 0;
+  background: var(--sheet);
+  padding: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+.vs-panel[data-folded="true"] {
+  padding: 5px;
+}
+.vs-panel[data-folded="true"] .vs-rail {
+  writing-mode: vertical-rl;
+  margin: auto;
+  padding: 9px 4px;
+  display: block;
+}
+.vs-grid[data-max]:not([data-max=""]) {
+  display: block;
+}
+.vs-grid[data-max]:not([data-max=""]) .vs-panel {
+  min-height: 65vh;
+  padding: 24px max(20px, calc((100% - 900px) / 2));
+}
+.vs .vs-script {
+  background: var(--paper);
+}
+.vs button,
+.vs select {
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.vs button:hover,
+.vs button[aria-pressed="true"] {
+  background: var(--note);
+  border-color: var(--fern);
+}
+.vs button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.vs .vs-primary {
+  background: var(--fern);
+  color: var(--sheet);
+  border-color: var(--fern);
+}
+.vs :focus-visible {
+  outline: 2px solid var(--fern);
+  outline-offset: 2px;
+}
+.vs textarea:not(.vs-manuscript textarea),
+.vs input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--rule);
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--sheet);
+  margin: 8px 0;
+  color: var(--ink);
+  resize: vertical;
+}
+.vs-library {
+  position: relative;
+}
+.vs-tabs {
+  margin: 12px 0 10px;
+}
+.vs-source {
+  border-top: 1px solid var(--rule);
+  padding: 10px 0;
+}
+.vs-source .vs-row {
+  flex-wrap: nowrap;
+}
+.vs-source .vs-row button {
+  flex-shrink: 0;
+  color: var(--fern);
+}
+.vs-digest,
+.vs article,
+.vs-import {
+  background: var(--note);
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 7px;
+}
+.vs p {
+  white-space: pre-line;
+  margin: 5px 0 9px;
+}
+.vs details {
+  font-size: 14px;
+  margin: 8px 0;
+}
+.vs summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.vs blockquote {
+  padding: 4px 10px;
+  margin: 6px 0;
+  border-left: 3px solid var(--rule);
+  color: var(--soft);
+  white-space: pre-wrap;
+}
+.vs .vs-log {
+  min-height: 110px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 8px 0;
+}
+.vs .vs-research-log {
+  max-height: 42vh;
+  overflow: auto;
+}
+.vs-grid:not([data-max=""]) .vs-log,
+.vs-grid:not([data-max=""]) .vs-research-log {
+  max-height: 50vh;
+}
+.vs-manuscript {
+  position: relative;
+  min-height: 310px;
+  margin: 12px 0;
+  font:
+    19px/1.95 Georgia,
+    serif;
+}
+.vs-mirror,
+.vs-manuscript textarea {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding: 0 22px 0 0;
+  font: inherit;
+  letter-spacing: inherit;
+  border: 0;
+  width: 100%;
+  tab-size: 4;
+}
+.vs-mirror {
+  visibility: hidden;
+  pointer-events: none;
+}
+.vs-manuscript textarea {
+  position: absolute;
+  inset: 0;
+  resize: none;
+  height: 100%;
+  background: transparent;
+  color: inherit;
+  overflow: hidden;
+}
+.vs .vs-marker {
+  position: absolute;
+  right: 0;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+  padding: 0 3px;
+  color: var(--fern);
+}
+.vs-meta {
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+}
+.vs [data-selected="true"] {
+  outline: 2px solid var(--fern);
+  border-radius: 8px;
+}
+.vs [role="alert"] {
+  color: var(--color-accent-danger, #9a392b);
+  font-size: 14px;
+}
+@media (max-width: 920px) {
+  .vs {
+    padding: 18px 4vw 48px;
+  }
+  .vs-heading {
+    align-items: start;
+  }
+  .vs-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vs-panel,
+  .vs-grid[data-max]:not([data-max=""]) .vs-panel {
+    padding: 16px;
+  }
+  .vs-panel[data-folded="true"] .vs-rail {
+    writing-mode: horizontal-tb;
+  }
+  .vs-manuscript {
+    min-height: 200px;
+  }
+}

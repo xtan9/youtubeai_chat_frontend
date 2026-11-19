@@ -52,6 +52,21 @@ export async function loadResearchVersions(
       return version;
     });
 }
+export async function loadResearchVersion(
+  client: SupabaseClient,
+  projectId: string,
+  id: string,
+) {
+  const { data, error } = await client
+    .from("project_research_runs")
+    .select("id,created_at,document")
+    .eq("project_id", projectId)
+    .eq("state", "completed")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw Error("research_load_unavailable");
+  return data ? ResearchVersionSchema.parse(data) : null;
+}
 function writer() {
   const client = getServiceRoleClient();
   if (!client) throw new Error("research_storage_unavailable");
