@@ -61,7 +61,12 @@ export async function videoSpaceJourney(
         synthesis: {
           judgment: observation,
           reasoning: body.space?.followUpTo
-            ? { text: judgment, references: [{ id: secondVideoClip.id, quote: secondVideoClip.text }] }
+            ? {
+                text: judgment,
+                references: [
+                  { id: secondVideoClip.id, quote: secondVideoClip.text },
+                ],
+              }
             : observation,
           findings: [observation],
           uncertainties: ["家庭用油的影响有待研究。"],
@@ -130,6 +135,7 @@ export async function videoSpaceJourney(
           summary: resource.pages[0].text,
           claims: [
             {
+              id: "fixture-" + resource.id,
               text: resource.pages[0].text,
               quote: resource.pages[0].text,
               location: resource.pages[0].label,
@@ -197,38 +203,83 @@ export async function videoSpaceJourney(
   };
   await editor.fill(opening);
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  const originCard = left
+    .locator(".vs-source")
+    .filter({ has: page.getByRole("heading", { name: docs[0].title }) });
+  await originCard.getByRole("button", { name: /^摘要/ }).click();
   await expect(left.getByText(docs[0].digest!.summary)).toBeVisible();
   await page.getByRole("heading", { level: 1 }).click();
   await photo("workbench");
   const widths = await page
-    .locator(".vs-grid > section")
+    .locator(".vs-grid section.vs-panel:visible")
     .evaluateAll((els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().width)),
     );
   expect(widths).toEqual([358, 591, 376]);
   await prompt.fill("保留这条未发送的消息");
-  await left.getByText("关键观点 · 3", { exact: true }).first().click();
-  await expect(left.getByRole("link", { name: "02:06" })).toHaveAttribute(
+  const claimTitle = "胆固醇下降意味着活得更久吗？";
+  const openClaim = () =>
+    originCard.getByRole("button", { name: claimTitle, exact: true }).click();
+  const back = () =>
+    page.getByRole("button", { name: "返回项目工作台" }).click();
+  await openClaim();
+  const room = page.getByRole("region", { name: "观点空间", exact: true });
+  await expect(room).toBeVisible();
+  await expect(right).toBeHidden();
+  expect(requests).toBe(0);
+  await room.getByText("查看素材出处").click();
+  await expect(room.getByRole("link", { name: "02:06 ↗" })).toHaveAttribute(
     "href",
     /t=126s/,
   );
-  expect(requests).toBe(0);
-  await left.getByRole("button", { name: "继续深究" }).nth(1).click();
-  await expect(left.getByText(judgment, { exact: true }).last()).toBeVisible();
-  await expect(prompt).toHaveValue("保留这条未发送的消息");
-  await prompt.fill("");
+  const scriptBox = await editor.boundingBox(),
+    researchBox = await room.boundingBox();
+  expect(scriptBox!.x).toBeGreaterThan(researchBox!.x + researchBox!.width);
+  const directory = page.getByRole("complementary", { name: "观点目录" });
+  const other = directory
+    .locator(".vs-source")
+    .filter({ has: page.getByRole("heading", { name: docs[1].title }) });
+  await room.getByLabel("研究问题").fill("只属于第一条观点的追问");
+  await other.getByRole("button", { name: claimTitle, exact: true }).click();
+  await expect(room.getByLabel("研究问题")).toHaveValue("");
+  await expect(room).toContainText(docs[1].title);
+  await editor.fill(opening + "正在编辑");
+  await page.goBack();
+  await expect(room.getByLabel("研究问题")).toHaveValue(
+    "只属于第一条观点的追问",
+  );
+  await expect(editor).toHaveValue(opening + "正在编辑");
+  await editor.fill(opening);
+  await room.getByLabel("研究问题").fill("");
+  await room.getByRole("button", { name: "查找证据" }).click();
+  await expect(room.getByText(judgment, { exact: true }).first()).toBeVisible();
   await photo("investigation");
+  await room.getByText("核查范围与判断依据").click();
+  await expect(room.getByText("判断把握", { exact: true })).toBeVisible();
+  await room.getByText("调查发现与出处").click();
+  await expect(
+    room.getByRole("link", { name: /Re-evaluation/ }),
+  ).toHaveAttribute("href", publication.url);
+  await room.getByRole("button", { name: "交给创作搭档" }).click();
+  await expect(right).toBeHidden();
+  await expect(editor).toHaveValue(opening);
+  await page.setViewportSize({ width: 614, height: 853 });
+  expect((await editor.boundingBox())!.x).toBeGreaterThan(
+    (await room.boundingBox())!.x,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "写脚本 →" }).click();
+  await expect(editor).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  await page.getByRole("button", { name: "← 回到观点" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await back();
+  await expect(prompt).toHaveValue("保留这条未发送的消息");
   await left.getByRole("button", { name: "放大研究台" }).click();
   await photo("research-max");
   await left.getByRole("button", { name: "还原研究台" }).click();
-  await left.getByRole("button", { name: "查看证据", exact: true }).click();
-  await expect(left.getByText("判断把握", { exact: true })).toBeVisible();
-  await left.getByText("调查发现与出处", { exact: true }).click();
-  await expect(
-    left.getByRole("link", { name: /Re-evaluation/ }),
-  ).toHaveAttribute("href", publication.url);
-  await left.getByRole("button", { name: "交给创作搭档" }).click();
-  await expect(editor).toHaveValue(opening);
   await right.getByRole("button", { name: "放大创作搭档" }).click();
   await photo("writer-max");
   await right.getByRole("button", { name: "还原创作搭档" }).click();
@@ -239,7 +290,6 @@ export async function videoSpaceJourney(
   await page.getByRole("button", { name: "展开研究台" }).press("Enter");
   await page.getByRole("button", { name: "展开创作搭档" }).press("Enter");
   await expect(prompt).toHaveValue("保留这条未发送的消息");
-  await left.getByRole("button", { name: "素材", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await prompt.fill("");
   await photo("narrow");
@@ -255,7 +305,9 @@ export async function videoSpaceJourney(
     opening + "\n一个指标的变化，能回答寿命的问题吗？",
   );
   await page.getByRole("button", { name: /查看句子来源/ }).click();
-  await expect(left.getByText("证据强度", { exact: true })).toBeVisible();
+  await expect(room).toBeVisible();
+  await expect(room.locator("[data-selected=true]")).toContainText(judgment);
+  await back();
   await editor.focus();
   await editor.evaluate((el: HTMLTextAreaElement) => {
     el.setSelectionRange(0, 4);
@@ -278,18 +330,19 @@ export async function videoSpaceJourney(
   await expect(
     right.getByRole("button", { name: "采用方案 1" }),
   ).toBeDisabled();
-  await left.getByRole("button", { name: "研究对话", exact: true }).click();
+  await openClaim();
   reject = true;
-  await left.getByLabel("研究问题").fill("追问有没有长期数据？");
-  await left.getByRole("button", { name: "调查", exact: true }).click();
-  await expect(left.getByRole("alert")).toContainText("文献服务暂不可用");
+  await room.getByLabel("研究问题").fill("追问有没有长期数据？");
+  await room.getByRole("button", { name: "发送" }).click();
+  await expect(room.getByRole("alert")).toContainText("文献服务暂不可用");
   await expect(editor).toHaveValue(/手写的收尾。$/);
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.reload();
+  await expect(room.getByRole("heading", { name: claimTitle })).toBeVisible();
+  await expect(room.getByRole("alert")).toContainText("文献服务暂不可用");
   await expect(editor).toHaveValue(/手写的收尾。$/);
+  await back();
   await expect(right.getByText("可以让这句更口语一点。")).toBeVisible();
-  await left.getByRole("button", { name: "证据 1" }).click();
-  await expect(left.getByText("判断把握", { exact: true })).toBeVisible();
-  await left.getByRole("button", { name: "素材", exact: true }).click();
   const add = left.getByRole("button", { name: "添加素材", exact: true });
   await add.click();
   await left.getByLabel("YouTube 或网页链接").fill(publication.url);
@@ -321,34 +374,33 @@ export async function videoSpaceJourney(
     left.getByRole("heading", { name: "Minnesota.pdf" }),
   ).toBeVisible();
   reject = false;
-  await left.getByRole("button", { name: "研究对话", exact: true }).click();
-  await left.getByLabel("研究问题").fill("长期研究比较的是哪两组？");
-  await left.getByRole("button", { name: "调查", exact: true }).click();
-  await expect(
-    left.getByRole("button", { name: "查看证据", exact: true }),
-  ).toHaveCount(2);
+  await openClaim();
+  await room.getByRole("button", { name: "重试调查" }).click();
+  await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
+    2,
+  );
+  await expect(room.getByRole("alert")).toHaveCount(0);
   expect(versions[0].document.space?.followUpTo).toBe(versions[1].id);
+  await other.getByRole("button", { name: claimTitle, exact: true }).click();
+  await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
+    0,
+  );
+  await back();
   await page.getByRole("button", { name: "新建脚本" }).click();
   await expect(editor).toHaveValue("");
   await expect(right.getByText("可以让这句更口语一点。")).toBeVisible();
   await page.getByLabel("当前脚本").selectOption("opening");
   await expect(editor).toHaveValue(/手写的收尾。$/);
-  await left.getByRole("button", { name: "素材", exact: true }).click();
-  const originCard = left.locator(".vs-source").filter({ has: page.getByRole("heading", { name: docs[0].title }) });
-  const citedCard = left.locator(".vs-source").filter({ has: page.getByRole("heading", { name: docs[1].title }) });
-  const initialQuestion = versions[1].document.question;
-  const followUpQuestion = versions[0].document.question;
-  await expect(originCard.getByRole("button", { name: initialQuestion, exact: true })).toHaveCount(0);
-  await expect(originCard.getByRole("button", { name: "查看相关调查 · 2" })).toBeVisible();
-  await expect(citedCard.getByText(followUpQuestion, { exact: true })).toHaveCount(0);
-  await expect(citedCard.getByRole("button", { name: /查看相关调查/ })).toHaveCount(0);
-  await citedCard.getByRole("button", { name: /摘要/ }).click();
-  await citedCard.getByRole("button", { name: "查看相关调查 · 1" }).click();
-  await expect(left.getByRole("heading", { name: docs[1].title + " · 相关调查" })).toBeFocused();
-  await expect(left.getByRole("heading", { name: followUpQuestion, exact: true })).toBeVisible();
-  await expect(left.getByRole("heading", { name: initialQuestion, exact: true })).toHaveCount(0);
-  await left.getByRole("button", { name: "查看全部证据" }).click();
-  await expect(left.getByRole("heading", { name: initialQuestion, exact: true })).toBeVisible();
+  const citedCard = left
+    .locator(".vs-source")
+    .filter({ has: page.getByRole("heading", { name: docs[1].title }) });
+  await citedCard.getByRole("button", { name: /^摘要/ }).click();
+  await citedCard.getByText("相关调查 · 1", { exact: true }).click();
+  await citedCard
+    .getByRole("button", { name: versions[0].document.question, exact: true })
+    .click();
+  await expect(room).toContainText(docs[0].title);
+  await expect(room.locator("[data-selected=true]")).toContainText(judgment);
   expect(requests).toBe(3);
   expect(writes).toBe(4);
 }

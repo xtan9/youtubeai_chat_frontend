@@ -17,15 +17,7 @@ const labels: Record<string, string> = {
   medium: "中",
   low: "低",
 };
-export function Finding({
-  version,
-  handoff,
-  follow,
-}: {
-  version: ResearchVersion;
-  handoff: (v: ResearchVersion) => void;
-  follow: (v: ResearchVersion) => void;
-}) {
+export function Finding({ version }: { version: ResearchVersion }) {
   const { document: d } = version,
     { judgment, assessment } = d.synthesis;
   const citations = [
@@ -35,37 +27,35 @@ export function Finding({
   ].flatMap((o) => o.references);
   return (
     <article className="vs-finding">
-      <small>{assessment ? labels[assessment.category] : "已保存的研究"}</small>
-      <h3>{d.question}</h3>
-      {d.space?.origin && (
-        <blockquote>
-          {d.space.origin.title} · {d.space.origin.location}
-          <br />
-          {d.space.origin.quote}
-        </blockquote>
-      )}
+      <strong>目前的判断</strong>
       <p>{judgment.text}</p>
-      {assessment && (
-        <>
-          <p>
-            <b>证据强度</b> · {labels[assessment.direction]}，
-            {labels[assessment.strength]}。{assessment.strengthReason}
-          </p>
-          <p>
-            <b>判断把握</b> · {labels[assessment.confidence]}。
-            {assessment.confidenceReason}
-          </p>
-        </>
-      )}
-      <small>
-        核查范围 ·{" "}
-        {d.evidence.filter((e) => e.kind === "publication_abstract").length}{" "}
-        份文献摘要，{d.evidence.filter((e) => e.kind === "video").length}{" "}
-        段视频原文
-      </small>
-      {d.warnings.map((w) => (
-        <p key={w}>{w}</p>
-      ))}
+      <details>
+        <summary>核查范围与判断依据</summary>
+        {assessment && (
+          <>
+            <p>
+              <b>观点判断</b> · {labels[assessment.category]}
+            </p>
+            <p>
+              <b>证据强度</b> · {labels[assessment.direction]}，
+              {labels[assessment.strength]}。{assessment.strengthReason}
+            </p>
+            <p>
+              <b>判断把握</b> · {labels[assessment.confidence]}。
+              {assessment.confidenceReason}
+            </p>
+          </>
+        )}
+        <small>
+          核查范围 ·{" "}
+          {d.evidence.filter((e) => e.kind === "publication_abstract").length}{" "}
+          份文献摘要，{d.evidence.filter((e) => e.kind === "video").length}{" "}
+          段视频原文
+        </small>
+        {d.warnings.map((w) => (
+          <p key={w}>{w}</p>
+        ))}
+      </details>
       <details>
         <summary>调查发现与出处</summary>
         {d.synthesis.findings.map((f, i) => (
@@ -90,10 +80,6 @@ export function Finding({
           </div>
         ))}
       </details>
-      <div className="vs-actions">
-        <button onClick={() => follow(version)}>追问</button>
-        <button onClick={() => handoff(version)}>交给创作搭档</button>
-      </div>
     </article>
   );
 }

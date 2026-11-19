@@ -31,20 +31,22 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
   await editor.fill(opening);
   const claims = left.getByText(/^关键观点 ·/).first();
   await expect(claims).toBeVisible({ timeout: 90000 });
-  await claims.click();
+  const details = claims.locator("..");
+  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open)))
+    await claims.click();
+  await details.getByRole("button").first().click();
+  const room = page.getByRole("region", { name: "观点空间" });
   const [research] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().endsWith("/research") && r.request().method() === "POST",
       { timeout: 300000 },
     ),
-    left.getByRole("button", { name: "继续深究" }).first().click(),
+    room.getByRole("button", { name: "查找证据" }).click(),
   ]);
   expect(research.ok()).toBeTruthy();
-  await left
-    .getByRole("button", { name: "查看证据", exact: true })
-    .last()
-    .click();
-  const finding = left.locator("[data-selected=true]");
+  await room.getByRole("button", { name: "查看本次证据" }).last().click();
+  const finding = room.locator("[data-selected=true]");
+  await finding.getByText("核查范围与判断依据").click();
   await expect(finding.getByText("判断把握", { exact: true })).toBeVisible();
   await finding.getByText("调查发现与出处").click();
   const url = await finding
@@ -55,7 +57,8 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
   const publication = await page.context().newPage();
   expect((await publication.goto(url!))?.ok()).toBeTruthy();
   await publication.close();
-  await finding.getByRole("button", { name: "交给创作搭档" }).click();
+  await room.getByRole("button", { name: "交给创作搭档" }).click();
+  await page.getByRole("button", { name: "返回项目工作台" }).click();
   await right.getByRole("button", { name: "写进开场" }).last().click();
   await expect(editor).not.toHaveValue(opening, { timeout: 90000 });
   const script = await editor.inputValue();

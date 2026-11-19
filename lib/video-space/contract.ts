@@ -12,6 +12,7 @@ export const digestSchema = z.object({
   claims: z
     .array(
       z.object({
+        id: id.optional(),
         text: z.string().max(1400),
         quote: z.string().max(1800),
         location: z.string().max(140),
@@ -77,6 +78,10 @@ export const messageSchema = z.object({
 });
 export const spaceSchema = z.object({
   activeDraft: id.optional(),
+  customClaims: z
+    .array(z.object({ id: z.uuid(), text: z.string().trim().min(3).max(1400) }))
+    .max(150)
+    .optional(),
   researchParent: z.uuid().nullable().optional(),
   researchAttempts: z
     .array(
@@ -84,6 +89,7 @@ export const spaceSchema = z.object({
         id: z.uuid(),
         question: z.string().max(2000),
         message: z.string().max(1000),
+        claimId: z.string().max(120).optional(),
         evidenceGap: z.boolean().optional(),
         created: z.string(),
         origin: z

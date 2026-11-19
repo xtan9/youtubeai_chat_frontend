@@ -6,19 +6,12 @@ import type {
   ProjectSourceSet,
   ProjectVideo,
 } from "@/lib/projects/project-source-set-contract";
-import type {
-  ResearchVersion,
-  ResearchDocument,
-} from "@/lib/projects/project-research-contract";
+import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { normalizeYouTubeVideoInput } from "@/lib/services/youtube-url";
 import { createClient } from "@/lib/supabase/client";
-import {
-  investigationsForSource,
-  type InvestigationSource,
-} from "@/lib/video-space/source-investigations";
+import { investigationsForSource } from "@/lib/video-space/source-investigations";
 import { requestJson } from "./use-space";
 
-type Origin = NonNullable<ResearchDocument["space"]>["origin"];
 type Props = {
   adding: boolean;
   setAdding: (value: boolean) => void;
@@ -27,22 +20,9 @@ type Props = {
   update: (change: (s: Space) => Space) => boolean;
   attachPdf: (resource: Resource, contents: string) => void;
   versions: ResearchVersion[];
-  investigate: (q: string, origin: Origin) => void;
+  openClaim: (id: string) => void;
   show: (id: string) => void;
-  showSource: (source: InvestigationSource) => void;
 };
-function claimLink(
-  address: string | undefined,
-  kind: Resource["kind"],
-  claim: { seconds?: number; quote: string },
-) {
-  if (!address) return;
-  const link = new URL(address);
-  if (claim.seconds !== undefined)
-    link.searchParams.set("t", claim.seconds + "s");
-  if (kind === "web") link.hash = ":~:text=" + encodeURIComponent(claim.quote);
-  return link.href;
-}
 function SourceCard({
   initial,
   first,
@@ -50,16 +30,15 @@ function SourceCard({
   api,
   save,
   versions,
-  investigate,
+  openClaim,
   show,
-  showSource,
 }: {
   initial: Resource;
   first: boolean;
   video?: ProjectVideo;
   save: (r: Resource) => void;
-} & Pick<Props, "api" | "versions" | "investigate" | "show" | "showSource">) {
-  const [open, setOpen] = useState(first),
+} & Pick<Props, "api" | "versions" | "openClaim" | "show">) {
+  const [open, setOpen] = useState(false),
     [more, setMore] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
     [busy, setBusy] = useState(false),
@@ -93,7 +72,13 @@ function SourceCard({
     }
   }
   useEffect(() => {
-    if (!open || !video || video.status !== "ready" || initial.digest || loaded)
+    if (
+      (!open && !first) ||
+      !video ||
+      video.status !== "ready" ||
+      initial.digest ||
+      loaded
+    )
       return;
     let active = true;
     requestJson<Resource>(api + "/space", "POST", {
@@ -109,7 +94,7 @@ function SourceCard({
     return () => {
       active = false;
     };
-  }, [open, api, video, initial.digest, loaded]);
+  }, [first, open, api, video, initial.digest, loaded]);
   async function prepare() {
     setError("");
     setBusy(true);
@@ -139,7 +124,7 @@ function SourceCard({
   const started = useRef(false);
   useEffect(() => {
     if (
-      !open ||
+      (!open && !first) ||
       resource.analyzed ||
       resource.digest?.claims.length ||
       !resource.pages.length ||
@@ -155,9 +140,7 @@ function SourceCard({
     title: resource.title,
     youtubeVideoId: video?.youtubeVideoId,
   };
-  const investigationCount = open
-    ? investigationsForSource(versions, source).length
-    : 0;
+  const referenced = open ? investigationsForSource(versions, source) : [];
   return (
     <div className="vs-source">
       <small>
@@ -204,10 +187,17 @@ function SourceCard({
               ))}
             </details>
           )}
-          {investigationCount > 0 && (
-            <button onClick={() => showSource(source)}>
-              查看相关调查 · {investigationCount}
-            </button>
+          {referenced.length > 0 && (
+            <details>
+              <summary>相关调查 · {referenced.length}</summary>
+              {referenced.map((v) => (
+                <p key={v.id}>
+                  <button onClick={() => show(v.id)}>
+                    {v.document.question}
+                  </button>
+                </p>
+              ))}
+            </details>
           )}
           {!claims.length && !resource.analyzed && (
             <button
@@ -221,53 +211,18 @@ function SourceCard({
       )}
       {error && <p role="alert">{error}</p>}
       {claims.length > 0 && (
-        <details>
+        <details open={first}>
           <summary>关键观点 · {claims.length}</summary>
-          {(more ? claims : claims.slice(0, 4)).map((claim, i) => {
-            const prior = versions.filter(
-              (v) =>
-                v.document.space?.origin?.id === resource.id &&
-                v.document.space.origin.quote === claim.quote,
-            );
-            const link = claimLink(resource.url, resource.kind, claim);
-            return (
-              <article key={i}>
-                <strong>{claim.text}</strong>
-                <blockquote>{claim.quote}</blockquote>
-                {link ? (
-                  <a href={link} target="_blank" rel="noreferrer">
-                    {claim.location} ↗
-                  </a>
-                ) : (
-                  <details>
-                    <summary>{claim.location}</summary>
-                    {
-                      resource.pages.find((p) => p.label === claim.location)
-                        ?.text
-                    }
-                  </details>
-                )}
-                <small>{prior.length ? "已有独立调查" : "待独立调查"}</small>
-                <button
-                  onClick={() =>
-                    investigate(claim.text, {
-                      id: resource.id,
-                      title: resource.title,
-                      quote: claim.quote,
-                      location: claim.location,
-                    })
-                  }
-                >
-                  继续深究
-                </button>
-                {prior.map((v) => (
-                  <button key={v.id} onClick={() => show(v.id)}>
-                    查看调查
-                  </button>
-                ))}
-              </article>
-            );
-          })}
+          {(more ? claims : claims.slice(0, 4)).map((claim) => (
+            <button
+              key={claim.id}
+              className="vs-claim-link"
+              onClick={() => claim.id && openClaim(claim.id)}
+            >
+              <span>{claim.text}</span>
+              <span aria-hidden="true">›</span>
+            </button>
+          ))}
           {claims.length > 4 && (
             <button onClick={() => setMore(!more)}>
               {more ? "收起其余观点" : "查看全部 " + claims.length + " 条"}
@@ -286,9 +241,8 @@ export function Library({
   update,
   attachPdf,
   versions,
-  investigate,
+  openClaim,
   show,
-  showSource,
 }: Props) {
   const [sources, setSources] = useState<ProjectSourceSet | null>(null),
     [url, setUrl] = useState(""),
@@ -430,7 +384,7 @@ export function Library({
           initial={resource}
           video={video}
           first={!i}
-          {...{ api, save, versions, investigate, show, showSource }}
+          {...{ api, save, versions, openClaim, show }}
         />
       ))}
     </>

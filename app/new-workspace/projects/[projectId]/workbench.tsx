@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -16,23 +18,19 @@ import {
   PanelLeftClose,
   PanelRightClose,
 } from "lucide-react";
-import type {
-  ResearchVersion,
-  ResearchDocument,
-} from "@/lib/projects/project-research-contract";
+import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
-import { Finding } from "./research";
+import { ClaimDirectory, ClaimRoom } from "./claim-room";
 import {
-  investigationsForSource,
-  type InvestigationSource,
-} from "@/lib/video-space/source-investigations";
+  groupClaimSpaces,
+  type ResearchAttempt,
+} from "@/lib/video-space/claim-spaces";
 import { Library } from "./library";
 import "./workbench.css";
 
 type Side = "research" | "partner";
 const label = { research: "研究台", partner: "创作搭档" };
-type Origin = NonNullable<ResearchDocument["space"]>["origin"];
 export function Workbench({
   projectId,
   name,
@@ -80,24 +78,41 @@ function Desk({
 }) {
   const [fold, setFold] = useState({ research: false, partner: false }),
     [max, setMax] = useState<Side | null>(null),
-    [tab, setTab] = useState("素材"),
     [adding, setAdding] = useState(false);
-  const [versions, setVersions] = useState<ResearchVersion[]>([]),
-    [question, setQuestion] = useState(""),
-    [researching, setResearching] = useState(false),
-    [researchError, setResearchError] = useState(""),
-    [pending, setPending] = useState(""),
-    [selected, setSelected] = useState<string>(),
-    [parent, setParent] = useState<ResearchVersion>();
+  const [versions, setVersions] = useState<ResearchVersion[]>([]);
   const [ready, setReady] = useState(false);
-  const [evidenceSource, setEvidenceSource] =
-    useState<InvestigationSource | null>(null);
-  const visibleVersions = evidenceSource
-    ? investigationsForSource(versions, evidenceSource)
-    : versions;
+  const [historyError, setHistoryError] = useState("");
+  const [pending, setPending] = useState<{
+    claim: string;
+    question: string;
+  } | null>(null);
+  const [questions, setQuestions] = useState<Record<string, string>>({});
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [newClaim, setNewClaim] = useState<string | null>(null);
+  const params = useSearchParams();
+  const claimId = params.get("claim");
+  const findingId = params.get("finding");
+  const index = useMemo(
+    () =>
+      groupClaimSpaces(
+        space.resources,
+        space.customClaims,
+        versions,
+        space.researchAttempts,
+      ),
+    [space.resources, space.customClaims, versions, space.researchAttempts],
+  );
+  // A citation can be opened while earlier pages of research history are still loading.
+  const active = claimId
+    ? index.rooms.get(claimId)
+    : findingId
+      ? index.byFinding.get(findingId)
+      : undefined;
+  const inRoom = !!(claimId || findingId);
+  const selected = active?.versions.find((v) => v.id === findingId);
+  const visibleFinding = selected ?? active?.versions.at(-1);
   const writing = useWriting({ space, live, update, api, versions });
   const researchLock = useRef(false);
-  const initialParent = useRef(space.researchParent);
   const history = useCallback(
     async (signal: AbortSignal) => {
       let cursor: string | null = null;
@@ -123,17 +138,12 @@ function Desk({
       .then((all) => {
         if (all && !c.signal.aborted) {
           setVersions(all);
-          setParent(
-            initialParent.current === undefined
-              ? all[0]
-              : all.find((v) => v.id === initialParent.current),
-          );
           setReady(true);
         }
       })
       .catch(() => {
         if (!c.signal.aborted)
-          setResearchError("研究记录暂时无法读取，请重新加载。");
+          setHistoryError("研究记录暂时无法读取，请重新加载。");
       });
     return () => c.abort();
   }, [history]);
@@ -147,88 +157,96 @@ function Desk({
           ?.scrollIntoView({ block: "start" });
     });
   }
-  function showSource(source: InvestigationSource) {
-    setSelected(undefined);
-    setEvidenceSource(source);
-    setTab("证据");
-    requestAnimationFrame(() =>
-      document.getElementById("vs-source-filter")?.focus(),
-    );
+  function navigate(claim?: string, finding?: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("claim");
+    url.searchParams.delete("finding");
+    if (claim) url.searchParams.set("claim", claim);
+    if (finding) url.searchParams.set("finding", finding);
+    if (url.href !== window.location.href)
+      window.history.pushState(null, "", url);
+    setDirectoryOpen(false);
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(
+        finding
+          ? "finding-" + finding
+          : claim
+            ? "vs-room-title"
+            : "vs-desk-title",
+      );
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
   }
   function show(id: string) {
-    setEvidenceSource(null);
-    open("research");
-    setTab("证据");
-    setSelected(id);
-    requestAnimationFrame(() =>
-      document.getElementById("finding-" + id)?.focus(),
-    );
+    navigate(index.byFinding.get(id)?.id, id);
   }
   async function investigate(
     q: string,
-    origin?: Origin,
-    followUp?: ResearchVersion,
+    parent?: string,
+    retry?: ResearchAttempt,
   ) {
-    if (!ready || researchLock.current || q.trim().length < 3) return;
+    const room = active;
+    const submittedFrom = window.location.href;
+    if (!room || !ready || researchLock.current || q.trim().length < 3) return;
     researchLock.current = true;
-    open("research");
-    setTab("研究对话");
-    setResearchError("");
-    setPending(q);
-    setResearching(true);
+    setPending({ claim: room.id, question: q });
     try {
       const result = await requestJson<{ versions: ResearchVersion[] }>(
         api + "/research",
         "POST",
         {
-          question: q,
+          question: q.trim(),
           baseVersionId: versions[0]?.id ?? null,
           space: {
-            origin: origin ?? followUp?.document.space?.origin,
-            followUpTo: followUp?.id,
+            claimId: room.id,
+            claimTitle: room.title,
+            origin: room.origin,
+            followUpTo: parent,
           },
         },
       );
-      setVersions((v) => [result.versions[0], ...v]);
-      selectParent(result.versions[0]);
-      setPending("");
-      setQuestion((old) => (old === q ? "" : old));
+      setVersions((old) => [result.versions[0], ...old]);
+      setQuestions((old) =>
+        old[room.id] === q ? { ...old, [room.id]: "" } : old,
+      );
+      if (retry)
+        update((s) => ({
+          ...s,
+          researchAttempts: s.researchAttempts?.filter(
+            (a) => a.id !== retry.id,
+          ),
+        }));
+      // Returning from another claim must not happen just because this request finished.
+      const url = new URL(window.location.href);
+      if (url.href === submittedFrom && url.searchParams.has("finding")) {
+        url.searchParams.delete("finding");
+        window.history.replaceState(null, "", url);
+      }
     } catch (e) {
-      const message = (e as Error).message;
-      setResearchError(message);
-      setPending("");
       update((s) => ({
         ...s,
         researchAttempts: [
-          ...(s.researchAttempts ?? []).slice(-149),
+          ...(s.researchAttempts ?? [])
+            .filter((a) => a.id !== retry?.id)
+            .slice(-149),
           {
-            id: crypto.randomUUID(),
+            id: retry?.id ?? crypto.randomUUID(),
+            claimId: room.id,
             question: q,
-            message: message.slice(0, 1000),
+            message: (e as Error).message.slice(0, 1000),
             evidenceGap: e instanceof SpaceRequestError && e.status === 422,
             created: new Date().toISOString(),
-            origin,
-            parent: followUp?.id,
+            origin: room.origin,
+            parent,
           },
         ],
       }));
-      setQuestion((old) => old || q);
+      await flush();
     } finally {
       researchLock.current = false;
-      setResearching(false);
+      setPending(null);
     }
-  }
-  function selectParent(v: ResearchVersion | undefined) {
-    setParent(v);
-    update((s) => ({ ...s, researchParent: v?.id ?? null }));
-  }
-  function follow(v: ResearchVersion) {
-    open("research");
-    selectParent(v);
-    setTab("研究对话");
-    requestAnimationFrame(() =>
-      document.getElementById("vs-question")?.focus(),
-    );
   }
   function handoff(v: ResearchVersion) {
     writing.append({
@@ -236,7 +254,21 @@ function Desk({
       text: v.document.question + "\n" + v.document.synthesis.judgment.text,
       finding: v.id,
     });
-    open("partner");
+  }
+  function addClaim() {
+    const text = newClaim?.trim();
+    if (!text || text.length < 3) return;
+    const id = crypto.randomUUID();
+    if ((space.customClaims?.length ?? 0) >= 150) return;
+    if (
+      update((s) => ({
+        ...s,
+        customClaims: [...(s.customClaims ?? []), { id, text }],
+      }))
+    ) {
+      setNewClaim(null);
+      navigate(id);
+    }
   }
   function panel(side: Side, children: ReactNode) {
     const collapsed = fold[side] && max !== side,
@@ -301,199 +333,219 @@ function Desk({
     );
   }
   return (
-    <div
-      className="vs-grid"
-      data-max={max ?? ""}
-      style={
-        {
-          "--left": fold.research ? "44px" : "minmax(0,1fr)",
-          "--right": fold.partner ? "44px" : "minmax(0,1.05fr)",
-        } as CSSProperties
-      }
-    >
-      {panel(
-        "research",
-        <>
-          <nav className="vs-tabs" aria-label="研究导航">
-            {["素材", "证据", "研究对话"].map((t) => (
-              <button
-                key={t}
-                aria-pressed={tab === t}
-                onClick={() => {
-                  setEvidenceSource(null);
-                  setTab(t);
-                }}
-              >
-                {t}
-                {t === "证据" ? " " + versions.length : ""}
-              </button>
-            ))}
-            <button
-              aria-label="添加素材"
-              title="添加素材"
-              aria-expanded={tab === "素材" && adding}
-              onClick={() => {
-                setAdding(tab === "素材" ? !adding : true);
-                setTab("素材");
-              }}
-            >
-              <Plus size={16} />
-            </button>
-          </nav>
-          <div hidden={tab !== "素材"} className="vs-library">
-            <Library
-              {...{
-                api,
-                space,
-                update,
-                attachPdf,
-                versions,
-                investigate,
-                show,
-                showSource,
-                adding,
-                setAdding,
-              }}
-            />
-          </div>
-          <div hidden={tab !== "证据"}>
-            {evidenceSource && (
-              <div className="vs-row">
-                <h3 id="vs-source-filter" tabIndex={-1}>
-                  {evidenceSource.title} · 相关调查
+    <>
+      {inRoom && (
+        <div className="vs-room-tools">
+          <button onClick={() => navigate()}>
+            <ChevronLeft size={14} /> 返回项目工作台
+          </button>
+          <button
+            id="vs-toggle-directory"
+            className="vs-switch-claim"
+            aria-controls="vs-claim-directory"
+            aria-expanded={directoryOpen}
+            onClick={() => setDirectoryOpen(!directoryOpen)}
+          >
+            切换观点
+          </button>
+          <button
+            className="vs-jump-script"
+            onClick={() =>
+              document
+                .querySelector<HTMLTextAreaElement>(".vs-script textarea")
+                ?.focus()
+            }
+          >
+            写脚本 →
+          </button>
+        </div>
+      )}
+      <div
+        className="vs-grid"
+        data-claim={inRoom || undefined}
+        data-max={inRoom ? "" : (max ?? "")}
+        style={
+          {
+            "--left": fold.research ? "44px" : "minmax(0,1fr)",
+            "--right": fold.partner ? "44px" : "minmax(0,1.05fr)",
+          } as CSSProperties
+        }
+      >
+        <div hidden={inRoom} className="vs-desk-library">
+          {panel(
+            "research",
+            <>
+              <div className="vs-row vs-library-actions">
+                <h3 id="vs-desk-title" tabIndex={-1}>
+                  素材与观点
                 </h3>
-                <button onClick={() => setEvidenceSource(null)}>查看全部证据</button>
-              </div>
-            )}
-            {!versions.length &&
-              !space.researchAttempts?.some((a) => a.evidenceGap) && (
-                <p>调查结果会按问题保存在这里。</p>
-              )}
-            {space.researchAttempts
-              ?.filter((a) => !evidenceSource && a.evidenceGap)
-              .map((a) => (
-                <article key={a.id}>
-                  <small>证据不足 · 待研究</small>
-                  <h3>{a.question}</h3>
-                  <p>{a.message}</p>
+                <div className="vs-actions">
                   <button
-                    onClick={() =>
-                      void investigate(
-                        a.question,
-                        a.origin,
-                        versions.find((v) => v.id === a.parent),
-                      )
+                    aria-label="添加素材"
+                    aria-expanded={adding}
+                    onClick={() => setAdding(!adding)}
+                  >
+                    <Plus size={14} /> 素材
+                  </button>
+                  <button
+                    aria-expanded={newClaim !== null}
+                    onClick={() => setNewClaim(newClaim === null ? "" : null)}
+                  >
+                    新建观点
+                  </button>
+                </div>
+              </div>
+              {newClaim !== null && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    addClaim();
+                  }}
+                >
+                  <input
+                    autoFocus
+                    aria-label="新观点"
+                    value={newClaim}
+                    maxLength={1400}
+                    onChange={(e) => setNewClaim(e.target.value)}
+                  />
+                  <button
+                    disabled={
+                      newClaim.trim().length < 3 ||
+                      (space.customClaims?.length ?? 0) >= 150
                     }
                   >
-                    继续深究
+                    打开观点空间
                   </button>
-                </article>
-              ))}
-            {visibleVersions.map((v) => (
-              <div
-                id={"finding-" + v.id}
-                tabIndex={-1}
-                key={v.id}
-                data-selected={selected === v.id}
-              >
-                <Finding version={v} {...{ handoff, follow }} />
+                </form>
+              )}
+              <div className="vs-library">
+                <Library
+                  {...{
+                    api,
+                    space,
+                    update,
+                    attachPdf,
+                    versions,
+                    show,
+                    adding,
+                    setAdding,
+                  }}
+                  openClaim={navigate}
+                />
               </div>
-            ))}
-          </div>
-          <div hidden={tab !== "研究对话"}>
-            <div className="vs-research-log">
-              {versions
-                .slice()
-                .reverse()
-                .map((v) => (
-                  <div key={v.id}>
-                    <article>
-                      <small>你</small>
-                      {v.document.space?.origin && (
-                        <blockquote>
-                          {v.document.space.origin.title} ·{" "}
-                          {v.document.space.origin.location}
-                          <br />
-                          {v.document.space.origin.quote}
-                        </blockquote>
-                      )}
-                      <p>{v.document.question}</p>
-                    </article>
-                    <article>
-                      <small>研究台 AI</small>
-                      <p>{v.document.synthesis.judgment.text}</p>
-                      <button onClick={() => show(v.id)}>查看证据</button>{" "}
-                      <button onClick={() => handoff(v)}>交给创作搭档</button>
-                    </article>
-                  </div>
-                ))}
-            </div>
-            {space.researchAttempts?.map((a) => (
-              <article key={a.id}>
-                <strong>{a.question}</strong>
-                <p>{a.message}</p>
-                <button
-                  disabled={researching}
-                  onClick={() =>
-                    void investigate(
-                      a.question,
-                      a.origin,
-                      versions.find((v) => v.id === a.parent),
-                    )
-                  }
-                >
-                  重试调查
-                </button>
-              </article>
-            ))}
-            {pending && <blockquote>{pending}</blockquote>}
-            {researching && <p role="status">正在检索文献并核查出处…</p>}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void investigate(question, undefined, parent);
+              {[...index.rooms.values()].some((r) => !r.resource) && (
+                <details className="vs-project-claims">
+                  <summary>项目观点</summary>
+                  {[...index.rooms.values()]
+                    .filter((r) => !r.resource)
+                    .map((r) => (
+                      <button
+                        key={r.id}
+                        className="vs-claim-link"
+                        onClick={() => navigate(r.id)}
+                      >
+                        {r.title} ›
+                      </button>
+                    ))}
+                </details>
+              )}
+              {historyError && <p role="alert">{historyError}</p>}
+            </>,
+          )}
+        </div>
+        {inRoom && (
+          <aside
+            id="vs-claim-directory"
+            className="vs-panel vs-claim-directory"
+            data-open={directoryOpen}
+            aria-label="观点目录"
+          >
+            <button
+              className="vs-directory-close"
+              aria-label="关闭观点目录"
+              onClick={() => {
+                setDirectoryOpen(false);
+                document.getElementById("vs-toggle-directory")?.focus();
               }}
             >
-              {parent && (
-                <small>
-                  追问 · {parent.document.question}{" "}
-                  <button type="button" onClick={() => selectParent(undefined)}>
-                    另起问题
-                  </button>
-                </small>
-              )}
-              <textarea
-                id="vs-question"
-                aria-label="研究问题"
-                rows={2}
-                maxLength={2000}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="追问这项研究，或比较素材里的说法……"
+              关闭
+            </button>
+            <ClaimDirectory
+              rooms={index.rooms}
+              selected={active?.id ?? ""}
+              open={navigate}
+            />
+          </aside>
+        )}
+        {inRoom && (
+          <section className="vs-panel vs-claim-room" aria-label="观点空间">
+            {active ? (
+              <ClaimRoom
+                key={active.id}
+                room={active}
+                selected={selected}
+                question={questions[active.id] ?? ""}
+                setQuestion={(q) =>
+                  setQuestions((old) => ({ ...old, [active.id]: q }))
+                }
+                search={investigate}
+                busy={!!pending}
+                pending={
+                  pending?.claim === active.id ? pending.question : undefined
+                }
+                handoff={handoff}
+                handed={
+                  !!visibleFinding &&
+                  space.messages.some(
+                    (m) =>
+                      m.role === "handoff" && m.finding === visibleFinding.id,
+                  )
+                }
+                select={show}
+                ready={ready}
               />
+            ) : (
+              <p role="status">
+                {historyError ||
+                  (ready
+                    ? "找不到这个观点，请返回项目工作台。"
+                    : "正在读取观点…")}
+              </p>
+            )}
+            {active && historyError && <p role="alert">{historyError}</p>}
+          </section>
+        )}
+        <section
+          className="vs-panel vs-script"
+          aria-label="脚本编辑器"
+          hidden={!inRoom && !!max}
+        >
+          {inRoom && (
+            <div className="vs-script-heading">
+              <h2>脚本编辑器</h2>
               <button
-                className="vs-primary"
-                disabled={!ready || researching || question.trim().length < 3}
+                className="vs-jump-script"
+                onClick={() =>
+                  document.getElementById("vs-room-title")?.focus()
+                }
               >
-                调查
+                ← 回到观点
               </button>
-            </form>
-          </div>
-          {researchError && <p role="alert">{researchError}</p>}
-        </>,
-      )}
-      <section
-        className="vs-panel vs-script"
-        aria-label="脚本编辑器"
-        hidden={!!max}
-      >
-        <Script
-          w={writing}
-          {...{ space, status, flush, show }}
-          openWriter={() => open("partner")}
-        />
-      </section>
-      {panel("partner", <Partner w={writing} {...{ space, show }} />)}
-    </div>
+            </div>
+          )}
+          <Script
+            w={writing}
+            {...{ space, status, flush, show }}
+            openWriter={() => {
+              if (inRoom) navigate();
+              open("partner");
+            }}
+          />
+        </section>
+        {!inRoom &&
+          panel("partner", <Partner w={writing} {...{ space, show }} />)}
+      </div>
+    </>
   );
 }

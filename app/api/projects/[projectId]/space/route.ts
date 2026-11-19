@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { logAppEvent } from "@/lib/observability";
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
@@ -11,6 +12,7 @@ import {
   emptySpace,
   publicLink,
   resourceSchema,
+  type Resource,
 } from "@/lib/video-space/contract";
 import { readVideo } from "@/lib/video-space/video-material";
 import { readWebPage } from "@/lib/video-space/read-web";
@@ -39,6 +41,33 @@ async function authorize(context: Context) {
     return { response: projectOutcomeResponse(subject) } as const;
   return { client, subject: subject.value, projectId } as const;
 }
+// The same saved source passage gets the same link on every read, including
+// digests created before individual claims had an identifier.
+function identifyClaims(
+  resourceId: string,
+  digest: NonNullable<Resource["digest"]>,
+) {
+  return {
+    ...digest,
+    claims: digest.claims.map((claim) => ({
+      ...claim,
+      id:
+        "c-" +
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              resourceId,
+              claim.location,
+              claim.quote,
+              claim.text,
+            ]),
+          )
+          .digest("hex")
+          .slice(0, 32),
+    })),
+  };
+}
+
 export async function GET(_request: Request, context: Context) {
   const auth = await authorize(context);
   if (auth.response) return auth.response;
@@ -48,14 +77,14 @@ export async function GET(_request: Request, context: Context) {
     .eq("project_id", auth.projectId)
     .maybeSingle();
   if (row.error) return fail(503, "无法读取已保存的脚本，请重试。");
-  return Response.json(
-    row.data
-      ? {
-          revision: row.data.revision,
-          document: spaceSchema.parse(row.data.document),
-        }
-      : { revision: 0, document: emptySpace() },
-  );
+  const document = row.data
+    ? spaceSchema.parse(row.data.document)
+    : emptySpace();
+  for (const resource of document.resources) {
+    if (resource.digest)
+      resource.digest = identifyClaims(resource.id, resource.digest);
+  }
+  return Response.json({ revision: row.data?.revision ?? 0, document });
 }
 export async function PUT(request: Request, context: Context) {
   const auth = await authorize(context);
@@ -118,7 +147,12 @@ export async function POST(request: Request, context: Context) {
     if (body.action === "web")
       return Response.json(await readWebPage(body.url, request.signal));
     if (body.action === "summary")
-      return Response.json(await summarize(body.resource, request.signal));
+      return Response.json(
+        identifyClaims(
+          body.resource.id,
+          await summarize(body.resource, request.signal),
+        ),
+      );
     return Response.json(await writeScript(body, request.signal));
   } catch (error) {
     let reason = error instanceof Error ? error.name : "unknown";

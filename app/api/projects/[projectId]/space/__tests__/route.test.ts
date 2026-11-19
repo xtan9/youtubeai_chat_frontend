@@ -95,3 +95,37 @@ it("guards writing before contacting a model", async () => {
   ).toBe(429);
   expect(m.write).not.toHaveBeenCalled();
 });
+it("gives legacy claims stable links across reordering and distinguishes identical material in different sources", async () => {
+  const claims = ["First interpretation", "Second interpretation"].map(
+    (text) => ({
+      text,
+      quote: "The same source passage",
+      location: "00:05",
+    }),
+  );
+  const resources = ["first", "second"].map((id) => ({
+    id,
+    kind: "video",
+    title: "Video",
+    coverage: "",
+    pages: [],
+    digest: { summary: "", claims: [...claims] },
+  }));
+  m.from.mockReturnValue({
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    maybeSingle: async () => ({
+      data: { revision: 1, document: { ...emptySpace(), resources } },
+    }),
+  });
+  const read = async () =>
+    (await (await GET(req({}), context)).json()).document.resources;
+  const initial = await read();
+  const ids = initial[0].digest.claims.map((claim: { id: string }) => claim.id);
+  expect(new Set(ids).size).toBe(2);
+  expect(ids[0]).not.toBe(initial[1].digest.claims[0].id);
+  resources[0].digest.claims.reverse();
+  expect(
+    (await read())[0].digest.claims.map((claim: { id: string }) => claim.id),
+  ).toEqual(ids.reverse());
+});
