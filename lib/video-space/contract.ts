@@ -12,6 +12,7 @@ export const digestSchema = z.object({
   claims: z
     .array(
       z.object({
+        id: id.optional(),
         text: z.string().max(1400),
         quote: z.string().max(1800),
         location: z.string().max(140),
@@ -75,8 +76,24 @@ export const messageSchema = z.object({
   passage: passageSchema.optional(),
   finding: z.uuid().optional(),
 });
+export const dialogueSchema = z.object({
+  question: z.string().trim().min(1).max(2000),
+  reply: z.string().trim().min(1).max(4000),
+});
+const claimTurnSchema = dialogueSchema.extend({
+  id: z.uuid(),
+  claimId: z.string().min(1).max(120),
+  created: z.string(),
+  finding: z.uuid().optional(),
+});
+export type ClaimTurn = z.infer<typeof claimTurnSchema>;
 export const spaceSchema = z.object({
+  claimDiscussion: z.array(claimTurnSchema).max(2000).optional(),
   activeDraft: id.optional(),
+  customClaims: z
+    .array(z.object({ id: z.uuid(), text: z.string().trim().min(3).max(1400) }))
+    .max(150)
+    .optional(),
   researchParent: z.uuid().nullable().optional(),
   researchAttempts: z
     .array(
@@ -84,6 +101,7 @@ export const spaceSchema = z.object({
         id: z.uuid(),
         question: z.string().max(2000),
         message: z.string().max(1000),
+        claimId: z.string().max(120).optional(),
         evidenceGap: z.boolean().optional(),
         created: z.string(),
         origin: z

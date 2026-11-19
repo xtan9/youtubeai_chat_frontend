@@ -274,11 +274,12 @@ export function Script({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 openWriter();
-                w.setPrompt(
-                  action === "改写"
-                    ? "请改写选中的这句话。"
-                    : "这句话听起来自然吗？",
-                );
+                if (!w.prompt.trim())
+                  w.setPrompt(
+                    action === "改写"
+                      ? "请改写选中的这句话。"
+                      : "这句话听起来自然吗？",
+                  );
               }}
             >
               {action}

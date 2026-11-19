@@ -97,6 +97,12 @@ export async function POST(request: Request, context: Context) {
           : latest;
     if (followUpTo && !previous)
       return error(404, "Research question not found.");
+    if (
+      body.data.space?.claimId &&
+      previous?.document.space?.claimId &&
+      previous.document.space.claimId !== body.data.space.claimId
+    )
+      return error(409, "请在原观点内继续这次调查。");
     const reserved = await reserveResearch(
       subject!.projectId,
       principal!.userId,
@@ -123,7 +129,17 @@ export async function POST(request: Request, context: Context) {
         client!,
         subject!,
       ),
-      question: body.data.question,
+      question: [
+        ...new Set(
+          [
+            body.data.question,
+            body.data.space?.claimTitle,
+            body.data.space?.origin?.quote,
+          ].filter(Boolean),
+        ),
+      ]
+        .join("\n")
+        .slice(0, 4000),
       projectName: subject!.name,
       history: previous
         ? [

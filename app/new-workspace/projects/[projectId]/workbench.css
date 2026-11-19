@@ -34,22 +34,28 @@
 .vs [hidden] {
   display: none !important;
 }
-.vs-heading,
 .vs-row,
-.vs-actions,
-.vs-tabs {
+.vs-actions {
   display: flex;
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
 }
-.vs-heading,
 .vs-row {
   justify-content: space-between;
 }
 .vs-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
   margin: 0 0 22px;
   align-items: end;
+}
+.vs-heading nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1lh;
 }
 .vs-heading span,
 .vs small,
@@ -160,9 +166,6 @@
 }
 .vs-library {
   position: relative;
-}
-.vs-tabs {
-  margin: 12px 0 10px;
 }
 .vs-source {
   border-top: 1px solid var(--rule);
@@ -289,5 +292,179 @@
   }
   .vs-manuscript {
     min-height: 200px;
+  }
+}
+
+.vs-desk-library {
+  display: contents;
+}
+.vs-library-actions {
+  margin: 12px 0;
+}
+.vs .vs-claim-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  margin: 3px 0;
+  padding: 8px 9px;
+  border-color: transparent;
+  background: transparent;
+  line-height: 1.55;
+}
+.vs .vs-claim-link:hover,
+.vs .vs-claim-link[aria-current="page"] {
+  background: var(--note);
+  color: var(--fern);
+}
+.vs .vs-claim-link[aria-current="page"] {
+  box-shadow: inset 3px 0 var(--fern);
+  font-weight: 600;
+}
+.vs-room-tools {
+  display: none;
+}
+.vs-script-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.vs-grid[data-claim] {
+  display: grid;
+  grid-template-columns: minmax(0, 0.71fr) minmax(0, 1.44fr) minmax(0, 1fr);
+  align-items: start;
+}
+.vs-claim-directory {
+  max-height: 80vh;
+  overflow: auto;
+}
+.vs-claim-directory .vs-source {
+  margin-top: 10px;
+}
+.vs-room-header {
+  position: relative;
+  min-height: 44px;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 12px;
+}
+.vs-room-header > small,
+.vs-room-header > h2 {
+  padding-inline-end: 44px;
+}
+.vs .vs-room-back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+.vs-room-header > small {
+  color: var(--fern);
+}
+.vs-room-header > h2 {
+  font:
+    650 clamp(22px, 2vw, 31px) / 1.35 Georgia,
+    "Songti SC",
+    serif;
+  margin: 7px 0;
+}
+.vs .vs-room-byline {
+  color: var(--soft);
+  font-size: 12px;
+}
+.vs-room-evidence {
+  margin: 14px 0;
+}
+.vs-claim-room .vs-finding {
+  border-left: 3px solid var(--fern);
+}
+.vs-claim-room a {
+  color: var(--fern);
+  text-decoration: underline;
+}
+.vs-turn {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.vs-script-heading {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.vs-grid[data-claim] .vs-script {
+  min-height: 440px;
+}
+.vs-switch-claim,
+.vs-directory-close,
+.vs-jump-script {
+  display: none;
+}
+@media (max-width: 1050px) {
+  .vs-room-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .vs-grid[data-claim] {
+    grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+  }
+  .vs-claim-directory {
+    display: none;
+  }
+  .vs-claim-directory[data-open="true"] {
+    display: block;
+    position: fixed;
+    top: 68px;
+    inset-inline-start: 16px;
+    width: min(350px, calc(100vw - 32px));
+    max-height: 77dvh;
+    z-index: 5;
+    box-shadow: 0 8px 35px #192b2233;
+  }
+  .vs-directory-close {
+    display: block;
+    float: right;
+  }
+  .vs-switch-claim {
+    display: inline-block;
+  }
+}
+@media (max-width: 520px) {
+  .vs-heading {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+  .vs-grid[data-claim] {
+    grid-template-columns: 78% 78%;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+  .vs-grid[data-claim] > .vs-panel {
+    scroll-snap-align: start;
+    padding: 12px;
+  }
+  .vs-jump-script {
+    display: inline-block;
+  }
+}
+
+.vs-claim-directory .vs-claim-link > span:first-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+@media (min-width: 1051px) {
+  .vs-grid[data-claim] > .vs-panel {
+    height: clamp(560px, calc(100dvh - 224px), 900px);
+    overflow-y: auto;
   }
 }

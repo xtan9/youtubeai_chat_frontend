@@ -38,6 +38,8 @@ const SpaceContextSchema = z
         quote: z.string().max(1800),
       })
       .optional(),
+    claimId: z.string().min(1).max(120).optional(),
+    claimTitle: z.string().min(1).max(2000).optional(),
     followUpTo: z.uuid().optional(),
   })
   .strict();
