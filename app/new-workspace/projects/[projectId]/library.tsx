@@ -12,6 +12,10 @@ import type {
 } from "@/lib/projects/project-research-contract";
 import { normalizeYouTubeVideoInput } from "@/lib/services/youtube-url";
 import { createClient } from "@/lib/supabase/client";
+import {
+  investigationsForSource,
+  type InvestigationSource,
+} from "@/lib/video-space/source-investigations";
 import { requestJson } from "./use-space";
 
 type Origin = NonNullable<ResearchDocument["space"]>["origin"];
@@ -25,6 +29,7 @@ type Props = {
   versions: ResearchVersion[];
   investigate: (q: string, origin: Origin) => void;
   show: (id: string) => void;
+  showSource: (source: InvestigationSource) => void;
 };
 function claimLink(
   address: string | undefined,
@@ -47,12 +52,13 @@ function SourceCard({
   versions,
   investigate,
   show,
+  showSource,
 }: {
   initial: Resource;
   first: boolean;
   video?: ProjectVideo;
   save: (r: Resource) => void;
-} & Pick<Props, "api" | "versions" | "investigate" | "show">) {
+} & Pick<Props, "api" | "versions" | "investigate" | "show" | "showSource">) {
   const [open, setOpen] = useState(first),
     [more, setMore] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
@@ -144,6 +150,14 @@ function SourceCard({
     void prepare();
   });
   const claims = resource.digest?.claims ?? [];
+  const source = {
+    id: resource.id,
+    title: resource.title,
+    youtubeVideoId: video?.youtubeVideoId,
+  };
+  const investigationCount = open
+    ? investigationsForSource(versions, source).length
+    : 0;
   return (
     <div className="vs-source">
       <small>
@@ -189,6 +203,11 @@ function SourceCard({
                 </blockquote>
               ))}
             </details>
+          )}
+          {investigationCount > 0 && (
+            <button onClick={() => showSource(source)}>
+              查看相关调查 · {investigationCount}
+            </button>
           )}
           {!claims.length && !resource.analyzed && (
             <button
@@ -256,21 +275,6 @@ function SourceCard({
           )}
         </details>
       )}
-      {versions
-        .filter(
-          (v) =>
-            v.document.evidence.some(
-              (e) =>
-                e.kind === "video" &&
-                video?.youtubeVideoId &&
-                new URL(e.url).searchParams.get("v") === video.youtubeVideoId,
-            ) || v.document.space?.origin?.id === resource.id,
-        )
-        .map((v) => (
-          <button key={v.id} onClick={() => show(v.id)}>
-            {v.document.question}
-          </button>
-        ))}
     </div>
   );
 }
@@ -284,6 +288,7 @@ export function Library({
   versions,
   investigate,
   show,
+  showSource,
 }: Props) {
   const [sources, setSources] = useState<ProjectSourceSet | null>(null),
     [url, setUrl] = useState(""),
@@ -425,7 +430,7 @@ export function Library({
           initial={resource}
           video={video}
           first={!i}
-          {...{ api, save, versions, investigate, show }}
+          {...{ api, save, versions, investigate, show, showSource }}
         />
       ))}
     </>

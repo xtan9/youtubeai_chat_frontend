@@ -23,6 +23,10 @@ import type {
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
 import { Finding } from "./research";
+import {
+  investigationsForSource,
+  type InvestigationSource,
+} from "@/lib/video-space/source-investigations";
 import { Library } from "./library";
 import "./workbench.css";
 
@@ -86,6 +90,11 @@ function Desk({
     [selected, setSelected] = useState<string>(),
     [parent, setParent] = useState<ResearchVersion>();
   const [ready, setReady] = useState(false);
+  const [evidenceSource, setEvidenceSource] =
+    useState<InvestigationSource | null>(null);
+  const visibleVersions = evidenceSource
+    ? investigationsForSource(versions, evidenceSource)
+    : versions;
   const writing = useWriting({ space, live, update, api, versions });
   const researchLock = useRef(false);
   const initialParent = useRef(space.researchParent);
@@ -138,7 +147,16 @@ function Desk({
           ?.scrollIntoView({ block: "start" });
     });
   }
+  function showSource(source: InvestigationSource) {
+    setSelected(undefined);
+    setEvidenceSource(source);
+    setTab("证据");
+    requestAnimationFrame(() =>
+      document.getElementById("vs-source-filter")?.focus(),
+    );
+  }
   function show(id: string) {
+    setEvidenceSource(null);
     open("research");
     setTab("证据");
     setSelected(id);
@@ -301,7 +319,10 @@ function Desk({
               <button
                 key={t}
                 aria-pressed={tab === t}
-                onClick={() => setTab(t)}
+                onClick={() => {
+                  setEvidenceSource(null);
+                  setTab(t);
+                }}
               >
                 {t}
                 {t === "证据" ? " " + versions.length : ""}
@@ -329,18 +350,27 @@ function Desk({
                 versions,
                 investigate,
                 show,
+                showSource,
                 adding,
                 setAdding,
               }}
             />
           </div>
           <div hidden={tab !== "证据"}>
+            {evidenceSource && (
+              <div className="vs-row">
+                <h3 id="vs-source-filter" tabIndex={-1}>
+                  {evidenceSource.title} · 相关调查
+                </h3>
+                <button onClick={() => setEvidenceSource(null)}>查看全部证据</button>
+              </div>
+            )}
             {!versions.length &&
               !space.researchAttempts?.some((a) => a.evidenceGap) && (
                 <p>调查结果会按问题保存在这里。</p>
               )}
             {space.researchAttempts
-              ?.filter((a) => a.evidenceGap)
+              ?.filter((a) => !evidenceSource && a.evidenceGap)
               .map((a) => (
                 <article key={a.id}>
                   <small>证据不足 · 待研究</small>
@@ -359,7 +389,7 @@ function Desk({
                   </button>
                 </article>
               ))}
-            {versions.map((v) => (
+            {visibleVersions.map((v) => (
               <div
                 id={"finding-" + v.id}
                 tabIndex={-1}
