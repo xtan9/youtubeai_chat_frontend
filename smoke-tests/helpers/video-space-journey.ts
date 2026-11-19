@@ -89,10 +89,17 @@ export async function videoSpaceJourney(
     });
     return r.fulfill({ json: { versions } });
   });
+  const discussed: string[] = [];
+  const explanation = "我们可以先从这个观点的原话说起。";
   let writes = 0;
   await page.route(endpoint + "/space", async (r) => {
     if (r.request().method() !== "POST") return r.continue();
     const b = r.request().postDataJSON();
+    if (b.action === "discussClaim") {
+      discussed.push(b.claim);
+      if (b.claim === "关于比较对象的新观点") expect(b.history).toEqual([]);
+      return r.fulfill({ json: { reply: explanation } });
+    }
     if (b.action === "write") {
       writes++;
       const discussion = b.prompt.includes("吗"),
@@ -250,7 +257,10 @@ export async function videoSpaceJourney(
   );
   await expect(editor).toHaveValue(opening + "正在编辑");
   await editor.fill(opening);
-  await room.getByLabel("研究问题").fill("");
+  await room.getByLabel("研究问题").fill("这段原话是什么意思？");
+  await room.getByRole("button", { name: "发送" }).click();
+  await expect(room.getByText(explanation)).toBeVisible();
+  expect(requests).toBe(0);
   await room.getByRole("button", { name: "查找证据" }).click();
   await expect(room.getByText(judgment, { exact: true }).first()).toBeVisible();
   await photo("investigation");
@@ -333,7 +343,7 @@ export async function videoSpaceJourney(
   await openClaim();
   reject = true;
   await room.getByLabel("研究问题").fill("追问有没有长期数据？");
-  await room.getByRole("button", { name: "发送" }).click();
+  await room.getByRole("button", { name: "检索这个问题" }).click();
   await expect(room.getByRole("alert")).toContainText("文献服务暂不可用");
   await expect(editor).toHaveValue(/手写的收尾。$/);
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
@@ -401,6 +411,52 @@ export async function videoSpaceJourney(
     .click();
   await expect(room).toContainText(docs[0].title);
   await expect(room.locator("[data-selected=true]")).toContainText(judgment);
-  expect(requests).toBe(3);
+  await expect(room.getByText(explanation)).toBeVisible();
+  const olderFinding = versions[1].id;
+  await room.getByRole("button", { name: "追问这次判断" }).click();
+  await room.getByLabel("研究问题").fill("针对最初判断的分组再找证据");
+  await other.getByRole("button", { name: claimTitle, exact: true }).click();
+  await page.goBack();
+  await expect(room.getByLabel("研究问题")).toHaveValue(
+    "针对最初判断的分组再找证据",
+  );
+  await room.getByRole("button", { name: "检索这个问题" }).click();
+  await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
+    3,
+  );
+  expect(versions[0].document.space?.followUpTo).toBe(olderFinding);
+  const branchFinding = versions[0].id;
+  await room.getByLabel("研究问题").fill("在新判断上检索随访时长");
+  await room.getByRole("button", { name: "检索这个问题" }).click();
+  await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
+    4,
+  );
+  expect(versions[0].document.space?.followUpTo).toBe(branchFinding);
+  await back();
+  await prompt.fill("这条写作消息先留着");
+  await openClaim();
+  await editor.focus();
+  await editor.press("Home");
+  await editor.press("Shift+ArrowRight");
+  await page
+    .getByRole("region", { name: "脚本编辑器" })
+    .getByRole("button", { name: "讨论", exact: true })
+    .click();
+  await expect(prompt).toHaveValue("这条写作消息先留着");
+  const custom = "关于比较对象的新观点";
+  await left.getByRole("button", { name: "新建观点" }).click();
+  await left.getByLabel("新观点").fill(custom);
+  await left.getByRole("button", { name: "打开观点空间" }).click();
+  await expect(room.getByRole("heading", { name: custom })).toBeVisible();
+  await expect(room.getByText(explanation)).toHaveCount(0);
+  await room.getByLabel("研究问题").fill("应该先讨论什么？");
+  await room.getByRole("button", { name: "发送" }).click();
+  await expect(room.getByText(explanation)).toBeVisible();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(room.getByRole("heading", { name: custom })).toBeVisible();
+  await expect(room.getByText("应该先讨论什么？")).toBeVisible();
+  expect(discussed).toEqual([claimTitle, custom]);
+  expect(requests).toBe(5);
   expect(writes).toBe(4);
 }

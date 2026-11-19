@@ -6,7 +6,7 @@ const { stream } = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: stream,
 }));
-import { summarize, writeScript } from "../assistant";
+import { discussClaim, summarize, writeScript } from "../assistant";
 
 const resource: Resource = {
   id: "video",
@@ -84,4 +84,26 @@ it("repairs an invalid co-writing turn within one request and keeps an explicit 
   expect(invocation.messages).toHaveLength(1);
   expect(invocation.messages[0].content).toContain("续写一句");
   expect(invocation.messages[0].content).toContain("could not be validated");
+});
+
+it("answers a claim discussion from the supplied passage, finding and prior conversation", async () => {
+  stream.mockReturnValue([
+    {
+      type: "delta",
+      text: JSON.stringify({ reply: "The outcome measured was cholesterol." }),
+    },
+  ]);
+  const request = {
+    action: "discussClaim" as const,
+    claim: "Compare trial outcomes",
+    question: "Which outcome?",
+    origin: "The trial measured serum cholesterol.",
+    finding: "There were two comparison groups.",
+    history: [{ question: "Which trial?", reply: "The controlled trial." }],
+  };
+  const reply = await discussClaim(request, new AbortController().signal);
+  expect(reply.reply).toBe("The outcome measured was cholesterol.");
+  expect(stream.mock.lastCall?.[0].messages[0].content).toContain(
+    JSON.stringify(request),
+  );
 });

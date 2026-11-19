@@ -16,6 +16,14 @@ export type ClaimSpace = {
   attempts: ResearchAttempt[];
 };
 
+export function findingReferences({ synthesis }: ResearchDocument) {
+  return [
+    synthesis.judgment,
+    ...synthesis.findings,
+    synthesis.reasoning,
+  ].flatMap((observation) => observation.references);
+}
+
 function anchor(origin: NonNullable<ClaimOrigin>) {
   return JSON.stringify([origin.id, origin.location, origin.quote]);
 }
@@ -76,11 +84,11 @@ export function groupClaimSpaces(
     const parent = parentId ? byFinding.get(parentId) : undefined;
     if (!origin) return parent ?? add(id, question);
     const key = anchor(origin);
+    if (parent?.origin && anchor(parent.origin) === key) return parent;
     const matches = anchors.get(key) ?? [];
     if (matches.length === 1) return matches[0];
     const exact = matches.find((room) => room.title === question);
     if (exact) return exact;
-    if (parent?.origin && anchor(parent.origin) === key) return parent;
     return add(id, question, origin);
   }
   // Storage returns newest first. Resolve parents before their follow-ups.

@@ -20,6 +20,8 @@ import {
   summarize,
   writerRequest,
   writeScript,
+  discussionRequest,
+  discussClaim,
 } from "@/lib/video-space/assistant";
 import { checkRateLimit } from "@/lib/services/rate-limit";
 
@@ -123,6 +125,7 @@ export async function PUT(request: Request, context: Context) {
 }
 const action = z.discriminatedUnion("action", [
   writerRequest,
+  discussionRequest,
   z.object({ action: z.literal("web"), url: publicLink }),
   z.object({ action: z.literal("video"), videoId: z.uuid() }),
   z.object({ action: z.literal("summary"), resource: resourceSchema }),
@@ -153,6 +156,8 @@ export async function POST(request: Request, context: Context) {
           await summarize(body.resource, request.signal),
         ),
       );
+    if (body.action === "discussClaim")
+      return Response.json(await discussClaim(body, request.signal));
     return Response.json(await writeScript(body, request.signal));
   } catch (error) {
     let reason = error instanceof Error ? error.name : "unknown";

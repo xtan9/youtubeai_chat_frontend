@@ -1,5 +1,7 @@
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 
+import { findingReferences } from "@/lib/video-space/claim-spaces";
+
 const labels: Record<string, string> = {
   supported: "有支持",
   problematic: "有问题",
@@ -20,11 +22,7 @@ const labels: Record<string, string> = {
 export function Finding({ version }: { version: ResearchVersion }) {
   const { document: d } = version,
     { judgment, assessment } = d.synthesis;
-  const citations = [
-    judgment,
-    ...d.synthesis.findings,
-    d.synthesis.reasoning,
-  ].flatMap((o) => o.references);
+  const citations = findingReferences(d);
   return (
     <article className="vs-finding">
       <strong>目前的判断</strong>

@@ -76,7 +76,19 @@ export const messageSchema = z.object({
   passage: passageSchema.optional(),
   finding: z.uuid().optional(),
 });
+export const dialogueSchema = z.object({
+  question: z.string().trim().min(1).max(2000),
+  reply: z.string().trim().min(1).max(4000),
+});
+const claimTurnSchema = dialogueSchema.extend({
+  id: z.uuid(),
+  claimId: z.string().min(1).max(120),
+  created: z.string(),
+  finding: z.uuid().optional(),
+});
+export type ClaimTurn = z.infer<typeof claimTurnSchema>;
 export const spaceSchema = z.object({
+  claimDiscussion: z.array(claimTurnSchema).max(2000).optional(),
   activeDraft: id.optional(),
   customClaims: z
     .array(z.object({ id: z.uuid(), text: z.string().trim().min(3).max(1400) }))

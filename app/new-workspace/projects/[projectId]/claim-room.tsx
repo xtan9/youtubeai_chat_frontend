@@ -1,10 +1,11 @@
-import { useState } from "react";
+import type { ClaimTurn } from "@/lib/video-space/contract";
 import type {
   ResearchVersion,
   ResearchEvidence,
 } from "@/lib/projects/project-research-contract";
 import {
   claimSourceLink,
+  findingReferences,
   type ClaimSpace,
   type ResearchAttempt,
 } from "@/lib/video-space/claim-spaces";
@@ -72,6 +73,13 @@ export function ClaimRoom({
   handed,
   select,
   ready,
+  discuss,
+  turns: chats,
+  chatBusy,
+  chatStatus,
+  chatError,
+  target,
+  setTarget,
 }: {
   room: ClaimSpace;
   selected?: ResearchVersion;
@@ -84,11 +92,17 @@ export function ClaimRoom({
   handed: boolean;
   select: (id: string) => void;
   ready: boolean;
+  discuss: (q: string, finding?: ResearchVersion) => void;
+  turns: ClaimTurn[];
+  chatBusy: boolean;
+  chatStatus?: string;
+  chatError?: string;
+  target?: string;
+  setTarget: (id?: string) => void;
 }) {
-  const [target, setTarget] = useState<string>();
   const latest = room.versions.at(-1);
   const finding = selected ?? latest;
-  const parent = room.versions.find((v) => v.id === target) ?? latest;
+  const parent = room.versions.find((v) => v.id === target) ?? finding;
   const sourceLink = claimSourceLink(room);
   const evidence = new Map<
     string,
@@ -96,31 +110,33 @@ export function ClaimRoom({
   >();
   for (const { document: d } of room.versions) {
     const byId = new Map(d.evidence.map((source) => [source.id, source]));
-    for (const observation of [
-      d.synthesis.judgment,
-      ...d.synthesis.findings,
-      d.synthesis.reasoning,
-    ]) {
-      for (const ref of observation.references) {
-        const source = byId.get(ref.id);
-        if (!source) continue;
-        const entry = evidence.get(source.id) ?? {
-          source,
-          quotes: new Set<string>(),
-        };
-        entry.quotes.add(ref.quote);
-        evidence.set(source.id, entry);
-      }
+    for (const ref of findingReferences(d)) {
+      const source = byId.get(ref.id);
+      if (!source) continue;
+      const entry = evidence.get(source.id) ?? {
+        source,
+        quotes: new Set<string>(),
+      };
+      entry.quotes.add(ref.quote);
+      evidence.set(source.id, entry);
     }
   }
   const turns = [
+    ...chats.map((chat) => ({
+      at: chat.created,
+      chat,
+      version: undefined,
+      attempt: undefined,
+    })),
     ...room.versions.map((v) => ({
       at: v.created_at,
+      chat: undefined,
       version: v,
       attempt: undefined,
     })),
     ...room.attempts.map((a) => ({
       at: a.created,
+      chat: undefined,
       version: undefined,
       attempt: a,
     })),
@@ -208,8 +224,20 @@ export function ClaimRoom({
           )}
         </div>
         <div className="vs-research-log">
-          {turns.map(({ version: v, attempt: a }) =>
-            v ? (
+          {turns.map(({ version: v, attempt: a, chat }) =>
+            chat ? (
+              <div key={chat.id} className="vs-turn">
+                <small>你</small>
+                <p>{chat.question}</p>
+                <small>研究搭档</small>
+                <p>{chat.reply}</p>
+                {chat.finding && (
+                  <button onClick={() => chat.finding && select(chat.finding)}>
+                    讨论引用的证据
+                  </button>
+                )}
+              </div>
+            ) : v ? (
               <div key={v.id} className="vs-turn">
                 <small>你</small>
                 <p>{v.document.question}</p>
@@ -247,10 +275,12 @@ export function ClaimRoom({
           )}
         </div>
         {pending && <p role="status">正在核查：{pending}</p>}
+        {chatStatus && <p role="status">{chatStatus}</p>}
+        {chatError && <p role="alert">{chatError}</p>}
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            search(question, parent?.id);
+            discuss(question, parent);
           }}
         >
           {target && parent?.id !== latest?.id && (
@@ -271,8 +301,15 @@ export function ClaimRoom({
             onChange={(e) => setQuestion(e.target.value)}
           />
           <button
-            className="vs-primary"
+            type="button"
             disabled={!ready || busy || question.trim().length < 3}
+            onClick={() => search(question, parent?.id)}
+          >
+            检索这个问题
+          </button>{" "}
+          <button
+            className="vs-primary"
+            disabled={!ready || chatBusy || !question.trim()}
           >
             发送
           </button>

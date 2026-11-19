@@ -57,6 +57,23 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
   const publication = await page.context().newPage();
   expect((await publication.goto(url!))?.ok()).toBeTruthy();
   await publication.close();
+  await room
+    .getByLabel("研究问题")
+    .fill("这份摘要里的证据能回答原观点的哪一部分？");
+  const [discussion] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/space") &&
+        response.request().method() === "POST" &&
+        response.request().postDataJSON()?.action === "discussClaim",
+      { timeout: 100000 },
+    ),
+    room.getByRole("button", { name: "发送", exact: true }).click(),
+  ]);
+  expect(discussion.ok()).toBeTruthy();
+  await expect(
+    room.getByText("这份摘要里的证据能回答原观点的哪一部分？", { exact: true }),
+  ).toBeVisible();
   await room.getByRole("button", { name: "交给创作搭档" }).click();
   await page.getByRole("button", { name: "返回项目工作台" }).click();
   await right.getByRole("button", { name: "写进开场" }).last().click();

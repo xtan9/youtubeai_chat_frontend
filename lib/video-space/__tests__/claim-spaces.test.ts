@@ -63,7 +63,7 @@ function version(
 
 it("keeps claims at a shared passage distinct and reopens a legacy follow-up by its parent", () => {
   const first = version("initial", "Second interpretation", { origin });
-  const followup = version("followup", "How certain is that?", {
+  const followup = version("followup", "First interpretation", {
     origin,
     followUpTo: first.id,
   });

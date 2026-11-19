@@ -12,7 +12,10 @@ import { createClient } from "@/lib/supabase/client";
 import { investigationsForSource } from "@/lib/video-space/source-investigations";
 import { requestJson } from "./use-space";
 
+import type { ClaimSpace } from "@/lib/video-space/claim-spaces";
+
 type Props = {
+  claimRooms?: Map<string, ClaimSpace>;
   adding: boolean;
   setAdding: (value: boolean) => void;
   api: string;
@@ -30,6 +33,7 @@ function SourceCard({
   api,
   save,
   versions,
+  claimRooms,
   openClaim,
   show,
 }: {
@@ -37,7 +41,7 @@ function SourceCard({
   first: boolean;
   video?: ProjectVideo;
   save: (r: Resource) => void;
-} & Pick<Props, "api" | "versions" | "openClaim" | "show">) {
+} & Pick<Props, "api" | "versions" | "claimRooms" | "openClaim" | "show">) {
   const [open, setOpen] = useState(false),
     [more, setMore] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
@@ -217,9 +221,22 @@ function SourceCard({
             <button
               key={claim.id}
               className="vs-claim-link"
+              aria-label={claim.text}
+              aria-describedby={
+                claim.id &&
+                claimRooms &&
+                !claimRooms.get(claim.id)?.versions.length
+                  ? "vs-claim-status-" + claim.id
+                  : undefined
+              }
               onClick={() => claim.id && openClaim(claim.id)}
             >
               <span>{claim.text}</span>
+              {claim.id &&
+                claimRooms &&
+                !claimRooms.get(claim.id)?.versions.length && (
+                  <small id={"vs-claim-status-" + claim.id}>待核查</small>
+                )}
               <span aria-hidden="true">›</span>
             </button>
           ))}
@@ -241,6 +258,7 @@ export function Library({
   update,
   attachPdf,
   versions,
+  claimRooms,
   openClaim,
   show,
 }: Props) {
@@ -384,7 +402,7 @@ export function Library({
           initial={resource}
           video={video}
           first={!i}
-          {...{ api, save, versions, openClaim, show }}
+          {...{ api, save, versions, claimRooms, openClaim, show }}
         />
       ))}
     </>

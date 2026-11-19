@@ -87,6 +87,14 @@ function Desk({
     question: string;
   } | null>(null);
   const [questions, setQuestions] = useState<Record<string, string>>({});
+  const [targets, setTargets] = useState<Record<string, string | undefined>>(
+    {},
+  );
+  const [discussionBusy, setDiscussionBusy] = useState<string>();
+  const [discussionErrors, setDiscussionErrors] = useState<
+    Record<string, string>
+  >({});
+  const discussionLock = useRef(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [newClaim, setNewClaim] = useState<string | null>(null);
   const params = useSearchParams();
@@ -147,6 +155,21 @@ function Desk({
       });
     return () => c.abort();
   }, [history]);
+  useEffect(() => {
+    if (!directoryOpen) return;
+    document
+      .querySelector<HTMLButtonElement>(
+        "#vs-claim-directory [aria-current=page]",
+      )
+      ?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setDirectoryOpen(false);
+      document.getElementById("vs-toggle-directory")?.focus();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [directoryOpen]);
   function open(side: Side) {
     setFold((v) => ({ ...v, [side]: false }));
     setMax((v) => (v === side ? v : null));
@@ -181,6 +204,75 @@ function Desk({
   function show(id: string) {
     navigate(index.byFinding.get(id)?.id, id);
   }
+  async function discuss(question: string, finding?: ResearchVersion) {
+    if (!active || !ready || discussionLock.current || !question.trim()) return;
+    const room = active;
+    const discussion = space.claimDiscussion ?? [];
+    if (discussion.length >= 2000) {
+      setDiscussionErrors((old) => ({
+        ...old,
+        [room.id]: "此项目的讨论已达到保存上限。",
+      }));
+      return;
+    }
+    discussionLock.current = true;
+    setDiscussionBusy(room.id);
+    setDiscussionErrors((old) => ({ ...old, [room.id]: "" }));
+    try {
+      const history = discussion
+        .filter((turn) => turn.claimId === room.id)
+        .slice(-6)
+        .map(({ question, reply }) => ({ question, reply }));
+      const { reply } = await requestJson<{ reply: string }>(
+        api + "/space",
+        "POST",
+        {
+          action: "discussClaim",
+          question,
+          claim: room.title,
+          origin: room.origin?.quote,
+          history,
+          finding:
+            finding &&
+            JSON.stringify({
+              question: finding.document.question,
+              synthesis: finding.document.synthesis,
+              sources: finding.document.evidence.map(({ id, title }) => ({
+                id,
+                title,
+              })),
+            }).slice(0, 12000),
+        },
+      );
+      const turn = {
+        id: crypto.randomUUID(),
+        claimId: room.id,
+        question,
+        reply,
+        created: new Date().toISOString(),
+        finding: finding?.id,
+      };
+      if (
+        !update((s) => ({
+          ...s,
+          claimDiscussion: [...(s.claimDiscussion ?? []), turn],
+        }))
+      )
+        throw Error("讨论无法保存，已保留你的问题。");
+      setQuestions((old) =>
+        old[room.id] === question ? { ...old, [room.id]: "" } : old,
+      );
+      await flush();
+    } catch (e) {
+      setDiscussionErrors((old) => ({
+        ...old,
+        [room.id]: (e as Error).message,
+      }));
+    } finally {
+      discussionLock.current = false;
+      setDiscussionBusy(undefined);
+    }
+  }
   async function investigate(
     q: string,
     parent?: string,
@@ -207,6 +299,9 @@ function Desk({
         },
       );
       setVersions((old) => [result.versions[0], ...old]);
+      setTargets((old) =>
+        old[room.id] === parent ? { ...old, [room.id]: undefined } : old,
+      );
       setQuestions((old) =>
         old[room.id] === q ? { ...old, [room.id]: "" } : old,
       );
@@ -220,6 +315,7 @@ function Desk({
       // Returning from another claim must not happen just because this request finished.
       const url = new URL(window.location.href);
       if (url.href === submittedFrom && url.searchParams.has("finding")) {
+        url.searchParams.set("claim", room.id);
         url.searchParams.delete("finding");
         window.history.replaceState(null, "", url);
       }
@@ -431,6 +527,7 @@ function Desk({
                     adding,
                     setAdding,
                   }}
+                  claimRooms={ready ? index.rooms : undefined}
                   openClaim={navigate}
                 />
               </div>
@@ -490,6 +587,21 @@ function Desk({
                   setQuestions((old) => ({ ...old, [active.id]: q }))
                 }
                 search={investigate}
+                discuss={discuss}
+                turns={
+                  space.claimDiscussion?.filter(
+                    (t) => t.claimId === active.id,
+                  ) ?? []
+                }
+                chatBusy={!!discussionBusy}
+                chatStatus={
+                  discussionBusy === active.id ? "正在回复…" : undefined
+                }
+                chatError={discussionErrors[active.id]}
+                target={targets[active.id]}
+                setTarget={(id) =>
+                  setTargets((old) => ({ ...old, [active.id]: id }))
+                }
                 busy={!!pending}
                 pending={
                   pending?.claim === active.id ? pending.question : undefined
