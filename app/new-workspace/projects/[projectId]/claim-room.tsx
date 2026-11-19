@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import type { ClaimTurn } from "@/lib/video-space/contract";
 import type {
   ResearchVersion,
@@ -61,6 +62,60 @@ export function ClaimDirectory({
   );
 }
 
+export function ClaimRoomHeader({
+  room,
+  onBack,
+}: {
+  room?: ClaimSpace;
+  onBack: () => void;
+}) {
+  const sourceLink = room && claimSourceLink(room);
+  return (
+    <header className="vs-room-header">
+      <small>观点空间</small>
+      <button
+        type="button"
+        className="vs-room-back"
+        aria-label="返回项目工作台"
+        title="返回项目工作台"
+        onClick={onBack}
+      >
+        <ArrowLeft size={17} aria-hidden="true" />
+      </button>
+      {room && (
+        <h2 id="vs-room-title" tabIndex={-1}>
+          {room.title}
+        </h2>
+      )}
+      {room?.origin && (
+        <>
+          <p className="vs-room-byline">
+            {room.origin.title} · {room.origin.location}
+          </p>
+          <details key={room.id}>
+            <summary>查看素材出处</summary>
+            <blockquote>{room.origin.quote}</blockquote>
+            {sourceLink && (
+              <a href={sourceLink} target="_blank" rel="noreferrer">
+                {room.origin.location} ↗
+              </a>
+            )}
+            {room.resource?.kind === "pdf" && (
+              <p>
+                {
+                  room.resource.pages.find(
+                    (p) => p.label === room.origin?.location,
+                  )?.text
+                }
+              </p>
+            )}
+          </details>
+        </>
+      )}
+    </header>
+  );
+}
+
 export function ClaimRoom({
   room,
   selected,
@@ -103,7 +158,6 @@ export function ClaimRoom({
   const latest = room.versions.at(-1);
   const finding = selected ?? latest;
   const parent = room.versions.find((v) => v.id === target) ?? finding;
-  const sourceLink = claimSourceLink(room);
   const evidence = new Map<
     string,
     { source: ResearchEvidence; quotes: Set<string> }
@@ -143,37 +197,6 @@ export function ClaimRoom({
   ].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <>
-      <header className="vs-room-header">
-        <small>观点空间</small>
-        <h2 id="vs-room-title" tabIndex={-1}>
-          {room.title}
-        </h2>
-        {room.origin && (
-          <>
-            <p className="vs-room-byline">
-              {room.origin.title} · {room.origin.location}
-            </p>
-            <details>
-              <summary>查看素材出处</summary>
-              <blockquote>{room.origin.quote}</blockquote>
-              {sourceLink && (
-                <a href={sourceLink} target="_blank" rel="noreferrer">
-                  {room.origin.location} ↗
-                </a>
-              )}
-              {room.resource?.kind === "pdf" && (
-                <p>
-                  {
-                    room.resource.pages.find(
-                      (p) => p.label === room.origin?.location,
-                    )?.text
-                  }
-                </p>
-              )}
-            </details>
-          </>
-        )}
-      </header>
       <section className="vs-room-evidence" aria-label="本观点的证据">
         <div className="vs-row">
           <h3>

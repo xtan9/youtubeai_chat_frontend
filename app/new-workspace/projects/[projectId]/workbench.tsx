@@ -21,7 +21,7 @@ import {
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
-import { ClaimDirectory, ClaimRoom } from "./claim-room";
+import { ClaimDirectory, ClaimRoom, ClaimRoomHeader } from "./claim-room";
 import {
   groupClaimSpaces,
   type ResearchAttempt,
@@ -33,11 +33,7 @@ type Side = "research" | "partner";
 const label = { research: "研究台", partner: "创作搭档" };
 type ProjectHeadingProps = { projectId: string; name: string };
 
-function ProjectHeading({
-  projectId,
-  name,
-  onBack,
-}: ProjectHeadingProps & { onBack?: () => void }) {
+function ProjectHeading({ projectId, name }: ProjectHeadingProps) {
   return (
     <header className="vs-heading">
       <div>
@@ -46,13 +42,7 @@ function ProjectHeading({
             <ChevronLeft size={14} /> New Workspace
           </Link>
           <span aria-hidden="true">/</span>
-          {onBack ? (
-            <button type="button" onClick={onBack}>
-              返回项目工作台
-            </button>
-          ) : (
-            <span>视频 Space</span>
-          )}
+          <span>视频 Space</span>
         </nav>
         <h1>{name}</h1>
       </div>
@@ -455,11 +445,7 @@ function Desk({
   }
   return (
     <>
-      <ProjectHeading
-        projectId={projectId}
-        name={name}
-        onBack={inRoom ? () => navigate() : undefined}
-      />
+      <ProjectHeading projectId={projectId} name={name} />
       <div
         className="vs-grid"
         data-claim={inRoom || undefined}
@@ -581,6 +567,7 @@ function Desk({
         )}
         {inRoom && (
           <section className="vs-panel vs-claim-room" aria-label="观点空间">
+            <ClaimRoomHeader room={active} onBack={() => navigate()} />
             <div className="vs-room-tools">
               <button
                 id="vs-toggle-directory"

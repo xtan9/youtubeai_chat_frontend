@@ -57,14 +57,6 @@
   gap: 4px;
   min-height: 1lh;
 }
-.vs .vs-heading nav button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--fern);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 .vs-heading span,
 .vs small,
 .vs-hint {
@@ -353,8 +345,24 @@
   margin-top: 10px;
 }
 .vs-room-header {
+  position: relative;
+  min-height: 44px;
   border-bottom: 1px solid var(--rule);
   padding-bottom: 12px;
+}
+.vs-room-header > small,
+.vs-room-header > h2 {
+  padding-inline-end: 44px;
+}
+.vs .vs-room-back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
 }
 .vs-room-header > small {
   color: var(--fern);
@@ -403,7 +411,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-top: 8px;
   }
   .vs-grid[data-claim] {
     grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);

@@ -237,9 +237,20 @@ export async function videoSpaceJourney(
     await page.setViewportSize({ width, height: 900 });
     const deskTop = await panelTop();
     await openClaim();
-    await expect(
-      page.getByRole("button", { name: "返回项目工作台" }),
-    ).toBeVisible();
+    const header = page
+      .getByRole("region", { name: "观点空间", exact: true })
+      .locator("header");
+    const returnButton = header.getByRole("button", { name: "返回项目工作台" });
+    await expect(returnButton).toBeVisible();
+    await expect(returnButton).toHaveText("");
+    await expect(returnButton.locator("svg")).toBeVisible();
+    const headerBox = (await header.boundingBox())!;
+    const buttonBox = (await returnButton.boundingBox())!;
+    expect(buttonBox.y).toBeCloseTo(headerBox.y, 0);
+    expect(buttonBox.x + buttonBox.width).toBeCloseTo(
+      headerBox.x + headerBox.width,
+      0,
+    );
     expect(await panelTop()).toBeCloseTo(deskTop, 1);
     await back();
     await expect(originCard).toBeVisible();
