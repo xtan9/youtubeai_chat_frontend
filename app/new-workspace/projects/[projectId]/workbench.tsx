@@ -31,35 +31,57 @@ import "./workbench.css";
 
 type Side = "research" | "partner";
 const label = { research: "研究台", partner: "创作搭档" };
-export function Workbench({
+type ProjectHeadingProps = { projectId: string; name: string };
+
+function ProjectHeading({
   projectId,
   name,
-}: {
-  projectId: string;
-  name: string;
-}) {
+  onBack,
+}: ProjectHeadingProps & { onBack?: () => void }) {
+  return (
+    <header className="vs-heading">
+      <div>
+        <nav aria-label="当前位置">
+          <Link href="/new-workspace">
+            <ChevronLeft size={14} /> New Workspace
+          </Link>
+          <span aria-hidden="true">/</span>
+          {onBack ? (
+            <button type="button" onClick={onBack}>
+              返回项目工作台
+            </button>
+          ) : (
+            <span>视频 Space</span>
+          )}
+        </nav>
+        <h1>{name}</h1>
+      </div>
+      <Link href={"/workspace/projects/" + projectId}>原项目资料 ↗</Link>
+    </header>
+  );
+}
+
+export function Workbench({ projectId, name }: ProjectHeadingProps) {
   const api = "/api/projects/" + projectId;
   const store = useSpace(api + "/space");
   return (
     <div className="vs ph-no-capture" data-ph-no-autocapture lang="zh-CN">
-      <div className="vs-heading">
-        <div>
-          <Link href="/new-workspace">
-            <ChevronLeft size={14} />
-            New Workspace
-          </Link>
-          <span> / 视频 Space</span>
-          <h1>{name}</h1>
-        </div>
-        <Link href={"/workspace/projects/" + projectId}>原项目资料 ↗</Link>
-      </div>
       {store.space ? (
-        <Desk {...store} space={store.space} api={api} />
+        <Desk
+          {...store}
+          space={store.space}
+          api={api}
+          projectId={projectId}
+          name={name}
+        />
       ) : (
-        <p role="status">
-          {store.status}{" "}
-          <button onClick={() => window.location.reload()}>重新加载</button>
-        </p>
+        <>
+          <ProjectHeading projectId={projectId} name={name} />
+          <p role="status">
+            {store.status}{" "}
+            <button onClick={() => window.location.reload()}>重新加载</button>
+          </p>
+        </>
       )}
     </div>
   );
@@ -72,10 +94,13 @@ function Desk({
   status,
   flush,
   api,
-}: Omit<ReturnType<typeof useSpace>, "space"> & {
-  space: NonNullable<ReturnType<typeof useSpace>["space"]>;
-  api: string;
-}) {
+  projectId,
+  name,
+}: Omit<ReturnType<typeof useSpace>, "space"> &
+  ProjectHeadingProps & {
+    space: NonNullable<ReturnType<typeof useSpace>["space"]>;
+    api: string;
+  }) {
   const [fold, setFold] = useState({ research: false, partner: false }),
     [max, setMax] = useState<Side | null>(null),
     [adding, setAdding] = useState(false);
@@ -430,32 +455,11 @@ function Desk({
   }
   return (
     <>
-      {inRoom && (
-        <div className="vs-room-tools">
-          <button onClick={() => navigate()}>
-            <ChevronLeft size={14} /> 返回项目工作台
-          </button>
-          <button
-            id="vs-toggle-directory"
-            className="vs-switch-claim"
-            aria-controls="vs-claim-directory"
-            aria-expanded={directoryOpen}
-            onClick={() => setDirectoryOpen(!directoryOpen)}
-          >
-            切换观点
-          </button>
-          <button
-            className="vs-jump-script"
-            onClick={() =>
-              document
-                .querySelector<HTMLTextAreaElement>(".vs-script textarea")
-                ?.focus()
-            }
-          >
-            写脚本 →
-          </button>
-        </div>
-      )}
+      <ProjectHeading
+        projectId={projectId}
+        name={name}
+        onBack={inRoom ? () => navigate() : undefined}
+      />
       <div
         className="vs-grid"
         data-claim={inRoom || undefined}
@@ -577,6 +581,27 @@ function Desk({
         )}
         {inRoom && (
           <section className="vs-panel vs-claim-room" aria-label="观点空间">
+            <div className="vs-room-tools">
+              <button
+                id="vs-toggle-directory"
+                className="vs-switch-claim"
+                aria-controls="vs-claim-directory"
+                aria-expanded={directoryOpen}
+                onClick={() => setDirectoryOpen(!directoryOpen)}
+              >
+                切换观点
+              </button>
+              <button
+                className="vs-jump-script"
+                onClick={() =>
+                  document
+                    .querySelector<HTMLTextAreaElement>(".vs-script textarea")
+                    ?.focus()
+                }
+              >
+                写脚本 →
+              </button>
+            </div>
             {active ? (
               <ClaimRoom
                 key={active.id}

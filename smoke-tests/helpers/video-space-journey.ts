@@ -229,6 +229,23 @@ export async function videoSpaceJourney(
     originCard.getByRole("button", { name: claimTitle, exact: true }).click();
   const back = () =>
     page.getByRole("button", { name: "返回项目工作台" }).click();
+  const panelTop = () =>
+    page
+      .locator(".vs-grid")
+      .evaluate((grid) => grid.getBoundingClientRect().top + window.scrollY);
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const deskTop = await panelTop();
+    await openClaim();
+    await expect(
+      page.getByRole("button", { name: "返回项目工作台" }),
+    ).toBeVisible();
+    expect(await panelTop()).toBeCloseTo(deskTop, 1);
+    await back();
+    await expect(originCard).toBeVisible();
+    expect(await panelTop()).toBeCloseTo(deskTop, 1);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openClaim();
   const room = page.getByRole("region", { name: "观点空间", exact: true });
   await expect(room).toBeVisible();

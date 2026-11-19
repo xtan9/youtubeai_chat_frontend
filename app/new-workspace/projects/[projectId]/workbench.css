@@ -34,7 +34,6 @@
 .vs [hidden] {
   display: none !important;
 }
-.vs-heading,
 .vs-row,
 .vs-actions {
   display: flex;
@@ -42,13 +41,29 @@
   gap: 7px;
   flex-wrap: wrap;
 }
-.vs-heading,
 .vs-row {
   justify-content: space-between;
 }
 .vs-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
   margin: 0 0 22px;
   align-items: end;
+}
+.vs-heading nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1lh;
+}
+.vs .vs-heading nav button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fern);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .vs-heading span,
 .vs small,
@@ -291,8 +306,7 @@
 .vs-desk-library {
   display: contents;
 }
-.vs-library-actions,
-.vs-room-tools {
+.vs-library-actions {
   margin: 12px 0;
 }
 .vs .vs-claim-link {
@@ -317,7 +331,9 @@
   box-shadow: inset 3px 0 var(--fern);
   font-weight: 600;
 }
-.vs-room-tools,
+.vs-room-tools {
+  display: none;
+}
 .vs-script-heading {
   display: flex;
   gap: 8px;
@@ -382,6 +398,13 @@
   display: none;
 }
 @media (max-width: 1050px) {
+  .vs-room-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
   .vs-grid[data-claim] {
     grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
   }
@@ -407,6 +430,10 @@
   }
 }
 @media (max-width: 520px) {
+  .vs-heading {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
   .vs-grid[data-claim] {
     grid-template-columns: 78% 78%;
     overflow-x: auto;
