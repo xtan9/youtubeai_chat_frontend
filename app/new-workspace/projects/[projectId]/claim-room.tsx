@@ -1,4 +1,5 @@
 import { ArrowLeft } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ClaimTurn } from "@/lib/video-space/contract";
 import type {
   ResearchVersion,
@@ -65,9 +66,11 @@ export function ClaimDirectory({
 export function ClaimRoomHeader({
   room,
   onBack,
+  children,
 }: {
   room?: ClaimSpace;
   onBack: () => void;
+  children?: ReactNode;
 }) {
   const sourceLink = room && claimSourceLink(room);
   const titleVersion = !room?.resource && room?.versions.find(({document}) =>
@@ -76,16 +79,20 @@ export function ClaimRoomHeader({
     document.space?.origin?.quote === room.origin?.quote);
   return (
     <header className="vs-room-header" data-translation-section="claim">
-      <small>观点空间</small>
-      <button
-        type="button"
-        className="vs-room-back"
-        aria-label="返回项目工作台"
-        title="返回项目工作台"
-        onClick={onBack}
-      >
-        <ArrowLeft size={17} aria-hidden="true" />
-      </button>
+      <div className="vs-room-toolbar">
+        <small>观点空间</small>
+        <div className="vs-room-actions">
+          {children}
+          <button
+            type="button"
+            aria-label="返回项目工作台"
+            title="返回项目工作台"
+            onClick={onBack}
+          >
+            <ArrowLeft size={17} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
       {room && (
         <h2 id="vs-room-title" tabIndex={-1} data-translation-block="0" data-translation-version={titleVersion ? titleVersion.id : undefined}>
           {room.title}

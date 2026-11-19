@@ -574,9 +574,18 @@ function Desk({
           <section ref={roomRef} data-translation-room=""
             data-translation-version={active && !active.resource && !space.customClaims?.some(c => c.id === active.id) ? active.versions[0]?.id : undefined}
             className="vs-panel vs-claim-room" aria-label="观点空间">
-            <ClaimRoomHeader room={active} onBack={() => navigate()} />
-            {active && <HighlightTranslation key={"translation:" + active.id} projectId={projectId} claimId={active.id} ensureSaved={ensureReadingSaved} readingRef={roomRef}
-              browserLanguage={pickDefaultLanguage(Array.from(navigator.languages ?? []), SUPPORTED_LANGUAGE_CODES)} />}
+            <ClaimRoomHeader room={active} onBack={() => navigate()}>
+              {active && (
+                <HighlightTranslation
+                  key={active.id}
+                  projectId={projectId}
+                  claimId={active.id}
+                  ensureSaved={ensureReadingSaved}
+                  readingRef={roomRef}
+                  browserLanguage={pickDefaultLanguage(Array.from(navigator.languages ?? []), SUPPORTED_LANGUAGE_CODES)}
+                />
+              )}
+            </ClaimRoomHeader>
             <div className="vs-room-tools">
               <button
                 id="vs-toggle-directory"

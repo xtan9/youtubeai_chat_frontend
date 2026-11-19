@@ -70,8 +70,12 @@ test("paid researcher translates a saved Project claim with real AI @live-claim-
   test.skip(process.env.RUN_LIVE_HIGHLIGHT_TRANSLATION !== "1" || !projectId || !claimId, "Requires a paid smoke account with an existing English claim");
   await signIn(page);
   await page.goto(PROD_URL + "/new-workspace/projects/" + encodeURIComponent(projectId!) + "?claim=" + encodeURIComponent(claimId!));
-  await page.getByRole("checkbox", { name: "划词翻译" }).check();
-  await page.getByLabel("翻译目标语言").selectOption("zh");
+  await page.getByRole("button", { name: "划词翻译设置" }).click();
+  const settings = page.getByRole("dialog", { name: "划词翻译设置" });
+  await settings.getByRole("switch", { name: "划词翻译" }).check();
+  await settings.getByLabel("翻译目标语言").selectOption("zh");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
   await highlightWord(page.locator("#vs-room-title"));
   const paragraphs = page.getByRole("region", { name: "划词翻译", exact: true }).locator('p[lang="zh"]');
   await expect(paragraphs.first()).toContainText(/\p{Script=Han}/u, { timeout: 30_000 });

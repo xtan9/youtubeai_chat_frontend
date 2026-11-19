@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Copy, Languages, LoaderCircle, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { SUPPORTED_OUTPUT_LANGUAGES, isSupportedLanguageCode, type SupportedLanguageCode } from "@/lib/constants/languages";
@@ -92,13 +93,31 @@ const cardLabels = {
   },
 };
 
+function ClaimTranslationSettings({ enabled, pending, children }: { enabled?: boolean; pending?: boolean; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="划词翻译设置" title={enabled ? "划词翻译设置（已开启）" : "划词翻译设置"}
+          disabled={pending} aria-busy={pending} data-enabled={enabled}>
+          <Languages size={17} aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} collisionPadding={12} aria-label="划词翻译设置"
+        data-ph-no-autocapture className="ph-no-capture w-64 max-w-[calc(100vw-1.5rem)] rounded-xl text-body-sm">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function HighlightTranslation(props: Props) {
   const entitlements = useEntitlements();
   const eligible = entitlements.data?.tier === "pro" && hasTranslationAccess(entitlements.subscriptionPresentation);
   if (eligible) return <PaidHighlightTranslation {...props} />;
   if (props.projectId) return (
-    <small>{entitlements.isPending ? "正在检查翻译权限…" : entitlements.isError
-      ? "暂时无法读取翻译权限" : <Link href="/pricing">划词翻译 · Pro</Link>}</small>
+    <ClaimTranslationSettings pending={entitlements.isPending}>
+      {entitlements.isError ? "暂时无法读取翻译权限" : <Link href="/pricing" className="underline underline-offset-4">划词翻译 · Pro</Link>}
+    </ClaimTranslationSettings>
   );
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
@@ -339,14 +358,28 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
   const isRtl = language === "ar";
   return (
     <>
-      {projectId ? <div ref={controlsRef} className="vs-translation-tools">
-        <label title="选中词句后，AI 会结合所在段落翻译"><input type="checkbox" checked={enabled}
-          onChange={event => save(event.target.checked, language)} /> 划词翻译</label>
-        {enabled && <select aria-label="翻译目标语言" value={language} onChange={event => {
-          if (isSupportedLanguageCode(event.target.value)) save(true, event.target.value);
-        }}>{SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}</select>}
-        <small>选中的词句、所在段落和标题会交给 AI 翻译。</small>
-      </div> : <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
+      {projectId ? (
+        <ClaimTranslationSettings enabled={enabled}>
+          <div ref={controlsRef} className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor={id} className="cursor-pointer font-semibold">划词翻译</label>
+              <Switch id={id} checked={enabled} onCheckedChange={value => save(value, language)} aria-describedby={id + "-help"}
+                className="data-[state=unchecked]:bg-text-muted dark:data-[state=unchecked]:bg-text-muted" />
+            </div>
+            <label className="flex items-center justify-between gap-3">
+              目标语言
+              <select aria-label="翻译目标语言" value={language}
+                onChange={event => {
+                  if (isSupportedLanguageCode(event.target.value)) save(enabled, event.target.value);
+                }}
+                className="min-w-0 max-w-36 rounded-md border border-border-default bg-surface-base px-2 py-1">
+                {SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}
+              </select>
+            </label>
+            <p id={id + "-help"} className="text-body-xs leading-relaxed text-text-secondary">选中的词句、所在段落和标题会交给 AI 翻译。</p>
+          </div>
+        </ClaimTranslationSettings>
+      ) : <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
         <>
           <div className="flex items-center gap-2">
             <Switch id={id} checked={preferences.enabled} onCheckedChange={value => save(value, language)} aria-describedby={id + "-help"} />
