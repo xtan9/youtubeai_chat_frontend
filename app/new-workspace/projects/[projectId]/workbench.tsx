@@ -583,9 +583,12 @@ function Desk({
                 room={active}
                 selected={selected}
                 question={questions[active.id] ?? ""}
-                setQuestion={(q) =>
-                  setQuestions((old) => ({ ...old, [active.id]: q }))
-                }
+                setQuestion={(q) => {
+                  setQuestions((old) => ({ ...old, [active.id]: q }));
+                  if (q.trim() && selected && !targets[active.id]) {
+                    setTargets((old) => ({ ...old, [active.id]: selected.id }));
+                  }
+                }}
                 search={investigate}
                 discuss={discuss}
                 turns={

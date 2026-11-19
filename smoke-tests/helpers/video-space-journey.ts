@@ -432,11 +432,30 @@ export async function videoSpaceJourney(
     4,
   );
   expect(versions[0].document.space?.followUpTo).toBe(branchFinding);
+  await room.getByRole("button", { name: "查看本次证据" }).first().click();
+  await room.getByLabel("研究问题").fill("查证最初那一次的研究设计");
+  await other.getByRole("button", { name: claimTitle, exact: true }).click();
+  await directory
+    .locator(".vs-source")
+    .filter({ has: page.getByRole("heading", { name: docs[0].title }) })
+    .getByRole("button", { name: claimTitle, exact: true })
+    .click();
+  await expect(room.getByLabel("研究问题")).toHaveValue(
+    "查证最初那一次的研究设计",
+  );
+  await room.getByRole("button", { name: "检索这个问题" }).click();
+  await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
+    5,
+  );
+  expect(versions[0].document.space?.followUpTo).toBe(olderFinding);
   await back();
   await prompt.fill("这条写作消息先留着");
   await openClaim();
+  await expect(room.getByRole("heading", { name: claimTitle })).toBeVisible();
   await editor.focus();
-  await editor.press("Home");
+  await editor.evaluate((element: HTMLTextAreaElement) =>
+    element.setSelectionRange(0, 0),
+  );
   await editor.press("Shift+ArrowRight");
   await page
     .getByRole("region", { name: "脚本编辑器" })
@@ -457,6 +476,6 @@ export async function videoSpaceJourney(
   await expect(room.getByRole("heading", { name: custom })).toBeVisible();
   await expect(room.getByText("应该先讨论什么？")).toBeVisible();
   expect(discussed).toEqual([claimTitle, custom]);
-  expect(requests).toBe(5);
+  expect(requests).toBe(6);
   expect(writes).toBe(4);
 }
