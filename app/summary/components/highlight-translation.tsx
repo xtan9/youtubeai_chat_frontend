@@ -47,8 +47,8 @@ type Props = {
   readingRef: RefObject<HTMLElement | null>;
   browserLanguage: SupportedLanguageCode;
 } & (
-  | { sourceUrl: string; outputLanguage: SupportedLanguageCode | null; projectId?: never }
-  | { projectId: string; sourceUrl?: never; outputLanguage?: never }
+  | { sourceUrl: string; outputLanguage: SupportedLanguageCode | null; projectId?: never; claimId?: never; ensureSaved?: never }
+  | { projectId: string; claimId: string; ensureSaved: () => Promise<boolean>; sourceUrl?: never; outputLanguage?: never }
 );
 
 const cardLabels = {
@@ -109,7 +109,7 @@ export function HighlightTranslation(props: Props) {
   );
 }
 
-function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, browserLanguage, projectId }: Props) {
+function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, browserLanguage, projectId, claimId, ensureSaved }: Props) {
   const labels = projectId ? cardLabels.zh : cardLabels.en;
   const stored = useSyncExternalStore(subscribePreferences, readPreferences, serverPreferences);
   const [volatilePreferences, setVolatilePreferences] = useState<string | null>(null);
@@ -151,6 +151,14 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
     setCopied(false);
     setCopyFailed(false);
     try {
+      if (ensureSaved) {
+        const saved = await ensureSaved();
+        if (controller.signal.aborted || current !== generation.current) return;
+        if (!saved) {
+          setCard({ ...next, status: "error", message: "原文尚未保存，请保存后重试。" });
+          return;
+        }
+      }
       const response = await fetch("/api/translate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(next.payload), signal: controller.signal, cache: "no-store",
@@ -175,7 +183,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         setCard({ ...next, status: "error", message: labels.failed });
       }
     }
-  }, [labels]);
+  }, [labels, ensureSaved]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -200,15 +208,18 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       if (signature.current === nextSignature) return;
       signature.current = nextSignature;
       dismiss();
-      if (!selected.passage) {
+      if (!selected.passage || (projectId && !selected.passage.section)) {
         setCard({ range: selected.range, status: "hint", message: labels.hint });
         return;
       }
       const next: Card = {
         range: selected.range, status: "ready",
         payload: projectId !== undefined
-          ? { projectId, versionId: selected.passage.versionId, targetLanguage: language, text: selected.passage.text,
-              selectionStart: selected.passage.selectionStart, context: selected.passage.context }
+          ? {
+              projectId, claimId, section: selected.passage.section!, versionId: selected.passage.versionId,
+              targetLanguage: language, text: selected.passage.text,
+              selectionStart: selected.passage.selectionStart, context: selected.passage.context,
+            }
           : { ...selected.passage, youtubeUrl: sourceUrl, outputLanguage, targetLanguage: language },
       };
       if (touch) setCard(next);
@@ -270,7 +281,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       document.removeEventListener("pointercancel", pointerUp);
       document.removeEventListener("keydown", keyDown);
     };
-  }, [enabled, language, labels, projectId, sourceUrl, outputLanguage, readingRef, dismiss, translate, cancelRequest]);
+  }, [enabled, language, labels, projectId, claimId, sourceUrl, outputLanguage, readingRef, dismiss, translate, cancelRequest]);
 
   useLayoutEffect(() => {
     if (!card || !enabled) return;
@@ -334,6 +345,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         {enabled && <select aria-label="翻译目标语言" value={language} onChange={event => {
           if (isSupportedLanguageCode(event.target.value)) save(true, event.target.value);
         }}>{SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}</select>}
+        <small>选中的词句、所在段落和标题会交给 AI 翻译。</small>
       </div> : <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
         <>
           <div className="flex items-center gap-2">
@@ -357,7 +369,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
           className="ph-no-capture fixed z-50 overflow-auto rounded-xl border border-border-subtle border-t-[3px] border-t-accent-brand-secondary bg-surface-overlay p-4 text-text-primary shadow-xl"
           style={{ ...position, visibility: position ? "visible" : "hidden" }}>
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="min-w-0 break-words font-semibold">{visible.payload?.text ?? (labels.name)}
+            <div className="min-w-0 break-words font-semibold">{visible.payload?.text ?? labels.name}
               {visible.result?.partOfSpeech && <span className="ml-2 text-body-xs font-normal italic text-text-muted">{visible.result.partOfSpeech}</span>}
             </div>
             <button type="button" aria-label={labels.close} onClick={dismiss} className="rounded p-1 hover:bg-state-hover focus-visible:outline-2 focus-visible:outline-offset-2"><X className="h-4 w-4" /></button>

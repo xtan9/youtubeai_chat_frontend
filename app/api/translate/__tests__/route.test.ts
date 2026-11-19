@@ -328,7 +328,7 @@ describe("Project highlight translation", () => {
   const evidenceId = "E0123456789abcdef";
   function translate(context: string, text: string, patch = {}) {
     return POST(new Request("http://localhost/api/translate", { method: "POST", body: JSON.stringify({
-      projectId, targetLanguage: "zh", text, context, selectionStart: context.indexOf(text), ...patch,
+      projectId, claimId: versionId, section: "claim", targetLanguage: "zh", text, context, selectionStart: context.indexOf(text), ...patch,
     }) }));
   }
   beforeEach(() => {
@@ -343,7 +343,7 @@ describe("Project highlight translation", () => {
     const observation = { text: reply, references: [{ id: evidenceId, quote }] };
     state.rows.project_research_runs = [{ id: versionId, project_id: projectId, state: "completed", created_at: "now",
       document: {
-        question: title, promptVersion: "project-research-v1", sourceSetRevision: 0, searches: [], warnings: [],
+        question: title, space: { claimId: versionId }, promptVersion: "project-research-v1", sourceSetRevision: 0, searches: [], warnings: [],
         evidence: [{ id: evidenceId, kind: "publication_abstract", originId: "paper", title: "Cooking oils trial",
           url: "https://europepmc.org/article/MED/123456", text: quote, retrievedAt: "2026-11-19T00:00:00Z", year: null, authors: null, publicationTypes: [] }],
         synthesis: { judgment: observation, reasoning: observation, findings: [observation], uncertainties: ["Limited data"],
@@ -351,7 +351,7 @@ describe("Project highlight translation", () => {
       },
     }];
   });
-  it.each([[title, "Cooking", {}], [reply, "measured", {}], [quote, "intervention", { versionId }]])(
+  it.each([[title, "Cooking", {}], [reply, "measured", { section: "discussion" }], [quote, "intervention", { section: "evidence", versionId }]])(
     "translates only the selected expression in its saved context: %s", async (context, text, patch) => {
       expect((await translate(context, text, patch)).status).toBe(200);
       const prompt = JSON.parse(gateway.mock.calls[0][1].body).messages[0].content;
@@ -359,6 +359,15 @@ describe("Project highlight translation", () => {
       expect(prompt).not.toContain("Private draft text");
     },
   );
+  it("binds excerpts to the open claim and its reading section", async () => {
+    const otherClaim = "6e200000-0000-4000-8000-000000000003";
+    const current = state.rows.video_spaces[0].document as { customClaims: Array<{id: string; text: string}> };
+    current.customClaims.push({ id: otherClaim, text: "Other comparison" });
+    expect((await translate(reply, "measured", { section: "discussion", claimId: otherClaim })).status).toBe(409);
+    expect((await translate(quote, "intervention", { section: "evidence", claimId: otherClaim, versionId })).status).toBe(409);
+    expect((await translate(reply, "measured", { section: "claim" })).status).toBe(409);
+    expect(gateway).not.toHaveBeenCalled();
+  });
   it("rejects a Project owned by another workspace before translation", async () => {
     state.rows.projects[0].workspace_id = "other";
     expect((await translate(title, "Cooking")).status).toBe(404);
@@ -366,7 +375,7 @@ describe("Project highlight translation", () => {
   });
   it("rejects another Project's evidence, forged context, private drafts and unpaid requests", async () => {
     state.rows.project_research_runs[0].project_id = "other";
-    expect((await translate(quote, "intervention", { versionId })).status).toBe(409);
+    expect((await translate(quote, "intervention", { section: "evidence", versionId })).status).toBe(409);
     expect((await translate(title + " Added context.", "Cooking")).status).toBe(409);
     expect((await translate("Private draft text", "draft")).status).toBe(409);
     state.rows.user_subscriptions[0] = { user_id: "learner-1", tier: "free", status: null };

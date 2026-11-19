@@ -52,9 +52,7 @@ async function readBody(request: Request): Promise<unknown> {
   }
 }
 
-async function resolveSummaryTranslation(userId: string, input: TranslationRequest) {
-  const youtubeVideoId = normalizeYouTubeVideoId(input.youtubeUrl);
-  if (!youtubeVideoId) return error(400, "INVALID_SELECTION", "Invalid Summary source.");
+async function resolveSummaryTranslation(userId: string, input: TranslationRequest, youtubeVideoId: string) {
   const database = getServiceRoleClient();
   if (!database) return error(503, "UNAVAILABLE", "Translation is temporarily unavailable.");
   const video = await database.from("videos").select("id").eq("youtube_video_id", youtubeVideoId).maybeSingle();
@@ -91,6 +89,8 @@ export async function POST(request: Request): Promise<Response> {
     const parsed = TranslationRequestSchema.or(ProjectTranslationRequestSchema).safeParse(await readBody(request).catch(() => null));
     if (!parsed.success) return error(400, "INVALID_SELECTION", "Select up to one sentence.");
     const input = parsed.data;
+    const youtubeVideoId = "youtubeUrl" in input ? normalizeYouTubeVideoId(input.youtubeUrl) : null;
+    if ("youtubeUrl" in input && !youtubeVideoId) return error(400, "INVALID_SELECTION", "Invalid Summary source.");
     const rate = await checkRateLimit(auth.principal.userId, false);
     if (!rate.allowed) {
       return rate.reason === "exceeded"
@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const passage = "projectId" in input
       ? await resolveProjectTranslation(auth.principal.userId, input)
-      : await resolveSummaryTranslation(auth.principal.userId, input);
+      : await resolveSummaryTranslation(auth.principal.userId, input, youtubeVideoId!);
     if (passage instanceof Response) return passage;
 
     const target = getLanguage(input.targetLanguage);

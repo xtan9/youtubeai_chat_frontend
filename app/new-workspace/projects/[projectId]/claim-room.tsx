@@ -75,7 +75,7 @@ export function ClaimRoomHeader({
   const originVersion = !room?.resource && room?.versions.find(({document}) =>
     document.space?.origin?.quote === room.origin?.quote);
   return (
-    <header className="vs-room-header">
+    <header className="vs-room-header" data-translation-section="claim">
       <small>观点空间</small>
       <button
         type="button"
@@ -202,7 +202,7 @@ export function ClaimRoom({
   ].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <>
-      <section className="vs-room-evidence" aria-label="本观点的证据">
+      <section className="vs-room-evidence" aria-label="本观点的证据" data-translation-section="evidence">
         <div className="vs-row">
           <h3>
             证据 <small>{evidence.size}</small>
@@ -242,7 +242,7 @@ export function ClaimRoom({
           </details>
         ))}
       </section>
-      <section aria-label="本观点的讨论">
+      <section aria-label="本观点的讨论" data-translation-section="discussion">
         <div className="vs-row">
           <h3>围绕这个观点讨论</h3>
           {finding && (
@@ -285,7 +285,7 @@ export function ClaimRoom({
               </div>
             ) : (
               a && (
-                <div className="vs-turn" key={a.id}>
+                <div className="vs-turn" key={a.id} data-translation-version={a.parent}>
                   <strong data-translation-block="0">{a.question}</strong>
                   <p role="alert">
                     {a.evidenceGap ? "证据不足 · " : ""}

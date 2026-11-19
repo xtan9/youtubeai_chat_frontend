@@ -40,7 +40,7 @@ export function Finding({ version }: { version: ResearchVersion }) {
             </p>
             <p>
               <b>判断把握</b> · {labels[assessment.confidence]}。
-              {assessment.confidenceReason}
+              <span data-translation-block="0">{assessment.confidenceReason}</span>
             </p>
           </>
         )}

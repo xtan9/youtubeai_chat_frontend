@@ -2,7 +2,7 @@ import { boundContext, HEADING_LIMIT, isSingleSentence, normalizePassage } from 
 
 export type PassageSelection = {
   range: Range;
-  passage: { versionId?: string; text: string; context: string; heading: string; blockStart: number; selectionStart: number } | null;
+  passage: { section?: "claim" | "evidence" | "discussion"; versionId?: string; text: string; context: string; heading: string; blockStart: number; selectionStart: number } | null;
 };
 
 export function readPassageSelection(root: HTMLElement): PassageSelection | null {
@@ -16,6 +16,7 @@ export function readPassageSelection(root: HTMLElement): PassageSelection | null
   if (start?.closest("button,input,textarea,select,pre") || end?.closest("button,input,textarea,select,pre")) return null;
   const block = start?.closest<HTMLElement>("[data-translation-block]");
   const endBlock = end?.closest("[data-translation-block]");
+  if (!block && !endBlock && root.hasAttribute("data-translation-room")) return null;
   const invalid = { range: range.cloneRange(), passage: null };
   if (!block || block !== endBlock || !root.contains(block)) return invalid;
   // Tight list items may contain another list; those are not one paragraph.
@@ -38,8 +39,10 @@ export function readPassageSelection(root: HTMLElement): PassageSelection | null
       heading = Array.from(normalizePassage(node.textContent ?? "")).slice(0, HEADING_LIMIT).join("");
     }
   }
+  const scope = block.closest<HTMLElement>("[data-translation-section]")?.dataset.translationSection;
+  const section = scope === "claim" || scope === "evidence" || scope === "discussion" ? scope : undefined;
   const versionId = block.closest<HTMLElement>("[data-translation-version]")?.dataset.translationVersion;
-  return { range: range.cloneRange(), passage: { ...(versionId ? { versionId } : {}), text, selectionStart, blockStart, context: boundContext(paragraph, selectionStart), heading } };
+  return { range: range.cloneRange(), passage: { ...(section ? { section } : {}), ...(versionId ? { versionId } : {}), text, selectionStart, blockStart, context: boundContext(paragraph, selectionStart), heading } };
 }
 
 export function positionTranslation(range: Range, root: HTMLElement, height: number) {

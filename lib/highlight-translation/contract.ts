@@ -62,6 +62,8 @@ export const ProjectTranslationRequestSchema = TranslationRequestSchema.pick({
   context: true,
 }).extend({
   projectId: z.uuid(),
+  claimId: z.string().min(1).max(120),
+  section: z.enum(["claim", "evidence", "discussion"]),
   versionId: z.uuid().optional(),
 }).strict();
 export type ProjectTranslationRequest = z.infer<typeof ProjectTranslationRequestSchema>;
