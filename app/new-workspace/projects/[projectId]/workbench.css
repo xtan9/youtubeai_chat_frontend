@@ -368,10 +368,9 @@
   color: var(--fern);
 }
 .vs-room-header > h2 {
-  font:
-    650 clamp(22px, 2vw, 31px) / 1.35 Georgia,
-    "Songti SC",
-    serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5;
   margin: 7px 0;
 }
 .vs .vs-room-byline {
@@ -438,6 +437,9 @@
   }
 }
 @media (max-width: 520px) {
+  .vs-room-header > h2 {
+    font-size: 1.0625rem;
+  }
   .vs-heading {
     grid-template-columns: minmax(0, 1fr);
     justify-items: start;
