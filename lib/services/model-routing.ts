@@ -2,18 +2,18 @@
 
 // Two-tier routing for YouTube summarization: token count gates the obvious
 // cases, the classifier handles the middle zone, and dimensions remain
-// available for observability. Every branch resolves to GPT-6 Luna. See
+// available for observability. Every branch resolves to GPT-6.2 Sol. See
 // docs/superpowers/specs/2026-04-19-model-routing-design.md for rationale.
 
 import type { PromptLocale } from "./summarize-cache";
 import { z } from "zod";
 import { callLlmJson } from "./llm-client";
 import { buildClassifierPrompt } from "@/lib/prompts/routing-classifier";
-import { HAIKU, SONNET, LUNA, type KnownModel } from "./models";
+import { HAIKU, SONNET, SOL, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 // Re-export so existing consumers (route.ts, tests) keep their import path.
-export { HAIKU, SONNET, LUNA };
+export { HAIKU, SONNET, SOL };
 export type { KnownModel };
 
 // Rough estimator: one English word ≈ 1.3 tokens. Good enough for
@@ -52,7 +52,7 @@ export const HAIKU_CHAR_BUDGET = SUMMARY_CHAR_BUDGET;
 export const SONNET_CHAR_BUDGET = SUMMARY_CHAR_BUDGET;
 
 /**
- * Choose a transcript character budget that stays under Luna's context
+ * Choose a transcript character budget that stays under Sol's context
  * window for both English and the denser CJK tokenization path.
  */
 export function getSummaryCharBudget(language: "en" | "zh"): number {
@@ -62,7 +62,7 @@ export function getSummaryCharBudget(language: "en" | "zh"): number {
 // How much of the transcript to feed the classifier. 4K chars covers ~1K
 // tokens of English (≈650 words) or ~6K tokens of CJK/kana at our 1.5
 // tokens-per-char estimate (conservative for kana-heavy Japanese, which
-// tokenizes closer to 1:1) — enough signal for Luna to classify style
+// tokenizes closer to 1:1) — enough signal for Sol to classify style
 // without materially inflating classifier cost or latency.
 export const CLASSIFIER_EXCERPT_CHARS = 4_000;
 
@@ -166,33 +166,31 @@ export function chooseModel(
   // the discriminated union so a future refactor can't silently leak a
   // leftover classifier result into a token-gate reason.
   if (metadata.tokens > LONG_TOKENS) {
-    return { model: LUNA, reason: "long_content", dimensions: null };
+    return { model: SOL, reason: "long_content", dimensions: null };
   }
   if (metadata.tokens < SHORT_TOKENS) {
-    return { model: LUNA, reason: "very_short", dimensions: null };
+    return { model: SOL, reason: "very_short", dimensions: null };
   }
   if (classifier === null) {
     if (metadata.tokens < FALLBACK_HAIKU_TOKENS) {
-      return { model: LUNA, reason: "classifier_failed_short", dimensions: null };
+      return { model: SOL, reason: "classifier_failed_short", dimensions: null };
     }
-    return { model: LUNA, reason: "classifier_failed_long", dimensions: null };
+    return { model: SOL, reason: "classifier_failed_long", dimensions: null };
   }
   if (classifier.density === "high") {
-    return { model: LUNA, reason: "high_density", dimensions: classifier };
+    return { model: SOL, reason: "high_density", dimensions: classifier };
   }
   if (classifier.type === "lecture" || classifier.type === "news") {
-    return { model: LUNA, reason: "structured_fidelity", dimensions: classifier };
+    return { model: SOL, reason: "structured_fidelity", dimensions: classifier };
   }
   if (classifier.structure === "rambling" && classifier.density === "low") {
-    return { model: LUNA, reason: "low_density_casual", dimensions: classifier };
+    return { model: SOL, reason: "low_density_casual", dimensions: classifier };
   }
-  return { model: LUNA, reason: "default_haiku", dimensions: classifier };
+  return { model: SOL, reason: "default_haiku", dimensions: classifier };
 }
 
-// 5s is the hard cap on classifier latency. Luna classification of a ~1K
-// token prompt returns in <2s under normal load, so 5s leaves headroom for
-// gateway cold-start without letting a stuck classifier dominate end-to-end
-// summarization latency (classifier runs BEFORE the main LLM call).
+// The classifier runs before the summary call. Bound its latency so a slow
+// classifier falls back to token-count routing without delaying the summary.
 const CLASSIFIER_TIMEOUT_MS = 5_000;
 
 const ClassifierSchema = z.object({
@@ -214,7 +212,7 @@ export interface ClassifyContentOptions {
 }
 
 /**
- * Single Luna call that classifies a transcript excerpt along three
+ * Single Sol call that classifies a transcript excerpt along three
  * dimensions. Returns `null` on any failure so routing degrades to the
  * token-count fallback — never throws.
  *
@@ -235,7 +233,7 @@ export async function classifyContent(
   let raw: string;
   try {
     raw = await callLlmJson({
-      model: LUNA,
+      model: SOL,
       prompt,
       timeoutMs: CLASSIFIER_TIMEOUT_MS,
       signal: options.signal,

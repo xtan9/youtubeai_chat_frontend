@@ -72,7 +72,7 @@ describe("streamChatCompletion", () => {
     const requestBody = JSON.parse(
       fetchMock.mock.calls[0]?.[1]?.body as string,
     ) as { model?: string; stream_options?: unknown };
-    expect(requestBody.model).toBe("gpt-6-luna");
+    expect(requestBody.model).toBe("gpt-6.2-sol");
     expect(requestBody.stream_options).toEqual({ include_usage: true });
   });
 
@@ -95,7 +95,8 @@ describe("streamChatCompletion", () => {
     ) as Record<string, unknown>;
     expect(requestBody.max_completion_tokens).toBe(600);
     expect(requestBody).not.toHaveProperty("max_tokens");
-    expect(requestBody.reasoning_effort).toBe("none");
+    expect(requestBody.reasoning_effort).toBe("medium");
+    expect(requestBody).not.toHaveProperty("temperature");
   });
 
   it("keeps the registered provider body default unchanged", async () => {

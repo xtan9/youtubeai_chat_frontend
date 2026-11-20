@@ -1,6 +1,6 @@
 import "server-only";
 import type { ChatGatewayMessage } from "@/lib/prompts/chat";
-import { LUNA, type KnownModel } from "./models";
+import { SOL, SOL_REASONING_EFFORT, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 import { ChatGatewayError } from "./llm-chat-error";
 
@@ -71,10 +71,10 @@ export async function* streamChatCompletion(
   if (!gatewayUrl || !gatewayKey) {
     throw new ChatGatewayError("provider_configuration_missing");
   }
-  // Chat is intentionally pinned to Luna for every video and every turn.
+  // Chat is intentionally pinned to Sol for every video and every turn.
   // Do not let a stale deployment-level LLM_MODEL value silently route chat
   // back to a different model after this rollout.
-  const model = LUNA;
+  const model = SOL;
 
   const response = await fetch(
     `${gatewayUrl.replace(/\/$/, "")}/chat/completions`,
@@ -89,8 +89,7 @@ export async function* streamChatCompletion(
         messages: options.messages,
         stream: true,
         stream_options: { include_usage: true },
-        reasoning_effort: "none",
-        temperature: 0.4,
+        reasoning_effort: SOL_REASONING_EFFORT,
         ...(options.maxOutputTokens === undefined
           ? {}
           : { max_completion_tokens: options.maxOutputTokens }),

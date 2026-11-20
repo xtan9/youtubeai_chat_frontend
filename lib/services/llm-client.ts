@@ -1,5 +1,5 @@
 import type { ClientStage } from "@/lib/stages";
-import { LUNA, type KnownModel } from "./models";
+import { SOL, SOL_REASONING_EFFORT, type KnownModel } from "./models";
 import { logAppEvent } from "@/lib/observability";
 
 export type LlmEvent =
@@ -33,9 +33,14 @@ export interface LlmStreamOptions {
 const MAX_MALFORMED_WARNINGS = 1;
 
 // Shared so cache-write and gateway request don't drift. Referenced against
-// the shared `LUNA` constant so a model-ID bump in `./models` flows here
+// the shared `SOL` constant so a model-ID bump in `./models` flows here
 // automatically — not duplicated as a string literal.
-export const DEFAULT_LLM_MODEL: KnownModel = LUNA;
+export const DEFAULT_LLM_MODEL: KnownModel = SOL;
+
+function legacyReasoningOptions(model: string) {
+  // Preserve the request parameters for callers that explicitly select Luna.
+  return model === "gpt-6-luna" ? { reasoning_effort: "none" } : {};
+}
 
 /**
  * Throws on: HTTP error, missing config, no response body, empty completion
@@ -95,13 +100,9 @@ export async function* streamLlmSummary(
         model,
         messages: [{ role: "user", content: options.prompt }],
         stream: true,
-        // Low-temperature decoding tuned for summarization determinism:
-        // repeated summaries of the same video should be near-identical so
-        // cache hits and live runs read the same. Raise only if product
-        // wants variety.
-        ...(model === LUNA ? { reasoning_effort: "none" } : {}),
-        temperature: 0.1,
-        top_p: 0.9,
+        ...(model === SOL
+          ? { reasoning_effort: SOL_REASONING_EFFORT }
+          : { ...legacyReasoningOptions(model), temperature: 0.1, top_p: 0.9 }),
       }),
       signal: options.signal,
     }
@@ -278,12 +279,9 @@ async function fetchLlmJsonResponse(
       body: JSON.stringify({
         model: options.model,
         messages: [{ role: "user", content: options.prompt }],
-        // Deterministic decoding — this helper feeds schema-validated JSON
-        // callers (e.g. classifyContent's Zod parse). Any variability would
-        // translate directly into routing-decision flapping across otherwise
-        // identical requests.
-        ...(options.model === LUNA ? { reasoning_effort: "none" } : {}),
-        temperature: 0,
+        ...(options.model === SOL
+          ? { reasoning_effort: SOL_REASONING_EFFORT }
+          : { ...legacyReasoningOptions(options.model), temperature: 0 }),
       }),
       signal,
     }
