@@ -693,6 +693,10 @@
   .vs-grid[data-claim] {
     align-items: stretch;
   }
+  .vs-grid[data-claim] > .vs-claim-room {
+    align-self: start;
+    max-height: 100%;
+  }
   .vs-panel {
     min-height: 0;
     overflow: auto;
