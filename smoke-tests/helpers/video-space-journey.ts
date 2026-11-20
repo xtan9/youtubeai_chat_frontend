@@ -170,11 +170,14 @@ export async function videoSpaceJourney(
         "这项试验换了饮食里的油。",
         claim,
         "这是否适用于家里的炸锅？",
+        "同一试验跟踪了哪些人？",
+        "多久后重新测量了指标？",
+        "长期随访回答了什么问题？",
       ].map((q, j) => ({
         text: j === 1 ? "胆固醇下降意味着活得更久吗？" : q,
         quote: q,
-        location: ["00:18", "02:06", "04:12"][j],
-        seconds: [18, 126, 252][j],
+        location: ["00:18", "02:06", "04:12", "04:30", "05:15", "06:00"][j],
+        seconds: [18, 126, 252, 270, 315, 360][j],
       })),
     },
   }));
@@ -230,6 +233,56 @@ export async function videoSpaceJourney(
     originCard.getByRole("button", { name: claimTitle, exact: true }).click();
   const back = () =>
     page.getByRole("button", { name: "返回项目工作台" }).click();
+  // Open a claim below the initial four while another source is expanded.
+  const secondSource = left
+    .locator(".vs-source")
+    .filter({ has: page.getByRole("heading", { name: docs[1].title }) });
+  await secondSource.getByText("关键观点 · 6").click();
+  await originCard.getByText("查看全部 6 条", { exact: true }).click();
+  const lastClaim = originCard.getByRole("button", {
+    name: "长期随访回答了什么问题？",
+    exact: true,
+  });
+  const tree = page.getByRole("navigation", { name: "素材目录" });
+  await lastClaim.scrollIntoViewIfNeeded();
+  const scroll = () => tree.evaluate((node) => node.scrollTop);
+  await tree.evaluate((node) => {
+    node.scrollTop = 140;
+  });
+  const top = await scroll();
+  expect(top).toBeGreaterThan(0);
+  await lastClaim.click();
+  await expect(lastClaim).toHaveAttribute("aria-current", "page");
+  expect(await scroll()).toBe(top);
+  await expect(
+    secondSource.getByRole("button", { name: claimTitle, exact: true }),
+  ).toBeVisible();
+  const fromSource = page.getByRole("region", {
+    name: "观点空间",
+    exact: true,
+  });
+  await fromSource
+    .getByRole("button", { name: docs[0].title, exact: true })
+    .click();
+  const overview = page.getByRole("region", { name: "素材观点", exact: true });
+  await expect(
+    overview.getByRole("heading", { name: docs[0].title }),
+  ).toBeVisible();
+  await expect(
+    overview.getByRole("heading", { name: "本素材观点 · 6" }),
+  ).toBeVisible();
+  await overview
+    .getByRole("button", { name: "长期随访回答了什么问题？" })
+    .click();
+  await expect(lastClaim).toHaveAttribute("aria-current", "page");
+  await page.goBack();
+  await expect(overview).toBeVisible();
+  await back();
+  await expect(lastClaim).toBeVisible();
+  expect(await scroll()).toBe(top);
+  await expect(
+    originCard.getByText("收起其余观点", { exact: true }),
+  ).toBeVisible();
   const panelTop = () =>
     page
       .locator(".vs-grid")
@@ -253,6 +306,14 @@ export async function videoSpaceJourney(
       0,
     );
     expect(await panelTop()).toBeCloseTo(deskTop, 1);
+    if (width === 390) {
+      await page.getByRole("button", { name: "素材目录" }).click();
+      await expect(
+        originCard.getByRole("button", { name: claimTitle }),
+      ).toHaveAttribute("aria-current", "page");
+      await page.keyboard.press("Escape");
+      await expect(tree).toBeHidden();
+    }
     await back();
     await expect(originCard).toBeVisible();
     expect(await panelTop()).toBeCloseTo(deskTop, 1);
@@ -271,7 +332,7 @@ export async function videoSpaceJourney(
   const scriptBox = await editor.boundingBox(),
     researchBox = await room.boundingBox();
   expect(scriptBox!.x).toBeGreaterThan(researchBox!.x + researchBox!.width);
-  const directory = page.getByRole("complementary", { name: "观点目录" });
+  const directory = tree;
   const other = directory
     .locator(".vs-source")
     .filter({ has: page.getByRole("heading", { name: docs[1].title }) });
@@ -421,6 +482,7 @@ export async function videoSpaceJourney(
   );
   await expect(room.getByRole("alert")).toHaveCount(0);
   expect(versions[0].document.space?.followUpTo).toBe(versions[1].id);
+  await other.getByText("关键观点 · 6").click();
   await other.getByRole("button", { name: claimTitle, exact: true }).click();
   await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
     0,

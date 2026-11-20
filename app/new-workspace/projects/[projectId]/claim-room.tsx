@@ -13,99 +13,96 @@ import {
 } from "@/lib/video-space/claim-spaces";
 import { Finding } from "./research";
 
-export function ClaimDirectory({
-  rooms,
-  selected,
-  open,
+export function RoomToolbar({
+  title,
+  onBack,
+  children,
 }: {
-  rooms: Map<string, ClaimSpace>;
-  selected: string;
-  open: (id: string) => void;
+  title: string;
+  onBack: () => void;
+  children?: ReactNode;
 }) {
-  const groups = new Map<
-    string,
-    { title: string; kind: string; claims: ClaimSpace[] }
-  >();
-  for (const claim of rooms.values()) {
-    const id = claim.origin?.id ?? "";
-    if (!groups.has(id))
-      groups.set(id, {
-        title: claim.origin?.title ?? "项目观点",
-        kind: claim.resource
-          ? { video: "YouTube", pdf: "PDF", web: "网页" }[claim.resource.kind]
-          : "",
-        claims: [],
-      });
-    groups.get(id)!.claims.push(claim);
-  }
   return (
-    <>
-      <h2>素材与观点</h2>
-      {[...groups].map(([id, group]) => (
-        <div className="vs-source" key={id}>
-          {group.kind && <small>{group.kind}</small>}
-          <h3>{group.title}</h3>
-          {group.claims.map((claim) => (
-            <button
-              key={claim.id}
-              title={claim.title}
-              className="vs-claim-link"
-              aria-current={claim.id === selected ? "page" : undefined}
-              onClick={() => open(claim.id)}
-            >
-              <span>{claim.title}</span>
-              <span aria-hidden="true">›</span>
-            </button>
-          ))}
-        </div>
-      ))}
-    </>
+    <div className="vs-room-toolbar">
+      <small>{title}</small>
+      <div className="vs-room-actions">
+        {children}
+        <button
+          type="button"
+          aria-label="返回项目工作台"
+          title="返回项目工作台"
+          onClick={onBack}
+        >
+          <ArrowLeft size={17} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
   );
 }
 
 export function ClaimRoomHeader({
   room,
+  siblings,
+  onParent,
   onBack,
   children,
 }: {
   room?: ClaimSpace;
+  siblings: ClaimSpace[];
+  onParent: () => void;
   onBack: () => void;
   children?: ReactNode;
 }) {
   const sourceLink = room && claimSourceLink(room);
-  const titleVersion = !room?.resource && room?.versions.find(({document}) =>
-    (document.space?.claimTitle ?? document.question) === room.title);
-  const originVersion = !room?.resource && room?.versions.find(({document}) =>
-    document.space?.origin?.quote === room.origin?.quote);
+  const titleVersion =
+    !room?.resource &&
+    room?.versions.find(
+      ({ document }) =>
+        (document.space?.claimTitle ?? document.question) === room.title,
+    );
+  const originVersion =
+    !room?.resource &&
+    room?.versions.find(
+      ({ document }) => document.space?.origin?.quote === room.origin?.quote,
+    );
   return (
     <header className="vs-room-header" data-translation-section="claim">
-      <div className="vs-room-toolbar">
-        <small>观点空间</small>
-        <div className="vs-room-actions">
-          {children}
-          <button
-            type="button"
-            aria-label="返回项目工作台"
-            title="返回项目工作台"
-            onClick={onBack}
-          >
-            <ArrowLeft size={17} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
+      <RoomToolbar title="观点空间" onBack={onBack}>
+        {children}
+      </RoomToolbar>
       {room && (
-        <h2 id="vs-room-title" tabIndex={-1} data-translation-block="0" data-translation-version={titleVersion ? titleVersion.id : undefined}>
+        <button className="vs-parent-link" onClick={onParent}>
+          {room.origin?.title ?? "项目观点"}
+        </button>
+      )}
+      {room && (
+        <h2
+          id="vs-room-title"
+          tabIndex={-1}
+          data-translation-block="0"
+          data-translation-version={titleVersion ? titleVersion.id : undefined}
+        >
           {room.title}
         </h2>
       )}
+      {room && (
+        <p className="vs-room-byline">
+          观点 {siblings.indexOf(room) + 1} / {siblings.length}
+          {room.origin && " · " + room.origin.location}
+        </p>
+      )}
       {room?.origin && (
         <>
-          <p className="vs-room-byline">
-            {room.origin.title} · {room.origin.location}
-          </p>
           <details key={room.id}>
             <summary>查看素材出处</summary>
-            <blockquote data-translation-block="0" data-translation-version={originVersion ? originVersion.id : undefined}>{room.origin.quote}</blockquote>
+            <blockquote
+              data-translation-block="0"
+              data-translation-version={
+                originVersion ? originVersion.id : undefined
+              }
+            >
+              {room.origin.quote}
+            </blockquote>
             {sourceLink && (
               <a href={sourceLink} target="_blank" rel="noreferrer">
                 {room.origin.location} ↗
@@ -209,7 +206,11 @@ export function ClaimRoom({
   ].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <>
-      <section className="vs-room-evidence" aria-label="本观点的证据" data-translation-section="evidence">
+      <section
+        className="vs-room-evidence"
+        aria-label="本观点的证据"
+        data-translation-section="evidence"
+      >
         <div className="vs-row">
           <h3>
             证据 <small>{evidence.size}</small>
@@ -238,10 +239,21 @@ export function ClaimRoom({
           <details key={source.id} className="vs-evidence-source">
             <summary>
               <small>{source.kind === "video" ? "视频原文" : "论文摘要"}</small>{" "}
-              <span data-translation-block="0" data-translation-version={versionId}>{source.title}</span>
+              <span
+                data-translation-block="0"
+                data-translation-version={versionId}
+              >
+                {source.title}
+              </span>
             </summary>
             {[...quotes].map(([quote, quoteVersion]) => (
-              <blockquote key={quote} data-translation-block="0" data-translation-version={quoteVersion}>{quote}</blockquote>
+              <blockquote
+                key={quote}
+                data-translation-block="0"
+                data-translation-version={quoteVersion}
+              >
+                {quote}
+              </blockquote>
             ))}
             <a href={source.url} target="_blank" rel="noreferrer">
               打开来源 ↗
@@ -273,11 +285,17 @@ export function ClaimRoom({
                 )}
               </div>
             ) : v ? (
-              <div key={v.id} className="vs-turn" data-translation-version={v.id}>
+              <div
+                key={v.id}
+                className="vs-turn"
+                data-translation-version={v.id}
+              >
                 <small>你</small>
                 <p data-translation-block="0">{v.document.question}</p>
                 <small>研究搭档</small>
-                <p data-translation-block="0">{v.document.synthesis.judgment.text}</p>
+                <p data-translation-block="0">
+                  {v.document.synthesis.judgment.text}
+                </p>
                 <button onClick={() => select(v.id)}>查看本次证据</button>{" "}
                 {v.id !== latest?.id && (
                   <button
@@ -292,7 +310,11 @@ export function ClaimRoom({
               </div>
             ) : (
               a && (
-                <div className="vs-turn" key={a.id} data-translation-version={a.parent}>
+                <div
+                  className="vs-turn"
+                  key={a.id}
+                  data-translation-version={a.parent}
+                >
                   <strong data-translation-block="0">{a.question}</strong>
                   <p role="alert">
                     {a.evidenceGap ? "证据不足 · " : ""}

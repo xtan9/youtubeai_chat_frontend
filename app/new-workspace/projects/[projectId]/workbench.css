@@ -295,8 +295,57 @@
   }
 }
 
-.vs-desk-library {
-  display: contents;
+#vs-research:not([data-folded="true"]) {
+  height: clamp(450px, calc(100dvh - 224px), 900px);
+}
+.vs-library-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.vs-library {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  min-height: 0;
+}
+.vs-source[data-active="true"] .vs-source-heading h3,
+.vs-source[data-active="true"] > h3 {
+  color: var(--fern);
+}
+.vs-claim-branch {
+  margin: 5px 0 0 3px;
+  border-inline-start: 1px solid var(--rule);
+  padding-inline-start: 6px;
+}
+.vs-source-claims .vs-ordinal {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--soft);
+}
+.vs-claim-label {
+  flex: 1;
+  min-width: 0;
+}
+.vs-source-claims .vs-claim-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.vs .vs-more-claims,
+.vs .vs-parent-link {
+  background: transparent;
+  border: 0;
+  text-align: start;
+  color: var(--fern);
+}
+.vs .vs-parent-link {
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.vs-parent-claims {
+  padding-block: 14px;
 }
 .vs-library-actions {
   margin: 12px 0;
@@ -321,7 +370,6 @@
 }
 .vs .vs-claim-link[aria-current="page"] {
   box-shadow: inset 3px 0 var(--fern);
-  font-weight: 600;
 }
 .vs-room-tools {
   display: none;
@@ -334,15 +382,8 @@
 }
 .vs-grid[data-claim] {
   display: grid;
-  grid-template-columns: minmax(0, 0.71fr) minmax(0, 1.44fr) minmax(0, 1fr);
+  grid-template-columns: var(--left) minmax(0, 1.65fr) minmax(0, 1.05fr);
   align-items: start;
-}
-.vs-claim-directory {
-  max-height: 80vh;
-  overflow: auto;
-}
-.vs-claim-directory .vs-source {
-  margin-top: 10px;
 }
 .vs-room-header {
   min-height: 44px;
@@ -420,10 +461,10 @@
   .vs-grid[data-claim] {
     grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
   }
-  .vs-claim-directory {
+  .vs-grid[data-claim] #vs-research {
     display: none;
   }
-  .vs-claim-directory[data-open="true"] {
+  .vs-grid[data-claim] #vs-research[data-open="true"] {
     display: block;
     position: fixed;
     top: 68px;
@@ -435,7 +476,7 @@
   }
   .vs-directory-close {
     display: block;
-    float: right;
+    margin-inline-start: auto;
   }
   .vs-switch-claim {
     display: inline-block;
@@ -463,15 +504,31 @@
   }
 }
 
-.vs-claim-directory .vs-claim-link > span:first-child {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-}
 @media (min-width: 1051px) {
   .vs-grid[data-claim] > .vs-panel {
     height: clamp(560px, calc(100dvh - 224px), 900px);
     overflow-y: auto;
   }
+}
+
+.vs-library-panel > .vs-panel-bar {
+  min-height: 34px;
+}
+.vs-source-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sheet);
+  padding-bottom: 4px;
+}
+.vs .vs-more-claims > summary {
+  color: var(--fern);
+  font-size: 12px;
+}
+.vs-more-claims:not([open]) > summary span:last-child,
+.vs-more-claims[open] > summary span:first-child {
+  display: none;
+}
+.vs-room-toolbar .vs-switch-claim {
+  margin-right: auto;
 }

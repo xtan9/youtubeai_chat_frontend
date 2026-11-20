@@ -12,10 +12,14 @@ import { createClient } from "@/lib/supabase/client";
 import { investigationsForSource } from "@/lib/video-space/source-investigations";
 import { requestJson } from "./use-space";
 
+import { SourceClaims } from "./source-claims";
 import type { ClaimSpace } from "@/lib/video-space/claim-spaces";
 
 type Props = {
-  claimRooms?: Map<string, ClaimSpace>;
+  bySource: Map<string, ClaimSpace[]>;
+  selected?: string;
+  activeSource?: string;
+  ready: boolean;
   adding: boolean;
   setAdding: (value: boolean) => void;
   api: string;
@@ -33,17 +37,29 @@ function SourceCard({
   api,
   save,
   versions,
-  claimRooms,
+  rooms,
+  selected,
+  activeSource,
+  ready,
   openClaim,
   show,
 }: {
   initial: Resource;
   first: boolean;
+  rooms: ClaimSpace[];
   video?: ProjectVideo;
   save: (r: Resource) => void;
-} & Pick<Props, "api" | "versions" | "claimRooms" | "openClaim" | "show">) {
-  const [open, setOpen] = useState(false),
-    [more, setMore] = useState(false);
+} & Pick<
+  Props,
+  | "api"
+  | "versions"
+  | "ready"
+  | "selected"
+  | "activeSource"
+  | "openClaim"
+  | "show"
+>) {
+  const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -146,15 +162,20 @@ function SourceCard({
   };
   const referenced = open ? investigationsForSource(versions, source) : [];
   return (
-    <div className="vs-source">
-      <small>
-        {video ? "YouTube" : resource.kind === "pdf" ? "PDF" : "网页"}
-      </small>
-      <div className="vs-row">
-        <h3>{resource.title}</h3>
-        <button aria-expanded={open} onClick={() => setOpen(!open)}>
-          摘要 {open ? "−" : "+"}
-        </button>
+    <div
+      className="vs-source"
+      data-active={activeSource === resource.id || undefined}
+    >
+      <div className="vs-source-heading">
+        <small>
+          {{ video: "YouTube", pdf: "PDF", web: "网页" }[resource.kind]}
+        </small>
+        <div className="vs-row">
+          <h3>{resource.title}</h3>
+          <button aria-expanded={open} onClick={() => setOpen(!open)}>
+            摘要 {open ? "−" : "+"}
+          </button>
+        </div>
       </div>
       {open && (
         <div className="vs-digest">
@@ -214,39 +235,10 @@ function SourceCard({
         </div>
       )}
       {error && <p role="alert">{error}</p>}
-      {claims.length > 0 && (
-        <details open={first}>
-          <summary>关键观点 · {claims.length}</summary>
-          {(more ? claims : claims.slice(0, 4)).map((claim) => (
-            <button
-              key={claim.id}
-              className="vs-claim-link"
-              aria-label={claim.text}
-              aria-describedby={
-                claim.id &&
-                claimRooms &&
-                !claimRooms.get(claim.id)?.versions.length
-                  ? "vs-claim-status-" + claim.id
-                  : undefined
-              }
-              onClick={() => claim.id && openClaim(claim.id)}
-            >
-              <span>{claim.text}</span>
-              {claim.id &&
-                claimRooms &&
-                !claimRooms.get(claim.id)?.versions.length && (
-                  <small id={"vs-claim-status-" + claim.id}>待核查</small>
-                )}
-              <span aria-hidden="true">›</span>
-            </button>
-          ))}
-          {claims.length > 4 && (
-            <button onClick={() => setMore(!more)}>
-              {more ? "收起其余观点" : "查看全部 " + claims.length + " 条"}
-            </button>
-          )}
-        </details>
-      )}
+      <SourceClaims
+        {...{ rooms, first, selected, ready, openClaim }}
+        activeSource={activeSource === resource.id}
+      />
     </div>
   );
 }
@@ -258,7 +250,10 @@ export function Library({
   update,
   attachPdf,
   versions,
-  claimRooms,
+  bySource,
+  selected,
+  activeSource,
+  ready,
   openClaim,
   show,
 }: Props) {
@@ -356,7 +351,7 @@ export function Library({
   const items: Array<{ video?: ProjectVideo; resource: Resource }> = [
     ...cards,
     ...space.resources
-      .filter((r) => r.kind !== "video")
+      .filter((r) => !cards.some(({ resource }) => resource.id === r.id))
       .map((resource) => ({ resource })),
   ];
   return (
@@ -402,9 +397,34 @@ export function Library({
           initial={resource}
           video={video}
           first={!i}
-          {...{ api, save, versions, claimRooms, openClaim, show }}
+          rooms={bySource.get(resource.id) ?? []}
+          {...{
+            api,
+            save,
+            versions,
+            ready,
+            selected,
+            activeSource,
+            openClaim,
+            show,
+          }}
         />
       ))}
+      {[...bySource]
+        .filter(([id]) => !items.some(({ resource }) => resource.id === id))
+        .map(([id, rooms]) => (
+          <div
+            className="vs-source"
+            key={id}
+            data-active={activeSource === id || undefined}
+          >
+            <h3>{rooms[0].origin?.title ?? "项目观点"}</h3>
+            <SourceClaims
+              {...{ rooms, selected, ready, openClaim }}
+              activeSource={activeSource === id}
+            />
+          </div>
+        ))}
     </>
   );
 }

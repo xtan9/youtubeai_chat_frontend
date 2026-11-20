@@ -114,7 +114,14 @@ export function groupClaimSpaces(
       attempt.parent,
     ).attempts.push(attempt);
   }
-  return { rooms, byFinding };
+  const bySource = new Map<string, ClaimSpace[]>();
+  for (const room of rooms.values()) {
+    const sourceId = room.origin?.id ?? "";
+    const siblings = bySource.get(sourceId);
+    if (siblings) siblings.push(room);
+    else bySource.set(sourceId, [room]);
+  }
+  return { rooms, byFinding, bySource };
 }
 
 export function claimSourceLink(room: ClaimSpace) {
