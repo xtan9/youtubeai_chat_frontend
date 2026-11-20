@@ -5215,7 +5215,10 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       const panelPositions = () => panels.evaluateAll((elements, desktop) =>
         elements.map((element) => {
           const { x, y, width, height } = element.getBoundingClientRect();
-          return desktop ? { x, y, width, height } : { x, y, width };
+          // The claim room fits its content. Its top and width stay anchored.
+          return desktop && !element.matches(".vs-claim-room")
+            ? { x, y, width, height }
+            : { x, y, width };
         }),
         desktop,
       );

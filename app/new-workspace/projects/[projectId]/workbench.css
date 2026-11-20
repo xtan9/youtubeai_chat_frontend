@@ -131,6 +131,10 @@
   color: var(--soft);
   font-size: var(--vs-support-size);
 }
+.vs-loading .vs-claim-room {
+  background: transparent;
+  border-color: transparent;
+}
 .vs-loading .vs-panel::before,
 .vs-loading .vs-panel::after {
   content: "";
