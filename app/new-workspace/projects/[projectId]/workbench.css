@@ -110,6 +110,8 @@
 }
 .vs-grid {
   --library-width: calc((100% - 28px) / 3.7);
+  --left: var(--library-width);
+  --right: minmax(0, 1.05fr);
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1.65fr) var(--right);
   gap: 14px;
@@ -121,6 +123,33 @@
   padding: 20px;
   border: 1px solid var(--rule);
   border-radius: 12px;
+}
+.vs-loading .vs-panel {
+  min-height: 200px;
+}
+.vs-loading [role="status"] {
+  color: var(--soft);
+  font-size: var(--vs-support-size);
+}
+.vs-loading .vs-claim-room {
+  background: transparent;
+  border-color: transparent;
+}
+.vs-loading .vs-panel::before,
+.vs-loading .vs-panel::after {
+  content: "";
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--rule);
+}
+.vs-loading .vs-panel::before {
+  width: 42%;
+  margin-bottom: 18px;
+}
+.vs-loading .vs-panel::after {
+  width: 72%;
+  margin-top: 12px;
 }
 .vs-panel[data-folded="true"] {
   padding: 5px;
@@ -585,6 +614,9 @@
   .vs-grid[data-claim] > .vs-panel {
     scroll-snap-align: start;
     padding: 12px;
+  }
+  .vs-loading[data-claim] .vs-claim-room {
+    min-height: 440px;
   }
   .vs-jump-script {
     display: inline-block;

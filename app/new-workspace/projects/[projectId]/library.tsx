@@ -16,6 +16,7 @@ import { SourceClaims } from "./source-claims";
 import type { ClaimSpace } from "@/lib/video-space/claim-spaces";
 
 type Props = {
+  initialSources: ProjectSourceSet | null;
   bySource: Map<string, ClaimSpace[]>;
   selected?: string;
   activeSource?: string;
@@ -235,6 +236,7 @@ function SourceCard({
   );
 }
 export function Library({
+  initialSources,
   adding,
   setAdding,
   api,
@@ -249,13 +251,14 @@ export function Library({
   openClaim,
   show,
 }: Props) {
-  const [sources, setSources] = useState<ProjectSourceSet | null>(null),
+  const [sources, setSources] = useState(initialSources),
     [url, setUrl] = useState(""),
     [file, setFile] = useState<File | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const pending = sources?.videos.some((v) => v.status === "processing");
   useEffect(() => {
+    if (!pending) return;
     let active = true;
     const load = () =>
       requestJson<{ sourceSet: ProjectSourceSet }>(api + "/source-set")
@@ -265,8 +268,7 @@ export function Library({
         .catch(() => {
           if (active) setError("无法读取视频素材。");
         });
-    void load();
-    const id = pending ? setInterval(load, 4000) : undefined;
+    const id = setInterval(load, 4000);
     return () => {
       active = false;
       clearInterval(id);
@@ -378,10 +380,9 @@ export function Library({
         </form>
       )}
       {error && <p role="alert">{error}</p>}
-      {!items.length && (
-        <p className="vs-hint">
-          {sources ? "添加本期视频的第一份素材。" : "正在读取素材…"}
-        </p>
+      {!sources && <p role="alert">无法读取视频素材。</p>}
+      {sources && !items.length && (
+        <p className="vs-hint">添加本期视频的第一份素材。</p>
       )}
       {items.map(({ resource, video }, i) => (
         <SourceCard

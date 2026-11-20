@@ -19,12 +19,14 @@ export async function requestJson<T>(
   url: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(url, {
     method,
     cache: "no-store",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
   const json = await response.json();
   if (!response.ok)
@@ -61,6 +63,7 @@ async function writePdf(
 // the exact snapshot sent, then any newer local edits are saved in order.
 export function useSpace(url: string) {
   const [space, setSpace] = useState<Space | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [status, setStatus] = useState("正在读取…");
   const live = useRef<Space | null>(null),
     saved = useRef<Space | null>(null),
@@ -105,17 +108,23 @@ export function useSpace(url: string) {
     return flush();
   }, [flush]);
   useEffect(() => {
-    let active = true;
-    void requestJson<{ document: Space; revision: number }>(url)
+    const controller = new AbortController();
+    const { signal } = controller;
+    void requestJson<{ document: Space; revision: number }>(
+      url,
+      "GET",
+      undefined,
+      signal,
+    )
       .then((row) => {
-        if (!active) return;
+        if (signal.aborted) return;
         live.current = saved.current = spaceSchema.parse(row.document);
         revision.current = row.revision;
         setSpace(live.current);
         setStatus("已保存");
       })
       .catch(() => {
-        if (active) setStatus("无法读取脚本，请重新加载。");
+        if (!signal.aborted) setLoadError("无法读取脚本，请重新加载。");
       });
     const guard = (e: BeforeUnloadEvent) => {
       if (live.current !== saved.current) {
@@ -125,7 +134,7 @@ export function useSpace(url: string) {
     };
     window.addEventListener("beforeunload", guard);
     return () => {
-      active = false;
+      controller.abort();
       window.removeEventListener("beforeunload", guard);
       if (timer.current) clearTimeout(timer.current);
       void flush();
@@ -172,5 +181,5 @@ export function useSpace(url: string) {
     pendingPdf.current = { id: resource.id, contents };
     void flush();
   }
-  return { space, live, status, update, flush, ensureReadingSaved, attachPdf };
+  return { space, live, status, loadError, update, flush, ensureReadingSaved, attachPdf };
 }
