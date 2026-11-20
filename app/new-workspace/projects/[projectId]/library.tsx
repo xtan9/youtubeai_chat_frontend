@@ -162,21 +162,17 @@ function SourceCard({
   };
   const referenced = open ? investigationsForSource(versions, source) : [];
   return (
-    <div
-      className="vs-source"
-      data-active={activeSource === resource.id || undefined}
+    <SourceClaims
+      {...{ rooms, first, selected, ready, openClaim }}
+      activeSource={activeSource === resource.id}
+      title={resource.title}
+      kind={{ video: "YouTube", pdf: "PDF", web: "网页" }[resource.kind]}
+      summaryToggle={
+        <button aria-expanded={open} onClick={() => setOpen(!open)}>
+          摘要 {open ? "−" : "+"}
+        </button>
+      }
     >
-      <div className="vs-source-heading">
-        <small>
-          {{ video: "YouTube", pdf: "PDF", web: "网页" }[resource.kind]}
-        </small>
-        <div className="vs-row">
-          <h3>{resource.title}</h3>
-          <button aria-expanded={open} onClick={() => setOpen(!open)}>
-            摘要 {open ? "−" : "+"}
-          </button>
-        </div>
-      </div>
       {open && (
         <div className="vs-digest">
           <strong>素材摘要</strong>
@@ -235,11 +231,7 @@ function SourceCard({
         </div>
       )}
       {error && <p role="alert">{error}</p>}
-      <SourceClaims
-        {...{ rooms, first, selected, ready, openClaim }}
-        activeSource={activeSource === resource.id}
-      />
-    </div>
+    </SourceClaims>
   );
 }
 export function Library({
@@ -413,17 +405,12 @@ export function Library({
       {[...bySource]
         .filter(([id]) => !items.some(({ resource }) => resource.id === id))
         .map(([id, rooms]) => (
-          <div
-            className="vs-source"
+          <SourceClaims
             key={id}
-            data-active={activeSource === id || undefined}
-          >
-            <h3>{rooms[0].origin?.title ?? "项目观点"}</h3>
-            <SourceClaims
-              {...{ rooms, selected, ready, openClaim }}
-              activeSource={activeSource === id}
-            />
-          </div>
+            title={rooms[0].origin?.title ?? "项目观点"}
+            {...{ rooms, selected, ready, openClaim }}
+            activeSource={activeSource === id}
+          />
         ))}
     </>
   );

@@ -16,15 +16,18 @@ import { Finding } from "./research";
 export function RoomToolbar({
   title,
   onBack,
+  directoryToggle,
   children,
 }: {
   title: string;
   onBack: () => void;
+  directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <div className="vs-room-toolbar">
       <small>{title}</small>
+      {directoryToggle}
       <div className="vs-room-actions">
         {children}
         <button
@@ -45,12 +48,14 @@ export function ClaimRoomHeader({
   siblings,
   onParent,
   onBack,
+  directoryToggle,
   children,
 }: {
   room?: ClaimSpace;
   siblings: ClaimSpace[];
   onParent: () => void;
   onBack: () => void;
+  directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
   const sourceLink = room && claimSourceLink(room);
@@ -67,7 +72,11 @@ export function ClaimRoomHeader({
     );
   return (
     <header className="vs-room-header" data-translation-section="claim">
-      <RoomToolbar title="观点空间" onBack={onBack}>
+      <RoomToolbar
+        title="观点空间"
+        onBack={onBack}
+        directoryToggle={directoryToggle}
+      >
         {children}
       </RoomToolbar>
       {room && (

@@ -91,6 +91,7 @@
   font-weight: 650;
 }
 .vs-grid {
+  --library-width: calc((100% - 28px) / 3.7);
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1.65fr) var(--right);
   gap: 14px;
@@ -273,7 +274,7 @@
   color: var(--color-accent-danger, #9a392b);
   font-size: 14px;
 }
-@media (max-width: 920px) {
+@media (max-width: 760px) {
   .vs {
     padding: 18px 4vw 48px;
   }
@@ -305,6 +306,7 @@
 }
 .vs-library {
   overflow-y: auto;
+  overflow-anchor: none;
   scrollbar-gutter: stable;
   min-height: 0;
 }
@@ -450,7 +452,7 @@
 .vs-jump-script {
   display: none;
 }
-@media (max-width: 1050px) {
+@media (max-width: 760px) {
   .vs-room-tools {
     display: flex;
     align-items: center;
@@ -458,8 +460,15 @@
     gap: 8px;
     margin-top: 8px;
   }
-  .vs-grid[data-claim] {
-    grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+  .vs-room-toolbar > small,
+  .vs-actions[data-room] {
+    display: none;
+  }
+  .vs .vs-directory-shade {
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    background: #0009;
   }
   .vs-grid[data-claim] #vs-research {
     display: none;
@@ -481,8 +490,6 @@
   .vs-switch-claim {
     display: inline-block;
   }
-}
-@media (max-width: 520px) {
   .vs-room-header > h2 {
     font-size: 1.0625rem;
   }
@@ -491,9 +498,10 @@
     justify-items: start;
   }
   .vs-grid[data-claim] {
-    grid-template-columns: 78% 78%;
+    grid-template-columns: repeat(2, calc(100% - 21px));
+    gap: 9px;
     overflow-x: auto;
-    scroll-snap-type: x proximity;
+    scroll-snap-type: x mandatory;
   }
   .vs-grid[data-claim] > .vs-panel {
     scroll-snap-align: start;
@@ -504,7 +512,10 @@
   }
 }
 
-@media (min-width: 1051px) {
+@media (min-width: 761px) {
+  .vs-actions[data-room] {
+    visibility: hidden;
+  }
   .vs-grid[data-claim] > .vs-panel {
     height: clamp(560px, calc(100dvh - 224px), 900px);
     overflow-y: auto;
@@ -531,4 +542,37 @@
 }
 .vs-room-toolbar .vs-switch-claim {
   margin-right: auto;
+}
+
+.vs-source-heading h3 {
+  flex: 1;
+  min-width: 0;
+}
+.vs .vs-source-heading .vs-source-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+}
+.vs-source-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+@media (min-width: 761px) and (max-width: 1020px) {
+  .vs {
+    padding-inline: 15px;
+  }
+  .vs-grid {
+    --library-width: 245px;
+    gap: 8px;
+  }
+  .vs-panel {
+    padding: 13px;
+  }
 }

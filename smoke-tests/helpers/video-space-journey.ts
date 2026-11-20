@@ -187,7 +187,7 @@ export async function videoSpaceJourney(
       document: {
         drafts: [{ id: "opening", title: "开场脚本", text: "", markers: [] }],
         messages: [],
-        resources: docs,
+        resources: [...docs].reverse(),
       },
     },
   });
@@ -217,6 +217,12 @@ export async function videoSpaceJourney(
   const originCard = left
     .locator(".vs-source")
     .filter({ has: page.getByRole("heading", { name: docs[0].title }) });
+  await expect(
+    left.locator(".vs-source").first().getByRole("heading"),
+  ).toHaveText(docs[0].title);
+  await expect(
+    originCard.getByRole("button", { name: docs[0].title, exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
   await originCard.getByRole("button", { name: /^摘要/ }).click();
   await expect(left.getByText(docs[0].digest!.summary)).toBeVisible();
   await page.getByRole("heading", { level: 1 }).click();
@@ -237,7 +243,9 @@ export async function videoSpaceJourney(
   const secondSource = left
     .locator(".vs-source")
     .filter({ has: page.getByRole("heading", { name: docs[1].title }) });
-  await secondSource.getByText("关键观点 · 6").click();
+  await secondSource
+    .getByRole("button", { name: docs[1].title, exact: true })
+    .click();
   await originCard.getByText("查看全部 6 条", { exact: true }).click();
   const lastClaim = originCard.getByRole("button", {
     name: "长期随访回答了什么问题？",
@@ -276,7 +284,9 @@ export async function videoSpaceJourney(
     .click();
   await expect(lastClaim).toHaveAttribute("aria-current", "page");
   await page.goBack();
-  await expect(overview).toBeVisible();
+  await expect(
+    overview.getByRole("heading", { name: docs[0].title }),
+  ).toBeFocused();
   await back();
   await expect(lastClaim).toBeVisible();
   expect(await scroll()).toBe(top);
@@ -287,7 +297,7 @@ export async function videoSpaceJourney(
     page
       .locator(".vs-grid")
       .evaluate((grid) => grid.getBoundingClientRect().top + window.scrollY);
-  for (const width of [1440, 768, 390, 320]) {
+  for (const width of [1440, 1024, 768, 600, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const deskTop = await panelTop();
     await openClaim();
@@ -306,6 +316,14 @@ export async function videoSpaceJourney(
       0,
     );
     expect(await panelTop()).toBeCloseTo(deskTop, 1);
+    if (width > 760) {
+      await expect(tree).toBeVisible();
+    } else {
+      await expect(tree).toBeHidden();
+      expect((await fromSource.boundingBox())!.width).toBeGreaterThan(
+        width * 0.82,
+      );
+    }
     if (width === 390) {
       await page.getByRole("button", { name: "素材目录" }).click();
       await expect(
@@ -313,6 +331,20 @@ export async function videoSpaceJourney(
       ).toHaveAttribute("aria-current", "page");
       await page.keyboard.press("Escape");
       await expect(tree).toBeHidden();
+      const directoryToggle = page.getByRole("button", { name: "素材目录" });
+      await directoryToggle.click();
+      await page
+        .locator(".vs-directory-shade")
+        .click({ position: { x: 2, y: 150 } });
+      await expect(directoryToggle).toBeFocused();
+      await directoryToggle.click();
+      await lastClaim.click();
+      await directoryToggle.click();
+      await page.goBack();
+      await expect(tree).toBeHidden();
+      await expect(
+        fromSource.getByRole("heading", { name: claimTitle }),
+      ).toBeFocused();
     }
     await back();
     await expect(originCard).toBeVisible();
@@ -482,7 +514,7 @@ export async function videoSpaceJourney(
   );
   await expect(room.getByRole("alert")).toHaveCount(0);
   expect(versions[0].document.space?.followUpTo).toBe(versions[1].id);
-  await other.getByText("关键观点 · 6").click();
+  await other.getByRole("button", { name: docs[1].title, exact: true }).click();
   await other.getByRole("button", { name: claimTitle, exact: true }).click();
   await expect(room.getByRole("button", { name: "查看本次证据" })).toHaveCount(
     0,
@@ -567,6 +599,16 @@ export async function videoSpaceJourney(
   await page.reload();
   await expect(room.getByRole("heading", { name: custom })).toBeVisible();
   await expect(room.getByText("应该先讨论什么？")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await room.getByRole("button", { name: "项目观点", exact: true }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "素材目录" }).click();
+  const currentSource = tree.getByRole("button", {
+    name: "项目观点",
+    exact: true,
+  });
+  await expect(currentSource).toBeFocused();
+  await expect(currentSource).toBeInViewport({ ratio: 1 });
   expect(discussed).toEqual([claimTitle, custom]);
   expect(requests).toBe(6);
   expect(writes).toBe(4);

@@ -17,12 +17,13 @@ import {
   Maximize2,
   Minimize2,
   PanelLeftClose,
+  ListTree,
   PanelRightClose,
 } from "lucide-react";
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
-import { ClaimLinks } from "./source-claims";
+import { ClaimLinks, revealDirectoryItem } from "./source-claims";
 import { RoomToolbar, ClaimRoom, ClaimRoomHeader } from "./claim-room";
 import {
   groupClaimSpaces,
@@ -152,14 +153,47 @@ function Desk({
     parentId !== undefined ? (index.bySource.get(parentId) ?? []) : [];
   const parentTitle = siblings[0]?.origin?.title ?? "项目观点";
 
+  const rememberDesk = useCallback(() => {
+    if (!tree.current) return;
+    const trigger = document.activeElement;
+    deskPosition.current = {
+      top: tree.current.scrollTop,
+      pageTop: window.scrollY,
+      trigger: trigger instanceof HTMLElement ? trigger : null,
+    };
+  }, []);
+  useEffect(() => {
+    if (inRoom) return;
+    window.addEventListener("popstate", rememberDesk);
+    return () => window.removeEventListener("popstate", rememberDesk);
+  }, [inRoom, rememberDesk]);
+
+  const route = params.toString();
+  const previousRoute = useRef(route);
   useLayoutEffect(() => {
-    if (inRoom || !deskPosition.current || !tree.current) return;
-    const { top, pageTop, trigger } = deskPosition.current;
-    tree.current.scrollTop = top;
-    if (trigger?.isConnected) trigger.focus({ preventScroll: true });
-    window.scrollTo({ top: pageTop, behavior: "instant" });
-    deskPosition.current = null;
-  }, [inRoom]);
+    if (previousRoute.current === route) return;
+    if (!inRoom && deskPosition.current && tree.current) {
+      const { top, pageTop, trigger } = deskPosition.current;
+      tree.current.scrollTop = top;
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+      window.scrollTo({ top: pageTop, behavior: "instant" });
+      deskPosition.current = null;
+    } else {
+      const heading = document.getElementById(
+        findingId
+          ? "finding-" + findingId
+          : inRoom
+            ? "vs-room-title"
+            : "vs-desk-title",
+      );
+      if (!heading) return;
+      if (inRoom && !findingId && roomRef.current)
+        roomRef.current.scrollTop = 0;
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    previousRoute.current = route;
+  }, [route, inRoom, findingId, active, ready]);
   const selected = active?.versions.find((v) => v.id === findingId);
   const visibleFinding = selected ?? active?.versions.at(-1);
   const writing = useWriting({ space, live, update, api, versions });
@@ -198,40 +232,55 @@ function Desk({
       });
     return () => c.abort();
   }, [history]);
+  const closeDirectory = useCallback(() => {
+    setDirectoryOpen(false);
+    document
+      .getElementById("vs-toggle-directory")
+      ?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     if (!directoryOpen) return;
     const selected = tree.current?.querySelector<HTMLElement>(
       '[aria-current="page"]',
     );
-    if (selected) selected.focus();
-    else document.getElementById("vs-close-directory")?.focus();
+    const target = selected?.getClientRects().length
+      ? selected
+      : tree.current?.querySelector<HTMLElement>(
+          '.vs-source[data-active="true"] .vs-source-toggle',
+        );
+    if (target) {
+      revealDirectoryItem(target);
+      target.focus({ preventScroll: true });
+    } else
+      document
+        .getElementById("vs-close-directory")
+        ?.focus({ preventScroll: true });
     function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setDirectoryOpen(false);
-      document.getElementById("vs-toggle-directory")?.focus();
+      if (event.key === "Escape") closeDirectory();
     }
+    const dismiss = () => setDirectoryOpen(false);
+    const desktop = matchMedia("(min-width:761px)");
+    desktop.addEventListener("change", dismiss);
+    window.addEventListener("popstate", dismiss);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [directoryOpen]);
+    return () => {
+      desktop.removeEventListener("change", dismiss);
+      window.removeEventListener("popstate", dismiss);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [directoryOpen, closeDirectory]);
   function open(side: Side) {
     setFold((v) => ({ ...v, [side]: false }));
     setMax((v) => (v === side ? v : null));
     requestAnimationFrame(() => {
-      if (matchMedia("(max-width:920px)").matches)
+      if (matchMedia("(max-width:760px)").matches)
         document
           .getElementById("vs-" + side)
           ?.scrollIntoView({ block: "start" });
     });
   }
   function navigate(claim?: string, finding?: string, source?: string) {
-    if (!inRoom && tree.current && (claim || finding || source !== undefined)) {
-      const trigger = document.activeElement;
-      deskPosition.current = {
-        top: tree.current.scrollTop,
-        pageTop: window.scrollY,
-        trigger: trigger instanceof HTMLElement ? trigger : null,
-      };
-    }
+    if (!inRoom && (claim || finding || source !== undefined)) rememberDesk();
     const url = new URL(window.location.href);
     url.searchParams.delete("claim");
     url.searchParams.delete("finding");
@@ -241,25 +290,9 @@ function Desk({
     if (finding) url.searchParams.set("finding", finding);
     if (url.href !== window.location.href)
       window.history.pushState(null, "", url);
+    else if (directoryOpen)
+      document.getElementById("vs-room-title")?.focus({ preventScroll: true });
     setDirectoryOpen(false);
-    if (
-      !claim &&
-      !finding &&
-      source === undefined &&
-      deskPosition.current?.trigger?.isConnected
-    )
-      return;
-    requestAnimationFrame(() => {
-      const heading = document.getElementById(
-        finding
-          ? "finding-" + finding
-          : claim || source !== undefined
-            ? "vs-room-title"
-            : "vs-desk-title",
-      );
-      heading?.focus({ preventScroll: true });
-      heading?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    });
   }
   function show(id: string) {
     navigate(index.byFinding.get(id)?.id, id);
@@ -464,7 +497,7 @@ function Desk({
             ) : (
               <h2>{title}</h2>
             )}
-            <div className="vs-actions" hidden={inRoom}>
+            <div className="vs-actions" data-room={inRoom || undefined}>
               <button
                 id={"vs-collapse-" + side}
                 aria-label={"收起" + title}
@@ -497,10 +530,7 @@ function Desk({
                 id="vs-close-directory"
                 className="vs-directory-close"
                 aria-label="关闭观点目录"
-                onClick={() => {
-                  setDirectoryOpen(false);
-                  document.getElementById("vs-toggle-directory")?.focus();
-                }}
+                onClick={closeDirectory}
               >
                 关闭
               </button>
@@ -511,9 +541,27 @@ function Desk({
       </section>
     );
   }
+  const directoryToggle = (
+    <button
+      id="vs-toggle-directory"
+      className="vs-switch-claim"
+      aria-controls="vs-research"
+      aria-expanded={directoryOpen}
+      onClick={() => setDirectoryOpen(true)}
+    >
+      <ListTree size={15} aria-hidden="true" /> 素材目录
+    </button>
+  );
   return (
     <>
       <ProjectHeading projectId={projectId} name={name} />
+      {inRoom && directoryOpen && (
+        <div
+          className="vs-directory-shade"
+          onClick={closeDirectory}
+          aria-hidden="true"
+        />
+      )}
       <div
         className="vs-grid"
         data-claim={inRoom || undefined}
@@ -521,7 +569,7 @@ function Desk({
         style={
           {
             "--left":
-              !inRoom && fold.research ? "44px" : "calc((100% - 28px) / 3.7)",
+              !inRoom && fold.research ? "44px" : "var(--library-width)",
             "--right": !inRoom && fold.partner ? "44px" : "minmax(0,1.05fr)",
           } as CSSProperties
         }
@@ -608,7 +656,11 @@ function Desk({
           >
             {overview ? (
               <header className="vs-room-header">
-                <RoomToolbar title="素材与观点" onBack={() => navigate()} />
+                <RoomToolbar
+                  title="素材与观点"
+                  directoryToggle={directoryToggle}
+                  onBack={() => navigate()}
+                />
                 <h2 id="vs-room-title" tabIndex={-1}>
                   {siblings.length ? parentTitle : "素材观点"}
                 </h2>
@@ -616,6 +668,7 @@ function Desk({
             ) : (
               <ClaimRoomHeader
                 room={active}
+                directoryToggle={directoryToggle}
                 siblings={siblings}
                 onParent={() => navigate(undefined, undefined, parentId)}
                 onBack={() => navigate()}
@@ -636,15 +689,6 @@ function Desk({
               </ClaimRoomHeader>
             )}
             <div className="vs-room-tools">
-              <button
-                id="vs-toggle-directory"
-                className="vs-switch-claim"
-                aria-controls="vs-research"
-                aria-expanded={directoryOpen}
-                onClick={() => setDirectoryOpen(!directoryOpen)}
-              >
-                素材目录
-              </button>
               <button
                 className="vs-jump-script"
                 onClick={() =>
