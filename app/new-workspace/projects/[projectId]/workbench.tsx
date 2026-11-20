@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -21,6 +21,7 @@ import {
   PanelRightClose,
 } from "lucide-react";
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
+import type { ProjectSourceSet } from "@/lib/projects/project-source-set-contract";
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
 import { ClaimLinks, revealDirectoryItem } from "./source-claims";
@@ -38,6 +39,29 @@ import "./workbench.css";
 type Side = "research" | "partner";
 const label = { research: "研究台", partner: "创作搭档" };
 type ProjectHeadingProps = { projectId: string; name: string };
+type InitialData = {
+  history: ResearchVersion[] | null;
+  sources: ProjectSourceSet | null;
+};
+
+async function loadResearchHistory(api: string, signal: AbortSignal) {
+  let cursor: string | null = null;
+  const versions: ResearchVersion[] = [];
+  do {
+    const page: { versions: ResearchVersion[]; nextCursor?: string } =
+      await requestJson(
+        api +
+          "/research" +
+          (cursor ? "?before=" + encodeURIComponent(cursor) : ""),
+        "GET",
+        undefined,
+        signal,
+      );
+    versions.push(...page.versions);
+    cursor = page.nextCursor ?? null;
+  } while (cursor);
+  return versions;
+}
 
 function ProjectHeading({ projectId, name }: ProjectHeadingProps) {
   return (
@@ -60,24 +84,69 @@ function ProjectHeading({ projectId, name }: ProjectHeadingProps) {
 export function Workbench({ projectId, name }: ProjectHeadingProps) {
   const api = "/api/projects/" + projectId;
   const store = useSpace(api + "/space");
+  const params = useSearchParams();
+  const [initial, setInitial] = useState<InitialData>();
+  const inRoom = !!(
+    params.get("claim") ||
+    params.get("finding") ||
+    params.has("source")
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    void Promise.allSettled([
+      loadResearchHistory(api, signal),
+      requestJson<{ sourceSet: ProjectSourceSet }>(
+        api + "/source-set",
+        "GET",
+        undefined,
+        signal,
+      ),
+    ]).then(([history, sources]) => {
+      if (signal.aborted) return;
+      setInitial({
+        history: history.status === "fulfilled" ? history.value : null,
+        sources: sources.status === "fulfilled" ? sources.value.sourceSet : null,
+      });
+    });
+    return () => controller.abort();
+  }, [api]);
+
   return (
     <div className="vs ph-no-capture" data-ph-no-autocapture lang="zh-CN">
-      {store.space ? (
+      <ProjectHeading projectId={projectId} name={name} />
+      {store.space && initial ? (
         <Desk
           {...store}
           space={store.space}
           api={api}
           projectId={projectId}
-          name={name}
+          params={params}
+          inRoom={inRoom}
+          initial={initial}
         />
+      ) : store.loadError ? (
+        <p role="alert">
+          {store.loadError}{" "}
+          <button onClick={() => window.location.reload()}>重新加载</button>
+        </p>
       ) : (
-        <>
-          <ProjectHeading projectId={projectId} name={name} />
-          <p role="status">
-            {store.status}{" "}
-            <button onClick={() => window.location.reload()}>重新加载</button>
-          </p>
-        </>
+        <div className="vs-grid vs-loading" data-claim={inRoom || undefined}>
+          <div
+            id="vs-research"
+            className="vs-panel"
+            aria-hidden={inRoom || undefined}
+          >
+            {!inRoom && <p role="status">正在读取 Space…</p>}
+          </div>
+          {inRoom && (
+            <div className="vs-panel vs-claim-room">
+              <p role="status">正在读取 Space…</p>
+            </div>
+          )}
+          <div className="vs-panel vs-script" aria-hidden="true" />
+          {!inRoom && <div className="vs-panel" aria-hidden="true" />}
+        </div>
       )}
     </div>
   );
@@ -92,18 +161,23 @@ function Desk({
   ensureReadingSaved,
   api,
   projectId,
-  name,
-}: Omit<ReturnType<typeof useSpace>, "space"> &
-  ProjectHeadingProps & {
+  params,
+  inRoom,
+  initial,
+}: Omit<ReturnType<typeof useSpace>, "space" | "loadError"> &
+  Pick<ProjectHeadingProps, "projectId"> & {
     space: NonNullable<ReturnType<typeof useSpace>["space"]>;
     api: string;
+    params: ReadonlyURLSearchParams;
+    inRoom: boolean;
+    initial: InitialData;
   }) {
   const [fold, setFold] = useState({ research: false, partner: false }),
     [max, setMax] = useState<Side | null>(null),
     [adding, setAdding] = useState(false);
-  const [versions, setVersions] = useState<ResearchVersion[]>([]);
-  const [ready, setReady] = useState(false);
-  const [historyError, setHistoryError] = useState("");
+  const ready = initial.history !== null;
+  const [versions, setVersions] = useState<ResearchVersion[]>(initial.history ?? []);
+  const historyError = ready ? "" : "研究记录暂时无法读取，请重新加载。";
   const [pending, setPending] = useState<{
     claim: string;
     question: string;
@@ -126,7 +200,6 @@ function Desk({
     pageTop: number;
     trigger: HTMLElement | null;
   } | null>(null);
-  const params = useSearchParams();
   const sourceId = params.get("source");
   const claimId = params.get("claim");
   const findingId = params.get("finding");
@@ -140,14 +213,12 @@ function Desk({
       ),
     [space.resources, space.customClaims, versions, space.researchAttempts],
   );
-  // A citation can be opened while earlier pages of research history are still loading.
   const active = claimId
     ? index.rooms.get(claimId)
     : findingId
       ? index.byFinding.get(findingId)
       : undefined;
   const overview = sourceId !== null && !claimId && !findingId;
-  const inRoom = !!(claimId || findingId || overview);
   const parentId = overview ? sourceId : active && (active.origin?.id ?? "");
   const siblings =
     parentId !== undefined ? (index.bySource.get(parentId) ?? []) : [];
@@ -193,45 +264,11 @@ function Desk({
       heading.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     previousRoute.current = route;
-  }, [route, inRoom, findingId, active, ready]);
+  }, [route, inRoom, findingId, active]);
   const selected = active?.versions.find((v) => v.id === findingId);
   const visibleFinding = selected ?? active?.versions.at(-1);
   const writing = useWriting({ space, live, update, api, versions });
   const researchLock = useRef(false);
-  const history = useCallback(
-    async (signal: AbortSignal) => {
-      let cursor: string | null = null;
-      const all: ResearchVersion[] = [];
-      do {
-        const page: { versions: ResearchVersion[]; nextCursor?: string } =
-          await requestJson(
-            api +
-              "/research" +
-              (cursor ? "?before=" + encodeURIComponent(cursor) : ""),
-          );
-        if (signal.aborted) return;
-        all.push(...page.versions);
-        cursor = page.nextCursor ?? null;
-      } while (cursor);
-      return all;
-    },
-    [api],
-  );
-  useEffect(() => {
-    const c = new AbortController();
-    void history(c.signal)
-      .then((all) => {
-        if (all && !c.signal.aborted) {
-          setVersions(all);
-          setReady(true);
-        }
-      })
-      .catch(() => {
-        if (!c.signal.aborted)
-          setHistoryError("研究记录暂时无法读取，请重新加载。");
-      });
-    return () => c.abort();
-  }, [history]);
   const closeDirectory = useCallback(() => {
     setDirectoryOpen(false);
     document
@@ -554,7 +591,6 @@ function Desk({
   );
   return (
     <>
-      <ProjectHeading projectId={projectId} name={name} />
       {inRoom && directoryOpen && (
         <div
           className="vs-directory-shade"
@@ -568,9 +604,8 @@ function Desk({
         data-max={inRoom ? "" : (max ?? "")}
         style={
           {
-            "--left":
-              !inRoom && fold.research ? "44px" : "var(--library-width)",
-            "--right": !inRoom && fold.partner ? "44px" : "minmax(0,1.05fr)",
+            "--left": !inRoom && fold.research ? "44px" : undefined,
+            "--right": !inRoom && fold.partner ? "44px" : undefined,
           } as CSSProperties
         }
       >
@@ -620,6 +655,7 @@ function Desk({
             )}
             <nav className="vs-library" aria-label="素材目录" ref={tree}>
               <Library
+                initialSources={initial.sources}
                 {...{
                   api,
                   space,
@@ -755,10 +791,7 @@ function Desk({
               />
             ) : (
               <p role="status">
-                {historyError ||
-                  (ready
-                    ? "找不到这个观点，请返回项目工作台。"
-                    : "正在读取观点…")}
+                {historyError || "找不到这个观点，请返回项目工作台。"}
               </p>
             )}
             {active && historyError && <p role="alert">{historyError}</p>}

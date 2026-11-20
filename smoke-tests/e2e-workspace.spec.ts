@@ -12,6 +12,7 @@ import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { ProjectAnswerSourceManifestSchema } from "../lib/projects/project-grounded-answer-contract";
 import { inspectProjectCitations } from "../lib/projects/project-grounded-citations";
+import { emptySpace } from "../lib/video-space/contract";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "20000000-0000-4000-8000-000000000002";
@@ -5171,6 +5172,77 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("research-notebook-mobile.png"), fullPage: true });
 });
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`Video Space claim deep link keeps its first layout at ${viewport.width}px`, async ({ context, page }) => {
+    await addSessionCookie(context, OWNER_ID, "owner@example.test");
+    const projectId = await createGroundedFixtureProject(context, "Seed oil research", { sourceCount: 2 });
+    const claimId = crypto.randomUUID();
+    const title = "这些试验比较的是同一种油吗？";
+    const endpoint = `${appUrl}/api/projects/${projectId}`;
+    const document = { ...emptySpace(), customClaims: [{ id: claimId, text: title }] };
+    document.drafts[0].text = "Saved script";
+    const space = Promise.withResolvers<void>();
+    const research = Promise.withResolvers<void>();
+    const sources = Promise.withResolvers<void>();
+    const started = new Set<string>();
+    await page.route(endpoint + "/space", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      started.add("space");
+      await space.promise;
+      await route.fulfill({ json: { revision: 1, document } });
+    });
+    await page.route(endpoint + "/research", async (route) => {
+      started.add("research");
+      await research.promise;
+      await route.fulfill({ json: { versions: [] } });
+    });
+    await page.route(endpoint + "/source-set", async (route) => {
+      started.add("sources");
+      await sources.promise;
+      await route.fallback();
+    });
+    await page.setViewportSize(viewport);
+    try {
+      await page.goto(`${appUrl}/new-workspace/projects/${projectId}?claim=${claimId}`);
+      const loading = page.getByRole("status").filter({ hasText: "正在读取 Space" });
+      await expect(loading).toBeVisible();
+      await expect.poll(() => [...started].sort()).toEqual(["research", "sources", "space"]);
+      const grid = page.locator(".vs-grid");
+      const panels = grid.locator(":scope > .vs-panel:visible");
+      const desktop = viewport.width > 760;
+      await expect(panels).toHaveCount(desktop ? 3 : 2);
+      const panelPositions = () => panels.evaluateAll((elements, desktop) =>
+        elements.map((element) => {
+          const { x, y, width, height } = element.getBoundingClientRect();
+          return desktop ? { x, y, width, height } : { x, y, width };
+        }),
+        desktop,
+      );
+      const initialPositions = await panelPositions();
+      const spaceResponse = page.waitForResponse(endpoint + "/space");
+      space.resolve();
+      await spaceResponse;
+      await expect(loading).toBeVisible();
+      const historyResponse = page.waitForResponse(endpoint + "/research");
+      research.resolve();
+      await historyResponse;
+      await expect(loading).toBeVisible();
+      await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+      await expect(page.getByLabel("脚本正文")).toHaveCount(0);
+      sources.resolve();
+      await expect(page.locator("#vs-room-title")).toHaveText(title);
+      await expect(page.getByLabel("脚本正文")).toHaveValue("Saved script");
+      await expect(loading).toHaveCount(0);
+      expect(await panelPositions()).toEqual(initialPositions);
+      expect(new URL(page.url()).searchParams.get("claim")).toBe(claimId);
+    } finally {
+      space.resolve();
+      research.resolve();
+      sources.resolve();
+    }
+  });
+}
 
 test("New Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
