@@ -91,6 +91,7 @@
   font-weight: 650;
 }
 .vs-grid {
+  --library-width: calc((100% - 28px) / 3.7);
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1.65fr) var(--right);
   gap: 14px;
@@ -273,7 +274,7 @@
   color: var(--color-accent-danger, #9a392b);
   font-size: 14px;
 }
-@media (max-width: 920px) {
+@media (max-width: 760px) {
   .vs {
     padding: 18px 4vw 48px;
   }
@@ -295,8 +296,58 @@
   }
 }
 
-.vs-desk-library {
-  display: contents;
+#vs-research:not([data-folded="true"]) {
+  height: clamp(450px, calc(100dvh - 224px), 900px);
+}
+.vs-library-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.vs-library {
+  overflow-y: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  min-height: 0;
+}
+.vs-source[data-active="true"] .vs-source-heading h3,
+.vs-source[data-active="true"] > h3 {
+  color: var(--fern);
+}
+.vs-claim-branch {
+  margin: 5px 0 0 3px;
+  border-inline-start: 1px solid var(--rule);
+  padding-inline-start: 6px;
+}
+.vs-source-claims .vs-ordinal {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--soft);
+}
+.vs-claim-label {
+  flex: 1;
+  min-width: 0;
+}
+.vs-source-claims .vs-claim-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.vs .vs-more-claims,
+.vs .vs-parent-link {
+  background: transparent;
+  border: 0;
+  text-align: start;
+  color: var(--fern);
+}
+.vs .vs-parent-link {
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.vs-parent-claims {
+  padding-block: 14px;
 }
 .vs-library-actions {
   margin: 12px 0;
@@ -321,7 +372,6 @@
 }
 .vs .vs-claim-link[aria-current="page"] {
   box-shadow: inset 3px 0 var(--fern);
-  font-weight: 600;
 }
 .vs-room-tools {
   display: none;
@@ -334,15 +384,8 @@
 }
 .vs-grid[data-claim] {
   display: grid;
-  grid-template-columns: minmax(0, 0.71fr) minmax(0, 1.44fr) minmax(0, 1fr);
+  grid-template-columns: var(--left) minmax(0, 1.65fr) minmax(0, 1.05fr);
   align-items: start;
-}
-.vs-claim-directory {
-  max-height: 80vh;
-  overflow: auto;
-}
-.vs-claim-directory .vs-source {
-  margin-top: 10px;
 }
 .vs-room-header {
   min-height: 44px;
@@ -409,7 +452,7 @@
 .vs-jump-script {
   display: none;
 }
-@media (max-width: 1050px) {
+@media (max-width: 760px) {
   .vs-room-tools {
     display: flex;
     align-items: center;
@@ -417,13 +460,20 @@
     gap: 8px;
     margin-top: 8px;
   }
-  .vs-grid[data-claim] {
-    grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
-  }
-  .vs-claim-directory {
+  .vs-room-toolbar > small,
+  .vs-actions[data-room] {
     display: none;
   }
-  .vs-claim-directory[data-open="true"] {
+  .vs .vs-directory-shade {
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    background: #0009;
+  }
+  .vs-grid[data-claim] #vs-research {
+    display: none;
+  }
+  .vs-grid[data-claim] #vs-research[data-open="true"] {
     display: block;
     position: fixed;
     top: 68px;
@@ -435,13 +485,11 @@
   }
   .vs-directory-close {
     display: block;
-    float: right;
+    margin-inline-start: auto;
   }
   .vs-switch-claim {
     display: inline-block;
   }
-}
-@media (max-width: 520px) {
   .vs-room-header > h2 {
     font-size: 1.0625rem;
   }
@@ -450,9 +498,10 @@
     justify-items: start;
   }
   .vs-grid[data-claim] {
-    grid-template-columns: 78% 78%;
+    grid-template-columns: repeat(2, calc(100% - 21px));
+    gap: 9px;
     overflow-x: auto;
-    scroll-snap-type: x proximity;
+    scroll-snap-type: x mandatory;
   }
   .vs-grid[data-claim] > .vs-panel {
     scroll-snap-align: start;
@@ -463,15 +512,67 @@
   }
 }
 
-.vs-claim-directory .vs-claim-link > span:first-child {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-}
-@media (min-width: 1051px) {
+@media (min-width: 761px) {
+  .vs-actions[data-room] {
+    visibility: hidden;
+  }
   .vs-grid[data-claim] > .vs-panel {
     height: clamp(560px, calc(100dvh - 224px), 900px);
     overflow-y: auto;
+  }
+}
+
+.vs-library-panel > .vs-panel-bar {
+  min-height: 34px;
+}
+.vs-source-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sheet);
+  padding-bottom: 4px;
+}
+.vs .vs-more-claims > summary {
+  color: var(--fern);
+  font-size: 12px;
+}
+.vs-more-claims:not([open]) > summary span:last-child,
+.vs-more-claims[open] > summary span:first-child {
+  display: none;
+}
+.vs-room-toolbar .vs-switch-claim {
+  margin-right: auto;
+}
+
+.vs-source-heading h3 {
+  flex: 1;
+  min-width: 0;
+}
+.vs .vs-source-heading .vs-source-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+}
+.vs-source-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+@media (min-width: 761px) and (max-width: 1020px) {
+  .vs {
+    padding-inline: 15px;
+  }
+  .vs-grid {
+    --library-width: 245px;
+    gap: 8px;
+  }
+  .vs-panel {
+    padding: 13px;
   }
 }

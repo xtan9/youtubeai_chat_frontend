@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -16,12 +17,14 @@ import {
   Maximize2,
   Minimize2,
   PanelLeftClose,
+  ListTree,
   PanelRightClose,
 } from "lucide-react";
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { requestJson, useSpace, SpaceRequestError } from "./use-space";
 import { Script, Partner, useWriting } from "./writing";
-import { ClaimDirectory, ClaimRoom, ClaimRoomHeader } from "./claim-room";
+import { ClaimLinks, revealDirectoryItem } from "./source-claims";
+import { RoomToolbar, ClaimRoom, ClaimRoomHeader } from "./claim-room";
 import {
   groupClaimSpaces,
   type ResearchAttempt,
@@ -117,7 +120,14 @@ function Desk({
   const roomRef = useRef<HTMLElement>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [newClaim, setNewClaim] = useState<string | null>(null);
+  const tree = useRef<HTMLElement>(null);
+  const deskPosition = useRef<{
+    top: number;
+    pageTop: number;
+    trigger: HTMLElement | null;
+  } | null>(null);
   const params = useSearchParams();
+  const sourceId = params.get("source");
   const claimId = params.get("claim");
   const findingId = params.get("finding");
   const index = useMemo(
@@ -136,7 +146,54 @@ function Desk({
     : findingId
       ? index.byFinding.get(findingId)
       : undefined;
-  const inRoom = !!(claimId || findingId);
+  const overview = sourceId !== null && !claimId && !findingId;
+  const inRoom = !!(claimId || findingId || overview);
+  const parentId = overview ? sourceId : active && (active.origin?.id ?? "");
+  const siblings =
+    parentId !== undefined ? (index.bySource.get(parentId) ?? []) : [];
+  const parentTitle = siblings[0]?.origin?.title ?? "项目观点";
+
+  const rememberDesk = useCallback(() => {
+    if (!tree.current) return;
+    const trigger = document.activeElement;
+    deskPosition.current = {
+      top: tree.current.scrollTop,
+      pageTop: window.scrollY,
+      trigger: trigger instanceof HTMLElement ? trigger : null,
+    };
+  }, []);
+  useEffect(() => {
+    if (inRoom) return;
+    window.addEventListener("popstate", rememberDesk);
+    return () => window.removeEventListener("popstate", rememberDesk);
+  }, [inRoom, rememberDesk]);
+
+  const route = params.toString();
+  const previousRoute = useRef(route);
+  useLayoutEffect(() => {
+    if (previousRoute.current === route) return;
+    if (!inRoom && deskPosition.current && tree.current) {
+      const { top, pageTop, trigger } = deskPosition.current;
+      tree.current.scrollTop = top;
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+      window.scrollTo({ top: pageTop, behavior: "instant" });
+      deskPosition.current = null;
+    } else {
+      const heading = document.getElementById(
+        findingId
+          ? "finding-" + findingId
+          : inRoom
+            ? "vs-room-title"
+            : "vs-desk-title",
+      );
+      if (!heading) return;
+      if (inRoom && !findingId && roomRef.current)
+        roomRef.current.scrollTop = 0;
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    previousRoute.current = route;
+  }, [route, inRoom, findingId, active, ready]);
   const selected = active?.versions.find((v) => v.id === findingId);
   const visibleFinding = selected ?? active?.versions.at(-1);
   const writing = useWriting({ space, live, update, api, versions });
@@ -175,51 +232,67 @@ function Desk({
       });
     return () => c.abort();
   }, [history]);
+  const closeDirectory = useCallback(() => {
+    setDirectoryOpen(false);
+    document
+      .getElementById("vs-toggle-directory")
+      ?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     if (!directoryOpen) return;
-    document
-      .querySelector<HTMLButtonElement>(
-        "#vs-claim-directory [aria-current=page]",
-      )
-      ?.focus();
+    const selected = tree.current?.querySelector<HTMLElement>(
+      '[aria-current="page"]',
+    );
+    const target = selected?.getClientRects().length
+      ? selected
+      : tree.current?.querySelector<HTMLElement>(
+          '.vs-source[data-active="true"] .vs-source-toggle',
+        );
+    if (target) {
+      revealDirectoryItem(target);
+      target.focus({ preventScroll: true });
+    } else
+      document
+        .getElementById("vs-close-directory")
+        ?.focus({ preventScroll: true });
     function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setDirectoryOpen(false);
-      document.getElementById("vs-toggle-directory")?.focus();
+      if (event.key === "Escape") closeDirectory();
     }
+    const dismiss = () => setDirectoryOpen(false);
+    const desktop = matchMedia("(min-width:761px)");
+    desktop.addEventListener("change", dismiss);
+    window.addEventListener("popstate", dismiss);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [directoryOpen]);
+    return () => {
+      desktop.removeEventListener("change", dismiss);
+      window.removeEventListener("popstate", dismiss);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [directoryOpen, closeDirectory]);
   function open(side: Side) {
     setFold((v) => ({ ...v, [side]: false }));
     setMax((v) => (v === side ? v : null));
     requestAnimationFrame(() => {
-      if (matchMedia("(max-width:920px)").matches)
+      if (matchMedia("(max-width:760px)").matches)
         document
           .getElementById("vs-" + side)
           ?.scrollIntoView({ block: "start" });
     });
   }
-  function navigate(claim?: string, finding?: string) {
+  function navigate(claim?: string, finding?: string, source?: string) {
+    if (!inRoom && (claim || finding || source !== undefined)) rememberDesk();
     const url = new URL(window.location.href);
     url.searchParams.delete("claim");
     url.searchParams.delete("finding");
+    url.searchParams.delete("source");
+    if (source !== undefined) url.searchParams.set("source", source);
     if (claim) url.searchParams.set("claim", claim);
     if (finding) url.searchParams.set("finding", finding);
     if (url.href !== window.location.href)
       window.history.pushState(null, "", url);
+    else if (directoryOpen)
+      document.getElementById("vs-room-title")?.focus({ preventScroll: true });
     setDirectoryOpen(false);
-    requestAnimationFrame(() => {
-      const heading = document.getElementById(
-        finding
-          ? "finding-" + finding
-          : claim
-            ? "vs-room-title"
-            : "vs-desk-title",
-      );
-      heading?.focus({ preventScroll: true });
-      heading?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    });
   }
   function show(id: string) {
     navigate(index.byFinding.get(id)?.id, id);
@@ -387,7 +460,7 @@ function Desk({
     }
   }
   function panel(side: Side, children: ReactNode) {
-    const collapsed = fold[side] && max !== side,
+    const collapsed = !inRoom && fold[side] && max !== side,
       title = label[side],
       Icon = side === "research" ? PanelLeftClose : PanelRightClose;
     return (
@@ -395,7 +468,8 @@ function Desk({
         id={"vs-" + side}
         className="vs-panel"
         aria-label={title}
-        hidden={!!max && max !== side}
+        hidden={!inRoom && !!max && max !== side}
+        data-open={(side === "research" && directoryOpen) || undefined}
         data-folded={collapsed}
       >
         <button
@@ -411,10 +485,19 @@ function Desk({
         >
           展开{title}
         </button>
-        <div hidden={collapsed}>
-          <div className="vs-row">
-            <h2>{title}</h2>
-            <div className="vs-actions">
+        <div
+          hidden={collapsed}
+          className={side === "research" ? "vs-library-panel" : undefined}
+        >
+          <div className="vs-row vs-panel-bar">
+            {side === "research" ? (
+              <h2 id="vs-desk-title" tabIndex={-1}>
+                素材与观点
+              </h2>
+            ) : (
+              <h2>{title}</h2>
+            )}
+            <div className="vs-actions" data-room={inRoom || undefined}>
               <button
                 id={"vs-collapse-" + side}
                 aria-label={"收起" + title}
@@ -442,160 +525,170 @@ function Desk({
                 {max === side ? "还原" : "放大"}
               </button>
             </div>
+            {inRoom && (
+              <button
+                id="vs-close-directory"
+                className="vs-directory-close"
+                aria-label="关闭观点目录"
+                onClick={closeDirectory}
+              >
+                关闭
+              </button>
+            )}
           </div>
           {children}
         </div>
       </section>
     );
   }
+  const directoryToggle = (
+    <button
+      id="vs-toggle-directory"
+      className="vs-switch-claim"
+      aria-controls="vs-research"
+      aria-expanded={directoryOpen}
+      onClick={() => setDirectoryOpen(true)}
+    >
+      <ListTree size={15} aria-hidden="true" /> 素材目录
+    </button>
+  );
   return (
     <>
       <ProjectHeading projectId={projectId} name={name} />
+      {inRoom && directoryOpen && (
+        <div
+          className="vs-directory-shade"
+          onClick={closeDirectory}
+          aria-hidden="true"
+        />
+      )}
       <div
         className="vs-grid"
         data-claim={inRoom || undefined}
         data-max={inRoom ? "" : (max ?? "")}
         style={
           {
-            "--left": fold.research ? "44px" : "minmax(0,1fr)",
-            "--right": fold.partner ? "44px" : "minmax(0,1.05fr)",
+            "--left":
+              !inRoom && fold.research ? "44px" : "var(--library-width)",
+            "--right": !inRoom && fold.partner ? "44px" : "minmax(0,1.05fr)",
           } as CSSProperties
         }
       >
-        <div hidden={inRoom} className="vs-desk-library">
-          {panel(
-            "research",
-            <>
-              <div className="vs-row vs-library-actions">
-                <h3 id="vs-desk-title" tabIndex={-1}>
-                  素材与观点
-                </h3>
-                <div className="vs-actions">
-                  <button
-                    aria-label="添加素材"
-                    aria-expanded={adding}
-                    onClick={() => setAdding(!adding)}
-                  >
-                    <Plus size={14} /> 素材
-                  </button>
-                  <button
-                    aria-expanded={newClaim !== null}
-                    onClick={() => setNewClaim(newClaim === null ? "" : null)}
-                  >
-                    新建观点
-                  </button>
-                </div>
-              </div>
-              {newClaim !== null && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    addClaim();
-                  }}
+        {panel(
+          "research",
+          <>
+            <div className="vs-row vs-library-actions">
+              <div className="vs-actions">
+                <button
+                  aria-label="添加素材"
+                  aria-expanded={adding}
+                  onClick={() => setAdding(!adding)}
                 >
-                  <input
-                    autoFocus
-                    aria-label="新观点"
-                    value={newClaim}
-                    maxLength={1400}
-                    onChange={(e) => setNewClaim(e.target.value)}
-                  />
-                  <button
-                    disabled={
-                      newClaim.trim().length < 3 ||
-                      (space.customClaims?.length ?? 0) >= 150
-                    }
-                  >
-                    打开观点空间
-                  </button>
-                </form>
-              )}
-              <div className="vs-library">
-                <Library
-                  {...{
-                    api,
-                    space,
-                    update,
-                    attachPdf,
-                    versions,
-                    show,
-                    adding,
-                    setAdding,
-                  }}
-                  claimRooms={ready ? index.rooms : undefined}
-                  openClaim={navigate}
-                />
+                  <Plus size={14} /> 素材
+                </button>
+                <button
+                  aria-expanded={newClaim !== null}
+                  onClick={() => setNewClaim(newClaim === null ? "" : null)}
+                >
+                  新建观点
+                </button>
               </div>
-              {[...index.rooms.values()].some((r) => !r.resource) && (
-                <details className="vs-project-claims">
-                  <summary>项目观点</summary>
-                  {[...index.rooms.values()]
-                    .filter((r) => !r.resource)
-                    .map((r) => (
-                      <button
-                        key={r.id}
-                        className="vs-claim-link"
-                        onClick={() => navigate(r.id)}
-                      >
-                        {r.title} ›
-                      </button>
-                    ))}
-                </details>
-              )}
-              {historyError && <p role="alert">{historyError}</p>}
-            </>,
-          )}
-        </div>
-        {inRoom && (
-          <aside
-            id="vs-claim-directory"
-            className="vs-panel vs-claim-directory"
-            data-open={directoryOpen}
-            aria-label="观点目录"
-          >
-            <button
-              className="vs-directory-close"
-              aria-label="关闭观点目录"
-              onClick={() => {
-                setDirectoryOpen(false);
-                document.getElementById("vs-toggle-directory")?.focus();
-              }}
-            >
-              关闭
-            </button>
-            <ClaimDirectory
-              rooms={index.rooms}
-              selected={active?.id ?? ""}
-              open={navigate}
-            />
-          </aside>
+            </div>
+            {newClaim !== null && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addClaim();
+                }}
+              >
+                <input
+                  autoFocus
+                  aria-label="新观点"
+                  value={newClaim}
+                  maxLength={1400}
+                  onChange={(e) => setNewClaim(e.target.value)}
+                />
+                <button
+                  disabled={
+                    newClaim.trim().length < 3 ||
+                    (space.customClaims?.length ?? 0) >= 150
+                  }
+                >
+                  打开观点空间
+                </button>
+              </form>
+            )}
+            <nav className="vs-library" aria-label="素材目录" ref={tree}>
+              <Library
+                {...{
+                  api,
+                  space,
+                  update,
+                  attachPdf,
+                  versions,
+                  show,
+                  adding,
+                  setAdding,
+                }}
+                bySource={index.bySource}
+                activeSource={parentId}
+                selected={active?.id}
+                ready={ready}
+                openClaim={navigate}
+              />
+            </nav>
+            {historyError && <p role="alert">{historyError}</p>}
+          </>,
         )}
         {inRoom && (
-          <section ref={roomRef} data-translation-room=""
-            data-translation-version={active && !active.resource && !space.customClaims?.some(c => c.id === active.id) ? active.versions[0]?.id : undefined}
-            className="vs-panel vs-claim-room" aria-label="观点空间">
-            <ClaimRoomHeader room={active} onBack={() => navigate()}>
-              {active && (
-                <HighlightTranslation
-                  key={active.id}
-                  projectId={projectId}
-                  claimId={active.id}
-                  ensureSaved={ensureReadingSaved}
-                  readingRef={roomRef}
-                  browserLanguage={pickDefaultLanguage(Array.from(navigator.languages ?? []), SUPPORTED_LANGUAGE_CODES)}
+          <section
+            ref={roomRef}
+            data-translation-room=""
+            data-translation-version={
+              active &&
+              !active.resource &&
+              !space.customClaims?.some((c) => c.id === active.id)
+                ? active.versions[0]?.id
+                : undefined
+            }
+            className="vs-panel vs-claim-room"
+            aria-label={overview ? "素材观点" : "观点空间"}
+          >
+            {overview ? (
+              <header className="vs-room-header">
+                <RoomToolbar
+                  title="素材与观点"
+                  directoryToggle={directoryToggle}
+                  onBack={() => navigate()}
                 />
-              )}
-            </ClaimRoomHeader>
-            <div className="vs-room-tools">
-              <button
-                id="vs-toggle-directory"
-                className="vs-switch-claim"
-                aria-controls="vs-claim-directory"
-                aria-expanded={directoryOpen}
-                onClick={() => setDirectoryOpen(!directoryOpen)}
+                <h2 id="vs-room-title" tabIndex={-1}>
+                  {siblings.length ? parentTitle : "素材观点"}
+                </h2>
+              </header>
+            ) : (
+              <ClaimRoomHeader
+                room={active}
+                directoryToggle={directoryToggle}
+                siblings={siblings}
+                onParent={() => navigate(undefined, undefined, parentId)}
+                onBack={() => navigate()}
               >
-                切换观点
-              </button>
+                {active && (
+                  <HighlightTranslation
+                    key={active.id}
+                    projectId={projectId}
+                    claimId={active.id}
+                    ensureSaved={ensureReadingSaved}
+                    readingRef={roomRef}
+                    browserLanguage={pickDefaultLanguage(
+                      Array.from(navigator.languages ?? []),
+                      SUPPORTED_LANGUAGE_CODES,
+                    )}
+                  />
+                )}
+              </ClaimRoomHeader>
+            )}
+            <div className="vs-room-tools">
               <button
                 className="vs-jump-script"
                 onClick={() =>
@@ -607,7 +700,18 @@ function Desk({
                 写脚本 →
               </button>
             </div>
-            {active ? (
+            {overview && siblings.length ? (
+              <div className="vs-parent-claims">
+                <h3>
+                  {parentId ? "本素材观点" : "项目观点"} · {siblings.length}
+                </h3>
+                <ClaimLinks
+                  rooms={siblings}
+                  ready={ready}
+                  openClaim={navigate}
+                />
+              </div>
+            ) : active ? (
               <ClaimRoom
                 key={active.id}
                 room={active}
