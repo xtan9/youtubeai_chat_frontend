@@ -1,4 +1,11 @@
 .vs {
+  --vs-project-size: 2rem;
+  --vs-panel-size: var(--text-h6, 1.125rem);
+  --vs-body-size: var(--text-body-md, 1rem);
+  --vs-support-size: var(--text-body-sm, 0.875rem);
+  --vs-heading-leading: 1.3;
+  --vs-body-leading: 1.65;
+  --vs-support-leading: 1.5;
   --ink: var(--color-text-primary);
   --soft: var(--color-text-secondary);
   --rule: var(--color-border-subtle);
@@ -27,8 +34,8 @@
   padding: 24px 3vw 64px;
   color: var(--ink);
   background: var(--wash);
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: var(--vs-body-size);
+  line-height: var(--vs-body-leading);
   overflow-wrap: anywhere;
 }
 .vs [hidden] {
@@ -61,15 +68,23 @@
 .vs small,
 .vs-hint {
   color: var(--soft);
-  font-size: 12px;
 }
 .vs-heading a,
 .vs-source a,
 .vs-finding a {
   color: var(--fern);
-  font-size: 13px;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.vs-heading nav,
+.vs-heading > a,
+.vs-source a,
+.vs-finding a,
+.vs small,
+.vs-hint,
+.vs summary {
+  font-size: var(--vs-support-size);
+  line-height: var(--vs-support-leading);
 }
 .vs svg {
   display: inline;
@@ -77,18 +92,21 @@
   flex-shrink: 0;
 }
 .vs h1 {
-  font:
-    600 clamp(28px, 3.4vw, 48px) / 1.25 Georgia,
-    serif;
+  font-size: var(--vs-project-size);
   margin: 6px 0 0;
 }
-.vs h2 {
-  font-size: 18px;
-  font-weight: 650;
+.vs h1,
+.vs h2,
+.vs h3 {
+  font-weight: 600;
+  line-height: var(--vs-heading-leading);
+}
+.vs h2,
+.vs .vs-room-toolbar > small {
+  font-size: var(--vs-panel-size);
 }
 .vs h3 {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--vs-body-size);
 }
 .vs-grid {
   --library-width: calc((100% - 28px) / 3.7);
@@ -132,7 +150,8 @@
   padding: 4px 9px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--vs-support-size);
+  line-height: var(--vs-support-leading);
 }
 .vs button:hover,
 .vs button[aria-pressed="true"] {
@@ -163,6 +182,7 @@
   background: var(--sheet);
   margin: 8px 0;
   color: var(--ink);
+  font: inherit;
   resize: vertical;
 }
 .vs-library {
@@ -192,12 +212,11 @@
   margin: 5px 0 9px;
 }
 .vs details {
-  font-size: 14px;
   margin: 8px 0;
 }
 .vs summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 500;
 }
 .vs blockquote {
   padding: 4px 10px;
@@ -224,9 +243,6 @@
   position: relative;
   min-height: 310px;
   margin: 12px 0;
-  font:
-    19px/1.95 Georgia,
-    serif;
 }
 .vs-mirror,
 .vs-manuscript textarea {
@@ -272,7 +288,6 @@
 }
 .vs [role="alert"] {
   color: var(--color-accent-danger, #9a392b);
-  font-size: 14px;
 }
 @media (max-width: 760px) {
   .vs {
@@ -321,7 +336,6 @@
 }
 .vs-source-claims .vs-ordinal {
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
   color: var(--soft);
 }
 .vs-claim-label {
@@ -363,7 +377,6 @@
   padding: 8px 9px;
   border-color: transparent;
   background: transparent;
-  line-height: 1.55;
 }
 .vs .vs-claim-link:hover,
 .vs .vs-claim-link[aria-current="page"] {
@@ -413,19 +426,12 @@
   background: var(--note);
 }
 .vs-room-toolbar > small {
-  color: var(--fern);
+  color: var(--ink);
+  font-weight: 600;
+  line-height: var(--vs-heading-leading);
 }
 .vs-room-header > h2 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  line-height: 1.5;
   margin: 7px 0;
-}
-.vs .vs-claim-header .vs-room-toolbar > small {
-  display: block;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
 }
 .vs-claim-card {
   margin-top: 14px;
@@ -438,8 +444,8 @@
 .vs .vs-claim-card h2 {
   margin-bottom: 6px;
   color: var(--soft);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--vs-support-size);
+  line-height: var(--vs-support-leading);
 }
 .vs .vs-claim-text {
   margin: 0;
@@ -466,8 +472,6 @@
 }
 .vs .vs-claim-attribution .vs-parent-link {
   min-width: 0;
-  font-size: 12px;
-  line-height: 1.5;
 }
 .vs .vs-claim-card .vs-claim-location {
   margin-inline-start: auto;
@@ -475,7 +479,8 @@
   padding: 2px 7px;
   border: 1px solid var(--rule);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--vs-support-size);
+  line-height: var(--vs-support-leading);
   text-decoration: none;
 }
 .vs .vs-claim-card a.vs-claim-location:hover {
@@ -486,8 +491,6 @@
 }
 .vs .vs-claim-card details > summary {
   color: var(--soft);
-  font-size: 12px;
-  font-weight: 500;
 }
 .vs-room-evidence {
   margin: 14px 0;
@@ -524,7 +527,7 @@
     gap: 8px;
     margin-top: 8px;
   }
-  .vs-room-toolbar > small,
+  .vs-room-header:not(.vs-claim-header) .vs-room-toolbar > small,
   .vs-actions[data-room] {
     display: none;
   }
@@ -554,8 +557,20 @@
   .vs-switch-claim {
     display: inline-block;
   }
-  .vs-room-header > h2 {
-    font-size: 1.0625rem;
+  .vs-claim-header .vs-room-toolbar {
+    flex-wrap: wrap;
+    column-gap: 4px;
+  }
+  .vs-claim-header .vs-room-toolbar > small,
+  .vs-claim-header .vs-switch-claim {
+    white-space: nowrap;
+  }
+  .vs .vs-claim-header .vs-switch-claim {
+    padding-inline: 4px;
+  }
+  .vs-claim-header .vs-room-actions {
+    flex-shrink: 0;
+    margin-inline-start: auto;
   }
   .vs-heading {
     grid-template-columns: minmax(0, 1fr);
@@ -598,7 +613,6 @@
 }
 .vs .vs-more-claims > summary {
   color: var(--fern);
-  font-size: 12px;
 }
 .vs-more-claims:not([open]) > summary span:last-child,
 .vs-more-claims[open] > summary span:first-child {
