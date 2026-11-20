@@ -669,7 +669,6 @@ function Desk({
               <ClaimRoomHeader
                 room={active}
                 directoryToggle={directoryToggle}
-                siblings={siblings}
                 onParent={() => navigate(undefined, undefined, parentId)}
                 onBack={() => navigate()}
               >
