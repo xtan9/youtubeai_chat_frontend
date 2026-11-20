@@ -5174,7 +5174,7 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
 });
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
-  test(`Video Space claim deep link keeps its first layout at ${viewport.width}px`, async ({ context, page }) => {
+  test(`Video Space claim deep link keeps its first layout at ${viewport.width}px @projects-ga-critical`, async ({ context, page }) => {
     await addSessionCookie(context, OWNER_ID, "owner@example.test");
     const projectId = await createGroundedFixtureProject(context, "Seed oil research", { sourceCount: 2 });
     const claimId = crypto.randomUUID();
