@@ -15,9 +15,9 @@ export interface AdminPrincipal {
   readonly email: string;
 }
 
-// Luna is the current production model. Keep historical model IDs so
-// previously stored summaries remain representable in the admin console.
+// Keep historical model IDs so previously stored summaries remain representable.
 export type TranscriptModel =
+  | "gpt-6.2-sol"
   | "gpt-6-luna"
   | "gpt-5.3-codex-spark"
   | "claude-opus-4-7"

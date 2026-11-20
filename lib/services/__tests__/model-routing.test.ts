@@ -351,7 +351,7 @@ describe("classifyContent", () => {
 
     expect(callLlmJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-6-luna",
+        model: "gpt-6.2-sol",
         timeoutMs: 5_000,
       })
     );

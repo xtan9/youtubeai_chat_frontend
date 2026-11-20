@@ -13,16 +13,17 @@
 
 // YouTubeAI intentionally uses one model for both summaries and chat. The
 // gateway is CLIProxyAPI, which accepts the canonical OpenAI model ID below.
-export const LUNA = "gpt-6-luna";
+export const SOL = "gpt-6.2-sol";
+export const SOL_REASONING_EFFORT = "medium";
 export const CHAT_GATEWAY_PROVIDER = "cliproxyapi";
 
 // Backward-compatible aliases for legacy routing names. Both routes now use
-// the same Luna model; these are not separate model choices.
-/** @deprecated Use LUNA. */
-export const HAIKU = LUNA;
-/** @deprecated Use LUNA. */
-export const SONNET = LUNA;
+// the same Sol model; these are not separate model choices.
+/** @deprecated Use SOL. */
+export const HAIKU = SOL;
+/** @deprecated Use SOL. */
+export const SONNET = SOL;
 
 // The narrow union we guarantee internally. Arbitrary strings still flow
 // through optional params (env var overrides) via `KnownModel | (string & {})`.
-export type KnownModel = typeof LUNA;
+export type KnownModel = typeof SOL;

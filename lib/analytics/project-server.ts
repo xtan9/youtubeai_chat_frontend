@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { CHAT_GATEWAY_PROVIDER, LUNA } from "@/lib/services/models";
+import { CHAT_GATEWAY_PROVIDER, SOL } from "@/lib/services/models";
 import { getServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   captureProjectActivityEvent,
@@ -70,7 +70,7 @@ export type ProjectGenerationUsageRecordStatus =
 const RateCardSchema = z.object({
   version: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
   source: z.literal("provider_contract"),
-  modelId: z.literal(LUNA),
+  modelId: z.literal(SOL),
   gatewayProvider: z.literal(CHAT_GATEWAY_PROVIDER),
   effectiveDate: z.string().date(),
   inputUsdPerMillionTokens: z.number().finite().nonnegative(),
@@ -201,7 +201,7 @@ function generationProperties(args: {
   const base = {
     project_id: args.projectId,
     generation_kind: args.generationKind,
-    model_id: LUNA,
+    model_id: SOL,
     provider_kind: CHAT_GATEWAY_PROVIDER,
     duration_ms: boundedDuration(args.durationMs),
   } as const;

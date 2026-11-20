@@ -80,7 +80,7 @@ describe("runSemanticProfileWorker", () => {
       p_msg_id: WORK.msg_id,
       p_request_id: WORK.request_id,
       p_estimated_micro_usd: 5_000,
-      p_generator_model: "gpt-6-luna",
+      p_generator_model: "gpt-6.2-sol",
     });
     expect(mocks.generateSemanticProfile).toHaveBeenCalledWith({
       title: WORK.title,
