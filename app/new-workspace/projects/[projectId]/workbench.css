@@ -576,3 +576,99 @@
     padding: 13px;
   }
 }
+
+@media (min-width: 761px) {
+  body:has(.vs) {
+    height: 100dvh;
+    min-height: 0;
+  }
+  body:has(.vs) > header {
+    flex-shrink: 0;
+  }
+  body:has(.vs) > main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  body:has(.vs) > footer {
+    display: none;
+  }
+  .vs {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding-bottom: 16px;
+  }
+  .vs-heading {
+    flex-shrink: 0;
+  }
+  .vs-grid {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  #vs-research:not([data-folded="true"]),
+  .vs-grid[data-claim] > .vs-panel {
+    height: auto;
+  }
+  .vs-grid[data-claim] {
+    align-items: stretch;
+  }
+  .vs-panel {
+    min-height: 0;
+    overflow: auto;
+  }
+  .vs-grid[data-max]:not([data-max=""]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vs-grid[data-max]:not([data-max=""]) .vs-panel {
+    min-height: 0;
+  }
+  .vs .vs-script {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 12px;
+    overflow: hidden;
+  }
+  .vs-script > .vs-row,
+  .vs-script > .vs-actions {
+    flex-shrink: 0;
+  }
+  .vs-manuscript {
+    display: grid;
+    grid-template-rows: minmax(min-content, 1fr);
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    align-content: start;
+  }
+  .vs-mirror,
+  .vs-manuscript textarea {
+    grid-area: 1 / 1;
+  }
+  .vs-manuscript textarea {
+    position: static;
+    min-height: 0;
+  }
+  #vs-partner {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #vs-partner > div {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .vs #vs-partner .vs-log {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+  #vs-partner > div > :not(.vs-log) {
+    flex-shrink: 0;
+  }
+}
