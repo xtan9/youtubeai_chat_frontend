@@ -269,6 +269,9 @@ export async function videoSpaceJourney(
     name: "观点空间",
     exact: true,
   });
+  const claimText = fromSource.locator("#vs-room-title");
+  await expect(claimText).toHaveText("长期随访回答了什么问题？");
+  await expect(fromSource.getByText("查看原文摘录")).toHaveCount(0);
   await fromSource
     .getByRole("button", { name: docs[0].title, exact: true })
     .click();
@@ -342,9 +345,8 @@ export async function videoSpaceJourney(
       await directoryToggle.click();
       await page.goBack();
       await expect(tree).toBeHidden();
-      await expect(
-        fromSource.getByRole("heading", { name: claimTitle }),
-      ).toBeFocused();
+      await expect(claimText).toHaveText(claimTitle);
+      await expect(claimText).toBeFocused();
     }
     await back();
     await expect(originCard).toBeVisible();
@@ -356,11 +358,13 @@ export async function videoSpaceJourney(
   await expect(room).toBeVisible();
   await expect(right).toBeHidden();
   expect(requests).toBe(0);
-  await room.getByText("查看素材出处").click();
-  await expect(room.getByRole("link", { name: "02:06 ↗" })).toHaveAttribute(
+  await expect(room.getByRole("link", { name: "打开素材 · 02:06" })).toHaveAttribute(
     "href",
     /t=126s/,
   );
+  await expect(room.getByText(claim, { exact: true })).toBeHidden();
+  await room.getByText("查看原文摘录").click();
+  await expect(room.getByText(claim, { exact: true })).toBeVisible();
   const scriptBox = await editor.boundingBox(),
     researchBox = await room.boundingBox();
   expect(scriptBox!.x).toBeGreaterThan(researchBox!.x + researchBox!.width);
@@ -471,7 +475,7 @@ export async function videoSpaceJourney(
   await expect(editor).toHaveValue(/手写的收尾。$/);
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(room.getByRole("heading", { name: claimTitle })).toBeVisible();
+  await expect(claimText).toHaveText(claimTitle);
   await expect(room.getByRole("alert")).toContainText("文献服务暂不可用");
   await expect(editor).toHaveValue(/手写的收尾。$/);
   await back();
@@ -575,7 +579,7 @@ export async function videoSpaceJourney(
   await back();
   await prompt.fill("这条写作消息先留着");
   await openClaim();
-  await expect(room.getByRole("heading", { name: claimTitle })).toBeVisible();
+  await expect(claimText).toHaveText(claimTitle);
   await editor.focus();
   await editor.evaluate((element: HTMLTextAreaElement) =>
     element.setSelectionRange(0, 0),
@@ -590,14 +594,14 @@ export async function videoSpaceJourney(
   await left.getByRole("button", { name: "新建观点" }).click();
   await left.getByLabel("新观点").fill(custom);
   await left.getByRole("button", { name: "打开观点空间" }).click();
-  await expect(room.getByRole("heading", { name: custom })).toBeVisible();
+  await expect(claimText).toHaveText(custom);
   await expect(room.getByText(explanation)).toHaveCount(0);
   await room.getByLabel("研究问题").fill("应该先讨论什么？");
   await room.getByRole("button", { name: "发送" }).click();
   await expect(room.getByText(explanation)).toBeVisible();
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(room.getByRole("heading", { name: custom })).toBeVisible();
+  await expect(claimText).toHaveText(custom);
   await expect(room.getByText("应该先讨论什么？")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await room.getByRole("button", { name: "项目观点", exact: true }).click();

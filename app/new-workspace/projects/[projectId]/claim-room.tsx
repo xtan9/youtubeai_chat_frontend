@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
+import { normalizePassage } from "@/lib/highlight-translation/contract";
 import type { ClaimTurn } from "@/lib/video-space/contract";
 import type {
   ResearchVersion,
@@ -45,33 +46,42 @@ export function RoomToolbar({
 
 export function ClaimRoomHeader({
   room,
-  siblings,
   onParent,
   onBack,
   directoryToggle,
   children,
 }: {
   room?: ClaimSpace;
-  siblings: ClaimSpace[];
   onParent: () => void;
   onBack: () => void;
   directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
+  const origin = room?.origin;
   const sourceLink = room && claimSourceLink(room);
-  const titleVersion =
-    !room?.resource &&
-    room?.versions.find(
-      ({ document }) =>
-        (document.space?.claimTitle ?? document.question) === room.title,
-    );
-  const originVersion =
-    !room?.resource &&
-    room?.versions.find(
-      ({ document }) => document.space?.origin?.quote === room.origin?.quote,
-    );
+  const versions = room?.resource ? undefined : room?.versions;
+  const titleVersion = versions?.find(
+    ({ document }) =>
+      (document.space?.claimTitle ?? document.question) === room?.title,
+  );
+  const originVersion = versions?.find(
+    ({ document }) => document.space?.origin?.quote === origin?.quote,
+  );
+  const title = normalizePassage(room?.title ?? "");
+  const quote = normalizePassage(origin?.quote ?? "");
+  const showQuote = quote !== "" && quote !== title;
+  const pdfPage =
+    origin && room?.resource?.kind === "pdf"
+      ? room.resource.pages.find((p) => p.label === origin.location)?.text
+      : undefined;
+  const pageText = normalizePassage(pdfPage ?? "");
+  const showPage = pageText !== "" && pageText !== quote && pageText !== title;
+
   return (
-    <header className="vs-room-header" data-translation-section="claim">
+    <header
+      className="vs-room-header vs-claim-header"
+      data-translation-section="claim"
+    >
       <RoomToolbar
         title="观点空间"
         onBack={onBack}
@@ -80,54 +90,62 @@ export function ClaimRoomHeader({
         {children}
       </RoomToolbar>
       {room && (
-        <button className="vs-parent-link" onClick={onParent}>
-          {room.origin?.title ?? "项目观点"}
-        </button>
-      )}
-      {room && (
-        <h2
-          id="vs-room-title"
-          tabIndex={-1}
-          data-translation-block="0"
-          data-translation-version={titleVersion ? titleVersion.id : undefined}
-        >
-          {room.title}
-        </h2>
-      )}
-      {room && (
-        <p className="vs-room-byline">
-          观点 {siblings.indexOf(room) + 1} / {siblings.length}
-          {room.origin && " · " + room.origin.location}
-        </p>
-      )}
-      {room?.origin && (
-        <>
-          <details key={room.id}>
-            <summary>查看素材出处</summary>
-            <blockquote
-              data-translation-block="0"
-              data-translation-version={
-                originVersion ? originVersion.id : undefined
-              }
-            >
-              {room.origin.quote}
-            </blockquote>
-            {sourceLink && (
-              <a href={sourceLink} target="_blank" rel="noreferrer">
-                {room.origin.location} ↗
-              </a>
-            )}
-            {room.resource?.kind === "pdf" && (
-              <p data-translation-block="0">
-                {
-                  room.resource.pages.find(
-                    (p) => p.label === room.origin?.location,
-                  )?.text
+        <div className="vs-claim-card" key={room.id}>
+          <h2>{room.resource ? "AI 提炼的观点" : "观点"}</h2>
+          <p
+            id="vs-room-title"
+            className="vs-claim-text"
+            tabIndex={-1}
+            data-translation-block="0"
+            data-translation-version={titleVersion?.id}
+          >
+            {room.title}
+          </p>
+          <div className="vs-claim-source">
+            <div className="vs-claim-attribution">
+              {origin && <small>来源</small>}
+              <button
+                type="button"
+                className="vs-parent-link"
+                onClick={onParent}
+              >
+                {origin?.title ?? "项目观点"}
+              </button>
+            </div>
+            {sourceLink ? (
+              <a
+                className="vs-claim-location"
+                href={sourceLink}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={
+                  origin?.location ? `打开素材 · ${origin.location}` : undefined
                 }
-              </p>
-            )}
-          </details>
-        </>
+              >
+                {origin?.location || "打开素材"} ↗
+              </a>
+            ) : origin?.location ? (
+              <small className="vs-claim-location">{origin.location}</small>
+            ) : null}
+          </div>
+          {showQuote && (
+            <details>
+              <summary>查看原文摘录</summary>
+              <blockquote
+                data-translation-block="0"
+                data-translation-version={originVersion?.id}
+              >
+                {origin?.quote}
+              </blockquote>
+            </details>
+          )}
+          {showPage && (
+            <details>
+              <summary>查看 PDF 页内容</summary>
+              <p data-translation-block="0">{pdfPage}</p>
+            </details>
+          )}
+        </div>
       )}
     </header>
   );

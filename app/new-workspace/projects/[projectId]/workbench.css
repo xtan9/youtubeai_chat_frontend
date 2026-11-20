@@ -421,9 +421,73 @@
   line-height: 1.5;
   margin: 7px 0;
 }
-.vs .vs-room-byline {
+.vs .vs-claim-header .vs-room-toolbar > small {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.vs-claim-card {
+  margin-top: 14px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--fern);
+  border-radius: 8px;
+  background: var(--wash);
+}
+.vs .vs-claim-card h2 {
+  margin-bottom: 6px;
   color: var(--soft);
   font-size: 12px;
+  font-weight: 600;
+}
+.vs .vs-claim-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.vs-claim-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.vs-claim-attribution {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 140px;
+  min-width: 0;
+  gap: 8px;
+}
+.vs-claim-attribution small {
+  flex-shrink: 0;
+}
+.vs .vs-claim-attribution .vs-parent-link {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.vs .vs-claim-card .vs-claim-location {
+  margin-inline-start: auto;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  font-size: 12px;
+  text-decoration: none;
+}
+.vs .vs-claim-card a.vs-claim-location:hover {
+  border-color: var(--fern);
+}
+.vs .vs-claim-card details {
+  margin: 8px 0 0;
+}
+.vs .vs-claim-card details > summary {
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 500;
 }
 .vs-room-evidence {
   margin: 14px 0;
