@@ -356,6 +356,14 @@ export async function videoSpaceJourney(
   await openClaim();
   const room = page.getByRole("region", { name: "观点空间", exact: true });
   await expect(room).toBeVisible();
+  const roomBox = (await room.boundingBox())!;
+  const scriptPanel = page.getByRole("region", { name: "脚本编辑器" });
+  const scriptPanelBox = (await scriptPanel.boundingBox())!;
+  expect(roomBox.y).toBeCloseTo(scriptPanelBox.y, 0);
+  expect(roomBox.height).toBeLessThan(scriptPanelBox.height);
+  expect(await room.evaluate((node) => node.scrollHeight)).toBe(
+    await room.evaluate((node) => node.clientHeight),
+  );
   await expect(right).toBeHidden();
   expect(requests).toBe(0);
   await expect(room.getByRole("link", { name: "打开素材 · 02:06" })).toHaveAttribute(
