@@ -13,6 +13,9 @@ describe("interface locale", () => {
   });
   it("provides every interface message in each language", () => {
     for (const catalog of [zh, traditional]) {
+      expect(Object.keys(catalog.home).sort()).toEqual(Object.keys(en.home).sort());
+      expect(catalog.home.faqItems).toHaveLength(en.home.faqItems.length);
+      expect(catalog.home.steps).toHaveLength(en.home.steps.length);
       expect(Object.keys(catalog.ui).sort()).toEqual(Object.keys(en.ui).sort());
     }
   });

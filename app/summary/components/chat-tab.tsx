@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 import { useChatStream } from "@/lib/hooks/useChatStream";
 import { useChatSuggestions } from "@/lib/hooks/useChatSuggestions";
@@ -54,6 +55,7 @@ export function ChatTab({
   transcriptTimingStatus,
   onTimestampActivated,
 }: ChatTabProps) {
+  const t = useTranslations("home");
   const [draftInput, setDraftInput] = useState("");
   // True while ChatClearButton is in its 5s undo window. We lock the
   // message input during the window — otherwise a message sent after
@@ -163,7 +165,7 @@ export function ChatTab({
     >
       <div className="flex items-center justify-between border-b border-border-subtle p-2">
         <span className="px-2 text-body-sm font-medium text-text-secondary">
-          Chat about this video
+          {t("chat")}
         </span>
         <ChatClearButton
           youtubeUrl={youtubeUrl}
@@ -222,7 +224,7 @@ export function ChatTab({
             role="alert"
             className="rounded-lg border border-accent-danger bg-surface-raised p-4 text-center text-body-sm text-accent-danger"
           >
-            Free demo chat is temporarily unavailable. Please try again later.
+            {t("chatUnavailable")}
           </div>
         ) : anonymousTrialUnavailable ? (
           <ChatCapBanner
@@ -257,9 +259,7 @@ export function ChatTab({
                 className="mt-2 text-center text-caption text-text-muted"
                 aria-live="polite"
               >
-                {anonymousTrialRemaining} Anonymous Trial{" "}
-                {anonymousTrialRemaining === 1 ? "message" : "messages"}{" "}
-                remaining
+                {t("trialRemaining", {count: anonymousTrialRemaining})}
               </p>
             )}
             {ent?.tier === "free" && (

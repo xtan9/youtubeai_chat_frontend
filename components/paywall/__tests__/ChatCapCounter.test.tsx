@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, cleanup } from "@testing-library/react";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, it, expect } from "vitest";
 import { ChatCapCounter } from "../ChatCapCounter";
 

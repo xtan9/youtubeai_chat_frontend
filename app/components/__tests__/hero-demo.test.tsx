@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
 import {
-  render,
+
   screen,
   fireEvent,
   waitFor,

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import {TestLocaleProvider} from "@/tests-utils/locale-provider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -45,7 +46,7 @@ function freshClient() {
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <QueryClientProvider client={client}><TestLocaleProvider>{children}</TestLocaleProvider></QueryClientProvider>
     );
   };
 }

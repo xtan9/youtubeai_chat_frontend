@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import { BookOpen, Briefcase, Users, Video } from "lucide-react";
 import {
   Card,
@@ -12,10 +13,11 @@ const cardBase =
 const description = "text-gray-700 dark:text-gray-300 font-medium";
 
 export function UseCases() {
+  const t = useTranslations("home");
   return (
     <section id="use-cases" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Perfect For Your Needs</h2>
+        <h2 className="text-4xl font-bold">{t("casesHeading")}</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -30,15 +32,8 @@ export function UseCases() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Academic Excellence
-                </CardTitle>
-                <CardDescription className={description}>
-                  Turn a 90-minute lecture into a structured outline, then
-                  ask the AI to clarify a specific concept or pull every
-                  formula it cited. Saves rewatching just to find the one
-                  minute that mattered.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("study")}</CardTitle>
+                <CardDescription className={description}>{t("studyBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -55,15 +50,8 @@ export function UseCases() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Professional Development
-                </CardTitle>
-                <CardDescription className={description}>
-                  Get the key takeaways from a 2-hour interview podcast in
-                  60 seconds, then chat with the transcript to drill into
-                  the part that actually applies to your work. 18 summary
-                  languages, any public video — captions optional.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("work")}</CardTitle>
+                <CardDescription className={description}>{t("workBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -80,16 +68,8 @@ export function UseCases() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Creator Research
-                </CardTitle>
-                <CardDescription className={description}>
-                  Pull the structure out of a long-form video in your niche —
-                  hooks, talking points, supporting examples — without
-                  rewatching. Then chat with the transcript to extract
-                  specific quotes, references, or arguments you want to riff
-                  on for your own content.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("creator")}</CardTitle>
+                <CardDescription className={description}>{t("creatorBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -106,14 +86,8 @@ export function UseCases() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Everyday Efficiency
-                </CardTitle>
-                <CardDescription className={description}>
-                  Make informed decisions about which videos deserve your full
-                  attention. Get the essence of product reviews, documentaries,
-                  and tutorials before committing your time.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("daily")}</CardTitle>
+                <CardDescription className={description}>{t("dailyBody")}</CardDescription>
               </div>
             </div>
           </CardContent>

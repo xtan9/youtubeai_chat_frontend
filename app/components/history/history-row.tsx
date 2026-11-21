@@ -1,3 +1,4 @@
+import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { MessageCircle, Video } from "lucide-react";
 import type { HistoryRow as HistoryRowType } from "@/lib/services/user-history";
@@ -18,9 +19,10 @@ export function HistoryRow({
   variant = "default",
   chatCount,
 }: HistoryRowProps) {
-  const title = row.title ?? "Untitled";
+  const t = useTranslations("home");
+  const title = row.title ?? t("untitled");
   const summaryHref = `/summary?url=${encodeURIComponent(row.youtubeUrl)}`;
-  const dateLabel = formatRelativeTime(row.viewedAt, now);
+  const dateLabel = formatRelativeTime(row.viewedAt, now, useLocale());
   const showChatBadge = typeof chatCount === "number" && chatCount > 0;
   const isCompact = variant === "compact";
 
@@ -36,7 +38,7 @@ export function HistoryRow({
       >
         <Link
           href={summaryHref}
-          aria-label={`View summary of ${title}`}
+          aria-label={t("viewSummary", {title})}
           className={cn(
             "group min-w-0 flex-1 items-center gap-3 transition-colors duration-fast focus-visible:bg-state-focus focus-visible:outline-none",
             isCompact
@@ -76,7 +78,7 @@ export function HistoryRow({
                   "inline-flex items-center gap-1 text-caption text-text-secondary",
                   !isCompact && "rounded-full bg-surface-sunken px-2 py-0.5",
                 )}
-                aria-label={`${chatCount} chat message${chatCount === 1 ? "" : "s"}`}
+                aria-label={t("chatCount", {count: chatCount!})}
                 data-testid="chat-count-badge"
               >
                 <MessageCircle className="h-3 w-3" aria-hidden="true" />

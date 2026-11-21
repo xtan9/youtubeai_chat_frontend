@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Sparkles } from "lucide-react";
 
 interface ChatEmptyStateProps {
@@ -18,27 +19,22 @@ interface ChatEmptyStateProps {
  * YouTube videos. Used when the per-video dynamic generation hasn't
  * landed yet, failed, or produced an empty list.
  */
-const STATIC_SUGGESTIONS: readonly string[] = [
-  "Summarize the key takeaways",
-  "List any action items or next steps",
-  "Quote the most important moment",
-];
-
 export function ChatEmptyState({
   onPickSuggestion,
   dynamicSuggestions,
 }: ChatEmptyStateProps) {
+  const t = useTranslations("home");
   const suggestions =
     dynamicSuggestions && dynamicSuggestions.length > 0
       ? dynamicSuggestions
-      : STATIC_SUGGESTIONS;
+      : [t("takeaways"), t("actions"), t("quote")];
   return (
     <div className="flex flex-1 flex-col items-stretch justify-center gap-3 p-4 text-center">
       <div className="flex justify-center">
         <Sparkles className="size-6 text-accent-brand" aria-hidden />
       </div>
       <p className="text-body-md text-text-secondary">
-        Ask anything about this video, or start with a suggestion:
+        {t("askAnything")}
       </p>
       <ul className="flex flex-col gap-2">
         {suggestions.map((s) => (

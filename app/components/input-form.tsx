@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isValidYouTubeUrl } from "@/lib/utils/youtube";
@@ -19,6 +20,7 @@ export function InputForm({
   variant = "default",
   sourceSurface = "homepage",
 }: InputFormProps) {
+  const t = useTranslations("home");
   const [url, setUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -33,13 +35,13 @@ export function InputForm({
     const formUrl = formData.get("url") as string;
 
     if (!formUrl?.trim()) {
-      setError("Please enter a video URL");
+      setError("emptyUrl");
       setIsLoading(false);
       return;
     }
 
     if (!isValidYouTubeUrl(formUrl)) {
-      setError("Please enter a valid YouTube URL");
+      setError("invalidUrl");
       setIsLoading(false);
       return;
     }
@@ -96,13 +98,13 @@ export function InputForm({
                   <Input
                     type="url"
                     name="url"
-                    placeholder="Enter YouTube URL here..."
+                    placeholder={t("urlPlaceholder")}
                     value={url}
                     onChange={(e) => {
                       setUrl(e.target.value);
                       setError(null);
                     }}
-                    aria-label="YouTube URL"
+                    aria-label={t("urlLabel")}
                     autoComplete="off"
                     className={cn(
                       isCompact && "pr-9",
@@ -118,7 +120,7 @@ export function InputForm({
                         variant="ghost"
                         size="icon"
                         onClick={handleClearUrl}
-                        aria-label="Clear input"
+                        aria-label={t("clear")}
                         className="absolute end-1 top-1/2 size-8 -translate-y-1/2 text-text-muted hover:text-text-primary"
                       >
                         <X size={16} />
@@ -127,7 +129,7 @@ export function InputForm({
                       <button
                         type="button"
                         onClick={handleClearUrl}
-                        aria-label="Clear input"
+                        aria-label={t("clear")}
                         className="absolute right-3 top-1/2 -translate-y-1/2 transform text-sm text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                       >
                         <X size={16} />
@@ -139,7 +141,7 @@ export function InputForm({
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  aria-label="Summarize video"
+                  aria-label={t("submitLabel")}
                   className="self-center"
                 >
                   {isLoading ? (
@@ -148,7 +150,7 @@ export function InputForm({
                       aria-hidden="true"
                     />
                   ) : (
-                    <span>Summarize</span>
+                    <span>{t("submit")}</span>
                   )}
                 </Button>
               </div>
@@ -165,7 +167,7 @@ export function InputForm({
                   role="alert"
                   className="inline-block rounded-lg border border-accent-danger/20 bg-accent-danger/10 px-4 py-3 text-sm text-accent-danger"
                 >
-                  {error}
+                  {t(error)}
                 </p>
               </div>
             ) : null}

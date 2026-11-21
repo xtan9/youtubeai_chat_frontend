@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { type KeyboardEvent, useEffect, useRef } from "react";
 import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,9 +29,10 @@ export function ChatInput({
   onStop,
   streaming,
   disabled = false,
-  placeholder = "Ask a question about this video…",
+  placeholder,
   maxLength,
 }: ChatInputProps) {
+  const t = useTranslations("home");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow up to a reasonable cap so a long question doesn't push the
@@ -60,11 +62,11 @@ export function ChatInput({
         rows={1}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("askVideo")}
         disabled={disabled}
         maxLength={maxLength}
         className="flex-1 resize-none border-0 bg-transparent p-2 text-body-md focus-visible:ring-0 focus-visible:ring-offset-0"
-        aria-label="Chat message"
+        aria-label={t("chatMessage")}
       />
       {streaming ? (
         <Button
@@ -72,7 +74,7 @@ export function ChatInput({
           variant="secondary"
           size="icon"
           onClick={onStop}
-          aria-label="Stop generating"
+          aria-label={t("stop")}
           className="rounded-full"
         >
           <Square className="size-2.5 fill-current" />
@@ -83,7 +85,7 @@ export function ChatInput({
           size="icon"
           onClick={() => onSend()}
           disabled={disabled || value.trim().length === 0}
-          aria-label="Send message"
+          aria-label={t("send")}
         >
           <Send className="size-4" />
         </Button>

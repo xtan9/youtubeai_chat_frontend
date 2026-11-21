@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, screen, cleanup } from "@testing-library/react";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
+import {  screen, cleanup } from "@testing-library/react";
 import { afterEach, describe, it, expect, vi, type Mock } from "vitest";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { AnonHomepageGate } from "../anon-homepage-gate";

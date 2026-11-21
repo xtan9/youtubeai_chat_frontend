@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Globe, Check } from "lucide-react";
 import {
   DropdownMenu,
@@ -18,7 +19,7 @@ import {
 interface LanguagePickerProps {
   /**
    * Language of the currently-rendered summary. `null` means "video-native"
-   * — no explicit translation picked yet; button shows "Auto" to avoid
+   * — no explicit translation picked yet; button shows t("auto") to avoid
    * lying about which language is on screen (we don't know the video's
    * language client-side on first render).
    */
@@ -40,11 +41,12 @@ export function LanguagePicker({
   disabled,
   triggerClassName,
 }: LanguagePickerProps) {
+  const t = useTranslations("home");
   const current = currentLanguage ? getLanguage(currentLanguage) : null;
-  const buttonLabel = current ? current.native : "Auto";
+  const buttonLabel = current ? current.native : t("auto");
   const ariaLabel = current
-    ? `Summary language: ${current.english}. Click to change.`
-    : "Summary language: video's own language. Click to translate.";
+    ? t("langDescription", {name: current.english})
+    : t("nativeSummary");
 
   return (
     <DropdownMenu>
@@ -94,7 +96,7 @@ export function LanguagePicker({
               <span className="flex items-center gap-2">
                 {isBrowser && (
                   <span className="text-[10px] uppercase tracking-wide text-text-muted">
-                    Your&nbsp;language
+                    {t("browserLang")}
                   </span>
                 )}
                 {isCurrent && <Check className="h-4 w-4" />}

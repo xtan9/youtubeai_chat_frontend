@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import { Brain, BookmarkCheck, Captions, Clock, MessageCircle, Zap } from "lucide-react";
 import {
   Card,
@@ -15,10 +16,11 @@ const cardBase =
 const description = "text-gray-700 dark:text-gray-300 font-medium";
 
 export function Benefits() {
+  const t = useTranslations("home");
   return (
     <section id="benefits" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Why Choose Our AI Video Analysis</h2>
+        <h2 className="text-4xl font-bold">{t("benefitHeading")}</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -33,14 +35,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Rapid Knowledge Extraction
-                </CardTitle>
-                <CardDescription className={description}>
-                  Extract core insights from lengthy videos in minutes, not
-                  hours. Our AI distills hours of content into concise,
-                  actionable summaries.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("extract")}</CardTitle>
+                <CardDescription className={description}>{t("extractBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -57,14 +53,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Chat With the Transcript
-                </CardTitle>
-                <CardDescription className={description}>
-                  After the summary, ask follow-up questions and let the AI
-                  pull the answer straight from the transcript. Drill into a
-                  specific moment without scrubbing the timeline.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("askTranscript")}</CardTitle>
+                <CardDescription className={description}>{t("askTranscriptBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -81,14 +71,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Deep Insight Extraction
-                </CardTitle>
-                <CardDescription className={description}>
-                  Our advanced AI doesn&apos;t just transcribe—it analyzes
-                  context, identifies key arguments, and structures information
-                  for maximum comprehension.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("deep")}</CardTitle>
+                <CardDescription className={description}>{t("deepBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -105,16 +89,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl font-semibold mb-2">
-                  Works Without Captions
-                </CardTitle>
-                <CardDescription className={description}>
-                  Most YouTube summarizers fail when a video has no
-                  transcript. We don&apos;t. When captions aren&apos;t
-                  available, we transcribe the audio with Whisper and
-                  summarize anyway — so caption-less talks, livestreams,
-                  and indie creators just work.
-                </CardDescription>
+                <CardTitle className="text-xl font-semibold mb-2">{t("withoutCaptions")}</CardTitle>
+                <CardDescription className={description}>{t("withoutCaptionsBody")}</CardDescription>
               </div>
             </div>
           </CardContent>
@@ -131,13 +107,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
             </div>
-            <CardTitle className="text-xl font-semibold mb-2">
-              Supercharge Your Workflow
-            </CardTitle>
-            <CardDescription className={description}>
-              Transform how you consume video content with AI-powered efficiency
-              tools
-            </CardDescription>
+            <CardTitle className="text-xl font-semibold mb-2">{t("workflow")}</CardTitle>
+            <CardDescription className={description}>{t("workflowBody")}</CardDescription>
           </CardContent>
         </Card>
 
@@ -150,13 +121,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
             </div>
-            <CardTitle className="text-xl font-semibold mb-2">
-              Reclaim Your Hours
-            </CardTitle>
-            <CardDescription className={description}>
-              Process 10x more content in the same amount of time with smart
-              summarization
-            </CardDescription>
+            <CardTitle className="text-xl font-semibold mb-2">{t("time")}</CardTitle>
+            <CardDescription className={description}>{t("timeBody")}</CardDescription>
           </CardContent>
         </Card>
 
@@ -169,13 +135,8 @@ export function Benefits() {
                 </AvatarFallback>
               </Avatar>
             </div>
-            <CardTitle className="text-xl font-semibold mb-2">
-              Build Your Library
-            </CardTitle>
-            <CardDescription className={description}>
-              Sign in and every summary is saved to your dashboard, ready to
-              revisit, re-chat, or share later
-            </CardDescription>
+            <CardTitle className="text-xl font-semibold mb-2">{t("library")}</CardTitle>
+            <CardDescription className={description}>{t("libraryBody")}</CardDescription>
           </CardContent>
         </Card>
       </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { buildAuthPageHref } from "@/lib/auth/signup-redirect";
@@ -8,13 +9,6 @@ import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-disco
 
 type Reason = "hit-cap" | "feature-locked";
 
-const COPY: Record<Reason, string> = {
-  "hit-cap":
-    "Sign up free to get 10 summaries per month and our AI chat.",
-  "feature-locked":
-    "Sign up to keep using the app — get 10 free summaries each month.",
-};
-
 export function AnonSignupWall({
   reason = "hit-cap",
   returnTo = "/",
@@ -22,6 +16,7 @@ export function AnonSignupWall({
   readonly reason?: Reason;
   readonly returnTo?: string;
 }) {
+  const t = useTranslations("home");
   const action = getContextualLimitAction({
     tier: "anon",
     sourceSurface: "summary_limit",
@@ -38,16 +33,16 @@ export function AnonSignupWall({
       className="rounded-2xl bg-surface-raised border border-border-subtle p-6 text-center"
       data-paywall-variant={`anon-${reason}`}
     >
-      <p className="text-body-md text-text-primary">{COPY[reason]}</p>
+      <p className="text-body-md text-text-primary">{t(reason)}</p>
       <div className="mt-4 flex justify-center gap-2">
         <Button asChild>
           <Link href={action.href} onClick={captureClick}>
-            {action.label}
+            {t("signupFree")}
           </Link>
         </Button>
         <Button asChild variant="outline">
           <Link href={buildAuthPageHref("/auth/login", returnTo)}>
-            I have an account
+            {t("haveAccount")}
           </Link>
         </Button>
       </div>

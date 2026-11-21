@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { renderWithProviders as render } from "@/tests-utils/renderWithProviders";
+import {  screen, fireEvent, cleanup } from "@testing-library/react";
 import { afterEach, describe, it, expect, vi } from "vitest";
 
 vi.mock("next/image", () => ({

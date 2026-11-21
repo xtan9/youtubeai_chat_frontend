@@ -2,6 +2,7 @@ import { cleanup, render, type RenderOptions } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach } from "vitest";
 
+import { TestLocaleProvider } from "./locale-provider";
 import { ThemeProvider } from "@/lib/providers/theme-provider";
 
 // Vitest doesn't enable global auto-cleanup unless `globals: true` is set,
@@ -37,7 +38,7 @@ export function renderWithProviders(
         enableSystem={false}
         disableTransitionOnChange
       >
-        {children}
+        <TestLocaleProvider>{children}</TestLocaleProvider>
       </ThemeProvider>
     ),
     ...rest,

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 
 // vi.hoisted runs before vi.mock factories AND before the module imports
 // vitest hoists; lets us share refs between this file and the mock factory

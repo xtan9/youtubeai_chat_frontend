@@ -1,6 +1,8 @@
+import { useTranslations } from "next-intl";
 import { Sparkles } from "lucide-react";
 
 export function EmptyHistoryState() {
+  const t = useTranslations("home");
   return (
     <div
       role="status"
@@ -8,10 +10,10 @@ export function EmptyHistoryState() {
     >
       <Sparkles className="h-8 w-8 text-text-muted" aria-hidden="true" />
       <p className="text-body-md text-text-primary">
-        You haven&apos;t summarized any videos yet.
+        {t("emptyHistory")}
       </p>
       <p className="text-body-sm text-text-muted">
-        Paste a YouTube URL above to get started.
+        {t("emptyHelp")}
       </p>
     </div>
   );

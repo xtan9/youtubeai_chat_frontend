@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import { Brain, Copy, Check, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -44,6 +45,7 @@ export function SummaryContent({
   continueLearningEnabled = false,
   highlightTranslationEnabled = false,
 }: SummaryContentProps) {
+  const t = useTranslations("home");
   const readingRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -51,7 +53,7 @@ export function SummaryContent({
 
   // Wrap the onNewSummary callback to include PostHog tracking
   const handleNewSummary = useCallback(() => {
-    // Track the "New Summary" button click
+    // Track the t("newSummary") button click
     captureAnalyticsEvent("new_summary_button_clicked", {
       source_surface: "summary",
     });
@@ -82,14 +84,14 @@ export function SummaryContent({
                   isDark ? "text-white" : "text-slate-900"
                 }`}
               >
-                AI-Generated Video Summary
+                {t("summaryTitle")}
               </h2>
               <p
                 className={`text-sm ${
                   isDark ? "text-gray-300" : "text-slate-700"
                 }`}
               >
-                Key points and insights extracted by AI
+                {t("summaryDescription")}
               </p>
             </div>
           </div>
@@ -121,12 +123,12 @@ export function SummaryContent({
                 {copied ? (
                   <>
                     <Check className="mr-2 h-4 w-4 text-accent-success" />
-                    Copied!
+                    {t("copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="mr-2 h-4 w-4" />
-                    Copy Summary
+                    {t("copySummary")}
                   </>
                 )}
               </Button>
@@ -135,7 +137,7 @@ export function SummaryContent({
                 className="col-span-2 w-full bg-gradient-brand-primary text-white hover:bg-gradient-brand-primary-hover sm:w-auto"
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
-                New Summary
+                {t("newSummary")}
               </Button>
             </div>
           )}
