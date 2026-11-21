@@ -1,4 +1,5 @@
 "use client";
+import { useTranslations } from "next-intl";
 import { useRef, useState, type RefObject } from "react";
 import { BookOpen, Undo2 } from "lucide-react";
 import {
@@ -25,6 +26,7 @@ export function useWriting({
   api: string;
   versions: ResearchVersion[];
 }) {
+  const tr = useTranslations("ui");
   const [active, setActive] = useState(space.activeDraft ?? space.drafts[0].id),
     [passage, setPassage] = useState<Passage>(),
     [prompt, setPrompt] = useState(""),
@@ -56,7 +58,7 @@ export function useWriting({
       ...s,
       drafts: [
         ...s.drafts,
-        { id, title: "脚本 " + (s.drafts.length + 1), text: "", markers: [] },
+        { id, title: tr("draftTitle", {n: s.drafts.length + 1}), text: "", markers: [] },
       ],
     }));
     if (added) changeDraft(id);
@@ -64,7 +66,7 @@ export function useWriting({
   function apply(suggestion: Suggestion, text: string, finding?: string) {
     const before = live.current?.drafts.find((d) => d.id === suggestion.draft);
     if (!before || before.version !== suggestion.version) {
-      setError("原稿已修改。建议保留在对话中，可以重新请求编辑。");
+      setError(tr("theScriptHasChangedRequestAnotherEditFromTheConversation"));
       return;
     }
     const start = suggestion.start;
@@ -79,7 +81,7 @@ export function useWriting({
         before.text.slice(start + suggestion.length),
     );
     if (after.text.length > 80000) {
-      setError("脚本超过字数上限。");
+      setError(tr("scriptLengthLimitReached"));
       return;
     }
     if (finding)
@@ -123,7 +125,7 @@ export function useWriting({
     const selected = passage;
     const msg: Message = { role: "user", text: instruction, passage: selected };
     if (prior.length >= 1999 || !append(msg)) {
-      setError("对话已达容量上限。");
+      setError(tr("conversationLimitReached"));
       setBusy(false);
       return;
     }
@@ -212,6 +214,7 @@ export function Script({
   show: (id: string) => void;
   openWriter: () => void;
 }) {
+  const tr = useTranslations("ui");
   const editor = useRef<HTMLTextAreaElement>(null);
   const { draft } = w;
   const pieces: React.ReactNode[] = [];
@@ -222,7 +225,7 @@ export function Script({
       <button
         className="vs-marker"
         key={m.start}
-        aria-label={"查看句子来源：" + m.text}
+        aria-label={tr("sourceSentence", {text: m.text})}
         onClick={() => show(m.finding)}
       >
         <BookOpen size={13} />
@@ -237,15 +240,15 @@ export function Script({
         <h2>{draft.title}</h2>
         <button disabled={!w.canUndo} onClick={w.revert}>
           <Undo2 size={13} />
-          撤销 AI 编辑
+          {tr("undoAiEdit")}
         </button>
       </div>
       <div className="vs-manuscript">
         <div className="vs-mirror">{pieces}</div>
         <textarea
           ref={editor}
-          aria-label="脚本正文"
-          placeholder="写下你想对观众说的第一句话……"
+          aria-label={tr("scriptText")}
+          placeholder={tr("writeYourFirstLineForTheAudience")}
           maxLength={80000}
           value={draft.text}
           onChange={(e) => w.type(e.target.value)}
@@ -268,7 +271,7 @@ export function Script({
       </div>
       {w.passage && (
         <div className="vs-actions">
-          {["讨论", "改写"].map((action) => (
+          {[tr("discuss"), tr("rewrite")].map((action) => (
             <button
               key={action}
               onMouseDown={(e) => e.preventDefault()}
@@ -276,9 +279,9 @@ export function Script({
                 openWriter();
                 if (!w.prompt.trim())
                   w.setPrompt(
-                    action === "改写"
-                      ? "请改写选中的这句话。"
-                      : "这句话听起来自然吗？",
+                    action === tr("rewrite")
+                      ? tr("rewritePrompt")
+                      : tr("discussionPrompt"),
                   );
               }}
             >
@@ -289,14 +292,14 @@ export function Script({
       )}
       <div className="vs-row vs-meta">
         <small>
-          {draft.text.length} 字 · <span role="status">{status}</span>
+          {tr("chars", {count: draft.text.length})} · <span role="status">{status}</span>
         </small>
-        {status !== "已保存" && status !== "正在保存…" && (
-          <button onClick={flush}>重新保存</button>
+        {status !== tr("saved") && status !== tr("saving") && (
+          <button onClick={flush}>{tr("saveAgain")}</button>
         )}
         <div>
           <select
-            aria-label="当前脚本"
+            aria-label={tr("currentScript")}
             value={draft.id}
             onChange={(e) => w.changeDraft(e.target.value)}
           >
@@ -306,7 +309,7 @@ export function Script({
               </option>
             ))}
           </select>
-          <button aria-label="新建脚本" onClick={w.addDraft}>
+          <button aria-label={tr("newScript")} onClick={w.addDraft}>
             ＋
           </button>
         </div>
@@ -323,20 +326,21 @@ export function Partner({
   space: Space;
   show: (id: string) => void;
 }) {
+  const tr = useTranslations("ui");
   return (
     <>
       <div className="vs-log" aria-live="polite">
         {!space.messages.length && (
-          <small>这期视频，你想从哪个问题讲起？</small>
+          <small>{tr("whatQuestionWillOpenThisVideo")}</small>
         )}
         {space.messages.map((m, i) => (
           <article key={i}>
             <small>
               {m.role === "user"
-                ? "你"
+                ? tr("you")
                 : m.role === "handoff"
-                  ? "来自研究台"
-                  : "创作搭档"}
+                  ? tr("fromTheResearchDesk")
+                  : tr("writingPartner")}
             </small>
             {m.passage && (
               <blockquote>
@@ -348,14 +352,14 @@ export function Partner({
               <button
                 disabled={w.busy}
                 onClick={() =>
-                  void w.send("请根据这项调查接着写开场。", m.finding, true)
+                  void w.send(tr("openingPrompt"), m.finding, true)
                 }
               >
-                写进开场
+                {tr("writeIntoOpening")}
               </button>
             )}{" "}
             {m.finding && (
-              <button onClick={() => show(m.finding!)}>查看依据</button>
+              <button onClick={() => show(m.finding!)}>{tr("viewSources")}</button>
             )}
             {m.suggestion?.options.map((option, j) => (
               <div key={j}>
@@ -367,10 +371,9 @@ export function Partner({
                   }
                   onClick={() => w.apply(m.suggestion!, option, m.finding)}
                 >
-                  采用
                   {m.suggestion!.options.length > 1
-                    ? "方案 " + (j + 1)
-                    : "此稿"}
+                    ? tr("applyOption", {n: j + 1})
+                    : tr("applyDraft")}
                 </button>
               </div>
             ))}
@@ -380,7 +383,7 @@ export function Partner({
       {w.passage && (
         <blockquote>
           {w.passage.title} · “{w.passage.text}”{" "}
-          <button onClick={() => w.setPassage(undefined)}>移除引用</button>
+          <button onClick={() => w.setPassage(undefined)}>{tr("removeQuote")}</button>
         </blockquote>
       )}
       {w.error && <p role="alert">{w.error}</p>}
@@ -391,10 +394,10 @@ export function Partner({
         }}
       >
         <textarea
-          aria-label="消息"
+          aria-label={tr("message")}
           rows={2}
           maxLength={4000}
-          placeholder="讨论一个角度，或让我接着写……"
+          placeholder={tr("discussAnAngleOrAskMeToContinue")}
           value={w.prompt}
           onChange={(e) => w.setPrompt(e.target.value)}
         />
@@ -403,13 +406,13 @@ export function Partner({
             type="button"
             disabled={w.busy}
             onClick={() =>
-              void w.send("请接着当前脚本续写一段开场。", undefined, true)
+              void w.send(tr("continuePrompt"), undefined, true)
             }
           >
-            续写开场
+            {tr("continueOpening")}
           </button>
           <button className="vs-primary" disabled={w.busy || !w.prompt.trim()}>
-            {w.busy ? "正在回复…" : "发送"}
+            {w.busy ? tr("replying") : tr("send")}
           </button>
         </div>
       </form>

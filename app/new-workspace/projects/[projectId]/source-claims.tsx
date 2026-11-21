@@ -1,3 +1,4 @@
+import {useTranslations} from "next-intl";
 import {
   useId,
   useLayoutEffect,
@@ -22,6 +23,7 @@ export function ClaimLinks({
   openClaim,
   offset = 0,
 }: Props & { offset?: number }) {
+  const tr = useTranslations("ui");
   const listId = useId();
   return rooms.map((room, index) => (
     <button
@@ -44,7 +46,7 @@ export function ClaimLinks({
       </span>
       <span className="vs-claim-label">{room.title}</span>
       {ready && !room.versions.length && (
-        <small id={listId + index}>待核查</small>
+        <small id={listId + index}>{tr("unchecked")}</small>
       )}
     </button>
   ));
@@ -86,6 +88,7 @@ export function SourceClaims({
   summaryToggle?: ReactNode;
   children?: ReactNode;
 }) {
+  const tr = useTranslations("ui");
   const listId = useId();
   const list = useRef<HTMLDivElement>(null);
   const more = useRef<HTMLDetailsElement>(null);
@@ -147,7 +150,7 @@ export function SourceClaims({
           {summaryToggle}
         </div>
         {!!props.rooms.length && (
-          <small id={listId + "-count"}>关键观点 · {props.rooms.length}</small>
+          <small id={listId + "-count"}>{tr("keyClaims")} {props.rooms.length}</small>
         )}
       </div>
       {children}
@@ -161,8 +164,8 @@ export function SourceClaims({
         {props.rooms.length > 4 && (
           <details ref={more} className="vs-more-claims">
             <summary>
-              <span>查看全部 {props.rooms.length} 条</span>
-              <span>收起其余观点</span>
+              <span>{tr("allClaims", {count: props.rooms.length})}</span>
+              <span>{tr("showFewerClaims")}</span>
             </summary>
             <ClaimLinks {...props} offset={4} rooms={props.rooms.slice(4)} />
           </details>

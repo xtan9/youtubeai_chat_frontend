@@ -1,4 +1,5 @@
 "use client";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import {
@@ -37,7 +38,7 @@ import { Library } from "./library";
 import "./workbench.css";
 
 type Side = "research" | "partner";
-const label = { research: "研究台", partner: "创作搭档" };
+
 type ProjectHeadingProps = { projectId: string; name: string };
 type InitialData = {
   history: ResearchVersion[] | null;
@@ -64,24 +65,26 @@ async function loadResearchHistory(api: string, signal: AbortSignal) {
 }
 
 function ProjectHeading({ projectId, name }: ProjectHeadingProps) {
+  const tr = useTranslations("ui");
   return (
     <header className="vs-heading">
       <div>
-        <nav aria-label="当前位置">
+        <nav aria-label={tr("currentLocation")}>
           <Link href="/new-workspace">
-            <ChevronLeft size={14} /> New Workspace
+            <ChevronLeft size={14} /> {tr("newWorkspace")}
           </Link>
           <span aria-hidden="true">/</span>
-          <span>视频 Space</span>
+          <span>{tr("videoProjectTitle")}</span>
         </nav>
         <h1>{name}</h1>
       </div>
-      <Link href={"/workspace/projects/" + projectId}>原项目资料 ↗</Link>
+      <Link href={"/workspace/projects/" + projectId}>{tr("originalProjectMaterials")}</Link>
     </header>
   );
 }
 
 export function Workbench({ projectId, name }: ProjectHeadingProps) {
+  const tr = useTranslations("ui");
   const api = "/api/projects/" + projectId;
   const store = useSpace(api + "/space");
   const params = useSearchParams();
@@ -113,7 +116,7 @@ export function Workbench({ projectId, name }: ProjectHeadingProps) {
   }, [api]);
 
   return (
-    <div className="vs ph-no-capture" data-ph-no-autocapture lang="zh-CN">
+    <div className="vs ph-no-capture" data-ph-no-autocapture>
       <ProjectHeading projectId={projectId} name={name} />
       {store.space && initial ? (
         <Desk
@@ -128,7 +131,7 @@ export function Workbench({ projectId, name }: ProjectHeadingProps) {
       ) : store.loadError ? (
         <p role="alert">
           {store.loadError}{" "}
-          <button onClick={() => window.location.reload()}>重新加载</button>
+          <button onClick={() => window.location.reload()}>{tr("reload")}</button>
         </p>
       ) : (
         <div className="vs-grid vs-loading" data-claim={inRoom || undefined}>
@@ -137,11 +140,11 @@ export function Workbench({ projectId, name }: ProjectHeadingProps) {
             className="vs-panel"
             aria-hidden={inRoom || undefined}
           >
-            {!inRoom && <p role="status">正在读取 Space…</p>}
+            {!inRoom && <p role="status">{tr("loadingProject")}</p>}
           </div>
           {inRoom && (
             <div className="vs-panel vs-claim-room">
-              <p role="status">正在读取 Space…</p>
+              <p role="status">{tr("loadingProject")}</p>
             </div>
           )}
           <div className="vs-panel vs-script" aria-hidden="true" />
@@ -172,12 +175,13 @@ function Desk({
     inRoom: boolean;
     initial: InitialData;
   }) {
+  const tr = useTranslations("ui");
   const [fold, setFold] = useState({ research: false, partner: false }),
     [max, setMax] = useState<Side | null>(null),
     [adding, setAdding] = useState(false);
   const ready = initial.history !== null;
   const [versions, setVersions] = useState<ResearchVersion[]>(initial.history ?? []);
-  const historyError = ready ? "" : "研究记录暂时无法读取，请重新加载。";
+  const historyError = ready ? "" : tr("researchHistoryCouldNotBeLoadedPleaseReload");
   const [pending, setPending] = useState<{
     claim: string;
     question: string;
@@ -222,7 +226,7 @@ function Desk({
   const parentId = overview ? sourceId : active && (active.origin?.id ?? "");
   const siblings =
     parentId !== undefined ? (index.bySource.get(parentId) ?? []) : [];
-  const parentTitle = siblings[0]?.origin?.title ?? "项目观点";
+  const parentTitle = siblings[0]?.origin?.title ?? tr("projectClaims");
 
   const rememberDesk = useCallback(() => {
     if (!tree.current) return;
@@ -341,7 +345,7 @@ function Desk({
     if (discussion.length >= 2000) {
       setDiscussionErrors((old) => ({
         ...old,
-        [room.id]: "此项目的讨论已达到保存上限。",
+        [room.id]: tr("discussionFull"),
       }));
       return;
     }
@@ -388,7 +392,7 @@ function Desk({
           claimDiscussion: [...(s.claimDiscussion ?? []), turn],
         }))
       )
-        throw Error("讨论无法保存，已保留你的问题。");
+        throw Error(tr("discussionSave"));
       setQuestions((old) =>
         old[room.id] === question ? { ...old, [room.id]: "" } : old,
       );
@@ -498,7 +502,7 @@ function Desk({
   }
   function panel(side: Side, children: ReactNode) {
     const collapsed = !inRoom && fold[side] && max !== side,
-      title = label[side],
+      title = tr(side === "research" ? "researchDesk" : "writingPartner"),
       Icon = side === "research" ? PanelLeftClose : PanelRightClose;
     return (
       <section
@@ -520,7 +524,7 @@ function Desk({
             );
           }}
         >
-          展开{title}
+          {tr("expandPanel", {title})}
         </button>
         <div
           hidden={collapsed}
@@ -529,7 +533,7 @@ function Desk({
           <div className="vs-row vs-panel-bar">
             {side === "research" ? (
               <h2 id="vs-desk-title" tabIndex={-1}>
-                素材与观点
+                {tr("materialsClaims")}
               </h2>
             ) : (
               <h2>{title}</h2>
@@ -537,7 +541,7 @@ function Desk({
             <div className="vs-actions" data-room={inRoom || undefined}>
               <button
                 id={"vs-collapse-" + side}
-                aria-label={"收起" + title}
+                aria-label={tr("collapsePanel", {title})}
                 onClick={() => {
                   setMax(null);
                   setFold((v) => ({ ...v, [side]: true }));
@@ -547,10 +551,10 @@ function Desk({
                 }}
               >
                 <Icon size={13} />
-                收起
+                {tr("collapse")}
               </button>
               <button
-                aria-label={(max === side ? "还原" : "放大") + title}
+                aria-label={tr(max === side ? "restorePanel" : "maximizePanel", {title})}
                 aria-pressed={max === side}
                 onClick={() => setMax(max === side ? null : side)}
               >
@@ -559,17 +563,17 @@ function Desk({
                 ) : (
                   <Maximize2 size={13} />
                 )}{" "}
-                {max === side ? "还原" : "放大"}
+                {max === side ? tr("restore") : tr("maximize")}
               </button>
             </div>
             {inRoom && (
               <button
                 id="vs-close-directory"
                 className="vs-directory-close"
-                aria-label="关闭观点目录"
+                aria-label={tr("closeDirectory")}
                 onClick={closeDirectory}
               >
-                关闭
+                {tr("close")}
               </button>
             )}
           </div>
@@ -586,7 +590,7 @@ function Desk({
       aria-expanded={directoryOpen}
       onClick={() => setDirectoryOpen(true)}
     >
-      <ListTree size={15} aria-hidden="true" /> 素材目录
+      <ListTree size={15} aria-hidden="true" /> {tr("directory")}
     </button>
   );
   return (
@@ -615,17 +619,17 @@ function Desk({
             <div className="vs-row vs-library-actions">
               <div className="vs-actions">
                 <button
-                  aria-label="添加素材"
+                  aria-label={tr("addSource")}
                   aria-expanded={adding}
                   onClick={() => setAdding(!adding)}
                 >
-                  <Plus size={14} /> 素材
+                  <Plus size={14} /> {tr("sources")}
                 </button>
                 <button
                   aria-expanded={newClaim !== null}
                   onClick={() => setNewClaim(newClaim === null ? "" : null)}
                 >
-                  新建观点
+                  {tr("newClaim")}
                 </button>
               </div>
             </div>
@@ -638,7 +642,7 @@ function Desk({
               >
                 <input
                   autoFocus
-                  aria-label="新观点"
+                  aria-label={tr("claimTitle")}
                   value={newClaim}
                   maxLength={1400}
                   onChange={(e) => setNewClaim(e.target.value)}
@@ -649,11 +653,11 @@ function Desk({
                     (space.customClaims?.length ?? 0) >= 150
                   }
                 >
-                  打开观点空间
+                  {tr("openClaim")}
                 </button>
               </form>
             )}
-            <nav className="vs-library" aria-label="素材目录" ref={tree}>
+            <nav className="vs-library" aria-label={tr("directory")} ref={tree}>
               <Library
                 initialSources={initial.sources}
                 {...{
@@ -688,17 +692,17 @@ function Desk({
                 : undefined
             }
             className="vs-panel vs-claim-room"
-            aria-label={overview ? "素材观点" : "观点空间"}
+            aria-label={overview ? tr("sourceClaims") : tr("claimRoom")}
           >
             {overview ? (
               <header className="vs-room-header">
                 <RoomToolbar
-                  title="素材与观点"
+                  title={tr("materialsClaims")}
                   directoryToggle={directoryToggle}
                   onBack={() => navigate()}
                 />
                 <h2 id="vs-room-title" tabIndex={-1}>
-                  {siblings.length ? parentTitle : "素材观点"}
+                  {siblings.length ? parentTitle : tr("sourceClaims")}
                 </h2>
               </header>
             ) : (
@@ -732,13 +736,13 @@ function Desk({
                     ?.focus()
                 }
               >
-                写脚本 →
+                {tr("writeScript")}
               </button>
             </div>
             {overview && siblings.length ? (
               <div className="vs-parent-claims">
                 <h3>
-                  {parentId ? "本素材观点" : "项目观点"} · {siblings.length}
+                  {parentId ? tr("thisSourceClaims") : tr("projectClaims")} · {siblings.length}
                 </h3>
                 <ClaimLinks
                   rooms={siblings}
@@ -767,7 +771,7 @@ function Desk({
                 }
                 chatBusy={!!discussionBusy}
                 chatStatus={
-                  discussionBusy === active.id ? "正在回复…" : undefined
+                  discussionBusy === active.id ? tr("replying") : undefined
                 }
                 chatError={discussionErrors[active.id]}
                 target={targets[active.id]}
@@ -791,7 +795,7 @@ function Desk({
               />
             ) : (
               <p role="status">
-                {historyError || "找不到这个观点，请返回项目工作台。"}
+                {historyError || tr("missingClaim")}
               </p>
             )}
             {active && historyError && <p role="alert">{historyError}</p>}
@@ -799,19 +803,19 @@ function Desk({
         )}
         <section
           className="vs-panel vs-script"
-          aria-label="脚本编辑器"
+          aria-label={tr("scriptEditor")}
           hidden={!inRoom && !!max}
         >
           {inRoom && (
             <div className="vs-script-heading">
-              <h2>脚本编辑器</h2>
+              <h2>{tr("scriptEditor")}</h2>
               <button
                 className="vs-jump-script"
                 onClick={() =>
                   document.getElementById("vs-room-title")?.focus()
                 }
               >
-                ← 回到观点
+                {tr("backToClaim")}
               </button>
             </div>
           )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations, useFormatter } from "next-intl";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Clock3, FolderKanban, Plus } from "lucide-react";
@@ -73,6 +74,7 @@ function ProjectLimitUpgrade({
   source: ProjectLimitSource;
   used: number;
 }) {
+  const tr = useTranslations("ui");
   const governedUsed = governedProjectsUsed(used, 1);
   const { captureClick: captureSubscriptionDiscoveryClick } =
     useSubscriptionDiscovery({
@@ -95,34 +97,22 @@ function ProjectLimitUpgrade({
   return (
     <div className="flex flex-col items-start gap-2 sm:items-end">
       <p className="text-body-sm text-text-secondary">
-        {governedUsed} of 1 Free Project used
+        {tr("usedProjects", {used: governedUsed})}
       </p>
       <Button asChild>
         <Link
           href="/pricing?source_surface=project_limit"
           onClick={captureUpgradeClick}
         >
-          Upgrade to Pro
+          {tr("upgrade")}
           <ArrowRight aria-hidden="true" />
         </Link>
       </Button>
       <p className="max-w-xs text-body-sm text-text-muted sm:text-right">
-        Or delete your current Project to free this Project slot. Other usage
-        does not reset.
+        {tr("deleteToFreeSlot")}
       </p>
     </div>
   );
-}
-
-function activityLabel(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Recently active";
-  return `Active ${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date)}`;
 }
 
 function CreateProjectDialog({
@@ -134,6 +124,7 @@ function CreateProjectDialog({
   projectsUsed: number;
   emptyState?: boolean;
 }) {
+  const tr = useTranslations("ui");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
@@ -192,7 +183,7 @@ function CreateProjectDialog({
         error_class: "network",
       });
       setError({
-        message: "Couldn’t create the Project. Check your connection and try again.",
+        message: tr("creationFailed"),
         projectLimit: null,
       });
     } finally {
@@ -205,20 +196,20 @@ function CreateProjectDialog({
       <DialogTrigger asChild>
         <Button size={emptyState ? "lg" : "default"}>
           <Plus aria-hidden="true" />
-          Create Project
+          {tr("createProject")}
         </Button>
       </DialogTrigger>
       <DialogContent className="ph-no-capture" data-ph-no-autocapture>
         <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
-            <DialogTitle>Create a Project</DialogTitle>
+            <DialogTitle>{tr("createAProject")}</DialogTitle>
             <DialogDescription>
-              Give this body of research a clear name. You can refine its Goal later.
+              {tr("nameHelp")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="new-project-name">Project name</Label>
+            <Label htmlFor="new-project-name">{tr("projectName")}</Label>
             <Input
               id="new-project-name"
               value={name}
@@ -237,7 +228,7 @@ function CreateProjectDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="new-project-goal">Project Goal (optional)</Label>
+            <Label htmlFor="new-project-goal">{tr("projectGoalOptional")}</Label>
             <Textarea
               id="new-project-goal"
               value={goal}
@@ -252,7 +243,7 @@ function CreateProjectDialog({
               }
             />
             <p id="new-project-goal-help" className="text-body-sm text-text-muted">
-              Your Goal guides future analysis. It is never treated as source evidence.
+              {tr("goalHelp")}
             </p>
             {error?.fieldErrors?.goal?.[0] ? (
               <p id="new-project-goal-error" className="text-body-sm text-accent-danger">
@@ -265,8 +256,8 @@ function CreateProjectDialog({
             <Alert variant="destructive">
               <AlertTitle>
                 {error.projectLimit
-                  ? "Free Project limit reached"
-                  : "Project couldn’t be created"}
+                  ? tr("freeProjectLimitReached")
+                  : tr("creationError")}
               </AlertTitle>
               <AlertDescription className="gap-3">
                 <p>{error.message}</p>
@@ -290,10 +281,10 @@ function CreateProjectDialog({
               onClick={() => setOpen(false)}
               disabled={pending}
             >
-              Cancel
+              {tr("cancel")}
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? "Creating…" : "Create Project"}
+              {pending ? tr("creating") : tr("createProject")}
             </Button>
           </DialogFooter>
         </form>
@@ -303,6 +294,13 @@ function CreateProjectDialog({
 }
 
 export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initialWorkspace: PersonalWorkspace; videoSpace?: boolean }) {
+  const format = useFormatter();
+  function activityLabel(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return tr("recentlyActive");
+    return tr("activeDate", {date: format.dateTime(date, {month: "short", day: "numeric", year: "numeric", timeZone: "UTC"})});
+  }
+  const tr = useTranslations("ui");
   const [projects, setProjects] = useState([...initialWorkspace.projects]);
   const entitlements = useEntitlements();
   const capViewCaptured = useRef(false);
@@ -328,11 +326,11 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
         <div className="flex max-w-3xl flex-col gap-3">
           <div className="flex items-center gap-2 text-body-sm font-medium text-text-muted">
             <FolderKanban aria-hidden="true" />
-            {videoSpace ? "New Workspace" : "Personal Workspace"}
+            {videoSpace ? tr("newWorkspace") : tr("personalWorkspace")}
           </div>
-          <h1 className="text-h2 text-text-primary">{videoSpace ? "Video Spaces" : "Your research, ready to resume"}</h1>
+          <h1 className="text-h2 text-text-primary">{videoSpace ? tr("videoSpaces") : tr("yourResearchReadyToResume")}</h1>
           <p className="text-body-lg text-text-secondary">
-            {videoSpace ? "Open an episode to research your sources and write its script." : "Projects gather related YouTube research around one evolving Goal."}
+            {videoSpace ? tr("openAnEpisodeToResearchYourSourcesAndWriteItsScript") : tr("projectsGatherRelatedYoutubeResearchAroundOneEvolvingGoal")}
           </p>
         </div>
         {projects.length > 0 ? (
@@ -346,7 +344,7 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
               />
               {tier === "pro" ? (
                 <p className="text-body-sm text-text-muted sm:text-right">
-                  Unlimited Projects within technical and abuse limits
+                  {tr("unlimitedProjectsWithinTechnicalAndAbuseLimits")}
                 </p>
               ) : null}
             </div>
@@ -361,9 +359,9 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
               <FolderKanban aria-hidden="true" className="size-7 text-accent-brand" />
             </div>
             <div className="flex max-w-prose flex-col gap-2">
-              <h2 className="text-h4 text-text-primary">Start your first Project</h2>
+              <h2 className="text-h4 text-text-primary">{tr("startYourFirstProject")}</h2>
               <p className="text-body-md text-text-secondary">
-                Name a topic, question, or creative direction. Your Project will become the private home for its sources and findings.
+                {tr("nameATopicQuestionOrCreativeDirectionYourProjectWillBecomeTh")}
               </p>
             </div>
             <CreateProjectDialog
@@ -377,10 +375,10 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
         <section aria-labelledby="recent-projects-heading" className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
             <h2 id="recent-projects-heading" className="text-h4 text-text-primary">
-              Recently active
+              {tr("recentlyActive")}
             </h2>
             <p className="text-body-sm text-text-muted">
-              {projects.length} {projects.length === 1 ? "Project" : "Projects"}
+              {tr("projectCount", {n: projects.length})}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -396,13 +394,13 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
                 </CardHeader>
                 <CardContent className="pl-7">
                   <p className="line-clamp-3 text-body-md text-text-secondary">
-                    {project.goal ?? "No Project Goal yet. Add one when you know what this research should help you decide or create."}
+                    {project.goal ?? tr("noProjectGoalYetAddOneWhenYouKnowWhatThisResearchShouldHelpY")}
                   </p>
                 </CardContent>
                 <CardFooter className="justify-end pl-7">
                   <Button asChild variant="outline">
-                    <Link href={`${videoSpace ? "/new-workspace" : "/workspace"}/projects/${project.id}`} aria-label={`Open ${project.name}`}>
-                      {videoSpace ? "Open Video Space" : "Open Project"}
+                    <Link href={`${videoSpace ? "/new-workspace" : "/workspace"}/projects/${project.id}`} aria-label={tr("openNamedProject", {name: project.name})}>
+                      {videoSpace ? tr("openVideoSpace") : tr("openProject")}
                       <ArrowRight aria-hidden="true" />
                     </Link>
                   </Button>

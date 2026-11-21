@@ -1,4 +1,5 @@
 "use client";
+import {useTranslations} from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -53,8 +54,8 @@ async function writePdf(
   if (error)
     throw Error(
       error.code === "40001"
-        ? "其他窗口已更新此 Space，请先复制本地草稿。"
-        : "PDF 保存失败，请重试。",
+        ? "pdfConflict"
+        : "pdfSaveFailed",
     );
   return { revision: Number(data) };
 }
@@ -62,9 +63,10 @@ async function writePdf(
 // One writer per mounted project. A receipt advances the revision only for
 // the exact snapshot sent, then any newer local edits are saved in order.
 export function useSpace(url: string) {
+  const tr = useTranslations("ui");
   const [space, setSpace] = useState<Space | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [status, setStatus] = useState("正在读取…");
+  const [status, setStatus] = useState("loading");
   const live = useRef<Space | null>(null),
     saved = useRef<Space | null>(null),
     revision = useRef(0);
@@ -89,10 +91,10 @@ export function useSpace(url: string) {
           revision.current = receipt.revision;
           saved.current = document;
         }
-        setStatus("已保存");
+        setStatus("saved");
         return true;
       } catch (e) {
-        setStatus(e instanceof Error ? e.message : "保存失败");
+        setStatus(e instanceof Error ? e.message : "saveFailed");
         return false;
       } finally {
         saving.current = null;
@@ -121,10 +123,10 @@ export function useSpace(url: string) {
         live.current = saved.current = spaceSchema.parse(row.document);
         revision.current = row.revision;
         setSpace(live.current);
-        setStatus("已保存");
+        setStatus("saved");
       })
       .catch(() => {
-        if (!signal.aborted) setLoadError("无法读取脚本，请重新加载。");
+        if (!signal.aborted) setLoadError("loadFailed");
       });
     const guard = (e: BeforeUnloadEvent) => {
       if (live.current !== saved.current) {
@@ -157,12 +159,12 @@ export function useSpace(url: string) {
         new Blob([JSON.stringify(next)]).size >
           (metadataChanged ? 2_200_000 : 2_750_000)
       ) {
-        setStatus("已达到 Space 容量上限，本次更改未加入。");
+        setStatus("capacity");
         return false;
       }
       live.current = next;
       setSpace(next);
-      setStatus("正在保存…");
+      setStatus("saving");
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => void flush(), 300);
       return true;
@@ -170,16 +172,16 @@ export function useSpace(url: string) {
     [flush],
   );
   function attachPdf(resource: Resource, contents: string) {
-    if (pendingPdf.current) throw Error("请等待上一份 PDF 保存完成。");
+    if (pendingPdf.current) throw Error(tr("waitForPdf"));
     if (
       !update((s) => ({
         ...s,
         resources: [...s.resources, { ...resource, originalPdf: true }],
       }))
     )
-      throw Error("素材超过 Space 保存上限。");
+      throw Error(tr("sourceCapacity"));
     pendingPdf.current = { id: resource.id, contents };
     void flush();
   }
-  return { space, live, status, loadError, update, flush, ensureReadingSaved, attachPdf };
+  return { space, live, status: tr.has(status) ? tr(status) : status, loadError: loadError ? tr(loadError) : "", update, flush, ensureReadingSaved, attachPdf };
 }

@@ -5205,7 +5205,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.setViewportSize(viewport);
     try {
       await page.goto(`${appUrl}/new-workspace/projects/${projectId}?claim=${claimId}`);
-      const loading = page.getByRole("status").filter({ hasText: "正在读取 Space" });
+      const loading = page.getByRole("status").filter({ hasText: "Loading project" });
       await expect(loading).toBeVisible();
       await expect.poll(() => [...started].sort()).toEqual(["research", "sources", "space"]);
       const grid = page.locator(".vs-grid");
@@ -5232,10 +5232,10 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       await historyResponse;
       await expect(loading).toBeVisible();
       await expect(page.getByText(title, { exact: true })).toHaveCount(0);
-      await expect(page.getByLabel("脚本正文")).toHaveCount(0);
+      await expect(page.getByLabel("Script text")).toHaveCount(0);
       sources.resolve();
       await expect(page.locator("#vs-room-title")).toHaveText(title);
-      await expect(page.getByLabel("脚本正文")).toHaveValue("Saved script");
+      await expect(page.getByLabel("Script text")).toHaveValue("Saved script");
       await expect(loading).toHaveCount(0);
       expect(await panelPositions()).toEqual(initialPositions);
       expect(new URL(page.url()).searchParams.get("claim")).toBe(claimId);
@@ -5255,6 +5255,7 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   await expect(page.getByRole("heading",{name:"Video Spaces"})).toBeVisible();
   await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
   await expect(page).toHaveURL(appUrl + "/new-workspace/projects/" + projectId);
+  await page.getByRole("combobox", {name: "Interface language"}).selectOption("zh");
   const editor = page.getByRole("textbox",{name:"脚本正文"});
   await editor.fill("厨房里的这瓶油，究竟改变了什么？");
   await expect(page.getByText("已保存",{exact:true})).toBeVisible();
@@ -5268,5 +5269,6 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
 test("Video Space research, evidence, co-writing and comparative layouts @projects-ga-critical",async({context,page},testInfo)=>{
   await addSessionCookie(context,OWNER_ID,"owner@example.test");
   const projectId=await createGroundedFixtureProject(context,"Seed oil，争议在哪里？",{sourceCount:2});
+  await context.addCookies([{name: "locale", value: "zh", url: appUrl}]);
   await videoSpaceJourney(page,testInfo,appUrl,projectId,canonicalVideos.slice(0,2).map(v=>v.id));
 });

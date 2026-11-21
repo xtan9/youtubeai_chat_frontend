@@ -1,3 +1,4 @@
+import {getTranslations} from "next-intl/server";
 import { redirect } from "next/navigation";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
@@ -6,10 +7,10 @@ import { ProjectOutcomeState } from "@/app/workspace/_components/project-outcome
 import { Workbench } from "./workbench";
 
 export const dynamic = "force-dynamic";
-export const metadata = {
-  title: "Video Space",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata() {
+  const tr = await getTranslations("ui");
+  return {title: tr("videoProjectTitle"), robots: {index: false, follow: false}};
+}
 export default async function Page({
   params,
 }: {

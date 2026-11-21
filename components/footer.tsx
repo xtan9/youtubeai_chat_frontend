@@ -1,8 +1,10 @@
+import { useTranslations } from "next-intl";
 import { Suspense } from "react";
 import Link from "next/link";
 import { FooterPricingLink } from "@/components/footer-pricing-link";
 
 export function Footer() {
+  const tr = useTranslations("ui");
   return (
     <footer className="mt-auto hidden w-full border-t bg-surface-base py-6 md:block">
       <div className="container flex flex-col items-center gap-4 px-4 md:px-6">
@@ -11,13 +13,13 @@ export function Footer() {
             href="/blog"
             className="text-sm text-text-muted hover:text-text-primary"
           >
-            Blog
+            {tr("blog")}
           </Link>
           <Link
             href="/faq"
             className="text-sm text-text-muted hover:text-text-primary"
           >
-            FAQ
+            {tr("faq")}
           </Link>
           <Suspense fallback={null}>
             <FooterPricingLink />
@@ -26,19 +28,19 @@ export function Footer() {
             href="/privacy"
             className="text-sm text-text-muted hover:text-text-primary"
           >
-            Privacy Policy
+            {tr("privacyPolicy")}
           </Link>
           <Link
             href="/terms"
             className="text-sm text-text-muted hover:text-text-primary"
           >
-            Terms of Service
+            {tr("termsOfService")}
           </Link>
           <a
             href="mailto:contact@youtubeai.chat"
             className="text-sm text-text-muted hover:text-text-primary"
           >
-            Contact
+            {tr("contact")}
           </a>
         </div>
         <div className="flex flex-wrap justify-center gap-4 text-sm text-text-muted">
@@ -48,7 +50,7 @@ export function Footer() {
             rel="noopener noreferrer"
             className="hover:text-text-primary"
           >
-            Powered by Claude
+            {tr("poweredByClaude")}
           </a>
           <a
             href="https://openai.com/research/whisper"
@@ -64,11 +66,11 @@ export function Footer() {
             rel="noopener noreferrer"
             className="hover:text-text-primary"
           >
-            YouTube captions guide
+            {tr("youtubeCaptionsGuide")}
           </a>
         </div>
         <div className="text-sm text-text-muted">
-          © {new Date().getFullYear()} YouTube AI Chat. All rights reserved.
+          © {new Date().getFullYear()} YouTube AI Chat. {tr("rights")}
         </div>
       </div>
     </footer>

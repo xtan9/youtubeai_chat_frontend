@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
 import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -97,7 +98,7 @@ function freshQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 function Wrapper({ children, qc }: { children: ReactNode; qc: QueryClient }) {
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return <TestLocaleProvider><QueryClientProvider client={qc}>{children}</QueryClientProvider></TestLocaleProvider>;
 }
 
 // Radix DropdownMenu requires the full pointer event sequence to open.
