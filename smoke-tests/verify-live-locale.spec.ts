@@ -34,7 +34,7 @@ test("a signed-out claim link returns to the project after real login", async ({
     expect(await fresh.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
     await fresh.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
     await fresh.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
-    await fresh.getByRole("button",{name:"登入",exact:true}).click();
+    await fresh.locator("form").getByRole("button",{name:"登入",exact:true}).click();
     await expect(fresh).toHaveURL(base + destination);
     await expect(fresh.locator("html")).toHaveAttribute("lang","zh-TW");
   } finally {
