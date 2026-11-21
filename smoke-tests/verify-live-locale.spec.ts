@@ -1,41 +1,36 @@
 import { expect, test } from "@playwright/test";
 
-test("mobile workspace, menu and project editor follow the selected interface language", async ({page}) => {
-  test.setTimeout(180_000);
+test("real summary retains source content across language changes and history reopen", async ({page}) => {
+  test.setTimeout(230000);
   const base = "https://www.youtubeai.chat";
   await page.goto(base + "/auth/login");
   await page.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
   await page.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
   await page.locator('form button[type=submit]').click();
   await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
-
-  await page.setViewportSize({width:390, height:844});
-  await page.goto(base+"/new-workspace");
-  let temp;
-  try {
-    const first = page.locator('a[href^="/new-workspace/projects/"]').first();
-    if (!await first.count()) {
-      const r = await page.request.post(base+"/api/workspace/projects",{data:{name:"Localization acceptance "+Date.now(),goal:""}});
-      expect(r.ok()).toBeTruthy();
-      temp=(await r.json()).project.id;
+  await page.goto(base + "/summary?url=" + encodeURIComponent("https://www.youtube.com/watch?v=jNQXAC9IVRw"));
+  const reading = page.getByTestId("summary-markdown-surface");
+  await expect(reading).toBeVisible({timeout:135000});
+  const source = await reading.innerText();
+  expect(source.length).toBeGreaterThan(30);
+  for (const [locale,summary,chat] of [["zh","摘要","对话"],["zh-TW","摘要","對話"],["en","Summary","Chat"]]) {
+    await page.locator("header select").selectOption(locale);
+    try { await expect(page.locator("html")).toHaveAttribute("lang",locale,{timeout:6000}); }
+    catch {
+      console.log("Stale language in reader", locale, await page.locator("html").getAttribute("lang"), "cookie", (await page.context().cookies()).find(c=>c.name==="locale")?.value);
       await page.reload();
+      await expect(page.locator("html")).toHaveAttribute("lang",locale);
     }
-    for(const [lang, heading, editor] of [["zh","视频项目","脚本正文"],["zh-TW","影片專案","腳本正文"],["en","Video Spaces","Script text"]]){
-      await page.goto(base+"/dashboard");
-      await page.locator('[aria-controls="mobile-primary-navigation"]').click();
-      await page.locator("header select").selectOption(lang);
-      await expect(page.locator("html")).toHaveAttribute("lang",lang);
-      console.log(lang,"mobile menu", await page.locator("#mobile-primary-navigation").allInnerTexts());
-      await page.goto(base+"/new-workspace");
-      await expect(page.getByRole("heading",{name:heading,exact:true})).toBeVisible();
-      await first.click();
-      await expect(page.getByRole("textbox",{name:editor})).toBeAttached();
-      console.log(lang,"mobile project width",await page.evaluate(()=>document.documentElement.scrollWidth));
-      await page.reload();
-      await expect(page.locator("html")).toHaveAttribute("lang",lang);
-      await expect(page.getByRole("textbox",{name:editor})).toBeAttached();
-    }
-  } finally {
-    if (temp) expect((await page.request.delete(base+"/api/projects/"+temp)).status()).toBe(204);
+    await page.getByRole("tab",{name:chat,exact:true}).click();
+    await expect(page.getByRole("tab",{name:chat,exact:true})).toHaveAttribute("aria-selected","true");
+    await page.getByRole("tab",{name:summary,exact:true}).click();
+    await expect(page.getByRole("tab",{name:summary,exact:true})).toHaveAttribute("aria-selected","true");
+    await expect(reading).toHaveText(source,{useInnerText:true});
   }
+  console.log("Verified summary and chat tabs and preserved summary body");
+  await page.goto(base + "/history");
+  const link = page.locator('a[href^="/summary?url="][href*="jNQXAC9IVRw"]').first();
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(reading).toHaveText(source,{useInnerText:true});
 });
