@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { Copy, Languages, LoaderCircle, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -52,57 +53,17 @@ type Props = {
   | { projectId: string; claimId: string; ensureSaved: () => Promise<boolean>; sourceUrl?: never; outputLanguage?: never }
 );
 
-const cardLabels = {
-  en: {
-    name: "Highlight translation",
-    close: "Close translation",
-    translate: "Translate",
-    loading: "Translating in context…",
-    meaning: "Meaning in this passage",
-    based: "Based on this passage",
-    copy: "Copy",
-    copied: "Copied",
-    copyFailed: "Copy failed. Select and copy the translation manually.",
-    retry: "Retry",
-    retryAfter: "Retry after",
-    signIn: "Sign in with a paid account to translate.",
-    paid: "Highlight translation is included with Pro.",
-    stale: "Refresh the Summary and select the text again.",
-    rate: "Too many requests.",
-    failed: "Translation could not be completed. Try again.",
-    hint: "Select up to one sentence within a paragraph or heading.",
-  },
-  zh: {
-    name: "划词翻译",
-    close: "关闭译文",
-    translate: "翻译",
-    loading: "正在翻译…",
-    meaning: "在这段话中的意思",
-    based: "基于所选段落",
-    copy: "复制",
-    copied: "已复制",
-    copyFailed: "复制失败，请选中译文手动复制。",
-    retry: "重试",
-    retryAfter: "可重试时间",
-    signIn: "请先登录后再翻译。",
-    paid: "划词翻译需要 Pro。",
-    stale: "内容已更新，请刷新后重新选词。",
-    rate: "请求较多，请稍后重试。",
-    failed: "翻译暂时失败，请重试。",
-    hint: "请在同一段文字内选取词语或一句话。",
-  },
-};
-
 function ClaimTranslationSettings({ enabled, pending, children }: { enabled?: boolean; pending?: boolean; children: ReactNode }) {
+  const t = useTranslations("reader");
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" aria-label="划词翻译设置" title={enabled ? "划词翻译设置（已开启）" : "划词翻译设置"}
+        <button type="button" aria-label={t("settings")} title={enabled ? t("enabledSettings") : t("settings")}
           disabled={pending} aria-busy={pending} data-enabled={enabled}>
           <Languages size={17} aria-hidden="true" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} collisionPadding={12} aria-label="划词翻译设置"
+      <PopoverContent align="end" sideOffset={6} collisionPadding={12} aria-label={t("settings")}
         data-ph-no-autocapture className="ph-no-capture w-64 max-w-[calc(100vw-1.5rem)] rounded-xl text-body-sm">
         {children}
       </PopoverContent>
@@ -111,25 +72,27 @@ function ClaimTranslationSettings({ enabled, pending, children }: { enabled?: bo
 }
 
 export function HighlightTranslation(props: Props) {
+  const t = useTranslations("reader");
   const entitlements = useEntitlements();
   const eligible = entitlements.data?.tier === "pro" && hasTranslationAccess(entitlements.subscriptionPresentation);
   if (eligible) return <PaidHighlightTranslation {...props} />;
   if (props.projectId) return (
     <ClaimTranslationSettings pending={entitlements.isPending}>
-      {entitlements.isError ? "暂时无法读取翻译权限" : <Link href="/pricing" className="underline underline-offset-4">划词翻译 · Pro</Link>}
+      {entitlements.isError ? t("unavailable") : <Link href="/pricing" className="underline underline-offset-4">{t("pro")}</Link>}
     </ClaimTranslationSettings>
   );
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
-      {entitlements.isPending ? <span>Checking translation access…</span>
-        : entitlements.isError ? <span>Translation access is temporarily unavailable.</span>
-        : <><Languages className="h-4 w-4" aria-hidden="true" /><span>Highlight translation · Pro</span><Link href="/pricing" className="font-medium underline underline-offset-4">Upgrade to Pro</Link></>}
+      {entitlements.isPending ? <span>{t("checking")}</span>
+        : entitlements.isError ? <span>{t("unavailable")}</span>
+        : <><Languages className="h-4 w-4" aria-hidden="true" /><span>{t("pro")}</span><Link href="/pricing" className="font-medium underline underline-offset-4">{t("upgrade")}</Link></>}
     </div>
   );
 }
 
 function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, browserLanguage, projectId, claimId, ensureSaved }: Props) {
-  const labels = projectId ? cardLabels.zh : cardLabels.en;
+  const t = useTranslations("reader");
+  const locale = useLocale();
   const stored = useSyncExternalStore(subscribePreferences, readPreferences, serverPreferences);
   const [volatilePreferences, setVolatilePreferences] = useState<string | null>(null);
   const preferences = decodePreferences(volatilePreferences ?? stored);
@@ -174,7 +137,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         const saved = await ensureSaved();
         if (controller.signal.aborted || current !== generation.current) return;
         if (!saved) {
-          setCard({ ...next, status: "error", message: "原文尚未保存，请保存后重试。" });
+          setCard({ ...next, status: "error", message: "unsaved" });
           return;
         }
       }
@@ -186,11 +149,11 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       if (controller.signal.aborted || current !== generation.current) return;
       if (!response.ok) {
         const delay = response.status === 429 ? Math.max(1, Math.min(60, Number(response.headers.get("Retry-After")) || 60)) : 0;
-        const message = response.status === 401 ? labels.signIn
-          : response.status === 403 ? labels.paid
-          : response.status === 409 ? labels.stale
-          : response.status === 429 ? labels.rate
-          : labels.failed;
+        const message = response.status === 401 ? "signIn"
+          : response.status === 403 ? "paid"
+          : response.status === 409 ? "stale"
+          : response.status === 429 ? "rate"
+          : "failed";
         setCard({ ...next, status: "error", message, retryAt: delay ? Date.now() + delay * 1000 : undefined,
           payload: [401, 403, 409].includes(response.status) ? undefined : next.payload });
         return;
@@ -199,10 +162,10 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       setCard({ ...next, status: "success", result, message: undefined, retryAt: undefined });
     } catch {
       if (!controller.signal.aborted && current === generation.current) {
-        setCard({ ...next, status: "error", message: labels.failed });
+        setCard({ ...next, status: "error", message: "failed" });
       }
     }
-  }, [labels, ensureSaved]);
+  }, [ensureSaved]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -228,7 +191,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       signature.current = nextSignature;
       dismiss();
       if (!selected.passage || (projectId && !selected.passage.section)) {
-        setCard({ range: selected.range, status: "hint", message: labels.hint });
+        setCard({ range: selected.range, status: "hint", message: "hint" });
         return;
       }
       const next: Card = {
@@ -300,7 +263,7 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
       document.removeEventListener("pointercancel", pointerUp);
       document.removeEventListener("keydown", keyDown);
     };
-  }, [enabled, language, labels, projectId, claimId, sourceUrl, outputLanguage, readingRef, dismiss, translate, cancelRequest]);
+  }, [enabled, language, projectId, claimId, sourceUrl, outputLanguage, readingRef, dismiss, translate, cancelRequest]);
 
   useLayoutEffect(() => {
     if (!card || !enabled) return;
@@ -362,13 +325,11 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
         <ClaimTranslationSettings enabled={enabled}>
           <div ref={controlsRef} className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <label htmlFor={id} className="cursor-pointer font-semibold">划词翻译</label>
+              <label htmlFor={id} className="cursor-pointer font-semibold">{t("enable")}</label>
               <Switch id={id} checked={enabled} onCheckedChange={value => save(value, language)} aria-describedby={id + "-help"}
                 className="data-[state=unchecked]:bg-text-muted dark:data-[state=unchecked]:bg-text-muted" />
             </div>
-            <label className="flex items-center justify-between gap-3">
-              目标语言
-              <select aria-label="翻译目标语言" value={language}
+            <label className="flex items-center justify-between gap-3">{t("target")}<select aria-label={t("targetLabel")} value={language}
                 onChange={event => {
                   if (isSupportedLanguageCode(event.target.value)) save(enabled, event.target.value);
                 }}
@@ -376,56 +337,54 @@ function PaidHighlightTranslation({ readingRef, sourceUrl, outputLanguage, brows
                 {SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}
               </select>
             </label>
-            <p id={id + "-help"} className="text-body-xs leading-relaxed text-text-secondary">选中的词句、所在段落和标题会交给 AI 翻译。</p>
+            <p id={id + "-help"} className="text-body-xs leading-relaxed text-text-secondary">{t("context")}</p>
           </div>
         </ClaimTranslationSettings>
       ) : <div ref={controlsRef} className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border-default bg-surface-raised/60 px-4 py-3 text-body-sm text-text-primary">
         <>
           <div className="flex items-center gap-2">
             <Switch id={id} checked={preferences.enabled} onCheckedChange={value => save(value, language)} aria-describedby={id + "-help"} />
-            <label htmlFor={id} className="cursor-pointer font-medium">Highlight to translate</label>
+            <label htmlFor={id} className="cursor-pointer font-medium">{t("enable")}</label>
           </div>
-          <label className="flex items-center gap-2" htmlFor={id + "-language"}>
-            Translate to:
-            <select id={id + "-language"} value={language} onChange={event => {
+          <label className="flex items-center gap-2" htmlFor={id + "-language"}>{t("target")}<select id={id + "-language"} value={language} onChange={event => {
               if (isSupportedLanguageCode(event.target.value)) save(preferences.enabled, event.target.value);
             }} className="max-w-[190px] rounded-md border border-border-default bg-surface-base px-2 py-1.5 text-body-sm">
               {SUPPORTED_OUTPUT_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.native}</option>)}
             </select>
           </label>
-          <p id={id + "-help"} className="basis-full text-body-xs text-text-secondary">Uses selected text and nearby context for AI translation.</p>
+          <p id={id + "-help"} className="basis-full text-body-xs text-text-secondary">{t("context")}</p>
         </>
       </div>}
       {visible && createPortal(
-        <div ref={cardRef} role="region" aria-label={labels.name} data-ph-no-autocapture onPointerDown={event => { interactingWithCard.current = true; event.stopPropagation(); }}
+        <div ref={cardRef} role="region" aria-label={t("name")} data-ph-no-autocapture onPointerDown={event => { interactingWithCard.current = true; event.stopPropagation(); }}
           onFocusCapture={() => { interactingWithCard.current = true; }} onClick={event => event.stopPropagation()}
           className="ph-no-capture fixed z-50 overflow-auto rounded-xl border border-border-subtle border-t-[3px] border-t-accent-brand-secondary bg-surface-overlay p-4 text-text-primary shadow-xl"
           style={{ ...position, visibility: position ? "visible" : "hidden" }}>
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="min-w-0 break-words font-semibold">{visible.payload?.text ?? labels.name}
+            <div className="min-w-0 break-words font-semibold">{visible.payload?.text ?? t("name")}
               {visible.result?.partOfSpeech && <span className="ml-2 text-body-xs font-normal italic text-text-muted">{visible.result.partOfSpeech}</span>}
             </div>
-            <button type="button" aria-label={labels.close} onClick={dismiss} className="rounded p-1 hover:bg-state-hover focus-visible:outline-2 focus-visible:outline-offset-2"><X className="h-4 w-4" /></button>
+            <button type="button" aria-label={t("close")} onClick={dismiss} className="rounded p-1 hover:bg-state-hover focus-visible:outline-2 focus-visible:outline-offset-2"><X className="h-4 w-4" /></button>
           </div>
           <div aria-live="polite" aria-atomic="true">
-            {visible.status === "ready" && <Button onClick={() => void translate(visible)} size="sm"><Languages className="mr-2 h-4 w-4" />{labels.translate}</Button>}
-            {visible.status === "loading" && <p className="flex items-center gap-2 text-body-sm"><LoaderCircle className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />{labels.loading}</p>}
+            {visible.status === "ready" && <Button onClick={() => void translate(visible)} size="sm"><Languages className="mr-2 h-4 w-4" />{t("translate")}</Button>}
+            {visible.status === "loading" && <p className="flex items-center gap-2 text-body-sm"><LoaderCircle className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />{t("loading")}</p>}
             {visible.result && <>
               <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-h4 font-semibold">{visible.result.translation}</p>
               <div className="mt-4 border-t border-border-subtle pt-3">
-                <p className="mb-2 text-body-xs font-medium text-text-muted">{labels.meaning}</p>
+                <p className="mb-2 text-body-xs font-medium text-text-muted">{t("meaning")}</p>
                 <p lang={language} dir={isRtl ? "rtl" : "auto"} className="break-words text-body-sm leading-relaxed">{visible.result.explanation}</p>
               </div>
             </>}
-            {visible.message && <p className="text-body-sm">{visible.message}</p>}
-            {visible.retryAt && <p className="mt-2 text-body-xs">{labels.retryAfter}{" "}{new Date(visible.retryAt).toLocaleTimeString()}</p>}
+            {visible.message && <p className="text-body-sm">{t(visible.message)}</p>}
+            {visible.retryAt && <p className="mt-2 text-body-xs">{t("retryAfter")}{" "}{new Date(visible.retryAt).toLocaleTimeString(locale)}</p>}
           </div>
-          {visible.status === "error" && visible.payload && <Button className="mt-3" variant="outline" size="sm" disabled={visible.retryAt !== undefined} onClick={() => void translate(visible)}>{labels.retry}</Button>}
+          {visible.status === "error" && visible.payload && <Button className="mt-3" variant="outline" size="sm" disabled={visible.retryAt !== undefined} onClick={() => void translate(visible)}>{t("retry")}</Button>}
           {visible.result && <div className="mt-4 flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-            <span className="text-body-xs text-text-muted">{labels.based}</span>
-            <Button size="sm" variant="ghost" onClick={() => void copy()}><Copy className="mr-1.5 h-4 w-4" />{copied ? labels.copied : labels.copy}</Button>
+            <span className="text-body-xs text-text-muted">{t("based")}</span>
+            <Button size="sm" variant="ghost" onClick={() => void copy()}><Copy className="mr-1.5 h-4 w-4" />{copied ? t("copied") : t("copy")}</Button>
           </div>}
-          {copyFailed && <p role="status" className="mt-2 text-body-xs">{labels.copyFailed}</p>}
+          {copyFailed && <p role="status" className="mt-2 text-body-xs">{t("copyFailed")}</p>}
         </div>, document.body)}
     </>
   );

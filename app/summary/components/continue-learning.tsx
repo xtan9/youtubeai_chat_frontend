@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useState } from "react";
 import {
   ArrowUpRight,
@@ -11,13 +12,6 @@ import {
 import { useTheme } from "next-themes";
 import { useContinueLearning } from "@/lib/hooks/useContinueLearning";
 
-const RELATIONSHIP_LABELS = {
-  deeper_explanation: "Deeper explanation",
-  prerequisite: "Prerequisite",
-  practical_application: "Practical application",
-  credible_alternative: "Credible alternative",
-} as const;
-
 interface ContinueLearningSectionProps {
   readonly sourceUrl: string;
   readonly enabled: boolean;
@@ -26,6 +20,7 @@ interface ContinueLearningSectionProps {
 type FeedbackJudgment = "useful" | "not_useful";
 
 function RecommendationFeedback({ token }: { readonly token: string }) {
+  const t = useTranslations("reader");
   const [judgment, setJudgment] = useState<FeedbackJudgment | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,30 +49,26 @@ function RecommendationFeedback({ token }: { readonly token: string }) {
     }`;
 
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-label="Recommendation feedback">
-      <span className="text-xs text-slate-500 dark:text-gray-400">Was this useful?</span>
+    <div className="flex flex-wrap items-center gap-2" aria-label={t("feedback")}>
+      <span className="text-xs text-slate-500 dark:text-gray-400">{t("usefulPrompt")}</span>
       <button
         type="button"
-        aria-label="Useful recommendation"
+        aria-label={t("useful")}
         aria-pressed={judgment === "useful"}
         disabled={submitting}
         className={buttonClass(judgment === "useful")}
         onClick={() => void submit("useful")}
       >
-        <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
-        Useful
-      </button>
+        <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />{t("yes")}</button>
       <button
         type="button"
-        aria-label="Not useful recommendation"
+        aria-label={t("notUseful")}
         aria-pressed={judgment === "not_useful"}
         disabled={submitting}
         className={buttonClass(judgment === "not_useful")}
         onClick={() => void submit("not_useful")}
       >
-        <ThumbsDown className="h-3.5 w-3.5" aria-hidden="true" />
-        Not useful
-      </button>
+        <ThumbsDown className="h-3.5 w-3.5" aria-hidden="true" />{t("no")}</button>
     </div>
   );
 }
@@ -86,6 +77,7 @@ export function ContinueLearningSection({
   sourceUrl,
   enabled,
 }: ContinueLearningSectionProps) {
+  const t = useTranslations("reader");
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const state = useContinueLearning(sourceUrl, { enabled });
@@ -105,9 +97,7 @@ export function ContinueLearningSection({
           <h3
             id={headingId}
             className={`text-lg font-semibold ${isDark ? "text-white" : "text-slate-900"}`}
-          >
-            Continue learning
-          </h3>
+          >{t("learn")}</h3>
         </div>
         <div
           data-testid="continue-learning-skeleton"
@@ -120,7 +110,7 @@ export function ContinueLearningSection({
               : "border-slate-200 bg-slate-50"
           }`}
         >
-          <span className="sr-only">Preparing Continue Learning recommendations</span>
+          <span className="sr-only">{t("preparing")}</span>
           <div className="h-5 w-2/3 rounded bg-current opacity-10" />
           <div className="mt-3 h-4 w-full rounded bg-current opacity-10" />
           <div className="mt-2 h-4 w-4/5 rounded bg-current opacity-10" />
@@ -140,9 +130,7 @@ export function ContinueLearningSection({
         <h3
           id={headingId}
           className={`text-lg font-semibold ${isDark ? "text-white" : "text-slate-900"}`}
-        >
-          Continue learning
-        </h3>
+        >{t("learn")}</h3>
       </div>
       <ul
         role="list"
@@ -176,14 +164,14 @@ export function ContinueLearningSection({
                 <span
                   className="inline-flex rounded-full bg-accent-brand/15 px-2 py-1 text-xs font-medium text-accent-brand"
                   data-testid="continue-learning-relationship"
-                  aria-label={`Continuation relationship: ${RELATIONSHIP_LABELS[item.relationship]}`}
+                  aria-label={t("relationship", {label: t(item.relationship)})}
                 >
-                  {RELATIONSHIP_LABELS[item.relationship]}
+                  {t(item.relationship)}
                 </span>
                 <h4
                   className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-900"}`}
                 >
-                  {item.title || "Untitled video"}
+                  {item.title || t("untitled")}
                 </h4>
                 {item.channelName ? (
                   <p className={`mt-1 text-sm ${isDark ? "text-gray-300" : "text-slate-600"}`}>
@@ -199,9 +187,7 @@ export function ContinueLearningSection({
                 <a
                   href={`/summary?url=${encodeURIComponent(item.canonicalUrl)}`}
                   className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-accent-brand px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand focus-visible:ring-offset-2"
-                >
-                  Summarize Next
-                  <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                >{t("next")}<ArrowUpRight className="h-4 w-4" aria-hidden="true" />
                 </a>
                 <a
                   href={item.canonicalUrl}
@@ -212,9 +198,7 @@ export function ContinueLearningSection({
                       ? "border-white/20 text-gray-100 hover:bg-white/10"
                       : "border-slate-300 text-slate-700 hover:bg-slate-50"
                   }`}
-                >
-                  Watch on YouTube
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                >{t("watch")}<ExternalLink className="h-4 w-4" aria-hidden="true" />
                 </a>
               </div>
             </div>

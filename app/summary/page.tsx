@@ -1,3 +1,4 @@
+import {getTranslations} from "next-intl/server";
 import { YouTubeSummarizerApp } from "@/app/summary/components/youtube-summarizer-app";
 import { InputForm } from "@/app/components/input-form";
 import { Metadata } from "next";
@@ -42,6 +43,7 @@ export async function generateMetadata({
 }: {
   searchParams: SearchParams;
 }): Promise<Metadata> {
+  const t = await getTranslations("reader");
   const params = await searchParams;
   // Bare `/summary` is the indexable tool landing page (it's in sitemap.ts).
   // `/summary?url=...` renders user-submitted dynamic content; we don't want
@@ -49,9 +51,9 @@ export async function generateMetadata({
   // so noindex those variants.
   const isResultsView = Boolean(params.url);
   return {
-    title: "YouTube Video Summary - AI-Generated Key Points & Insights",
+    title: t("summaryTitle"),
     description:
-      "Instant AI-generated summary with key points and insights from your YouTube video. Save time with our free YouTube summarizer tool.",
+      t("seo"),
     alternates: {
       canonical: "/summary",
     },
@@ -64,6 +66,7 @@ export default async function SummaryPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const t = await getTranslations("reader");
   const params = await searchParams;
   const showEvidencePrototype =
     process.env.NODE_ENV !== "production" && params.evidencePrototype === "1";
@@ -92,25 +95,15 @@ export default async function SummaryPage({
 
   return (
     <>
-      <h1 className="sr-only">
-        YouTube Video Summary - AI-Generated Key Points & Insights
-      </h1>
+      <h1 className="sr-only">{t("summaryTitle")}</h1>
       {/* Server-rendered intro for the bare /summary landing — gives crawlers
           something to index since the YouTubeSummarizerApp is client-only.
           Hidden in the results view so submitted summaries aren't pushed
           below the fold. */}
       {!isResultsView && (
         <section className="w-full max-w-3xl mx-auto px-4 pt-12 pb-6 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-brand-accent bg-clip-text text-transparent">
-            Free AI Summary for any YouTube Video
-          </h2>
-          <p className="text-base md:text-lg text-text-muted">
-            Paste a YouTube URL below and our AI extracts the key points,
-            themes, and insights in seconds. Works on any public video — even
-            ones without captions — and reads back in 18 summary languages.
-            Try one summary without signing up, or create a free account for
-            10 summaries per month.
-          </p>
+          <h2 className="text-2xl md:text-3xl font-bold mb-4 bg-gradient-brand-accent bg-clip-text text-transparent">{t("landingTitle")}</h2>
+          <p className="text-base md:text-lg text-text-muted">{t("landingIntro")}</p>
           <div className="mt-8">
             <InputForm sourceSurface="summary" />
           </div>
@@ -128,8 +121,8 @@ export default async function SummaryPage({
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([
-          { name: "Home", path: "/" },
-          { name: "Summary", path: "/summary" },
+          { name: t("home"), path: "/" },
+          { name: t("summary"), path: "/summary" },
         ])}
       />
     </>

@@ -1,3 +1,4 @@
+import {useTranslations} from "next-intl";
 import { AlertCircle } from "lucide-react";
 import { useUser } from "@/lib/contexts/user-context";
 
@@ -6,6 +7,7 @@ interface AuthErrorBannerProps {
 }
 
 export function AuthErrorBanner({ authError }: AuthErrorBannerProps) {
+  const t = useTranslations("reader");
   const { user } = useUser();
   if (!authError) return null;
 
@@ -14,12 +16,10 @@ export function AuthErrorBanner({ authError }: AuthErrorBannerProps) {
       <div className="flex items-center gap-3">
         <AlertCircle className="w-5 h-5 text-accent-danger shrink-0" />
         <div>
-          <p className="text-accent-danger font-medium">Authentication Error</p>
+          <p className="text-accent-danger font-medium">{t("authTitle")}</p>
           <p className="text-accent-danger text-sm mt-1">{authError}</p>
           {user && (
-            <p className="text-accent-danger text-xs mt-2">
-              Redirecting to sign in page in 3 seconds...
-            </p>
+            <p className="text-accent-danger text-xs mt-2">{t("redirect")}</p>
           )}
         </div>
       </div>
