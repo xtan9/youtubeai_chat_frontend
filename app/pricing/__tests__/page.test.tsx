@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import {
@@ -21,7 +22,8 @@ import {
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { useUser } from "@/lib/contexts/user-context";
 import { resolvePricingNavigationContext } from "@/lib/analytics/subscription-discovery-navigation";
-import PricingPage, { PricingPageContent } from "../page";
+import PricingPage from "../page";
+import { PricingPageContent } from "../_components/PricingPageContent";
 
 const analyticsMocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -65,7 +67,7 @@ function renderPage() {
   });
   return render(<PricingPageContent initialContext={initialContext} />, {
     wrapper: ({ children }) => (
-      <Wrapper qc={freshQueryClient()}>{children}</Wrapper>
+      <TestLocaleProvider><Wrapper qc={freshQueryClient()}>{children}</Wrapper></TestLocaleProvider>
     ),
   });
 }

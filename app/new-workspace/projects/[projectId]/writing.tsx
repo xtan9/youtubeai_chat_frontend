@@ -66,7 +66,7 @@ export function useWriting({
   function apply(suggestion: Suggestion, text: string, finding?: string) {
     const before = live.current?.drafts.find((d) => d.id === suggestion.draft);
     if (!before || before.version !== suggestion.version) {
-      setError(tr("theScriptHasChangedRequestAnotherEditFromTheConversation"));
+      setError("theScriptHasChangedRequestAnotherEditFromTheConversation");
       return;
     }
     const start = suggestion.start;
@@ -81,7 +81,7 @@ export function useWriting({
         before.text.slice(start + suggestion.length),
     );
     if (after.text.length > 80000) {
-      setError(tr("scriptLengthLimitReached"));
+      setError("scriptLengthLimitReached");
       return;
     }
     if (finding)
@@ -125,7 +125,7 @@ export function useWriting({
     const selected = passage;
     const msg: Message = { role: "user", text: instruction, passage: selected };
     if (prior.length >= 1999 || !append(msg)) {
-      setError(tr("conversationLimitReached"));
+      setError("conversationLimitReached");
       setBusy(false);
       return;
     }
@@ -184,7 +184,7 @@ export function useWriting({
     passage,
     prompt,
     busy,
-    error,
+    error: error && tr.has(error) ? tr(error) : error,
     changeDraft,
     type,
     append,

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BILLING_ACTIVATION_OUTCOME_STORAGE_KEY,

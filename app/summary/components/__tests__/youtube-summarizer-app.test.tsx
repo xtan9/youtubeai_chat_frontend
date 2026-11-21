@@ -98,6 +98,12 @@ vi.mock("@/lib/contexts/user-context", () => ({
 
 import { useYouTubeSummarizer } from "@/lib/hooks/useYouTubeSummarizer";
 import { YouTubeSummarizerApp } from "../youtube-summarizer-app";
+import {createTranslator} from "next-intl";
+import messages from "@/i18n/messages/en.json";
+vi.mock("next-intl/server", () => ({
+  getTranslations: () => createTranslator({locale:"en", messages, namespace:"reader"}),
+}));
+
 import SummaryPage from "../../page";
 import { setViewportWidth } from "./viewport";
 

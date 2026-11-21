@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
+import { screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ManageSubscriptionButton } from "../ManageSubscriptionButton";
 

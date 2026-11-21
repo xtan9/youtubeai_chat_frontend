@@ -1,41 +1,43 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 export function ManageSubscriptionButton({
-  label = "Manage subscription",
+  label,
   onActivate,
 }: {
   label?: string;
   onActivate?: () => void;
 }) {
+  const t = useTranslations("pricing");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   const onClick = async () => {
     onActivate?.();
-    setError(null);
+    setError(false);
     setPending(true);
     try {
       const res = await fetch("/api/billing/portal", { method: "POST" });
       if (!res.ok) {
         console.error("[paywall] portal request failed", { status: res.status });
-        setError("Couldn't open the billing portal. Please try again.");
+        setError(true);
         setPending(false);
         return;
       }
       const body = (await res.json()) as { url?: string };
       if (!body.url) {
         console.error("[paywall] portal response missing url");
-        setError("Couldn't open the billing portal. Please try again.");
+        setError(true);
         setPending(false);
         return;
       }
       window.location.assign(body.url);
     } catch (err) {
       console.error("[paywall] portal navigation threw", err);
-      setError("Couldn't open the billing portal. Please try again.");
+      setError(true);
       setPending(false);
     }
   };
@@ -48,11 +50,11 @@ export function ManageSubscriptionButton({
         disabled={pending}
         data-paywall-action="manage-subscription"
       >
-        {pending ? "Opening Stripe…" : label}
+        {pending ? t("opening") : (label ?? t("manage"))}
       </Button>
       {error ? (
         <p className="text-caption text-accent-danger mt-2" role="alert">
-          {error}
+          {t("portalError")}
         </p>
       ) : null}
     </>

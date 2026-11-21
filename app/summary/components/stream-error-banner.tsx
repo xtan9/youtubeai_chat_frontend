@@ -1,3 +1,4 @@
+import {useTranslations} from "next-intl";
 import { AlertCircle } from "lucide-react";
 
 interface StreamErrorBannerProps {
@@ -6,6 +7,7 @@ interface StreamErrorBannerProps {
 }
 
 export function StreamErrorBanner({ message, errorId }: StreamErrorBannerProps) {
+  const t = useTranslations("reader");
   return (
     <div
       className="mb-6 bg-accent-danger/10 border border-accent-danger/20 rounded-xl p-4"
@@ -17,7 +19,7 @@ export function StreamErrorBanner({ message, errorId }: StreamErrorBannerProps) 
       <div className="flex items-center gap-3">
         <AlertCircle className="w-5 h-5 text-accent-danger shrink-0" />
         <div>
-          <p className="text-accent-danger font-medium">Summary failed</p>
+          <p className="text-accent-danger font-medium">{t("failedSummary")}</p>
           <p className="text-accent-danger text-sm mt-1">{message}</p>
         </div>
       </div>
