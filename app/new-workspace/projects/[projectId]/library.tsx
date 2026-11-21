@@ -78,7 +78,7 @@ function SourceCard({
         .eq("project_id", api.split("/").at(-1)!)
         .eq("id", initial.id)
         .single();
-      if (error || !data) throw Error(tr("originalPdfUnavailable"));
+      if (error || !data) throw Error("originalPdfUnavailable");
       const url = URL.createObjectURL(
         new Blob(
           [Uint8Array.from(atob(data.contents), (c) => c.charCodeAt(0))],
@@ -91,7 +91,7 @@ function SourceCard({
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch {
-      setError(tr("couldNotDownloadThePdfTryAgain"));
+      setError("couldNotDownloadThePdfTryAgain");
     }
   }
   useEffect(() => {
@@ -112,7 +112,7 @@ function SourceCard({
         if (active) setLoaded(r);
       })
       .catch(() => {
-        if (active) setError(tr("couldNotLoadCaptionsTryAgain"));
+        if (active) setError("couldNotLoadCaptionsTryAgain");
       });
     return () => {
       active = false;
@@ -233,7 +233,7 @@ function SourceCard({
           )}
         </div>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{tr.has(error) ? tr(error) : error}</p>}
     </SourceClaims>
   );
 }
@@ -269,14 +269,14 @@ export function Library({
           if (active) setSources(r.sourceSet);
         })
         .catch(() => {
-          if (active) setError(tr("couldNotLoadVideoSources"));
+          if (active) setError("couldNotLoadVideoSources");
         });
     const id = setInterval(load, 4000);
     return () => {
       active = false;
       clearInterval(id);
     };
-  }, [api, pending, tr]);
+  }, [api, pending]);
   function save(r: Resource) {
     const added = update((s) => ({
       ...s,
@@ -284,7 +284,7 @@ export function Library({
         ? s.resources.map((x) => (x.id === r.id ? r : x))
         : [...s.resources, r],
     }));
-    if (!added) throw Error(tr("sourceExceedsProjectCapacity"));
+    if (!added) throw Error("sourceExceedsProjectCapacity");
   }
   async function add() {
     setBusy(true);
@@ -295,13 +295,13 @@ export function Library({
         const r = await readPdf(file);
         const contents = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onerror = () => reject(Error(tr("unableToReadPdf")));
+          reader.onerror = () => reject(Error("unableToReadPdf"));
           reader.onload = () => resolve(String(reader.result).split(",")[1]);
           reader.readAsDataURL(file);
         });
         attachPdf(r, contents);
       } else if (normalizeYouTubeVideoInput(url)) {
-        if (!sources) throw Error(tr("videoListIsNotReady"));
+        if (!sources) throw Error("videoListIsNotReady");
         await requestJson(api + "/source-set/process", "POST", {
           youtubeUrl: normalizeYouTubeVideoInput(url),
           expectedRevision: sources.revision,
@@ -382,7 +382,7 @@ export function Library({
           <button disabled={busy}>{busy ? tr("importing") : tr("importSource")}</button>
         </form>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{tr.has(error) ? tr(error) : error}</p>}
       {!sources && <p role="alert">{tr("couldNotLoadVideoSources")}</p>}
       {sources && !items.length && (
         <p className="vs-hint">{tr("addTheFirstSourceForThisVideo")}</p>

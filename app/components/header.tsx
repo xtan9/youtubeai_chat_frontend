@@ -33,13 +33,13 @@ export function Header() {
   const { error: authError, isLoading: isAuthLoading, user } = useUser();
   const router = useRouter();
   const supabase = createClient();
-  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
-    setSignOutError(null);
+    setSignOutError(false);
     setIsSigningOut(true);
 
     try {
@@ -49,7 +49,7 @@ export function Header() {
           status: error.status ?? null,
           message: error.message,
         });
-        setSignOutError(tr("couldntSignYouOutCheckYourConnectionAndTryAgain"));
+        setSignOutError(true);
         return;
       }
       // Force a document navigation so an authenticated App Router prefetch of
@@ -59,7 +59,7 @@ export function Header() {
       console.error("[header] signOut threw", {
         message: error instanceof Error ? error.message : String(error),
       });
-      setSignOutError(tr("couldntSignYouOutCheckYourConnectionAndTryAgain"));
+      setSignOutError(true);
     } finally {
       setIsSigningOut(false);
     }
@@ -232,7 +232,7 @@ export function Header() {
             aria-live="assertive"
             className="mt-3 text-body-sm text-accent-danger"
           >
-            {signOutError}
+            {tr("couldntSignYouOutCheckYourConnectionAndTryAgain")}
           </p>
         ) : null}
       </div>
