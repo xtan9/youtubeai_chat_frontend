@@ -8,7 +8,10 @@ test("real summary retains source content across language changes and history re
   await page.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
   await page.locator('form button[type=submit]').click();
   await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
-  await page.goto(base + "/summary?url=" + encodeURIComponent("https://www.youtube.com/watch?v=jNQXAC9IVRw"));
+  await page.goto(base + "/dashboard");
+  await page.locator("input[name=url]").fill("https://www.youtube.com/watch?v=jNQXAC9IVRw");
+  await page.locator("input[name=url]").press("Enter");
+  await page.waitForURL(url=>url.pathname==="/summary");
   const reading = page.getByTestId("summary-markdown-surface");
   await expect(reading).toBeVisible({timeout:135000});
   const source = await reading.innerText();
@@ -30,6 +33,13 @@ test("real summary retains source content across language changes and history re
   console.log("Verified summary and chat tabs and preserved summary body");
   await page.goto(base + "/history");
   const link = page.locator('a[href^="/summary?url="][href*="jNQXAC9IVRw"]').first();
+  await page.reload();
+  console.log("History state", JSON.stringify({
+    path:new URL(page.url()).pathname,summaryLinks:await page.locator('a[href*="/summary?"]').count(),
+    headings:await page.locator("main h1,main h2").allInnerTexts(),
+    alert:await page.locator("main [role=alert]").allInnerTexts(),
+    unavailable:await page.getByText(/couldn.t load|could not load|unable to load/i).count(),
+  }));
   await expect(link).toBeVisible();
   await link.click();
   await expect(reading).toHaveText(source,{useInnerText:true});
