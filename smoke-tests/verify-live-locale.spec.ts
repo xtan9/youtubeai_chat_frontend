@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("production smoke account can reopen a project in each interface language", async ({page}) => {
+test("a signed-out claim link returns to the project after real login", async ({page, browser}) => {
   const base = "https://www.youtubeai.chat";
   await page.goto(base + "/auth/login");
   await page.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
@@ -23,16 +23,22 @@ test("production smoke account can reopen a project in each interface language",
   }
   await expect(link).toBeVisible();
   await link.click();
-  for (const [locale,script,directory] of [
-    ["en","Script text","Source directory"], ["zh","脚本正文","素材目录"], ["zh-TW","腳本正文","素材目錄"],
-  ]) {
-    await page.locator("header select").first().selectOption(locale);
-    await expect(page.locator("html")).toHaveAttribute("lang",locale);
-    await expect(page.getByRole("textbox",{name:script,exact:true})).toBeVisible();
-    await page.reload();
-    await expect(page.getByRole("navigation",{name:directory,exact:true})).toBeVisible();
-    await expect(page.locator("header select").first()).toHaveValue(locale);
-    console.log("Production project opened and reloaded in",locale);
+  await expect(page.getByRole("textbox", {name:"Script text"})).toBeVisible();
+  const project = new URL(page.url());
+  const destination = project.pathname + "?claim=00000000-0000-4000-8000-000000000000";
+  const context = await browser.newContext({locale:"zh-TW",viewport:{width:320,height:720}});
+  try {
+    const fresh = await context.newPage();
+    await fresh.goto(base + destination);
+    expect(new URL(fresh.url()).searchParams.get("redirect_to")).toBe(destination);
+    expect(await fresh.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+    await fresh.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
+    await fresh.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
+    await fresh.getByRole("button",{name:"登入",exact:true}).click();
+    await expect(fresh).toHaveURL(base + destination);
+    await expect(fresh.locator("html")).toHaveAttribute("lang","zh-TW");
+  } finally {
+    await context.close();
   }
   } finally {
     if (created) {
