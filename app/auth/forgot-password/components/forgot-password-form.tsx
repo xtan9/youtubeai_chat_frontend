@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { buildRecoveryRedirectUrl } from "@/lib/auth/recovery-redirect";
@@ -22,6 +23,7 @@ export function ForgotPasswordForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
+  const tr = useTranslations("ui");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -45,7 +47,7 @@ export function ForgotPasswordForm({
       if (error) throw error;
       setSuccess(true);
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
     } finally {
       setIsLoading(false);
     }
@@ -56,30 +58,28 @@ export function ForgotPasswordForm({
       {success ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Check Your Email</CardTitle>
-            <CardDescription>Password reset instructions sent</CardDescription>
+            <CardTitle className="text-2xl">{tr("checkMail")}</CardTitle>
+            <CardDescription>{tr("resetSent")}</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-text-muted">
-              If you registered using your email and password, you will receive
-              a password reset email.
+              {tr("resetNotice")}
             </p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Reset Your Password</CardTitle>
+            <CardTitle className="text-2xl">{tr("resetTitle")}</CardTitle>
             <CardDescription>
-              Type in your email and we&apos;ll send you a link to reset your
-              password
+              {tr("resetInstructions")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleForgotPassword}>
               <div className="flex flex-col gap-6">
                 <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{tr("email")}</Label>
                   <Input
                     id="email"
                     type="email"
@@ -91,16 +91,16 @@ export function ForgotPasswordForm({
                 </div>
                 {error && <p className="text-sm text-accent-danger">{error}</p>}
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Sending..." : "Send reset email"}
+                  {isLoading ? tr("sending") : tr("sendReset")}
                 </Button>
               </div>
               <div className="mt-4 text-center text-sm">
-                Already have an account?{" "}
+                {tr("haveAccount")}{" "}
                 <Link
                   href={buildAuthPageHref("/auth/login", redirectTo)}
                   className="underline underline-offset-4"
                 >
-                  Login
+                  {tr("login")}
                 </Link>
               </div>
             </form>

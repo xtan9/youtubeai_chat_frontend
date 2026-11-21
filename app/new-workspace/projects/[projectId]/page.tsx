@@ -1,4 +1,5 @@
 import {getTranslations} from "next-intl/server";
+import { buildAuthPageHref } from "@/lib/auth/signup-redirect";
 import { redirect } from "next/navigation";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
@@ -13,18 +14,25 @@ export async function generateMetadata() {
 }
 export default async function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { projectId } = await params;
   const owner = await resolveRequestPrincipal({ source: "project" });
   if (owner.kind === "unavailable")
     return <ProjectOutcomeState kind="unavailable" />;
-  if (owner.kind === "missing" || owner.principal.isAnonymous)
-    redirect(
-      "/auth/login?next=" +
-        encodeURIComponent("/new-workspace/projects/" + projectId),
-    );
+  if (owner.kind === "missing" || owner.principal.isAnonymous) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(await searchParams)) {
+      for (const item of Array.isArray(value) ? value : [value]) {
+        if (item !== undefined) query.append(key, item);
+      }
+    }
+    const path = "/new-workspace/projects/" + encodeURIComponent(projectId);
+    redirect(buildAuthPageHref("/auth/login", query.size ? path + "?" + query : path));
+  }
   const subject = await resolveProjectSubject(
     await createClient(),
     owner.principal.userId,

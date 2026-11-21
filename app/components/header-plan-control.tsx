@@ -166,7 +166,7 @@ function ResolvedPlanControl({
           : "outline";
 
   return (
-    <div className="w-28 shrink-0">
+    <div className="w-auto shrink-0 sm:w-28">
       <Button
         asChild
         size="sm"
@@ -188,7 +188,7 @@ function LoadingPlanControl() {
       role="status"
       aria-label={tr("loadingPlan")}
       aria-busy="true"
-      className="w-28 shrink-0"
+      className="w-auto shrink-0 sm:w-28"
     >
       <Skeleton className="h-8 w-full rounded-full" />
     </div>

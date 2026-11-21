@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -13,7 +14,7 @@ afterEach(cleanup);
 describe("ForgotPasswordForm navigation", () => {
   it("keeps the selected plan when returning to login", () => {
     window.history.replaceState({}, "", "/auth/forgot-password?redirect_to=%2Fpricing%3Fintent%3Dupgrade%26plan%3Dmonthly");
-    render(<ForgotPasswordForm />);
+    render(<ForgotPasswordForm />, {wrapper: TestLocaleProvider});
 
     const login = new URL(
       screen.getByRole("link", { name: "Login" }).getAttribute("href")!,
