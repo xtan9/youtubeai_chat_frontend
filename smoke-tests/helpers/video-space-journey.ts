@@ -360,7 +360,18 @@ export async function videoSpaceJourney(
   const scriptPanel = page.getByRole("region", { name: "脚本编辑器" });
   const scriptPanelBox = (await scriptPanel.boundingBox())!;
   expect(roomBox.y).toBeCloseTo(scriptPanelBox.y, 0);
-  expect(roomBox.height).toBeLessThan(scriptPanelBox.height);
+  expect(roomBox.height).toBeCloseTo(scriptPanelBox.height, 0);
+  const composerGap = await room.evaluate((node) => {
+    const composer = node.querySelector("form")!;
+    const panelStyle = getComputedStyle(node);
+    return (
+      node.getBoundingClientRect().bottom -
+      composer.getBoundingClientRect().bottom -
+      parseFloat(panelStyle.paddingBottom) -
+      parseFloat(panelStyle.borderBottomWidth)
+    );
+  });
+  expect(composerGap).toBeCloseTo(0, 0);
   expect(await room.evaluate((node) => node.scrollHeight)).toBe(
     await room.evaluate((node) => node.clientHeight),
   );

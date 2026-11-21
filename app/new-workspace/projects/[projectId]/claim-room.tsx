@@ -288,7 +288,11 @@ export function ClaimRoom({
           </details>
         ))}
       </section>
-      <section aria-label="本观点的讨论" data-translation-section="discussion">
+      <section
+        className="vs-room-discussion"
+        aria-label="本观点的讨论"
+        data-translation-section="discussion"
+      >
         <div className="vs-row">
           <h3>围绕这个观点讨论</h3>
           {finding && (

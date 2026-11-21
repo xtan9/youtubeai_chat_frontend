@@ -726,8 +726,21 @@
     align-items: stretch;
   }
   .vs-grid[data-claim] > .vs-claim-room {
-    align-self: start;
-    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .vs-claim-room > * {
+    flex-shrink: 0;
+  }
+  .vs-room-discussion {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+  .vs-room-discussion > form {
+    margin-block-start: auto;
+    border-block-start: 1px solid var(--rule);
+    padding-block-start: 4px;
   }
   .vs-panel {
     min-height: 0;
