@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import {
   Alert,
   AlertDescription,
@@ -44,6 +45,7 @@ export function PricingProCard({
   selectedIntent = false,
   failure,
 }: PricingProCardProps) {
+  const t = useTranslations("pricing");
   const isYearly = plan === "yearly";
   const titleId = `pricing-pro-${plan}-title`;
   const cadenceId = `pricing-pro-${plan}-cadence`;
@@ -60,33 +62,33 @@ export function PricingProCard({
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <h2 id={titleId} className="text-h4 text-text-primary">
-            Pro {isYearly ? "Yearly" : "Monthly"}
+            {isYearly ? t("proYearly") : t("proMonthly")}
           </h2>
           <div className="flex flex-wrap justify-end gap-1.5">
-            {currentPlan ? <Badge variant="secondary">Current Plan</Badge> : null}
+            {currentPlan ? <Badge variant="secondary">{t("current")}</Badge> : null}
             {selectedIntent && !currentPlan ? (
-              <Badge variant="outline">Selected</Badge>
+              <Badge variant="outline">{t("selected")}</Badge>
             ) : null}
-            {isYearly ? <Badge>Save 28%</Badge> : null}
+            {isYearly ? <Badge>{t("savings")}</Badge> : null}
           </div>
         </div>
         <p className="mt-2 text-h2 text-text-primary">
-          {isYearly ? "$4.99/month equivalent" : "$6.99/month"}
+          {isYearly ? t("yearPrice") : t("monthPrice")}
         </p>
         <p id={cadenceId} className="text-body-sm text-text-secondary">
           {isYearly
-            ? "$59.88 charged once per year."
-            : "$6.99 charged every month."}
+            ? t("yearCharge")
+            : t("monthCharge")}
         </p>
       </CardHeader>
 
       <CardContent className="flex-1">
         <ul className="space-y-2 text-body-md text-text-secondary">
-          <li>Unlimited summaries</li>
-          <li>Unlimited Video Chat per Video</li>
-          <li>Unlimited History</li>
-          <li>Unlimited Projects within technical and abuse limits</li>
-          <li>Cancel anytime</li>
+          <li>{t("summaries")}</li>
+          <li>{t("chats")}</li>
+          <li>{t("history")}</li>
+          <li>{t("projects")}</li>
+          <li>{t("cancel")}</li>
         </ul>
       </CardContent>
 
@@ -124,6 +126,7 @@ export function PricingProCard({
 }
 
 export function PricingFreeCard() {
+  const t = useTranslations("pricing");
   return (
     <Card
       role="region"
@@ -132,18 +135,16 @@ export function PricingFreeCard() {
       data-pricing-card="free"
     >
       <CardHeader>
-        <h2 id="pricing-free-title" className="text-h4 text-text-primary">
-          Free
-        </h2>
+        <h2 id="pricing-free-title" className="text-h4 text-text-primary">{t("free")}</h2>
         <p className="mt-2 text-h2 text-text-primary">$0</p>
-        <p className="text-body-sm text-text-secondary">No charge, ever.</p>
+        <p className="text-body-sm text-text-secondary">{t("freeDescription")}</p>
       </CardHeader>
       <CardContent>
         <ul className="space-y-2 text-body-md text-text-secondary">
-          <li>10 summaries per month</li>
-          <li>5 Video Chat messages per Video</li>
-          <li>10-item History</li>
-          <li>1 durable Project</li>
+          <li>{t("freeSummaries")}</li>
+          <li>{t("freeChats")}</li>
+          <li>{t("freeHistory")}</li>
+          <li>{t("freeProjects")}</li>
         </ul>
       </CardContent>
     </Card>

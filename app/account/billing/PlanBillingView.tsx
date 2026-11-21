@@ -1,5 +1,6 @@
 "use client";
 
+import {useLocale, useTranslations} from "next-intl";
 import Link from "next/link";
 import { ArrowRight, CircleAlert } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
@@ -60,11 +61,11 @@ function analyticsState(
   }
 }
 
-function formatBillingDate(value: string | null): string | null {
+function formatBillingDate(value: string | null, locale: string): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
@@ -72,16 +73,12 @@ function formatBillingDate(value: string | null): string | null {
   }).format(date);
 }
 
-function billingCadence(plan: "monthly" | "yearly" | null): string | null {
-  if (plan === "monthly") return "Billed monthly";
-  if (plan === "yearly") return "Billed yearly";
+function billingCadence(plan: "monthly" | "yearly" | null, t: ReturnType<typeof useTranslations<"pricing">>): string | null {
+  if (plan === "monthly") return t("billedMonthly");
+  if (plan === "yearly") return t("billedYearly");
   return null;
 }
 
-function joinedMissingMetadata(fields: readonly string[]): string {
-  if (fields.length === 1) return `${fields[0]} is temporarily unavailable.`;
-  return `${fields[0]} and ${fields[1]} are temporarily unavailable.`;
-}
 
 function UsageMeter({
   label,
@@ -92,8 +89,10 @@ function UsageMeter({
   limit: number;
   used: number;
 }) {
+  const t = useTranslations("pricing");
   const progress = Math.min(100, Math.max(0, (used / limit) * 100));
-  const valueText = `${label}: ${used} of ${limit} used`;
+  const usage = t("usageValue", {used, limit});
+  const valueText = t("usageLabel", {label, usage});
 
   return (
     <div className="space-y-2">
@@ -102,7 +101,7 @@ function UsageMeter({
           {label}
         </span>
         <span className="text-body-sm tabular-nums text-text-secondary">
-          {used} of {limit} used
+          {usage}
         </span>
       </div>
       <Progress
@@ -142,11 +141,9 @@ function PlanCard({
 }
 
 function StripeOwnershipNote() {
+  const t = useTranslations("pricing");
   return (
-    <p className="max-w-prose text-body-sm text-text-muted">
-      Payment methods, invoices, cancellation, resumption, and plan changes
-      open in Stripe.
-    </p>
+    <p className="max-w-prose text-body-sm text-text-muted">{t("stripeNote")}</p>
   );
 }
 
@@ -164,6 +161,7 @@ function FreePlan({
   };
   onUpgrade: () => void;
 }) {
+  const t = useTranslations("pricing");
   const summaryUsageAvailable =
     Number.isFinite(caps.summariesUsed) &&
     Number.isFinite(caps.summariesLimit) &&
@@ -181,9 +179,9 @@ function FreePlan({
 
   return (
     <PlanCard
-      title="Free Plan"
-      description="Track the limits included with your registered account."
-      badge={<Badge variant="secondary">Current plan</Badge>}
+      title={t("freePlan")}
+      description={t("limits")}
+      badge={<Badge variant="secondary">{t("currentBadge")}</Badge>}
     >
       <CardContent className="space-y-6">
         <section aria-labelledby="free-usage-heading" className="space-y-5">
@@ -191,60 +189,44 @@ function FreePlan({
             <h3
               id="free-usage-heading"
               className="text-h6 text-text-primary"
-            >
-              Usage
-            </h3>
-            <p className="mt-1 text-body-sm text-text-muted">
-              Monthly Summary usage resets at the start of each calendar
-              month.
-            </p>
+            >{t("usage")}</h3>
+            <p className="mt-1 text-body-sm text-text-muted">{t("resets")}</p>
           </div>
           {summaryUsageAvailable ? (
             <UsageMeter
-              label="Monthly summaries"
+              label={t("monthlySummaries")}
               used={caps.summariesUsed}
               limit={caps.summariesLimit}
             />
           ) : (
-            <p className="text-body-sm text-text-secondary">
-              Monthly Summary usage is temporarily unavailable.
-            </p>
+            <p className="text-body-sm text-text-secondary">{t("summaryUnavailable")}</p>
           )}
           {historyUsageAvailable ? (
             <UsageMeter
-              label="Saved Videos in History"
+              label={t("saved")}
               used={caps.historyUsed as number}
               limit={caps.historyLimit as number}
             />
           ) : (
-            <p className="text-body-sm text-text-secondary">
-              History usage is temporarily unavailable.
-            </p>
+            <p className="text-body-sm text-text-secondary">{t("historyUnavailable")}</p>
           )}
           {projectUsageAvailable ? (
             <div className="space-y-2">
               <UsageMeter
-                label="Projects"
+                label={t("projectLabel")}
                 used={caps.projectsUsed}
                 limit={caps.projectsLimit}
               />
-              <p className="text-body-sm text-text-muted">
-                Deleting a Project frees this Project slot. It does not reset
-                Summary or generation usage.
-              </p>
+              <p className="text-body-sm text-text-muted">{t("deletion")}</p>
             </div>
           ) : (
-            <p className="text-body-sm text-text-secondary">
-              Project usage is temporarily unavailable.
-            </p>
+            <p className="text-body-sm text-text-secondary">{t("projectUnavailable")}</p>
           )}
         </section>
       </CardContent>
       <CardFooter className="border-t border-border-subtle">
         <Button asChild size="lg">
-          <Link href="/pricing" onClick={onUpgrade}>
-            Upgrade to Pro
-            <ArrowRight aria-hidden="true" />
+          <Link href="/pricing" onClick={onUpgrade}>{t("upgrade")}<ArrowRight aria-hidden="true" />
           </Link>
         </Button>
       </CardFooter>
@@ -263,41 +245,39 @@ function ProPlan({
   plan: "monthly" | "yearly" | null;
   renewsAt?: string | null;
 }) {
+  const t = useTranslations("pricing");
   const cancellationPending = accessEndsAt !== undefined;
-  const cadence = billingCadence(plan);
+  const cadence = billingCadence(plan, t);
+  const locale = useLocale();
   const relevantDate = formatBillingDate(
-    cancellationPending ? (accessEndsAt ?? null) : (renewsAt ?? null),
+    cancellationPending ? (accessEndsAt ?? null) : (renewsAt ?? null), locale,
   );
   const missingMetadata = [
-    cadence ? null : "Billing cadence",
+    cadence ? null : t("cadence"),
     relevantDate
       ? null
       : cancellationPending
-        ? "access-end date"
-        : "renewal date",
+        ? t("endDate")
+        : t("renewalDate"),
   ].filter((field): field is string => field !== null);
 
   return (
     <PlanCard
-      title="Pro Plan"
-      description="Your paid access and billing details in one place."
+      title={t("proPlan")}
+      description={t("proDetails")}
       badge={
         <Badge variant={cancellationPending ? "outline" : "secondary"}>
-          {cancellationPending ? "Cancellation scheduled" : "Active"}
+          {cancellationPending ? t("scheduled") : t("activeBadge")}
         </Badge>
       }
     >
       <CardContent className="space-y-6">
-        <p className="text-body-md text-text-secondary">
-          Create unlimited Projects within technical and abuse limits.
-        </p>
+        <p className="text-body-md text-text-secondary">{t("unlimited")}</p>
         {cadence || relevantDate ? (
           <dl className="grid gap-4 sm:grid-cols-2">
             {cadence ? (
               <div className="rounded-lg border border-border-subtle bg-surface-sunken p-4">
-                <dt className="text-caption font-medium uppercase tracking-wide text-text-muted">
-                  Billing cadence
-                </dt>
+                <dt className="text-caption font-medium uppercase tracking-wide text-text-muted">{t("cadence")}</dt>
                 <dd className="mt-1 text-body-md font-semibold text-text-primary">
                   {cadence}
                 </dd>
@@ -306,10 +286,10 @@ function ProPlan({
             {relevantDate ? (
               <div className="rounded-lg border border-border-subtle bg-surface-sunken p-4">
                 <dt className="text-caption font-medium uppercase tracking-wide text-text-muted">
-                  {cancellationPending ? "Access ends" : "Next renewal"}
+                  {cancellationPending ? t("ends") : t("renewal")}
                 </dt>
                 <dd className="mt-1 text-body-md font-semibold text-text-primary">
-                  {cancellationPending ? "Cancels on" : "Renews on"}{" "}
+                  {cancellationPending ? t("cancels") : t("renews")}{" "}
                   {relevantDate}
                 </dd>
               </div>
@@ -324,24 +304,24 @@ function ProPlan({
             className="border-accent-warning/40 bg-accent-warning/10"
           >
             <CircleAlert aria-hidden="true" />
-            <AlertTitle>Cancellation scheduled</AlertTitle>
+            <AlertTitle>{t("scheduled")}</AlertTitle>
             <AlertDescription>
               <p>
                 {relevantDate
-                  ? `You keep Pro access through ${relevantDate}.`
-                  : "You remain on the Pro Plan while your paid access is active."}
+                  ? t("through", {date: relevantDate})
+                  : t("remains")}
               </p>
-              <p>You can resume your Subscription in Stripe.</p>
+              <p>{t("resume")}</p>
             </AlertDescription>
           </Alert>
         ) : null}
 
         {missingMetadata.length > 0 ? (
           <Alert role="status" aria-live="polite">
-            <AlertTitle>Some billing details are unavailable</AlertTitle>
+            <AlertTitle>{t("missing")}</AlertTitle>
             <AlertDescription>
-              <p>{joinedMissingMetadata(missingMetadata)}</p>
-              <p>Open Stripe to review the latest Subscription details.</p>
+              <p>{missingMetadata.length === 1 ? t("missingOne", {field: missingMetadata[0]}) : t("missingTwo", {first: missingMetadata[0], second: missingMetadata[1]})}</p>
+              <p>{t("review")}</p>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -362,19 +342,18 @@ function BillingIssue({
   onResolve: () => void;
   plan: "monthly" | "yearly" | null;
 }) {
-  const cadence = billingCadence(plan);
+  const t = useTranslations("pricing");
+  const cadence = billingCadence(plan, t);
 
   return (
     <PlanCard
-      title="Billing issue"
-      description="Your Subscription needs attention before billing can continue normally."
+      title={t("billingIssue")}
+      description={t("issueDetail")}
       badge={
         <Badge
           variant="outline"
           className="border-accent-warning/60 text-text-primary"
-        >
-          Action needed
-        </Badge>
+        >{t("action")}</Badge>
       }
     >
       <CardContent className="space-y-5">
@@ -384,24 +363,19 @@ function BillingIssue({
           className="border-accent-warning/40 bg-accent-warning/10"
         >
           <CircleAlert aria-hidden="true" />
-          <AlertTitle>Repair your Subscription</AlertTitle>
+          <AlertTitle>{t("repairSub")}</AlertTitle>
           <AlertDescription>
-            <p>
-              Update your payment details securely in Stripe. You do not need
-              to purchase another Subscription.
-            </p>
+            <p>{t("update")}</p>
           </AlertDescription>
         </Alert>
         {cadence ? (
           <p className="text-body-sm text-text-secondary">{cadence}</p>
         ) : (
-          <p className="text-body-sm text-text-secondary">
-            Billing cadence is temporarily unavailable.
-          </p>
+          <p className="text-body-sm text-text-secondary">{t("cadenceUnavailable")}</p>
         )}
         <div className="space-y-3">
           <ManageSubscriptionButton
-            label="Resolve billing issue in Stripe"
+            label={t("resolveStripe")}
             onActivate={onResolve}
           />
           <StripeOwnershipNote />
@@ -412,10 +386,11 @@ function BillingIssue({
 }
 
 function LoadingPlan() {
+  const t = useTranslations("pricing");
   return (
     <Card
       role="status"
-      aria-label="Loading Plan & Billing"
+      aria-label={t("loadingBilling")}
       aria-busy="true"
       className="border-border-subtle"
     >
@@ -427,7 +402,7 @@ function LoadingPlan() {
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-16 w-full" />
       </CardContent>
-      <span className="sr-only">Loading Plan & Billing</span>
+      <span className="sr-only">{t("loadingBilling")}</span>
     </Card>
   );
 }
@@ -439,17 +414,15 @@ function LookupFailure({
   isRetrying: boolean;
   onRetry: () => void;
 }) {
+  const t = useTranslations("pricing");
   return (
     <Card className="border-border-subtle">
       <CardContent>
         <Alert variant="destructive">
           <CircleAlert aria-hidden="true" />
-          <AlertTitle>Plan details unavailable</AlertTitle>
+          <AlertTitle>{t("detailsUnavailable")}</AlertTitle>
           <AlertDescription>
-            <p>
-              Couldn&apos;t load your Plan and Billing details. Your plan has
-              not been changed.
-            </p>
+            <p>{t("loadFailed")}</p>
             <Button
               type="button"
               variant="outline"
@@ -457,7 +430,7 @@ function LookupFailure({
               disabled={isRetrying}
               onClick={onRetry}
             >
-              {isRetrying ? "Trying again…" : "Try again"}
+              {isRetrying ? t("trying") : t("retry")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -467,6 +440,7 @@ function LookupFailure({
 }
 
 export function PlanBillingView() {
+  const t = useTranslations("pricing");
   const entitlements = useEntitlements();
   const viewedRef = useRef(false);
   const presentation = entitlements.subscriptionPresentation;
@@ -544,14 +518,9 @@ export function PlanBillingView() {
     <div className="mx-auto max-w-page px-4 py-8 sm:px-6 md:py-12">
       <div className="mx-auto flex max-w-4xl flex-col gap-8">
         <header className="max-w-2xl space-y-3">
-          <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-            Account settings
-          </p>
-          <h1 className="text-h2 text-text-primary">Plan &amp; Billing</h1>
-          <p className="text-body-lg text-text-secondary">
-            Understand your current plan and usage, then open Stripe when you
-            need to manage billing.
-          </p>
+          <p className="text-caption font-medium uppercase tracking-wide text-text-muted">{t("settings")}</p>
+          <h1 className="text-h2 text-text-primary">{t("billing")}</h1>
+          <p className="text-body-lg text-text-secondary">{t("billingIntro")}</p>
         </header>
         {planContent}
       </div>

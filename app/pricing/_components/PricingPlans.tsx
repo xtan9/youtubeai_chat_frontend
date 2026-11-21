@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -121,46 +122,46 @@ function isStripeCheckoutUrl(value: unknown): value is string {
   }
 }
 
-function failureCopy(failure: CheckoutFailure): {
+function failureCopy(failure: CheckoutFailure, t: ReturnType<typeof useTranslations<"pricing">>): {
   readonly title: string;
   readonly description: string;
 } {
   switch (failure.category) {
     case "authentication_required":
       return {
-        title: "Your account session changed",
-        description: "Refresh your account status before continuing to checkout.",
+        title: t("session"),
+        description: t("refreshHint"),
       };
     case "subscription_ineligible":
       return {
-        title: "You already have a Subscription",
+        title: t("existing"),
         description:
-          "Open Plan & Billing to manage or repair your existing Subscription.",
+          t("existingHint"),
       };
     case "plan_unavailable":
       return {
-        title: "This billing option is unavailable",
-        description: "Try again later or choose the other billing cadence.",
+        title: t("option"),
+        description: t("cadenceHint"),
       };
     case "service_unavailable":
       return {
-        title: "Checkout is temporarily unavailable",
-        description: "Your plan has not changed. Please try again.",
+        title: t("offline"),
+        description: t("unchanged"),
       };
     case "invalid_response":
       return {
-        title: "Checkout couldn't start safely",
-        description: "No charge was made. Please try again.",
+        title: t("unsafe"),
+        description: t("noCharge"),
       };
     case "network_error":
       return {
-        title: "Checkout couldn't connect",
-        description: "Check your connection, then try again.",
+        title: t("network"),
+        description: t("networkHint"),
       };
     case "unknown":
       return {
-        title: "Checkout couldn't start",
-        description: "No charge was made. Please try again.",
+        title: t("failed"),
+        description: t("noCharge"),
       };
   }
 }
@@ -176,45 +177,35 @@ function PricingStateNotice({
   readonly isRetrying: boolean;
   readonly onRetry: () => void;
 }) {
+  const t = useTranslations("pricing");
   switch (presentation.state) {
     case "active_pro":
       return (
         <div
           role="status"
           className="mt-6 rounded-lg border border-border-subtle bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
-        >
-          Your Pro Plan is active. Use Plan &amp; Billing for billing changes.
-        </div>
+        >{t("active")}</div>
       );
     case "pro_pending_cancellation":
       return (
         <div
           role="status"
           className="mt-6 rounded-lg border border-border-subtle bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
-        >
-          Your Pro Plan remains active while cancellation is pending. Review
-          the access end date in Plan &amp; Billing.
-        </div>
+        >{t("pending")}</div>
       );
     case "billing_issue":
       return (
         <Alert className="mt-6" variant="destructive">
-          <AlertTitle>Your Subscription needs attention</AlertTitle>
-          <AlertDescription>
-            Repair your existing Subscription in Plan &amp; Billing instead of
-            starting another checkout.
-          </AlertDescription>
+          <AlertTitle>{t("attention")}</AlertTitle>
+          <AlertDescription>{t("repair")}</AlertDescription>
         </Alert>
       );
     case "lookup_failure":
       return (
         <Alert className="mt-6" variant="destructive">
-          <AlertTitle>Plan status unavailable</AlertTitle>
+          <AlertTitle>{t("unavailable")}</AlertTitle>
           <AlertDescription>
-            <p>
-              Couldn&apos;t safely determine which action applies. No checkout
-              is available until your status loads.
-            </p>
+            <p>{t("lookup")}</p>
             <Button
               type="button"
               variant="outline"
@@ -223,7 +214,7 @@ function PricingStateNotice({
               disabled={isRetrying}
               onClick={onRetry}
             >
-              {isRetrying ? "Trying again…" : "Try again"}
+              {isRetrying ? t("trying") : t("retry")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -234,10 +225,7 @@ function PricingStateNotice({
           <div
             role="status"
             className="mt-6 rounded-lg border border-border-subtle bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
-          >
-            Checkout was canceled. No charge was made; choose a plan whenever
-            you&apos;re ready.
-          </div>
+          >{t("canceled")}</div>
         );
       }
       if (context.selectedPlan) {
@@ -246,8 +234,7 @@ function PricingStateNotice({
             role="status"
             className="mt-6 rounded-lg border border-border-subtle bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
           >
-            You&apos;re signed in. Continue with Pro {context.selectedPlan} when
-            you&apos;re ready.
+            {t("signedIn", {plan: t(context.selectedPlan)})}
           </div>
         );
       }
@@ -263,6 +250,7 @@ export function PricingPlans({
 }: {
   readonly initialContext: PricingContext;
 }) {
+  const t = useTranslations("pricing");
   const router = useRouter();
   const { user, isLoading: isUserLoading } = useUser();
   const entitlements = useEntitlements();
@@ -522,53 +510,53 @@ export function PricingPlans({
   };
 
   const actionLabel = (plan: PricingPlan): string => {
-    if (!statusFresh) return "Loading account status";
-    if (presentation.state === "loading") return `Loading ${plan} pricing`;
-    if (authenticationState === null) return "Loading account status";
-    if (presentation.state === "lookup_failure") return "Plan status unavailable";
+    if (!statusFresh) return t("loadingAccount");
+    if (presentation.state === "loading") return t("loading", {plan: t(plan)});
+    if (authenticationState === null) return t("loadingAccount");
+    if (presentation.state === "lookup_failure") return t("unavailable");
     if (checkoutFailure?.category === "subscription_ineligible") {
-      return "Open Plan & Billing";
+      return t("openBilling");
     }
     if (
       presentation.state === "active_pro" ||
       presentation.state === "pro_pending_cancellation"
     ) {
-      return "Open Plan & Billing";
+      return t("openBilling");
     }
     if (presentation.state === "billing_issue") {
-      return "Resolve in Plan & Billing";
+      return t("resolve");
     }
-    if (pendingPlan === plan) return "Redirecting…";
-    if (pendingPlan) return "Checkout in progress";
+    if (pendingPlan === plan) return t("redirect");
+    if (pendingPlan) return t("inProgress");
     if (
       presentation.state === "free" &&
       pricingContext.selectedPlan === plan
     ) {
-      return `Continue with ${plan}`;
+      return t("continue", {plan: t(plan)});
     }
-    return `Choose ${plan}`;
+    return t("choose", {plan: t(plan)});
   };
 
   const failureForPlan = (plan: PricingPlan): PricingCardFailure | undefined => {
     if (!checkoutFailure || checkoutFailure.plan !== plan) return undefined;
-    const copy = failureCopy(checkoutFailure);
+    const copy = failureCopy(checkoutFailure, t);
     if (checkoutFailure.category === "subscription_ineligible") {
       return {
         ...copy,
-        actionLabel: "Open Plan & Billing",
+        actionLabel: t("openBilling"),
         onAction: () => void choosePlan(plan),
       };
     }
     if (checkoutFailure.category === "authentication_required") {
       return {
         ...copy,
-        actionLabel: "Refresh account status",
+        actionLabel: t("refresh"),
         onAction: () => void entitlements.refetch(),
       };
     }
     return {
       ...copy,
-      actionLabel: `Try ${plan} again`,
+      actionLabel: t("retryPlan", {plan: t(plan)}),
       onAction: () => void choosePlan(plan),
     };
   };

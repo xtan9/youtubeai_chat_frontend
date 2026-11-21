@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ClockAlert, LoaderCircle } from "lucide-react";
@@ -42,6 +43,7 @@ export function BillingSuccessView({
 }: {
   sessionId: string | null;
 }) {
+  const t = useTranslations("pricing");
   const queryClient = useQueryClient();
   const [phase, setPhase] = useState<Phase>(
     sessionId ? "checking" : "invalid",
@@ -164,12 +166,8 @@ export function BillingSuccessView({
             aria-hidden="true"
             className="mx-auto size-10 animate-spin text-accent-brand motion-reduce:animate-none"
           />
-          <h1 className="mt-5 text-h2 text-text-primary">
-            Verifying checkout return
-          </h1>
-          <p className="mt-4 text-body-md text-text-secondary">
-            We&apos;re securely matching this Stripe return to your account.
-          </p>
+          <h1 className="mt-5 text-h2 text-text-primary">{t("verifying")}</h1>
+          <p className="mt-4 text-body-md text-text-secondary">{t("matching")}</p>
         </section>
       ) : null}
 
@@ -179,14 +177,9 @@ export function BillingSuccessView({
             aria-hidden="true"
             className="mx-auto size-10 animate-spin text-accent-brand motion-reduce:animate-none"
           />
-          <h1 className="mt-5 text-h2 text-text-primary">Activating Pro</h1>
-          <p className="mt-4 text-body-md text-text-secondary">
-            Stripe has returned you safely. We&apos;re waiting for secure
-            webhook confirmation before showing your Pro Plan as active.
-          </p>
-          <p className="mt-3 text-body-sm text-text-muted">
-            Keep this page open. You do not need to start another checkout.
-          </p>
+          <h1 className="mt-5 text-h2 text-text-primary">{t("activating")}</h1>
+          <p className="mt-4 text-body-md text-text-secondary">{t("waiting")}</p>
+          <p className="mt-3 text-body-sm text-text-muted">{t("keepOpen")}</p>
         </section>
       ) : null}
 
@@ -196,14 +189,10 @@ export function BillingSuccessView({
             aria-hidden="true"
             className="mx-auto size-10 text-accent-success"
           />
-          <h1 className="mt-5 text-h2 text-text-primary">
-            Pro Plan is active
-          </h1>
-          <p className="mt-4 text-body-md text-text-secondary">
-            Your Subscription is confirmed and Pro access is ready.
-          </p>
+          <h1 className="mt-5 text-h2 text-text-primary">{t("activated")}</h1>
+          <p className="mt-4 text-body-md text-text-secondary">{t("confirmed")}</p>
           <Button asChild className="mt-6">
-            <Link href="/account/billing">View Plan &amp; Billing</Link>
+            <Link href="/account/billing">{t("viewBilling")}</Link>
           </Button>
         </section>
       ) : null}
@@ -214,25 +203,15 @@ export function BillingSuccessView({
             aria-hidden="true"
             className="mx-auto size-10 text-accent-warning"
           />
-          <h1 className="mt-5 text-h2 text-text-primary">
-            Activation is taking longer than expected
-          </h1>
-          <p className="mt-4 text-body-md text-text-secondary">
-            Your payment may already be complete. Refresh the activation
-            status before taking any other action; do not start another
-            checkout.
-          </p>
+          <h1 className="mt-5 text-h2 text-text-primary">{t("delayed")}</h1>
+          <p className="mt-4 text-body-md text-text-secondary">{t("delayHint")}</p>
           <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button
               type="button"
               onClick={refreshStatus}
-            >
-              Refresh activation status
-            </Button>
+            >{t("refreshActivation")}</Button>
             <Button asChild variant="outline">
-              <a href="mailto:support@youtubeai.chat?subject=Pro%20activation%20help">
-                Contact support
-              </a>
+              <a href="mailto:support@youtubeai.chat?subject=Pro%20activation%20help">{t("support")}</a>
             </Button>
           </div>
         </section>
@@ -244,21 +223,14 @@ export function BillingSuccessView({
             aria-hidden="true"
             className="mx-auto size-10 text-accent-warning"
           />
-          <h1 className="mt-5 text-h2 text-text-primary">
-            Checkout return unavailable
-          </h1>
-          <p className="mt-4 text-body-md text-text-secondary">
-            We couldn&apos;t verify this checkout return. Your plan has not been
-            changed by this page.
-          </p>
+          <h1 className="mt-5 text-h2 text-text-primary">{t("invalid")}</h1>
+          <p className="mt-4 text-body-md text-text-secondary">{t("invalidHint")}</p>
           <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild>
-              <Link href="/account/billing">View Plan &amp; Billing</Link>
+              <Link href="/account/billing">{t("viewBilling")}</Link>
             </Button>
             <Button asChild variant="outline">
-              <a href="mailto:support@youtubeai.chat?subject=Checkout%20return%20help">
-                Contact support
-              </a>
+              <a href="mailto:support@youtubeai.chat?subject=Checkout%20return%20help">{t("support")}</a>
             </Button>
           </div>
         </section>
