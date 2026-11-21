@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+import { renderWithProviders as render } from "@/tests-utils/renderWithProviders";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, screen, fireEvent } from "@testing-library/react";
 import { ChatEmptyState } from "../chat-empty-state";
 
 afterEach(() => cleanup());

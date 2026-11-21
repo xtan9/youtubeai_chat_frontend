@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
 import {
   act,
   cleanup,
   fireEvent,
-  render,
+
   screen,
   waitFor,
 } from "@testing-library/react";

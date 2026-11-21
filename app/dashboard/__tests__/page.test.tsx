@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { createTranslator } from "next-intl";
+import messages from "@/i18n/messages/en.json";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders } from "@/tests-utils/renderWithProviders";
 import { screen } from "@testing-library/react";
@@ -10,6 +12,10 @@ const mockGetRecentHistory = vi.fn();
 const mockRedirect = vi.fn((_path: string) => {
   throw new Error("REDIRECT");
 });
+
+vi.mock("next-intl/server", () => ({
+  getTranslations: () => createTranslator({locale:"en", messages, namespace:"home"}),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +46,7 @@ const UNDO_WINDOW_MS = 5000;
  *   - On unmount, if a clear is still pending and the user hasn't
  *     undone, we flush the DELETE eagerly. Without this an SPA route
  *     change during the 5s window would leave the success toast
- *     contradicting prod state ("Chat cleared" but server still has
+ *     contradicting prod state (t("cleared") but server still has
  *     every message).
  */
 export function ChatClearButton({
@@ -54,6 +55,7 @@ export function ChatClearButton({
   onBeforeClear,
   onPendingChange,
 }: ChatClearButtonProps) {
+  const t = useTranslations("home");
   const queryClient = useQueryClient();
   const mutation = useClearChatThread(youtubeUrl);
   const [pending, setPending] = useState(false);
@@ -104,7 +106,7 @@ export function ChatClearButton({
             err,
           });
           toast.error(
-            err instanceof Error ? err.message : "Could not clear chat.",
+            err instanceof Error ? err.message : t("clearFailed"),
           );
         },
       });
@@ -116,10 +118,10 @@ export function ChatClearButton({
       fireDelete();
     };
 
-    toast.success("Chat cleared", {
+    toast.success(t("cleared"), {
       duration: UNDO_WINDOW_MS,
       action: {
-        label: "Undo",
+        label: t("undo"),
         onClick: () => {
           undone = true;
           pendingRef.current = false;
@@ -149,11 +151,11 @@ export function ChatClearButton({
       disabled={disabled || pending || mutation.isPending}
       // Announce the undo affordance up-front so screen-reader users
       // know the destructive action is recoverable before activating.
-      aria-label="Clear chat history (5 second undo)"
+      aria-label={t("clearChatHint")}
       onClick={handleClear}
     >
       <Trash2 className="mr-1 size-4" />
-      Clear
+      {t("clearChat")}
     </Button>
   );
 }

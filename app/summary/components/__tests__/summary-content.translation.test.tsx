@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SummaryContent } from "../summary-content";
 

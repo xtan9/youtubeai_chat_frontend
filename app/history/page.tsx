@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
@@ -25,6 +26,7 @@ export default async function HistoryPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const t = await getTranslations("home");
   const supabase = await createClient();
   const {
     data: { user },
@@ -70,9 +72,9 @@ export default async function HistoryPage({
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8">
       <header className="flex flex-col gap-1">
-        <h1 className="text-h2 font-bold text-text-primary">Your summaries</h1>
+        <h1 className="text-h2 font-bold text-text-primary">{t("history")}</h1>
         <p className="text-body-md text-text-secondary">
-          Every YouTube video you&apos;ve summarized.
+          {t("historyIntro")}
         </p>
       </header>
 
@@ -91,7 +93,7 @@ export default async function HistoryPage({
           />
         </>
       ) : (
-        <HistoryFetchError message="Couldn't load your summaries. Please try again later." />
+        <HistoryFetchError message={t("historyUnavailable")} />
       )}
     </main>
   );

@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { InputForm } from "./components/input-form";
@@ -35,6 +36,7 @@ const HeroDemo = dynamic(() => import("./components/hero-demo"), {
 });
 
 export default function Home() {
+  const t = useTranslations("home");
   return (
     <main className="flex flex-col items-center px-4">
       <HeroSection />
@@ -43,10 +45,10 @@ export default function Home() {
 
       <section className="w-full max-w-6xl mx-auto mb-4 text-center">
         <h2 className="text-h4 text-text-primary mb-1">
-          Or try your own video
+          {t("own")}
         </h2>
         <p className="text-body-sm text-text-muted">
-          Paste any YouTube URL — we&apos;ll summarize and let you chat with it.
+          {t("ownBody")}
         </p>
       </section>
 
@@ -60,8 +62,8 @@ export default function Home() {
       <UseCases />
       <HowItWorks />
       <FAQ />
-      <FaqJsonLd />
-      <JsonLd id="structured-data-howto" data={buildHowToSchema()} />
+      <FaqJsonLd items={t.raw("faqItems")} />
+      <JsonLd id="structured-data-howto" data={buildHowToSchema(t.raw("steps"))} />
     </main>
   );
 }

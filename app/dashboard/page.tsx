@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -16,6 +17,7 @@ export const metadata: Metadata = {
 const RECENT_LIMIT = 10;
 
 export default async function DashboardPage() {
+  const t = await getTranslations("home");
   const supabase = await createClient();
   const {
     data: { user },
@@ -44,19 +46,19 @@ export default async function DashboardPage() {
 
   const fullName = user.user_metadata?.full_name as string | undefined;
   const emailLocal = user.email?.split("@")[0];
-  const greetingName = fullName ?? emailLocal ?? "there";
+  const greetingName = fullName ?? emailLocal;
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10 lg:py-12">
       <header className="flex flex-col gap-1">
         <p className="text-caption font-medium uppercase tracking-wider text-text-muted">
-          Your workspace
+          {t("dashboard")}
         </p>
         <h1 className="text-h3 font-bold text-text-primary sm:text-h2">
-          Welcome back, {greetingName}
+          {greetingName ? t("welcome", {name: greetingName}) : t("welcomeAnon")}
         </h1>
         <p className="text-body-md text-text-secondary">
-          Paste a YouTube URL to summarize a new video.
+          {t("dashboardIntro")}
         </p>
       </header>
 
@@ -66,13 +68,13 @@ export default async function DashboardPage() {
 
       <section className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-h4 font-semibold text-text-primary">Recent</h2>
+          <h2 className="text-h4 font-semibold text-text-primary">{t("recent")}</h2>
           {showViewAll ? (
             <Link
               href="/history"
               className="text-body-sm text-text-secondary hover:text-text-primary"
             >
-              View all →
+              {t("viewAll")}
             </Link>
           ) : null}
         </div>
@@ -83,7 +85,7 @@ export default async function DashboardPage() {
             chatCounts={chatCounts}
           />
         ) : (
-          <HistoryFetchError message="Couldn't load your history right now. Please refresh in a moment." />
+          <HistoryFetchError message={t("historyError")} />
         )}
       </section>
     </main>

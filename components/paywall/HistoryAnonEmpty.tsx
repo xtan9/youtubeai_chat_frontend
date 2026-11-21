@@ -1,11 +1,13 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getContextualLimitAction } from "@/lib/analytics/subscription-discovery-navigation";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
 
 export function HistoryAnonEmpty() {
+  const t = useTranslations("home");
   const action = getContextualLimitAction({
     tier: "anon",
     sourceSurface: "history_limit",
@@ -23,14 +25,14 @@ export function HistoryAnonEmpty() {
       data-paywall-variant="history-anon"
     >
       <h2 className="text-h3 text-text-primary">
-        Save and revisit your summaries.
+        {t("saveHistory")}
       </h2>
       <p className="mt-2 text-body-md text-text-secondary">
-        Sign up to keep a history of every video you&apos;ve summarized.
+        {t("signupHistory")}
       </p>
       <Button asChild className="mt-4">
         <Link href={action.href} onClick={captureClick}>
-          {action.label}
+          {t("signupFree")}
         </Link>
       </Button>
     </section>

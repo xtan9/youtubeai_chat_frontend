@@ -26,3 +26,21 @@ test("localized account pages fit a narrow phone and retain the project return l
     await expect(page.getByRole("heading", {name:thanks})).toBeVisible();
   }
 });
+
+test("homepage content and demo controls follow the interface language", async ({page}) => {
+  await page.goto(base);
+  const summary = page.locator('button[role="tab"][value="summary"], [role=tab]').first();
+  for (const [locale,title,tab,placeholder,question] of [
+    ["zh", "用 AI 总结 YouTube 视频", "摘要", "粘贴 YouTube 视频链接…", "这个工具有哪些特点？"],
+    ["zh-TW", "用 AI 總結 YouTube 影片", "摘要", "貼上 YouTube 影片連結…", "這個工具有哪些特點？"],
+    ["en", "Summarize YouTube Videos with AI", "Summary", "Enter YouTube URL here...", "What makes YouTube AI Chat unique?"],
+  ]) {
+    await page.locator("header select").selectOption(locale);
+    await expect(page.getByRole("heading", {name:title,exact:true})).toBeVisible();
+    await expect(summary).toHaveText(tab);
+    await expect(page.getByPlaceholder(placeholder)).toBeVisible();
+    await expect(page.getByRole("button",{name:question})).toBeVisible();
+    const schema = await page.locator("#structured-data-faq").textContent();
+    expect(JSON.parse(schema!).mainEntity[0].name).toBe(question);
+  }
+});

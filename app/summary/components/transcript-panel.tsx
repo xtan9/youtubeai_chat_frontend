@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { MutableRefObject } from "react";
 import type { YouTubePlayer } from "react-youtube";
 import { Button } from "@/components/ui/button";
@@ -25,15 +26,16 @@ function TranscriptStateMessage({
   phase,
   onRetry,
 }: Pick<TranscriptPanelProps, "phase" | "onRetry">) {
+  const t = useTranslations("home");
   if (phase === "processing") {
     return (
       <div
         role="status"
         className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-5"
       >
-        <h2 className="font-medium text-text-primary">Transcript</h2>
+        <h2 className="font-medium text-text-primary">{t("transcript")}</h2>
         <p className="mt-1 text-body-sm text-text-secondary">
-          Transcript will appear when processing is complete.
+          {t("transcriptSoon")}
         </p>
       </div>
     );
@@ -46,15 +48,15 @@ function TranscriptStateMessage({
       className="rounded-lg border border-border-subtle bg-surface-raised px-4 py-5"
     >
       <h2 className="font-medium text-text-primary">
-        {cancelled ? "Transcript processing was cancelled" : "Transcript unavailable"}
+        {cancelled ? t("transcriptCancelled") : t("transcriptUnavailable")}
       </h2>
       <p className="mt-1 text-body-sm text-text-secondary">
         {cancelled
-          ? "Run the summary again to create the Transcript."
-          : "The Transcript could not be produced. Retry the Summary to try again."}
+          ? t("retryCancelled")
+          : t("retryMissing")}
       </p>
       <Button type="button" variant="outline" className="mt-4" onClick={onRetry}>
-        Retry summary
+        {t("retry")}
       </Button>
     </div>
   );
@@ -67,6 +69,7 @@ export function TranscriptPanel({
   onRetry,
   onRevealVideo,
 }: TranscriptPanelProps) {
+  const t = useTranslations("home");
   if (phase !== "complete") {
     return <TranscriptStateMessage phase={phase} onRetry={onRetry} />;
   }
@@ -85,7 +88,7 @@ export function TranscriptPanel({
         role="status"
         className="rounded-md border border-border-subtle bg-surface-raised px-3 py-2 text-body-sm text-text-secondary"
       >
-        This Transcript does not contain any readable segments.
+        {t("emptyTranscript")}
       </p>
     );
   }

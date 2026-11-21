@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from "@testing-library/react";
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { HeroSection } from "../hero-section";
 

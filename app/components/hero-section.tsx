@@ -1,8 +1,10 @@
+import { useTranslations } from "next-intl";
 import { Captions, Globe, MessageCircle } from "lucide-react";
 
 // Animation keyframes live in app/globals.css (`.animate-float*`) so this
 // component renders server-side and ships zero JS.
 export function HeroSection() {
+  const t = useTranslations("home");
   return (
     <section className="w-full max-w-6xl mx-auto overflow-x-clip py-16 text-center">
       <div className="relative">
@@ -16,34 +18,22 @@ export function HeroSection() {
 
         {/* Main content */}
         <div className="relative z-10">
-          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-brand-accent bg-clip-text text-transparent mb-6">
-            Summarize YouTube Videos with AI
-          </h1>
+          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-brand-accent bg-clip-text text-transparent mb-6">{t("title")}</h1>
 
-          <p className="text-xl text-text-muted mb-8 max-w-3xl mx-auto">
-            Paste any YouTube link and get a structured summary in seconds —
-            then chat with the video to jump to the moments that matter. Works
-            even on videos without captions, where most summarizers give up.
-          </p>
+          <p className="text-xl text-text-muted mb-8 max-w-3xl mx-auto">{t("intro")}</p>
 
           <div className="flex flex-wrap justify-center gap-4 mb-8">
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <MessageCircle className="w-5 h-5 text-accent-brand" />
-              <span className="text-sm text-text-primary">
-                Chat with the video
-              </span>
+              <span className="text-sm text-text-primary">{t("videoChat")}</span>
             </div>
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Captions className="w-5 h-5 text-accent-brand-secondary" />
-              <span className="text-sm text-text-primary">
-                Works without captions
-              </span>
+              <span className="text-sm text-text-primary">{t("noCaptions")}</span>
             </div>
             <div className="flex items-center gap-2 bg-surface-base/50 dark:bg-white/5 backdrop-blur-sm rounded-full px-4 py-2 border border-border-subtle dark:border-white/10">
               <Globe className="w-5 h-5 text-accent-brand" />
-              <span className="text-sm text-text-primary">
-                18 summary languages
-              </span>
+              <span className="text-sm text-text-primary">{t("languages")}</span>
             </div>
           </div>
 
@@ -51,13 +41,13 @@ export function HeroSection() {
               for Google "skip-to-content" SERP sublinks) and lets users
               jump straight to the section they care about. */}
           <nav
-            aria-label="Page sections"
+            aria-label={t("sections")}
             className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-text-muted mb-12"
           >
-            <a href="#benefits" className="hover:text-text-primary transition-colors">Benefits</a>
-            <a href="#use-cases" className="hover:text-text-primary transition-colors">Use Cases</a>
-            <a href="#how-it-works" className="hover:text-text-primary transition-colors">How It Works</a>
-            <a href="#faq" className="hover:text-text-primary transition-colors">FAQ</a>
+            <a href="#benefits" className="hover:text-text-primary transition-colors">{t("benefits")}</a>
+            <a href="#use-cases" className="hover:text-text-primary transition-colors">{t("useCases")}</a>
+            <a href="#how-it-works" className="hover:text-text-primary transition-colors">{t("howTo")}</a>
+            <a href="#faq" className="hover:text-text-primary transition-colors">{t("faq")}</a>
           </nav>
         </div>
       </div>

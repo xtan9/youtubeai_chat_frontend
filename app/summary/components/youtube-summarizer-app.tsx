@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -39,6 +40,7 @@ export function YouTubeSummarizerApp({
   initialUrl,
   continueLearningEnabled = false,
 }: YouTubeSummarizerAppProps) {
+  const t = useTranslations("home");
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -151,7 +153,7 @@ export function YouTubeSummarizerApp({
             data-testid="summary-retry"
             onClick={() => void retry()}
           >
-            Retry summary
+            {t("retry")}
           </Button>
         </div>
       )}

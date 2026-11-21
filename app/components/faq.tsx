@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import {
   Accordion,
   AccordionContent,
@@ -11,9 +12,10 @@ import { MailIcon, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { faqItems } from "./faq-items";
+import type { FaqItem } from "./faq-items";
 
 export function FAQ() {
+  const t = useTranslations("home");
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -42,7 +44,7 @@ export function FAQ() {
   return (
     <section id="faq" className="w-full max-w-6xl mx-auto py-20 scroll-mt-24">
       <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold">Common Questions</h2>
+        <h2 className="text-4xl font-bold">{t("questions")}</h2>
       </div>
 
       <div
@@ -54,7 +56,7 @@ export function FAQ() {
           defaultValue="item-1"
           className="w-full"
         >
-          {faqItems.map((item, index) => {
+          {(t.raw("faqItems") as FaqItem[]).map((item, index) => {
             const value = `item-${index + 1}`;
             return (
               <AccordionItem
@@ -95,22 +97,18 @@ export function FAQ() {
         <Link
           href="/faq"
           className="inline-flex items-center gap-1 text-base font-medium text-accent-brand hover:underline underline-offset-2"
-        >
-          See all FAQs
-          <ArrowRight size={16} />
+        >{t("moreQuestions")}<ArrowRight size={16} />
         </Link>
       </div>
 
       <div className="text-center mt-8">
-        <p className={supportText + " mb-6"}>Need more information?</p>
+        <p className={supportText + " mb-6"}>{t("moreInfo")}</p>
         <Button
           asChild
           className="bg-gradient-brand-primary hover:bg-gradient-brand-primary-hover"
         >
           <a href="mailto:support@youtubeai.chat">
-            <MailIcon className="mr-2 h-4 w-4" />
-            Reach Our Support Team
-          </a>
+            <MailIcon className="mr-2 h-4 w-4" />{t("contact")}</a>
         </Button>
       </div>
     </section>

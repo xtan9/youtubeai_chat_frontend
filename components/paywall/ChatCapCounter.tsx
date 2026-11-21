@@ -1,3 +1,5 @@
+import {useTranslations} from "next-intl";
+
 export function ChatCapCounter({
   used,
   limit,
@@ -5,6 +7,7 @@ export function ChatCapCounter({
   used: number;
   limit: number;
 }) {
+  const t = useTranslations("home");
   // Silent until 2 messages from the cap, per spec — counter pressure
   // appears only when it's actually relevant. Pro users (limit=-1 or
   // limit=Infinity) never see the counter.
@@ -15,7 +18,7 @@ export function ChatCapCounter({
       className="mt-1 text-center text-caption text-text-muted"
       data-paywall-counter="chat"
     >
-      {used} of {limit} free messages used
+      {t("chatLimit", {used, limit})}
     </p>
   );
 }

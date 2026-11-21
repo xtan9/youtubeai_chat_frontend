@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import {
   forwardRef,
   useCallback,
@@ -71,7 +72,7 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
   function SummaryTabs(
     {
       chatLocked,
-      chatLockedReason = "Available after summary completes",
+      chatLockedReason,
       chatPermanentlyLocked = false,
       summaryContent,
       transcriptContent,
@@ -79,6 +80,7 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
     },
     ref,
   ) {
+  const t = useTranslations("home");
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -178,9 +180,9 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
           className="sticky top-0 z-40 -mx-4 bg-surface-base/95 px-4 py-2 backdrop-blur-md md:static md:z-auto md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none"
         >
           <TabsList className="w-full self-start md:w-fit">
-            <TabsTrigger value="summary">Summary</TabsTrigger>
+            <TabsTrigger value="summary">{t("summary")}</TabsTrigger>
             {isMobile ? (
-              <TabsTrigger value="transcript">Transcript</TabsTrigger>
+              <TabsTrigger value="transcript">{t("transcript")}</TabsTrigger>
             ) : null}
             {chatLocked ? (
               <TooltipProvider>
@@ -193,15 +195,15 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
                         disabled
                         aria-disabled="true"
                       >
-                        Chat
+                        {t("chatTab")}
                       </TabsTrigger>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>{chatLockedReason}</TooltipContent>
+                  <TooltipContent>{chatLockedReason ?? t("chatLocked")}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             ) : (
-              <TabsTrigger value="chat">Chat</TabsTrigger>
+              <TabsTrigger value="chat">{t("chatTab")}</TabsTrigger>
             )}
           </TabsList>
         </div>

@@ -7,6 +7,7 @@
 // modules under test is small enough that a shared mock helper would add
 // ceremony without saving lines.
 
+import { TestLocaleProvider } from "./locale-provider";
 import type { ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -79,7 +80,7 @@ export function renderWithChatProviders(
     queryClient,
     ...render(ui, {
       wrapper: ({ children }) => (
-        <ChatProviders queryClient={queryClient}>{children}</ChatProviders>
+        <TestLocaleProvider><ChatProviders queryClient={queryClient}>{children}</ChatProviders></TestLocaleProvider>
       ),
       ...rest,
     }),

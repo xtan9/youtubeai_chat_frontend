@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -9,6 +10,7 @@ import { useUser } from "@/lib/contexts/user-context";
 import { createClient } from "@/lib/supabase/client";
 
 export function AccountView() {
+  const t = useTranslations("ui");
   const { user } = useUser();
   const router = useRouter();
   const supabase = createClient();
@@ -20,7 +22,7 @@ export function AccountView() {
   if (!user) return null;
 
   const displayName =
-    user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "User";
+    user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? t("accountUser");
 
   const handleSignOut = async () => {
     if (activeSignOutScope) return;
@@ -35,7 +37,7 @@ export function AccountView() {
           message: error.message,
         });
         setSignOutError(
-          "Couldn't sign you out. Check your connection and try again.",
+          "couldntSignYouOutCheckYourConnectionAndTryAgain",
         );
         return;
       }
@@ -45,7 +47,7 @@ export function AccountView() {
         message: error instanceof Error ? error.message : String(error),
       });
       setSignOutError(
-        "Couldn't sign you out. Check your connection and try again.",
+        "couldntSignYouOutCheckYourConnectionAndTryAgain",
       );
     } finally {
       setActiveSignOutScope(null);
@@ -65,7 +67,7 @@ export function AccountView() {
           message: error.message,
         });
         setSignOutError(
-          "Couldn't confirm that your other sessions were revoked. Check your connection and try again.",
+          "revokeUnconfirmed",
         );
         return;
       }
@@ -75,7 +77,7 @@ export function AccountView() {
         message: error instanceof Error ? error.message : String(error),
       });
       setSignOutError(
-        "Couldn't confirm that your other sessions were revoked. Check your connection and try again.",
+        "revokeUnconfirmed",
       );
     } finally {
       setActiveSignOutScope(null);
@@ -85,7 +87,7 @@ export function AccountView() {
   return (
     <main className="mx-auto max-w-page px-6 py-8">
       <div className="mx-auto flex max-w-prose flex-col gap-6">
-        <h1 className="text-h2 text-text-primary">Account</h1>
+        <h1 className="text-h2 text-text-primary">{t("account")}</h1>
 
         <Card>
           <CardContent className="flex items-center gap-4">
@@ -108,7 +110,7 @@ export function AccountView() {
               aria-live="assertive"
               className="text-body-sm text-accent-danger"
             >
-              {signOutError}
+              {t(signOutError)}
             </p>
           ) : null}
           <Button
@@ -116,7 +118,7 @@ export function AccountView() {
             onClick={handleSignOut}
             disabled={activeSignOutScope !== null}
           >
-            {activeSignOutScope === "local" ? "Signing out…" : "Sign out"}
+            {activeSignOutScope === "local" ? t("signingOut") : t("signOut")}
           </Button>
           <div className="flex flex-col items-start gap-2">
             <Button
@@ -125,13 +127,11 @@ export function AccountView() {
               disabled={activeSignOutScope !== null}
             >
               {activeSignOutScope === "global"
-                ? "Signing out everywhere…"
-                : "Sign out everywhere"}
+                ? t("signingOutAll")
+                : t("signOutAll")}
             </Button>
             <p className="max-w-prose text-body-sm text-text-muted">
-              Sign Out Everywhere revokes refresh access for your other devices
-              immediately. Other devices may remain active until their
-              already-issued short-lived access tokens expire.
+              {t("revokeInfo")}
             </p>
           </div>
         </div>

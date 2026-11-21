@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import {
   useEffect,
   useMemo,
@@ -54,6 +55,7 @@ const TranscriptParagraphs = ({
   transcriptSource,
   onTimestampActivated,
 }: TranscriptParagraphsProps) => {
+  const t = useTranslations("home");
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const { clearPlaybackBoundary } = usePlayerRef();
@@ -222,7 +224,7 @@ const TranscriptParagraphs = ({
       }`}
     >
       <h3 className="text-sm font-semibold mb-3 text-accent-brand-secondary/80">
-        Video Transcript
+        {t("videoTranscript")}
       </h3>
       {hasNoTimingData && (
         <p
@@ -230,7 +232,7 @@ const TranscriptParagraphs = ({
             isDark ? "text-slate-400" : "text-slate-500"
           }`}
         >
-          Timestamps not available for this transcript — click won&apos;t seek.
+          {t("timingHint")}
         </p>
       )}
       <div
@@ -264,7 +266,7 @@ const TranscriptParagraphs = ({
                 type="button"
                 onClick={() => handleTimestampClick(p.start)}
                 className="text-sm font-semibold mb-1 hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 text-accent-brand focus:ring-accent-brand"
-                aria-label={`Jump to ${formatTimestamp(p.start)}`}
+                aria-label={t("jumpTime", {time:formatTimestamp(p.start)})}
               >
                 {formatTimestamp(p.start)}
               </button>

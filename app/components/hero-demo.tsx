@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
@@ -82,6 +83,7 @@ export default function HeroDemo() {
 }
 
 function HeroDemoInner() {
+  const t = useTranslations("home");
   useAnonSession();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -227,8 +229,8 @@ function HeroDemoInner() {
           >
             <div className="flex items-center justify-between gap-2">
               <TabsList className="self-start">
-                <TabsTrigger value="summary">Summary</TabsTrigger>
-                <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                <TabsTrigger value="summary">{t("summary")}</TabsTrigger>
+                <TabsTrigger value="transcript">{t("transcript")}</TabsTrigger>
               </TabsList>
               {tab === "summary" && (
                 <LanguagePicker
@@ -259,7 +261,7 @@ function HeroDemoInner() {
                     href={fullSummaryHref}
                     className="text-body-sm text-accent-brand hover:underline"
                   >
-                    View full summary on /summary →
+                    {t("fullSummary")}
                   </a>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Image from "next/image";
 
 interface ThumbnailItem {
@@ -30,10 +31,11 @@ export default function HeroThumbnailGrid({
   activeId,
   onSelect,
 }: HeroThumbnailGridProps) {
+  const t = useTranslations("home");
   return (
     <div
       role="group"
-      aria-label="Sample videos"
+      aria-label={t("samples")}
       className="grid grid-cols-3 gap-3 h-full content-start"
     >
       {samples.map((s) => {

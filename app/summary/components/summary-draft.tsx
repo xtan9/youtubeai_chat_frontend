@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTheme } from "next-themes";
@@ -15,6 +16,7 @@ interface SummaryDraftProps {
  * Summary actions and cannot unlock Video Chat.
  */
 export function SummaryDraft({ text }: SummaryDraftProps) {
+  const t = useTranslations("home");
   const { resolvedTheme } = useTheme();
   const markdownComponents = buildSummaryMarkdownComponents({
     isDark: resolvedTheme === "dark",
@@ -22,16 +24,16 @@ export function SummaryDraft({ text }: SummaryDraftProps) {
 
   return (
     <section
-      aria-label="Summary Draft"
+      aria-label={t("draft")}
       aria-live="polite"
       data-summary-state="draft"
       data-testid="summary-draft"
       className="mb-5 rounded-xl border border-border-subtle bg-surface-raised p-4 shadow-inner sm:p-5"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-h5 text-text-primary">Summary Draft</h2>
+        <h2 className="text-h5 text-text-primary">{t("draft")}</h2>
         <span className="rounded-full bg-accent-warning/15 px-3 py-1 text-caption text-accent-warning">
-          Not ready for actions
+          {t("inactiveDraft")}
         </span>
       </div>
       <div className="prose max-w-none dark:prose-invert">
@@ -44,7 +46,7 @@ export function SummaryDraft({ text }: SummaryDraftProps) {
           </ReactMarkdown>
         ) : (
           <p className="text-body-md text-text-secondary">
-            Summary text will appear as this run progresses.
+            {t("emptyDraft")}
           </p>
         )}
       </div>

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
+import { renderWithLocale as render } from "@/tests-utils/locale-provider";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import type { SummaryResult } from "@/lib/types";
 

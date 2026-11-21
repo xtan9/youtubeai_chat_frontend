@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getContextualLimitAction } from "@/lib/analytics/subscription-discovery-navigation";
@@ -12,15 +13,6 @@ type Variant =
   | "anonymous-trial-exhausted"
   | "anonymous-trial-unavailable";
 
-const COPY: Record<Variant, string> = {
-  "free-cap": "You've used 5/5 free chat messages on this video.",
-  "anon-blocked": "Sign up to chat about your videos.",
-  "anonymous-trial-exhausted":
-    "You've used all 5 Anonymous Trial messages.",
-  "anonymous-trial-unavailable":
-    "Anonymous chat is temporarily unavailable.",
-};
-
 export function ChatCapBanner({
   variant = "free-cap",
   returnTo = "/summary",
@@ -28,6 +20,7 @@ export function ChatCapBanner({
   readonly variant?: Variant;
   readonly returnTo?: string;
 }) {
+  const t = useTranslations("home");
   const action = getContextualLimitAction({
     tier: variant === "free-cap" ? "free" : "anon",
     sourceSurface: "video_chat_limit",
@@ -70,12 +63,12 @@ export function ChatCapBanner({
             : undefined
       }
     >
-      <p className="text-body-md text-text-primary">{COPY[variant]}</p>
+      <p className="text-body-md text-text-primary">{t(variant)}</p>
       <Button asChild size="sm" className="mt-2">
         <Link href={action.href} onClick={captureAction}>
           {variant.startsWith("anonymous-trial-")
-            ? "Create Account"
-            : action.label}
+            ? t("createAccount")
+            : t(variant === "free-cap" ? "upgrade" : "signupFree")}
         </Link>
       </Button>
     </div>

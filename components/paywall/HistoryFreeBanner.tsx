@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { getContextualLimitAction } from "@/lib/analytics/subscription-discovery-navigation";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
@@ -11,6 +12,7 @@ export function HistoryFreeBanner({
   used: number;
   limit: number;
 }) {
+  const t = useTranslations("home");
   const atCap = used >= limit;
   const action = getContextualLimitAction({
     tier: "free",
@@ -28,14 +30,14 @@ export function HistoryFreeBanner({
       className="text-body-sm text-text-secondary"
       data-paywall-variant="history-free-banner"
     >
-      Showing {Math.min(used, limit)} of {limit} —{" "}
-      {atCap ? "older summaries auto-replaced. " : null}
+      {t("historyLimit", {count: Math.min(used, limit), limit})} —{" "}
+      {atCap ? t("historyReplaced") : null}
       <Link
         href={action.href}
         className="text-accent-brand hover:underline"
         onClick={captureClick}
       >
-        {action.label}
+        {t("upgrade")}
       </Link>
     </p>
   );
