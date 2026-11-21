@@ -16,3 +16,16 @@ test("pricing cards, checkout choices and FAQs switch together", async ({page}) 
     await expect(faq.getByRole("link", {name: manage})).toHaveAttribute("href", "/account/billing");
   }
 });
+
+test("summary landing heading and input update on language switch", async ({page}) => {
+  await page.goto((process.env.BASE_URL || "http://localhost:3000") + "/summary");
+  for (const [locale, heading, input] of [
+    ["zh", "免费生成 YouTube 视频摘要", "粘贴 YouTube 视频链接…"],
+    ["zh-TW", "免費產生 YouTube 影片摘要", "貼上 YouTube 影片連結…"],
+    ["en", "Free AI Summary for any YouTube Video", "Enter YouTube URL here..."],
+  ]) {
+    await page.locator("header select").selectOption(locale);
+    await expect(page.getByRole("heading", {name: heading, exact: true})).toBeVisible();
+    await expect(page.getByPlaceholder(input)).toBeVisible();
+  }
+});
