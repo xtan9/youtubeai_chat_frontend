@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -25,6 +26,7 @@ export function LoginForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
+  const tr = useTranslations("ui");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export function LoginForm({
       if (error) throw error;
       router.push(getSafeAuthRedirect(window.location.href));
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
     } finally {
       setIsLoading(false);
     }
@@ -74,13 +76,13 @@ export function LoginForm({
           error.message.includes("OAuth")
         ) {
           throw new Error(
-            "Google sign-in is not configured. Please contact support or use email login."
+            tr("googleLogin")
           );
         }
         throw error;
       }
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
       setIsLoading(false);
     }
   };
@@ -89,16 +91,16 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <h1 className="text-2xl font-semibold leading-none">Login</h1>
+          <h1 className="text-2xl font-semibold leading-none">{tr("login")}</h1>
           <CardDescription>
-            Enter your email below to login to your account
+            {tr("loginDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{tr("email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -110,12 +112,12 @@ export function LoginForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{tr("password")}</Label>
                   <Link
                     href={buildAuthPageHref("/auth/forgot-password", redirectTo)}
                     className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                   >
-                    Forgot your password?
+                    {tr("forgot")}
                   </Link>
                 </div>
                 <Input
@@ -128,7 +130,7 @@ export function LoginForm({
               </div>
               {error && <p className="text-sm text-accent-danger">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
+                {isLoading ? tr("loggingIn") : tr("login")}
               </Button>
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -136,7 +138,7 @@ export function LoginForm({
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-surface-base px-2 text-text-muted">
-                    Or continue with
+                    {tr("orContinue")}
                   </span>
                 </div>
               </div>
@@ -152,12 +154,12 @@ export function LoginForm({
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
+              {tr("noAccount")}{" "}
               <Link
                 href={buildAuthPageHref("/auth/sign-up", redirectTo)}
                 className="underline underline-offset-4"
               >
-                Sign up
+                {tr("signUp")}
               </Link>
             </div>
           </form>

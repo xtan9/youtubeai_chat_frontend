@@ -1,4 +1,5 @@
 "use client";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Resource, Space } from "@/lib/video-space/contract";
@@ -60,6 +61,7 @@ function SourceCard({
   | "openClaim"
   | "show"
 >) {
+  const tr = useTranslations("ui");
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
     [busy, setBusy] = useState(false),
@@ -76,7 +78,7 @@ function SourceCard({
         .eq("project_id", api.split("/").at(-1)!)
         .eq("id", initial.id)
         .single();
-      if (error || !data) throw Error("原 PDF 暂不可用。");
+      if (error || !data) throw Error(tr("originalPdfUnavailable"));
       const url = URL.createObjectURL(
         new Blob(
           [Uint8Array.from(atob(data.contents), (c) => c.charCodeAt(0))],
@@ -89,7 +91,7 @@ function SourceCard({
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch {
-      setError("无法下载原 PDF，请重试。");
+      setError(tr("couldNotDownloadThePdfTryAgain"));
     }
   }
   useEffect(() => {
@@ -110,7 +112,7 @@ function SourceCard({
         if (active) setLoaded(r);
       })
       .catch(() => {
-        if (active) setError("读取字幕失败，请重试。");
+        if (active) setError(tr("couldNotLoadCaptionsTryAgain"));
       });
     return () => {
       active = false;
@@ -167,28 +169,28 @@ function SourceCard({
       {...{ rooms, first, selected, ready, openClaim }}
       activeSource={activeSource === resource.id}
       title={resource.title}
-      kind={{ video: "YouTube", pdf: "PDF", web: "网页" }[resource.kind]}
+      kind={{ video: "YouTube", pdf: "PDF", web: tr("webPage") }[resource.kind]}
       summaryToggle={
         <button aria-expanded={open} onClick={() => setOpen(!open)}>
-          摘要 {open ? "−" : "+"}
+          {tr("summary")} {open ? "−" : "+"}
         </button>
       }
     >
       {open && (
         <div className="vs-digest">
-          <strong>素材摘要</strong>
+          <strong>{tr("sourceSummary")}</strong>
           <p>{resource.digest?.summary || resource.coverage}</p>
           {initial.originalPdf && (
-            <button onClick={downloadPdf}>下载原 PDF</button>
+            <button onClick={downloadPdf}>{tr("downloadOriginalPdf")}</button>
           )}
           {resource.url && (
             <a target="_blank" rel="noreferrer" href={resource.url}>
-              打开原文 <ExternalLink size={12} />
+              {tr("openOriginal")} <ExternalLink size={12} />
             </a>
           )}
           {!!resource.references?.length && (
             <details>
-              <summary>素材引用 · {resource.references.length}</summary>
+              <summary>{tr("sourceReferences")} {resource.references.length}</summary>
               {resource.references.map((r) => (
                 <p key={r.url}>
                   <a href={r.url} target="_blank" rel="noreferrer">
@@ -201,7 +203,7 @@ function SourceCard({
           )}
           {resource.pages.length > 0 && (
             <details>
-              <summary>原文摘录</summary>
+              <summary>{tr("excerpts")}</summary>
               {resource.pages.map((p, i) => (
                 <blockquote key={i}>
                   <b>{p.label}</b> {p.text}
@@ -211,7 +213,7 @@ function SourceCard({
           )}
           {referenced.length > 0 && (
             <details>
-              <summary>相关调查 · {referenced.length}</summary>
+              <summary>{tr("relatedResearch")} {referenced.length}</summary>
               {referenced.map((v) => (
                 <p key={v.id}>
                   <button onClick={() => show(v.id)}>
@@ -226,7 +228,7 @@ function SourceCard({
               disabled={busy || video?.status === "processing"}
               onClick={prepare}
             >
-              {busy ? "正在整理…" : "整理摘要与观点"}
+              {busy ? tr("preparing") : tr("extractSummaryAndClaims")}
             </button>
           )}
         </div>
@@ -251,6 +253,7 @@ export function Library({
   openClaim,
   show,
 }: Props) {
+  const tr = useTranslations("ui");
   const [sources, setSources] = useState(initialSources),
     [url, setUrl] = useState(""),
     [file, setFile] = useState<File | null>(null),
@@ -266,14 +269,14 @@ export function Library({
           if (active) setSources(r.sourceSet);
         })
         .catch(() => {
-          if (active) setError("无法读取视频素材。");
+          if (active) setError(tr("couldNotLoadVideoSources"));
         });
     const id = setInterval(load, 4000);
     return () => {
       active = false;
       clearInterval(id);
     };
-  }, [api, pending]);
+  }, [api, pending, tr]);
   function save(r: Resource) {
     const added = update((s) => ({
       ...s,
@@ -281,7 +284,7 @@ export function Library({
         ? s.resources.map((x) => (x.id === r.id ? r : x))
         : [...s.resources, r],
     }));
-    if (!added) throw Error("此素材超过 Space 容量上限。");
+    if (!added) throw Error(tr("sourceExceedsProjectCapacity"));
   }
   async function add() {
     setBusy(true);
@@ -292,13 +295,13 @@ export function Library({
         const r = await readPdf(file);
         const contents = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onerror = () => reject(Error("无法读取 PDF"));
+          reader.onerror = () => reject(Error(tr("unableToReadPdf")));
           reader.onload = () => resolve(String(reader.result).split(",")[1]);
           reader.readAsDataURL(file);
         });
         attachPdf(r, contents);
       } else if (normalizeYouTubeVideoInput(url)) {
-        if (!sources) throw Error("视频列表未就绪。");
+        if (!sources) throw Error(tr("videoListIsNotReady"));
         await requestJson(api + "/source-set/process", "POST", {
           youtubeUrl: normalizeYouTubeVideoInput(url),
           expectedRevision: sources.revision,
@@ -336,10 +339,10 @@ export function Library({
       pages: [],
       coverage:
         video.status === "processing"
-          ? "视频处理中"
+          ? tr("videoProcessing")
           : video.status === "failed"
-            ? "视频处理失败"
-            : "读取视频摘要…",
+            ? tr("videoProcessingFailed")
+            : tr("loadingVideoSummary"),
     },
   }));
   const items: Array<{ video?: ProjectVideo; resource: Resource }> = [
@@ -359,7 +362,7 @@ export function Library({
           }}
         >
           <label>
-            YouTube 或网页链接
+            {tr("youtubeOrWebLink")}
             <input
               type="url"
               value={url}
@@ -369,20 +372,20 @@ export function Library({
             />
           </label>
           <label>
-            或选择 PDF
+            {tr("orSelectAPdf")}
             <input
               type="file"
               accept="application/pdf,.pdf"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </label>
-          <button disabled={busy}>{busy ? "正在导入…" : "添加到 Space"}</button>
+          <button disabled={busy}>{busy ? tr("importing") : tr("importSource")}</button>
         </form>
       )}
       {error && <p role="alert">{error}</p>}
-      {!sources && <p role="alert">无法读取视频素材。</p>}
+      {!sources && <p role="alert">{tr("couldNotLoadVideoSources")}</p>}
       {sources && !items.length && (
-        <p className="vs-hint">添加本期视频的第一份素材。</p>
+        <p className="vs-hint">{tr("addTheFirstSourceForThisVideo")}</p>
       )}
       {items.map(({ resource, video }, i) => (
         <SourceCard
@@ -408,7 +411,7 @@ export function Library({
         .map(([id, rooms]) => (
           <SourceClaims
             key={id}
-            title={rooms[0].origin?.title ?? "项目观点"}
+            title={rooms[0].origin?.title ?? tr("projectClaims")}
             {...{ rooms, selected, ready, openClaim }}
             activeSource={activeSource === id}
           />

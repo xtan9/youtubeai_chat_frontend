@@ -1,3 +1,4 @@
+import {useTranslations} from "next-intl";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -11,30 +12,31 @@ export function ProjectOutcomeState({
     | "missing"
     | "unavailable";
 }) {
+  const tr = useTranslations("ui");
   const content = {
     anonymous: {
-      title: "Create an account for Projects",
+      title: tr("createAccount"),
       message:
-        "Register free to create one private, durable Project and keep your research ready to resume.",
+        tr("register"),
       action: {
         href: "/auth/sign-up?redirect_to=%2Fworkspace",
-        label: "Create free account",
+        label: tr("createFreeAccount"),
       },
     },
     invalid: {
-      title: "That Project link isn’t valid",
-      message: "Open a Project from your Workspace instead.",
-      action: { href: "/workspace", label: "Back to Workspace" },
+      title: tr("invalid"),
+      message: tr("openFromWorkspace"),
+      action: { href: "/workspace", label: tr("back") },
     },
     missing: {
-      title: "Project not found",
-      message: "It may have been deleted, or it may not belong to this account.",
-      action: { href: "/workspace", label: "Back to Workspace" },
+      title: tr("missing"),
+      message: tr("missingDetail"),
+      action: { href: "/workspace", label: tr("back") },
     },
     unavailable: {
-      title: "Projects are temporarily unavailable",
-      message: "Refresh the page in a moment. Your saved Projects are unchanged.",
-      action: { href: "/workspace", label: "Back to Workspace" },
+      title: tr("unavailable"),
+      message: tr("refreshLater"),
+      action: { href: "/workspace", label: tr("back") },
     },
   }[kind];
 

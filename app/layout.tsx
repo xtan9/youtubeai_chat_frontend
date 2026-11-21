@@ -1,3 +1,5 @@
+import {NextIntlClientProvider} from "next-intl";
+import {getLocale} from "next-intl/server";
 import { UserProvider } from "@/lib/contexts/user-context";
 import { TanstackQueryProvider } from "@/lib/providers/tanstack-query-provider";
 import { ThemeProvider } from "@/lib/providers/theme-provider";
@@ -86,13 +88,13 @@ const geist = Geist({
   display: "swap",
 });
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={await getLocale()} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#000000" />
@@ -102,6 +104,7 @@ export default function RootLayout({
         <StructuredData />
       </head>
       <body className={`${geist.className} flex min-h-screen flex-col`}>
+        <NextIntlClientProvider>
         <PostHogProvider>
           <ThemeProvider>
             <TanstackQueryProvider>
@@ -120,6 +123,7 @@ export default function RootLayout({
               <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID.trim()} />
             )}
         </PostHogProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

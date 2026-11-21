@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
+import { cleanup, fireEvent, render as renderComponent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFreeProjectLimitResponse } from "@/lib/projects/project-limit-response";
 import { axe } from "@/tests-utils/axe";
@@ -191,3 +192,7 @@ describe("Workspace Project entitlement presentation", () => {
     expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain("Private goal");
   });
 });
+
+function render(element: React.ReactElement) {
+  return renderComponent(element, {wrapper: TestLocaleProvider});
+}

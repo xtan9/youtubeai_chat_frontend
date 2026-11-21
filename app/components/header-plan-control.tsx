@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -148,6 +149,7 @@ function ResolvedPlanControl({
 }: {
   readonly model: ResolvedHeaderPlanControl;
 }) {
+  const tr = useTranslations("ui");
   const { captureClick } = useSubscriptionDiscovery({
     sourceSurface: "global_header",
     presentationState: model.presentationState,
@@ -172,7 +174,7 @@ function ResolvedPlanControl({
         className={cn("w-full rounded-full", toneClasses[model.tone])}
       >
         <Link href={model.href} onClick={captureClick}>
-          {model.label}
+          {tr({"Plans": "plans", "Pricing": "pricing", "Upgrade to Pro": "upgrade", "Pro Plan": "proPlan", "Billing issue": "billingIssue"}[model.label])}
         </Link>
       </Button>
     </div>
@@ -180,10 +182,11 @@ function ResolvedPlanControl({
 }
 
 function LoadingPlanControl() {
+  const tr = useTranslations("ui");
   return (
     <div
       role="status"
-      aria-label="Loading plan status"
+      aria-label={tr("loadingPlan")}
       aria-busy="true"
       className="w-28 shrink-0"
     >

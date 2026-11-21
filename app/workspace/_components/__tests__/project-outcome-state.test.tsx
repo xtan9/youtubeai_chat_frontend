@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ProjectOutcomeState } from "@/app/workspace/_components/project-outcome-state";
 
 describe("ProjectOutcomeState", () => {
   it("gives anonymous visitors a direct registration path", () => {
-    render(<ProjectOutcomeState kind="anonymous" />);
+    render(<ProjectOutcomeState kind="anonymous" />, {wrapper: TestLocaleProvider});
 
     expect(
       screen.getByRole("heading", { name: "Create an account for Projects" }),

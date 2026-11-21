@@ -1,3 +1,4 @@
+import {useTranslations} from "next-intl";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { normalizePassage } from "@/lib/highlight-translation/contract";
@@ -25,6 +26,7 @@ export function RoomToolbar({
   directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
+  const tr = useTranslations("ui");
   return (
     <div className="vs-room-toolbar">
       <small>{title}</small>
@@ -33,8 +35,8 @@ export function RoomToolbar({
         {children}
         <button
           type="button"
-          aria-label="返回项目工作台"
-          title="返回项目工作台"
+          aria-label={tr("backToDesk")}
+          title={tr("backToDesk")}
           onClick={onBack}
         >
           <ArrowLeft size={17} aria-hidden="true" />
@@ -57,6 +59,7 @@ export function ClaimRoomHeader({
   directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
+  const tr = useTranslations("ui");
   const origin = room?.origin;
   const sourceLink = room && claimSourceLink(room);
   const versions = room?.resource ? undefined : room?.versions;
@@ -83,7 +86,7 @@ export function ClaimRoomHeader({
       data-translation-section="claim"
     >
       <RoomToolbar
-        title="观点空间"
+        title={tr("claimRoom")}
         onBack={onBack}
         directoryToggle={directoryToggle}
       >
@@ -91,7 +94,7 @@ export function ClaimRoomHeader({
       </RoomToolbar>
       {room && (
         <div className="vs-claim-card" key={room.id}>
-          <h2>{room.resource ? "AI 提炼的观点" : "观点"}</h2>
+          <h2>{room.resource ? tr("aiClaim") : tr("claim")}</h2>
           <p
             id="vs-room-title"
             className="vs-claim-text"
@@ -103,13 +106,13 @@ export function ClaimRoomHeader({
           </p>
           <div className="vs-claim-source">
             <div className="vs-claim-attribution">
-              {origin && <small>来源</small>}
+              {origin && <small>{tr("source")}</small>}
               <button
                 type="button"
                 className="vs-parent-link"
                 onClick={onParent}
               >
-                {origin?.title ?? "项目观点"}
+                {origin?.title ?? tr("projectClaims")}
               </button>
             </div>
             {sourceLink ? (
@@ -119,10 +122,10 @@ export function ClaimRoomHeader({
                 target="_blank"
                 rel="noreferrer"
                 aria-label={
-                  origin?.location ? `打开素材 · ${origin.location}` : undefined
+                  origin?.location ? `${tr("openSource")} · ${origin.location}` : undefined
                 }
               >
-                {origin?.location || "打开素材"} ↗
+                {origin?.location || tr("openSource")} ↗
               </a>
             ) : origin?.location ? (
               <small className="vs-claim-location">{origin.location}</small>
@@ -130,7 +133,7 @@ export function ClaimRoomHeader({
           </div>
           {showQuote && (
             <details>
-              <summary>查看原文摘录</summary>
+              <summary>{tr("viewExcerpt")}</summary>
               <blockquote
                 data-translation-block="0"
                 data-translation-version={originVersion?.id}
@@ -141,7 +144,7 @@ export function ClaimRoomHeader({
           )}
           {showPage && (
             <details>
-              <summary>查看 PDF 页内容</summary>
+              <summary>{tr("viewPdf")}</summary>
               <p data-translation-block="0">{pdfPage}</p>
             </details>
           )}
@@ -190,6 +193,7 @@ export function ClaimRoom({
   target?: string;
   setTarget: (id?: string) => void;
 }) {
+  const tr = useTranslations("ui");
   const latest = room.versions.at(-1);
   const finding = selected ?? latest;
   const parent = room.versions.find((v) => v.id === target) ?? finding;
@@ -235,18 +239,18 @@ export function ClaimRoom({
     <>
       <section
         className="vs-room-evidence"
-        aria-label="本观点的证据"
+        aria-label={tr("claimEvidence")}
         data-translation-section="evidence"
       >
         <div className="vs-row">
           <h3>
-            证据 <small>{evidence.size}</small>
+            {tr("evidence")} <small>{evidence.size}</small>
           </h3>
           <button
             disabled={busy || !ready}
             onClick={() => search(room.title, latest?.id)}
           >
-            查找证据
+            {tr("findEvidence")}
           </button>
         </div>
         {finding ? (
@@ -259,13 +263,13 @@ export function ClaimRoom({
           </div>
         ) : (
           <p className="vs-hint">
-            {ready ? "这个观点还没有保存的证据。" : "正在读取证据…"}
+            {ready ? tr("noEvidence") : tr("readingEvidence")}
           </p>
         )}
         {[...evidence.values()].map(({ source, quotes, versionId }) => (
           <details key={source.id} className="vs-evidence-source">
             <summary>
-              <small>{source.kind === "video" ? "视频原文" : "论文摘要"}</small>{" "}
+              <small>{source.kind === "video" ? tr("videoExcerpt") : tr("paperAbstract")}</small>{" "}
               <span
                 data-translation-block="0"
                 data-translation-version={versionId}
@@ -283,21 +287,21 @@ export function ClaimRoom({
               </blockquote>
             ))}
             <a href={source.url} target="_blank" rel="noreferrer">
-              打开来源 ↗
+              {tr("goToSource")}
             </a>
           </details>
         ))}
       </section>
       <section
         className="vs-room-discussion"
-        aria-label="本观点的讨论"
+        aria-label={tr("claimDiscussion")}
         data-translation-section="discussion"
       >
         <div className="vs-row">
-          <h3>围绕这个观点讨论</h3>
+          <h3>{tr("discussClaim")}</h3>
           {finding && (
             <button disabled={handed} onClick={() => handoff(finding)}>
-              {handed ? "已交给创作搭档" : "交给创作搭档"}
+              {handed ? tr("handed") : tr("sendToWritingPartner")}
             </button>
           )}
         </div>
@@ -305,13 +309,13 @@ export function ClaimRoom({
           {turns.map(({ version: v, attempt: a, chat }) =>
             chat ? (
               <div key={chat.id} className="vs-turn">
-                <small>你</small>
+                <small>{tr("you")}</small>
                 <p data-translation-block="0">{chat.question}</p>
-                <small>研究搭档</small>
+                <small>{tr("researchPartner")}</small>
                 <p data-translation-block="0">{chat.reply}</p>
                 {chat.finding && (
                   <button onClick={() => chat.finding && select(chat.finding)}>
-                    讨论引用的证据
+                    {tr("discussionCitations")}
                   </button>
                 )}
               </div>
@@ -321,13 +325,13 @@ export function ClaimRoom({
                 className="vs-turn"
                 data-translation-version={v.id}
               >
-                <small>你</small>
+                <small>{tr("you")}</small>
                 <p data-translation-block="0">{v.document.question}</p>
-                <small>研究搭档</small>
+                <small>{tr("researchPartner")}</small>
                 <p data-translation-block="0">
                   {v.document.synthesis.judgment.text}
                 </p>
-                <button onClick={() => select(v.id)}>查看本次证据</button>{" "}
+                <button onClick={() => select(v.id)}>{tr("turnEvidence")}</button>{" "}
                 {v.id !== latest?.id && (
                   <button
                     onClick={() => {
@@ -335,7 +339,7 @@ export function ClaimRoom({
                       document.getElementById("vs-question")?.focus();
                     }}
                   >
-                    追问这次判断
+                    {tr("followJudgment")}
                   </button>
                 )}
               </div>
@@ -348,21 +352,21 @@ export function ClaimRoom({
                 >
                   <strong data-translation-block="0">{a.question}</strong>
                   <p role="alert">
-                    {a.evidenceGap ? "证据不足 · " : ""}
+                    {a.evidenceGap ? tr("gap") : ""}
                     {a.message}
                   </p>
                   <button
                     disabled={busy || !ready}
                     onClick={() => search(a.question, a.parent, a)}
                   >
-                    重试调查
+                    {tr("retryResearch")}
                   </button>
                 </div>
               )
             ),
           )}
         </div>
-        {pending && <p role="status">正在核查：{pending}</p>}
+        {pending && <p role="status">{tr("checking")}{pending}</p>}
         {chatStatus && <p role="status">{chatStatus}</p>}
         {chatError && <p role="alert">{chatError}</p>}
         <form
@@ -373,16 +377,16 @@ export function ClaimRoom({
         >
           {target && parent?.id !== latest?.id && (
             <small>
-              追问 · {parent?.document.question}{" "}
+              {tr("following")} {parent?.document.question}{" "}
               <button type="button" onClick={() => setTarget(undefined)}>
-                取消
+                {tr("cancel")}
               </button>
             </small>
           )}
           <textarea
             id="vs-question"
-            aria-label="研究问题"
-            placeholder="就这个观点追问…"
+            aria-label={tr("researchQuestion")}
+            placeholder={tr("askClaim")}
             rows={2}
             maxLength={2000}
             value={question}
@@ -393,13 +397,13 @@ export function ClaimRoom({
             disabled={!ready || busy || question.trim().length < 3}
             onClick={() => search(question, parent?.id)}
           >
-            检索这个问题
+            {tr("searchQuestion")}
           </button>{" "}
           <button
             className="vs-primary"
             disabled={!ready || chatBusy || !question.trim()}
           >
-            发送
+            {tr("send")}
           </button>
         </form>
       </section>

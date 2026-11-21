@@ -502,7 +502,7 @@ export async function videoSpaceJourney(
   const add = left.getByRole("button", { name: "添加素材", exact: true });
   await add.click();
   await left.getByLabel("YouTube 或网页链接").fill(publication.url);
-  await left.getByRole("button", { name: "添加到 Space" }).click();
+  await left.getByRole("button", { name: "导入素材" }).click();
   const web = left.locator(".vs-source").filter({ hasText: "网页 · 试验报告" });
   await web.getByRole("button", { name: /摘要/ }).click();
   await expect(web.getByText("关键观点 · 1")).toBeVisible();
@@ -518,7 +518,7 @@ export async function videoSpaceJourney(
     mimeType: "application/pdf",
     buffer,
   });
-  await left.getByRole("button", { name: "添加到 Space" }).click();
+  await left.getByRole("button", { name: "导入素材" }).click();
   const pdf = left.locator(".vs-source").filter({ hasText: "Minnesota.pdf" });
   await pdf.getByRole("button", { name: /摘要/ }).click();
   await expect(pdf.getByText("关键观点 · 1")).toBeVisible();

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useSubscriptionDiscovery } from "@/lib/analytics/use-subscription-discovery";
 import { useUser } from "@/lib/contexts/user-context";
@@ -7,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsCheckoutReturnPending } from "@/lib/billing/activation-pending";
 
 export function FooterPricingLink() {
+  const tr = useTranslations("ui");
   const { user, isLoading, error } = useUser();
   const isMobile = useIsMobile();
   const isCheckoutReturn = useIsCheckoutReturnPending();
@@ -30,7 +32,7 @@ export function FooterPricingLink() {
       onClick={captureClick}
       className="text-sm text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"
     >
-      Pricing
+      {tr("pricing")}
     </Link>
   );
 }

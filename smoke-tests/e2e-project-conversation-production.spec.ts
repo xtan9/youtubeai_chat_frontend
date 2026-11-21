@@ -45,3 +45,23 @@ test("real Project Conversation completes the production grounded-answer path @p
   await expect(page.getByLabel("Source Coverage")).toBeVisible();
   await expect(page.getByText(/Evidence supported|Abstained|Unsupported by sources/)).toBeVisible();
 });
+
+test("signed-in video workspace remembers its interface language @project-grounded", async ({page}) => {
+  const email = process.env.TEST_LIVE_SUMMARY_EMAIL;
+  const password = process.env.TEST_LIVE_SUMMARY_PASSWORD;
+  const projectId = process.env.TEST_PROJECT_ID;
+  test.skip(!email || !password || !projectId, "Requires the designated production smoke project");
+  await page.goto(PROD_URL + "/auth/login");
+  await page.locator("#email").fill(email!);
+  await page.locator("#password").fill(password!);
+  await page.getByRole("button", {name: "Login", exact: true}).click();
+  await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
+  await page.goto(PROD_URL + "/new-workspace/projects/" + projectId);
+  const picker = page.getByRole("combobox", {name: "Interface language"});
+  await expect(page.getByRole("textbox", {name: "Script text"})).toBeVisible();
+  await picker.selectOption("zh-TW");
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-TW");
+  await page.reload();
+  await expect(page.getByRole("textbox", {name: "腳本正文"})).toBeVisible();
+  await expect(page.getByRole("navigation", {name: "素材目錄"})).toBeVisible();
+});

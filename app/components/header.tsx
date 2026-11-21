@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { InterfaceLanguage } from "./interface-language";
 import Link from "next/link";
 import {
   CreditCard,
@@ -27,6 +29,7 @@ import { Suspense, useState } from "react";
 import { CheckoutActivationGuard } from "./checkout-activation-guard";
 
 export function Header() {
+  const tr = useTranslations("ui");
   const { error: authError, isLoading: isAuthLoading, user } = useUser();
   const router = useRouter();
   const supabase = createClient();
@@ -46,7 +49,7 @@ export function Header() {
           status: error.status ?? null,
           message: error.message,
         });
-        setSignOutError("Couldn't sign you out. Check your connection and try again.");
+        setSignOutError(tr("couldntSignYouOutCheckYourConnectionAndTryAgain"));
         return;
       }
       // Force a document navigation so an authenticated App Router prefetch of
@@ -56,7 +59,7 @@ export function Header() {
       console.error("[header] signOut threw", {
         message: error instanceof Error ? error.message : String(error),
       });
-      setSignOutError("Couldn't sign you out. Check your connection and try again.");
+      setSignOutError(tr("couldntSignYouOutCheckYourConnectionAndTryAgain"));
     } finally {
       setIsSigningOut(false);
     }
@@ -69,7 +72,7 @@ export function Header() {
           <div className="flex items-center gap-8">
             <Link
               href="/"
-              aria-label="YouTube AI Chat home"
+              aria-label={tr("youtubeAiChatHome")}
               className="group flex items-center gap-2 sm:gap-3"
             >
               <div className="flex size-9 transform items-center justify-center rounded-xl bg-gradient-brand-primary transition-transform group-hover:scale-110 sm:size-10">
@@ -81,7 +84,7 @@ export function Header() {
             </Link>
 
             <nav
-              aria-label="Primary"
+              aria-label={tr("primary")}
               className="hidden md:flex items-center gap-6 text-body-sm font-medium"
             >
               {user && !user.is_anonymous ? (
@@ -90,13 +93,13 @@ export function Header() {
                     href="/workspace"
                     className="text-text-muted hover:text-text-primary transition-colors"
                   >
-                    Workspace
+                    {tr("workspace")}
                   </Link>
                   <Link
                     href="/new-workspace"
                     className="text-text-muted hover:text-text-primary transition-colors"
                   >
-                    New Workspace
+                    {tr("newWorkspace")}
                   </Link>
                 </>
               ) : null}
@@ -110,7 +113,7 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 className="md:hidden"
-                aria-label="Open navigation menu"
+                aria-label={tr("openNavigationMenu")}
                 aria-expanded={isNavigationOpen}
                 aria-controls="mobile-primary-navigation"
                 onClick={() => setIsNavigationOpen((open) => !open)}
@@ -118,6 +121,7 @@ export function Header() {
                 <Menu aria-hidden="true" />
               </Button>
             ) : null}
+            <InterfaceLanguage />
             <ThemeSwitcher />
             <Suspense
               fallback={
@@ -144,7 +148,7 @@ export function Header() {
                   onClick={() => router.push("/auth/login")}
                   className="rounded-full bg-gradient-brand-primary px-4 text-white hover:bg-gradient-brand-primary-hover sm:px-6"
                 >
-                  Sign In
+                  {tr("signIn")}
                 </Button>
               </div>
             ) : (
@@ -154,7 +158,7 @@ export function Header() {
                     <button
                       type="button"
                       className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"
-                      aria-label="User menu"
+                      aria-label={tr("userMenu")}
                     >
                       <ProfileAvatar user={user} />
                     </button>
@@ -166,7 +170,7 @@ export function Header() {
                         className="cursor-pointer flex items-center gap-2"
                       >
                         <FolderKanban size={16} />
-                        <span>Workspace</span>
+                        <span>{tr("workspace")}</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
@@ -175,7 +179,7 @@ export function Header() {
                         className="cursor-pointer flex items-center gap-2"
                       >
                         <UserIcon size={16} />
-                        <span>Account</span>
+                        <span>{tr("account")}</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
@@ -184,7 +188,7 @@ export function Header() {
                         className="cursor-pointer flex items-center gap-2"
                       >
                         <CreditCard size={16} />
-                        <span>Plan &amp; Billing</span>
+                        <span>{tr("planAndBilling")}</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -194,7 +198,7 @@ export function Header() {
                       className="cursor-pointer"
                     >
                       <LogOut size={16} />
-                      <span>{isSigningOut ? "Signing out…" : "Sign Out"}</span>
+                      <span>{isSigningOut ? tr("signingOut") : tr("signOut")}</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -205,20 +209,20 @@ export function Header() {
         {user && !user.is_anonymous && isNavigationOpen ? (
           <nav
             id="mobile-primary-navigation"
-            aria-label="Mobile primary"
+            aria-label={tr("mobilePrimary")}
             className="mt-3 flex flex-col gap-1 border-t border-border-subtle pt-3 text-body-md font-medium md:hidden"
           >
             <Link
               href="/workspace"
               className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
             >
-              Workspace
+              {tr("workspace")}
             </Link>
             <Link
               href="/new-workspace"
               className="rounded-md px-3 py-3 text-text-secondary hover:bg-state-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
             >
-              New Workspace
+              {tr("newWorkspace")}
             </Link>
           </nav>
         ) : null}

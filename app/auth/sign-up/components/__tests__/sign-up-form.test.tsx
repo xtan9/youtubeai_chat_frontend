@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import {TestLocaleProvider} from "@/tests-utils/locale-provider";
 import {
   cleanup,
   fireEvent,
@@ -78,7 +79,7 @@ function setSignupLocation(redirectTo?: string) {
 describe("SignUpForm analytics", () => {
   it("preserves the selected plan when switching to login", () => {
     setSignupLocation("/pricing?intent=upgrade&plan=monthly&source_surface=global_header");
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     const login = new URL(
       screen.getByRole("link", { name: "Login" }).getAttribute("href")!,
@@ -102,7 +103,7 @@ describe("SignUpForm analytics", () => {
       data: { user: { identities: [{ id: "identity-1" }] }, session: null },
       error: null,
     });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 
@@ -120,7 +121,7 @@ describe("SignUpForm analytics", () => {
       }),
     });
     mocks.signInWithOAuth.mockResolvedValue({ error: null });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
@@ -145,7 +146,7 @@ describe("SignUpForm analytics", () => {
       error: null,
     });
     setSignupLocation("/?demo=Hrbq66XqtCo");
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 
@@ -173,7 +174,7 @@ describe("SignUpForm analytics", () => {
     });
     mocks.linkIdentity.mockResolvedValue({ error: null });
     setSignupLocation("/?demo=Hrbq66XqtCo");
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
@@ -196,7 +197,7 @@ describe("SignUpForm analytics", () => {
       },
       error: null,
     });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 
@@ -221,7 +222,7 @@ describe("SignUpForm analytics", () => {
       },
       error: null,
     });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 
@@ -242,7 +243,7 @@ describe("SignUpForm analytics", () => {
   it("includes the safe pricing intent in the Google OAuth callback URL", async () => {
     setSignupLocation("/pricing?intent=upgrade");
     mocks.signInWithOAuth.mockResolvedValue({ error: null });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
@@ -264,7 +265,7 @@ describe("SignUpForm analytics", () => {
       },
       error: null,
     });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 
@@ -286,7 +287,7 @@ describe("SignUpForm analytics", () => {
       },
       error: null,
     });
-    render(<SignUpForm />);
+    render(<SignUpForm />, {wrapper: TestLocaleProvider});
 
     submitValidForm();
 

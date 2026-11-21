@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
+import { act, fireEvent, render as renderComponent, screen, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { Footer } from "../footer";
 import { setBillingActivationOutcome } from "@/lib/billing/activation-pending";
@@ -139,3 +140,7 @@ describe("Footer", () => {
     expect(analyticsMocks.capture).not.toHaveBeenCalled();
   });
 });
+
+function render(element: React.ReactElement) {
+  return renderComponent(element, {wrapper: TestLocaleProvider});
+}

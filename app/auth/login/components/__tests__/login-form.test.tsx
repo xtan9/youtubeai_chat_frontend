@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import {TestLocaleProvider} from "@/tests-utils/locale-provider";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,7 +38,7 @@ describe("LoginForm", () => {
   it("keeps the selected plan in the Google login callback", async () => {
     window.history.replaceState({}, "", "/auth/login?redirect_to=%2Fpricing%3Fintent%3Dupgrade%26plan%3Dyearly");
     mocks.signInWithOAuth.mockResolvedValue({ error: null });
-    render(<LoginForm />);
+    render(<LoginForm />, {wrapper: TestLocaleProvider});
 
     fireEvent.click(screen.getByRole("button", { name: "Google" }));
 
@@ -50,7 +51,7 @@ describe("LoginForm", () => {
   it("keeps the selected plan through password login and alternate auth links", async () => {
     window.history.replaceState({}, "", "/auth/login?redirect_to=%2Fpricing%3Fintent%3Dupgrade%26plan%3Dmonthly%26source_surface%3Dglobal_header");
     mocks.signInWithPassword.mockResolvedValue({ error: null });
-    render(<LoginForm />);
+    render(<LoginForm />, {wrapper: TestLocaleProvider});
 
     for (const [name, pathname] of [
       ["Sign up", "/auth/sign-up"],
@@ -83,7 +84,7 @@ describe("LoginForm", () => {
 
   it("redirects a successful password login to the dashboard", async () => {
     mocks.signInWithPassword.mockResolvedValue({ error: null });
-    render(<LoginForm />);
+    render(<LoginForm />, {wrapper: TestLocaleProvider});
 
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "learner@example.com" },
@@ -107,7 +108,7 @@ describe("LoginForm", () => {
     window.history.replaceState({}, "", `/auth/login?redirect_to=${encodeURIComponent(redirectTo)}`);
     mocks.signInWithPassword.mockResolvedValue({ error: null });
     mocks.signInWithOAuth.mockResolvedValue({ error: null });
-    render(<LoginForm />);
+    render(<LoginForm />, {wrapper: TestLocaleProvider});
 
     for (const name of ["Sign up", "Forgot your password?"]) {
       const link = new URL(

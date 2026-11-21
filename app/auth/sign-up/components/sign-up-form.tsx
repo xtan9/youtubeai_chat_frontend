@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function SignUpForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
+  const tr = useTranslations("ui");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -49,7 +51,7 @@ export function SignUpForm({
     setError(null);
 
     if (password !== repeatPassword) {
-      setError("Passwords do not match");
+      setError(tr("passwordMismatch"));
       setIsLoading(false);
       return;
     }
@@ -101,7 +103,7 @@ export function SignUpForm({
           : "/auth/sign-up-success",
       );
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
     } finally {
       setIsLoading(false);
     }
@@ -133,12 +135,12 @@ export function SignUpForm({
       if (error) {
         // Better error message for OAuth configuration issues
         if (error.message.includes("provider") || error.message.includes("OAuth")) {
-          throw new Error("Google sign-in is not configured. Please contact support or use email sign-up.");
+          throw new Error(tr("googleSignup"));
         }
         throw error;
       }
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
       setIsLoading(false);
     }
   };
@@ -147,14 +149,14 @@ export function SignUpForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <h1 className="text-2xl font-semibold leading-none">Sign up</h1>
-          <CardDescription>Create a new account</CardDescription>
+          <h1 className="text-2xl font-semibold leading-none">{tr("signUp")}</h1>
+          <CardDescription>{tr("newAccount")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{tr("email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -166,7 +168,7 @@ export function SignUpForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{tr("password")}</Label>
                 </div>
                 <Input
                   id="password"
@@ -178,7 +180,7 @@ export function SignUpForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="repeat-password">Repeat Password</Label>
+                  <Label htmlFor="repeat-password">{tr("repeatPassword")}</Label>
                 </div>
                 <Input
                   id="repeat-password"
@@ -190,7 +192,7 @@ export function SignUpForm({
               </div>
               {error && <p className="text-sm text-accent-danger">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Creating an account..." : "Sign up"}
+                {isLoading ? tr("creatingAccount") : tr("signUp")}
               </Button>
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -198,7 +200,7 @@ export function SignUpForm({
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-surface-base px-2 text-text-muted">
-                    Or continue with
+                    {tr("orContinue")}
                   </span>
                 </div>
               </div>
@@ -214,12 +216,12 @@ export function SignUpForm({
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
-              Already have an account?{" "}
+              {tr("haveAccount")}{" "}
               <Link
                 href={buildAuthPageHref("/auth/login", redirectTo)}
                 className="underline underline-offset-4"
               >
-                Login
+                {tr("login")}
               </Link>
             </div>
           </form>
