@@ -67,6 +67,11 @@ function redirectToLogin(
   supabaseResponse?: NextResponse
 ): NextResponse {
   const url = request.nextUrl.clone();
+  if (url.pathname === "/new-workspace" || url.pathname.startsWith("/new-workspace/")) {
+    const destination = url.pathname + url.search;
+    url.search = "";
+    url.searchParams.set("redirect_to", destination);
+  }
   url.pathname = "/auth/login";
   const response = NextResponse.redirect(url);
   return supabaseResponse

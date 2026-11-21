@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import {
   Card,
   CardContent,
@@ -14,7 +15,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function Page() {
+export default async function Page() {
+  const tr = await getTranslations("ui");
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
       <div className="w-full max-w-sm">
@@ -22,14 +24,13 @@ export default function Page() {
           <Card>
             <CardHeader>
               <h1 className="text-2xl font-semibold leading-none">
-                Thank you for signing up!
+                {tr("signupThanks")}
               </h1>
-              <CardDescription>Check your email to confirm</CardDescription>
+              <CardDescription>{tr("confirmEmail")}</CardDescription>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-text-muted">
-                You&apos;ve successfully signed up. Please check your email to
-                confirm your account before signing in.
+                {tr("confirmInstructions")}
               </p>
             </CardContent>
           </Card>

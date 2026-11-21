@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Metadata } from "next";
 
@@ -14,6 +15,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{ error: string }>;
 }) {
+  const tr = await getTranslations("ui");
   const params = await searchParams;
 
   return (
@@ -23,17 +25,17 @@ export default async function Page({
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">
-                Sorry, something went wrong.
+                {tr("authFailure")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {params?.error ? (
                 <p className="text-sm text-text-muted">
-                  Code error: {params.error}
+                  {tr("authErrorCode", {code: params.error})}
                 </p>
               ) : (
                 <p className="text-sm text-text-muted">
-                  An unspecified error occurred.
+                  {tr("unknownAuthFailure")}
                 </p>
               )}
             </CardContent>

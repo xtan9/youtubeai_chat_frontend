@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { TestLocaleProvider } from "@/tests-utils/locale-provider";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UpdatePasswordForm } from "../update-password-form";
@@ -41,7 +42,7 @@ function enterPassword() {
 
 describe("UpdatePasswordForm recovery session", () => {
   it("keeps the recovery session while revoking other sessions", async () => {
-    render(<UpdatePasswordForm />);
+    render(<UpdatePasswordForm />, {wrapper: TestLocaleProvider});
 
     enterPassword();
 
@@ -57,7 +58,7 @@ describe("UpdatePasswordForm recovery session", () => {
 
   it("reports password-update failure without attempting session revocation", async () => {
     updateUserSpy.mockResolvedValueOnce({ error: new Error("Password rejected") });
-    render(<UpdatePasswordForm />);
+    render(<UpdatePasswordForm />, {wrapper: TestLocaleProvider});
 
     enterPassword();
 
@@ -68,7 +69,7 @@ describe("UpdatePasswordForm recovery session", () => {
 
   it("preserves the recovery session and offers global sign out after partial failure", async () => {
     signOutSpy.mockResolvedValueOnce({ error: new Error("Other-session revoke failed") });
-    render(<UpdatePasswordForm />);
+    render(<UpdatePasswordForm />, {wrapper: TestLocaleProvider});
 
     enterPassword();
 
@@ -88,7 +89,7 @@ describe("UpdatePasswordForm recovery session", () => {
 
   it("offers global sign out when other-session revocation throws", async () => {
     signOutSpy.mockRejectedValueOnce(new Error("Other-session revoke unavailable"));
-    render(<UpdatePasswordForm />);
+    render(<UpdatePasswordForm />, {wrapper: TestLocaleProvider});
 
     enterPassword();
 

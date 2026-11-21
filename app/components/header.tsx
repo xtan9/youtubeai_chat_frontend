@@ -68,7 +68,7 @@ export function Header() {
   return (
     <header className="w-full border-b border-border-subtle bg-surface-base/95 backdrop-blur-md dark:bg-gradient-to-r dark:from-gray-900/95 dark:to-black/95">
       <div className="mx-auto max-w-page px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-y-2">
           <div className="flex items-center gap-8">
             <Link
               href="/"
@@ -106,7 +106,7 @@ export function Header() {
             </nav>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1 sm:gap-4">
             {user && !user.is_anonymous ? (
               <Button
                 type="button"

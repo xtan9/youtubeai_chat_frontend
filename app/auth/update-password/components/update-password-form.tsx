@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { parseRecoveryFragment } from "@/lib/auth/recovery-redirect";
@@ -20,6 +21,7 @@ export function UpdatePasswordForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
+  const tr = useTranslations("ui");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,9 +49,7 @@ export function UpdatePasswordForm({
       })
       .then(({ error: setErr }) => {
         if (setErr) {
-          setError(
-            "Recovery link is invalid or has expired. Request a new email."
-          );
+          setError("invalidRecovery");
           return;
         }
         // Strip the fragment so a refresh doesn't try to re-set an already-
@@ -85,7 +85,7 @@ export function UpdatePasswordForm({
         });
         setNeedsGlobalSignOut(true);
         setError(
-          "Your password was changed, but we couldn't sign out your other sessions. Try again or sign out everywhere below.",
+          tr("revokeFailed"),
         );
         return;
       }
@@ -96,7 +96,7 @@ export function UpdatePasswordForm({
         });
         setNeedsGlobalSignOut(true);
         setError(
-          "Your password was changed, but we couldn't sign out your other sessions. Try again or sign out everywhere below.",
+          tr("revokeFailed"),
         );
         return;
       }
@@ -106,7 +106,7 @@ export function UpdatePasswordForm({
       console.error("[update-password] password recovery threw", {
         message: error instanceof Error ? error.message : String(error),
       });
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : tr("genericError"));
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +125,7 @@ export function UpdatePasswordForm({
           status: signOutError.status ?? null,
           message: signOutError.message,
         });
-        setError("Couldn't sign you out everywhere. Check your connection and try again.");
+        setError(tr("globalSignoutFailed"));
         return;
       }
       router.push("/");
@@ -133,7 +133,7 @@ export function UpdatePasswordForm({
       console.error("[update-password] global signOut threw", {
         message: error instanceof Error ? error.message : String(error),
       });
-      setError("Couldn't sign you out everywhere. Check your connection and try again.");
+      setError(tr("globalSignoutFailed"));
     } finally {
       setIsGlobalSignOutLoading(false);
     }
@@ -143,20 +143,20 @@ export function UpdatePasswordForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Reset Your Password</CardTitle>
+          <CardTitle className="text-2xl">{tr("resetTitle")}</CardTitle>
           <CardDescription>
-            Please enter your new password below.
+            {tr("newPasswordInstructions")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleForgotPassword}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
-                <Label htmlFor="password">New password</Label>
+                <Label htmlFor="password">{tr("newPassword")}</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="New password"
+                  placeholder={tr("newPassword")}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -164,11 +164,11 @@ export function UpdatePasswordForm({
               </div>
               {error && (
                 <p role="alert" className="text-sm text-accent-danger">
-                  {error}
+                  {error === "invalidRecovery" ? tr("invalidRecovery") : error}
                 </p>
               )}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Saving..." : "Save new password"}
+                {isLoading ? tr("savingPassword") : tr("savePassword")}
               </Button>
               {needsGlobalSignOut ? (
                 <Button
@@ -178,7 +178,7 @@ export function UpdatePasswordForm({
                   onClick={handleSignOutEverywhere}
                   disabled={isGlobalSignOutLoading}
                 >
-                  {isGlobalSignOutLoading ? "Signing out everywhere…" : "Sign out everywhere"}
+                  {isGlobalSignOutLoading ? tr("signingOutAll") : tr("signOutAll")}
                 </Button>
               ) : null}
             </div>
