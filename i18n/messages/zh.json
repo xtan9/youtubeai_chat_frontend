@@ -100,7 +100,7 @@
     "loadFailed": "无法读取脚本，请重新加载。",
     "loading": "正在读取…",
     "loadingPlan": "正在读取套餐状态",
-    "loadingProject": "正在读取 Space…",
+    "loadingProject": "正在读取项目…",
     "loadingSources": "正在读取素材…",
     "loadingVideoSummary": "读取视频摘要…",
     "loggingIn": "正在登录…",
