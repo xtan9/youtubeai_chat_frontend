@@ -1,144 +1,116 @@
+import { getTranslations } from "next-intl/server";
+import { useTranslations } from "next-intl";
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy - YouTube AI Chat",
-  description: "Privacy policy and data handling practices for YouTube AI Chat",
-  alternates: {
-    canonical: "/privacy",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("privacyTitle"),
+    description: t("privacyTitleDesc"),
+    alternates: {
+      canonical: "/privacy",
+    },
+  };
+}
 
 export default function PrivacyPolicy() {
+  const t = useTranslations("publicPages");
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([
-          { name: "Home", path: "/" },
-          { name: "Privacy Policy", path: "/privacy" },
+          { name: t("home"), path: "/" },
+          { name: t("privacy"), path: "/privacy" },
         ])}
       />
       <JsonLd
         id="structured-data-webpage"
         data={buildWebPageSchema({
-          name: "Privacy Policy",
+          name: t("privacy"),
           description:
-            "Privacy policy and data handling practices for YouTube AI Chat",
+            t("privacyTitleDesc"),
           path: "/privacy",
         })}
       />
-      <h1 className="text-3xl font-bold mb-8">Privacy Policy</h1>
+      <h1 className="text-3xl font-bold mb-8">{t("privacy")}</h1>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Introduction</h2>
-        <p className="mb-4">
-          At YouTube AI Chat, we take your privacy seriously. This Privacy Policy
-          explains how we collect, use, and protect your personal information
-          when you use our service.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("intro")}</h2>
+        <p className="mb-4">{t("introText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Information We Collect</h2>
+        <h2 className="text-2xl font-semibold mb-4">{t("collection")}</h2>
         <ul className="list-disc pl-6 space-y-2">
-          <li>Account information (email address when you sign up)</li>
-          <li>Usage data (how you interact with our service)</li>
-          <li>YouTube video URLs you submit for summarization</li>
-          <li>Generated summaries and analysis</li>
-          <li>
-            Technical information (IP address, browser type, device information)
-          </li>
+          <li>{t("accountData")}</li>
+          <li>{t("usageData")}</li>
+          <li>{t("urls")}</li>
+          <li>{t("generated")}</li>
+          <li>{t("technical")}</li>
         </ul>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          How We Use Your Information
-        </h2>
+        <h2 className="text-2xl font-semibold mb-4">{t("use")}</h2>
         <ul className="list-disc pl-6 space-y-2">
-          <li>To provide and improve our video summarization service</li>
-          <li>To personalize your experience</li>
-          <li>To communicate with you about your account or our service</li>
-          <li>To analyze usage patterns and improve our website</li>
-          <li>To protect our legal rights and comply with applicable laws</li>
+          <li>{t("improve")}</li>
+          <li>{t("personalize")}</li>
+          <li>{t("communicate")}</li>
+          <li>{t("analyze")}</li>
+          <li>{t("protect")}</li>
         </ul>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          Data Storage and Security
-        </h2>
-        <p className="mb-4">
-          We implement appropriate technical and organizational measures to
-          protect your personal information. However, no method of transmission
-          over the Internet or electronic storage is 100% secure.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("storage")}</h2>
+        <p className="mb-4">{t("storageText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Third-Party Services</h2>
-        <p className="mb-4">We use third-party services for:</p>
+        <h2 className="text-2xl font-semibold mb-4">{t("third")}</h2>
+        <p className="mb-4">{t("thirdText")}</p>
         <ul className="list-disc pl-6 space-y-2">
-          <li>Authentication (Supabase)</li>
-          <li>Analytics (Google Analytics)</li>
-          <li>Video data (YouTube API Services)</li>
+          <li>{t("auth")}</li>
+          <li>{t("analytics")}</li>
+          <li>{t("video")}</li>
         </ul>
-        <p className="mt-4">
-          Each of these services has their own privacy policies and handling
-          practices.
-        </p>
+        <p className="mt-4">{t("thirdPolicies")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Highlight Translation</h2>
-        <p className="mb-4">
-          When you enable Highlight to translate and select text in a Summary or a
-          New Workspace claim title, source passage, evidence, or discussion,
-          we send the selection, nearby text from its paragraph, and the nearest
-          section heading to our AI service to translate and explain its meaning.
-          This feature does not send the full video transcript.
-        </p>
-        <p className="mb-4">
-          We store your enable switch and target language in your browser. We do
-          not save translation history or record selected text and translations
-          in application logs. You can turn the feature off at any time.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("highlight")}</h2>
+        <p className="mb-4">{t("highlightText")}</p>
+        <p className="mb-4">{t("highlightPrefs")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Your Rights</h2>
-        <p className="mb-4">You have the right to:</p>
+        <h2 className="text-2xl font-semibold mb-4">{t("rights")}</h2>
+        <p className="mb-4">{t("rightsText")}</p>
         <ul className="list-disc pl-6 space-y-2">
-          <li>Access your personal information</li>
-          <li>Correct inaccurate information</li>
-          <li>Request deletion of your information</li>
-          <li>Object to processing of your information</li>
-          <li>Withdraw consent</li>
+          <li>{t("accessData")}</li>
+          <li>{t("correct")}</li>
+          <li>{t("delete")}</li>
+          <li>{t("object")}</li>
+          <li>{t("withdraw")}</li>
         </ul>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Contact Us</h2>
-        <p className="mb-4">
-          If you have any questions about this Privacy Policy, please contact us
-          at privacy@youtubeai.chat.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("privacyContact")}</h2>
+        <p className="mb-4">{t("privacyContactText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">Changes to This Policy</h2>
-        <p className="mb-4">
-          We may update this Privacy Policy from time to time. We will notify
-          you of any changes by posting the new Privacy Policy on this page and
-          updating the &ldquo;last updated&rdquo; date.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("policyChanges")}</h2>
+        <p className="mb-4">{t("policyChangesText")}</p>
       </section>
 
       <footer className="text-sm text-text-muted">
-        Last updated: <time dateTime="2026-10-18">October 18, 2026</time>
+        {t("lastUpdated")} <time dateTime="2026-10-18">{t("privacyDate")}</time>
       </footer>
     </div>
   );

@@ -15,7 +15,8 @@ const { mocks, afterPassthrough } = vi.hoisted(() => {
     mocks: {
       resolveRequestPrincipal: vi.fn(),
       acquireTranscript: vi.fn(),
-      getCachedSummary: vi.fn(),
+      recordSummaryView: vi.fn(),
+  getCachedSummary: vi.fn(),
       writeCachedSummary: vi.fn(),
       buildSummarizationPrompt: vi.fn(),
       streamLlmSummary: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("@/lib/services/transcript-acquisition", () => ({
 }));
 
 vi.mock("@/lib/services/summarize-cache", () => ({
+  recordSummaryView: mocks.recordSummaryView,
   getCachedSummary: mocks.getCachedSummary,
   writeCachedSummary: mocks.writeCachedSummary,
 }));

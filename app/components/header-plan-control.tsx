@@ -173,7 +173,7 @@ function ResolvedPlanControl({
         variant={variant}
         className={cn("w-full rounded-full", toneClasses[model.tone])}
       >
-        <Link href={model.href} onClick={captureClick}>
+        <Link prefetch={false} href={model.href} onClick={captureClick}>
           {tr({"Plans": "plans", "Pricing": "pricing", "Upgrade to Pro": "upgrade", "Pro Plan": "proPlan", "Billing issue": "billingIssue"}[model.label])}
         </Link>
       </Button>

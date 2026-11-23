@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
@@ -7,8 +8,9 @@ export function Breadcrumbs({
 }: {
   crumbs: { name: string; href?: string }[];
 }) {
+  const t = useTranslations("publicPages");
   return (
-    <nav aria-label="Breadcrumb" className="text-body-sm text-text-muted mb-6">
+    <nav aria-label={t("breadcrumb")} className="text-body-sm text-text-muted mb-6">
       <ol className="flex items-center flex-wrap gap-1">
         {crumbs.map((c, i) => (
           <li key={i} className="flex items-center gap-1">

@@ -48,7 +48,10 @@ export function LoginForm({
       if (error) throw error;
       router.push(getSafeAuthRedirect(window.location.href));
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : tr("genericError"));
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      setError(code === "invalid_credentials" ? "invalidCredentials" :
+        code === "email_not_confirmed" ? "confirmEmail" :
+        code === "over_request_rate_limit" ? "authRateLimit" : "genericError");
     } finally {
       setIsLoading(false);
     }
@@ -69,20 +72,9 @@ export function LoginForm({
           ),
         },
       });
-      if (error) {
-        // Better error message for OAuth configuration issues
-        if (
-          error.message.includes("provider") ||
-          error.message.includes("OAuth")
-        ) {
-          throw new Error(
-            tr("googleLogin")
-          );
-        }
-        throw error;
-      }
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : tr("genericError"));
+      if (error) throw error;
+    } catch {
+      setError("googleLogin");
       setIsLoading(false);
     }
   };
@@ -128,7 +120,7 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-accent-danger">{error}</p>}
+              {error && <p className="text-sm text-accent-danger">{tr(error)}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? tr("loggingIn") : tr("login")}
               </Button>

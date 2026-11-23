@@ -10,12 +10,14 @@ export function Footer() {
       <div className="container flex flex-col items-center gap-4 px-4 md:px-6">
         <div className="flex flex-col gap-4 text-center md:flex-row md:gap-8">
           <Link
+            prefetch={false}
             href="/blog"
             className="text-sm text-text-muted hover:text-text-primary"
           >
             {tr("blog")}
           </Link>
           <Link
+            prefetch={false}
             href="/faq"
             className="text-sm text-text-muted hover:text-text-primary"
           >
@@ -25,12 +27,14 @@ export function Footer() {
             <FooterPricingLink />
           </Suspense>
           <Link
+            prefetch={false}
             href="/privacy"
             className="text-sm text-text-muted hover:text-text-primary"
           >
             {tr("privacyPolicy")}
           </Link>
           <Link
+            prefetch={false}
             href="/terms"
             className="text-sm text-text-muted hover:text-text-primary"
           >

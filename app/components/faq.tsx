@@ -78,6 +78,7 @@ export function FAQ() {
                       <>
                         {" "}
                         <Link
+                          prefetch={false}
                           href={item.link.href}
                           className="text-accent-brand underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"
                         >
@@ -95,6 +96,7 @@ export function FAQ() {
 
       <div className="text-center mt-10">
         <Link
+          prefetch={false}
           href="/faq"
           className="inline-flex items-center gap-1 text-base font-medium text-accent-brand hover:underline underline-offset-2"
         >{t("moreQuestions")}<ArrowRight size={16} />

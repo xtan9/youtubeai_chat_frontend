@@ -7,13 +7,16 @@ import {
 } from "@/components/ui/card";
 import type { Metadata } from "next";
 
-export const metadata: Metadata = {
-  title: "Sign Up Success - YouTube AI Chat",
-  description: "Confirm your email to finish creating your YouTube AI Chat account.",
-  // Auth pages don't belong in the index — Disallow in robots.txt only
-  // suppresses crawling, not indexing of externally-linked URLs.
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("sign-up-successTitle"),
+    description: t("sign-up-successTitleDesc"),
+    // Auth pages don't belong in the index — Disallow in robots.txt only
+    // suppresses crawling, not indexing of externally-linked URLs.
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function Page() {
   const tr = await getTranslations("ui");

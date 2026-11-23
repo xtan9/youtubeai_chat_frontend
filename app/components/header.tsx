@@ -71,6 +71,7 @@ export function Header() {
         <div className="flex flex-wrap items-center justify-between gap-y-2">
           <div className="flex items-center gap-8">
             <Link
+              prefetch={false}
               href="/"
               aria-label={tr("youtubeAiChatHome")}
               className="group flex items-center gap-2 sm:gap-3"
