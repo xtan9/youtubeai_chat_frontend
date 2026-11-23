@@ -30,28 +30,26 @@ let pending: Promise<Session | null> | undefined;
 
 export function useAnonSession() {
   const { session, isLoading: userLoading } = useUser();
-  const [anonSession, setAnonSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const shouldBootstrap = !session && !userLoading;
+  // undefined means this guest visit has not finished bootstrapping; null
+  // means it finished without a session. Reset when the auth context takes over.
+  const [result, setResult] = useState<Session | null>();
+  if (!shouldBootstrap && result !== undefined) setResult(undefined);
 
   useEffect(() => {
-    if (session || userLoading) {
-      setAnonSession(null);
-      setIsLoading(false);
-      return;
-    }
+    if (!shouldBootstrap) return;
     let active = true;
-    setIsLoading(true);
     pending ??= bootstrapAnonymousSession().finally(() => {
       pending = undefined;
     });
-    void pending.then(result => {
-      if (active) {
-        setAnonSession(result);
-        setIsLoading(false);
-      }
+    void pending.then(session => {
+      if (active) setResult(session);
     });
     return () => { active = false; };
-  }, [session, userLoading]);
+  }, [shouldBootstrap]);
 
-  return { anonSession, isLoading: !!userLoading || isLoading };
+  return {
+    anonSession: shouldBootstrap ? result ?? null : null,
+    isLoading: !!userLoading || (shouldBootstrap && result === undefined),
+  };
 }
