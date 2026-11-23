@@ -37,6 +37,21 @@ export function useWriting({
     after: string | undefined;
   }>();
   const draft = space.drafts.find((d) => d.id === active) ?? space.drafts[0];
+  function titleFor(id: string, title: string) {
+    const index = space.drafts.findIndex(d => d.id === id);
+    const label = space.drafts[index]?.defaultTitle;
+    // Older saves persisted the UI label as text. Only match the opening ID
+    // or the exact numbered label at its original position.
+    if (label === "opening" || (id === "opening" && title === "开场脚本")) {
+      return tr("openingScript");
+    }
+    if (typeof label === "number") return tr("draftTitle", {n: label});
+    const n = index + 1;
+    if (n > 1 && [`Script ${n}`, `脚本 ${n}`, `腳本 ${n}`].includes(title)) {
+      return tr("draftTitle", {n});
+    }
+    return title;
+  }
   function changeDraft(id: string) {
     update((s) => ({ ...s, activeDraft: id }));
     setActive(id);
@@ -58,7 +73,7 @@ export function useWriting({
       ...s,
       drafts: [
         ...s.drafts,
-        { id, title: tr("draftTitle", {n: s.drafts.length + 1}), text: "", markers: [] },
+        { id, title: `Script ${s.drafts.length + 1}`, defaultTitle: s.drafts.length + 1, text: "", markers: [] },
       ],
     }));
     if (added) changeDraft(id);
@@ -180,6 +195,7 @@ export function useWriting({
     }
   }
   return {
+    titleFor,
     draft,
     passage,
     prompt,
@@ -237,7 +253,7 @@ export function Script({
   return (
     <>
       <div className="vs-row">
-        <h2>{draft.title}</h2>
+        <h2>{w.titleFor(draft.id, draft.title)}</h2>
         <button disabled={!w.canUndo} onClick={w.revert}>
           <Undo2 size={13} />
           {tr("undoAiEdit")}
@@ -305,7 +321,7 @@ export function Script({
           >
             {space.drafts.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.title}
+                {w.titleFor(d.id, d.title)}
               </option>
             ))}
           </select>
@@ -344,7 +360,7 @@ export function Partner({
             </small>
             {m.passage && (
               <blockquote>
-                {m.passage.title} · “{m.passage.text}”
+                {w.titleFor(m.passage.draft, m.passage.title)} · “{m.passage.text}”
               </blockquote>
             )}
             <p>{m.text}</p>
@@ -382,7 +398,7 @@ export function Partner({
       </div>
       {w.passage && (
         <blockquote>
-          {w.passage.title} · “{w.passage.text}”{" "}
+          {w.titleFor(w.passage.draft, w.passage.title)} · “{w.passage.text}”{" "}
           <button onClick={() => w.setPassage(undefined)}>{tr("removeQuote")}</button>
         </blockquote>
       )}

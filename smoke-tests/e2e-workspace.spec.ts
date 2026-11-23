@@ -5250,12 +5250,31 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
 test("New Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   const projectId = await createGroundedFixtureProject(context, "Seed oil，争议在哪里？", {sourceCount: 2});
+  const legacy = await context.request.put(appUrl + "/api/projects/" + projectId + "/space", {
+    data: {revision: 0, document: {
+      drafts: [
+        {id: "opening", title: "开场脚本", text: "", markers: []},
+        {id: "second", title: "脚本 2", text: "", markers: []},
+        {id: "custom", title: "我的手写标题", text: "", markers: []},
+      ],
+      resources: [], messages: [],
+    }},
+  });
+  expect(legacy.ok()).toBeTruthy();
   await page.goto(appUrl + "/workspace");
   await page.getByRole("navigation", {name:"Primary", exact:true}).getByRole("link",{name:"New Workspace"}).click({timeout:5000});
   await expect(page.getByRole("heading",{name:"Video Spaces"})).toBeVisible();
   await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
   await expect(page).toHaveURL(appUrl + "/new-workspace/projects/" + projectId);
-  await page.getByRole("combobox", {name: "Interface language"}).selectOption("zh");
+  for (const [locale, opening, second] of [
+    ["en", "Opening script", "Script 2"], ["zh-TW", "開場腳本", "腳本 2"], ["zh", "开场脚本", "脚本 2"],
+  ]) {
+    await page.locator("header select").selectOption(locale);
+    await expect(page.getByRole("heading", {name: opening, exact: true})).toBeVisible();
+    await expect(page.locator(".vs-meta option:checked")).toHaveText(opening);
+    await expect(page.locator('.vs-meta option[value="second"]')).toHaveText(second);
+    await expect(page.locator('.vs-meta option[value="custom"]')).toHaveText("我的手写标题");
+  }
   const editor = page.getByRole("textbox",{name:"脚本正文"});
   await editor.fill("厨房里的这瓶油，究竟改变了什么？");
   await expect(page.getByText("已保存",{exact:true})).toBeVisible();
