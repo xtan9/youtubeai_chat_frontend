@@ -107,3 +107,62 @@ test("real summary retains source content across language changes and history re
   await link.click();
   await expect(reading).toHaveText(source,{useInnerText:true});
 });
+
+test("desktop legacy project localizes visible draft names and preserves authored text", async ({page}) => {
+  test.setTimeout(100_000);
+  const base = "https://www.youtubeai.chat";
+  await page.setViewportSize({width:1680, height:1000});
+  await page.goto(base + "/auth/login");
+  await page.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
+  await page.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
+  await page.locator('form button[type=submit]').click();
+  await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
+  const name = "旧项目标题验收 " + Date.now();
+  const manuscript = "观众写下的开场文字";
+  const creation = await page.request.post(base + "/api/workspace/projects", {data:{name, goal:""}});
+  expect(creation.ok(), String(creation.status())).toBeTruthy();
+  const {project:{id}} = await creation.json();
+  const endpoint = base + "/api/projects/" + id;
+  try {
+    const seeded = await page.request.put(endpoint + "/space", {data:{
+      revision:0, document:{drafts:[
+        {id:"opening",title:"开场脚本",text:manuscript,markers:[]},
+        {id:"second",title:"脚本 2",text:"",markers:[]},
+        {id:"custom",title:"我的手写标题",text:"",markers:[]},
+      ], resources:[], messages:[]},
+    }});
+    expect(seeded.ok(),String(seeded.status())).toBeTruthy();
+    await page.goto(base + "/new-workspace/projects/" + id);
+    const locale = page.locator("header select");
+    const drafts = page.locator(".vs-meta select");
+    for (const [lang,opening,second] of [
+      ["en","Opening script","Script 2"],["zh","开场脚本","脚本 2"],
+      ["zh-TW","開場腳本","腳本 2"],["en","Opening script","Script 2"],
+    ]) {
+      await locale.selectOption(lang);
+      await expect(page.getByRole("heading",{name:opening,exact:true})).toBeVisible();
+      await expect(drafts.locator("option:checked")).toHaveText(opening);
+      await expect(drafts.locator('option[value="second"]')).toHaveText(second);
+      await expect(drafts.locator('option[value="custom"]')).toHaveText("我的手写标题");
+      await expect(page.getByRole("heading",{name,exact:true})).toBeVisible();
+      await expect(page.locator(".vs-manuscript textarea")).toHaveValue(manuscript);
+    }
+    await page.reload();
+    await expect(drafts.locator("option:checked")).toHaveText("Opening script");
+    await drafts.selectOption("second");
+    await expect(page.getByRole("heading",{name:"Script 2",exact:true})).toBeVisible();
+    await drafts.selectOption("custom");
+    await expect(page.getByRole("heading",{name:"我的手写标题",exact:true})).toBeVisible();
+    await page.getByRole("button",{name:"New script",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Script 4",exact:true})).toBeVisible();
+    await locale.selectOption("zh");
+    await expect(drafts.locator("option:checked")).toHaveText("脚本 4");
+    await expect(page.locator(".vs-meta [role=status]")).toHaveText("已保存");
+    await page.reload();
+    await expect(page.getByRole("heading",{name:"脚本 4",exact:true})).toBeVisible();
+    await locale.selectOption("en");
+    await expect(drafts.locator("option:checked")).toHaveText("Script 4");
+  } finally {
+    expect((await page.request.delete(endpoint)).ok()).toBeTruthy();
+  }
+});
