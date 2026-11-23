@@ -1,3 +1,4 @@
+import {getLocale,getTranslations} from "next-intl/server";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -73,19 +74,21 @@ export default async function BlogPostPage({
   const post = loadBlogPost(slug);
   if (!post) notFound();
 
+  const t = await getTranslations("publicPages");
+  const locale = await getLocale();
   const related = loadRelatedBlogPosts(post);
   const videoSchema = buildVideoObjectSchema(post);
   const inlineFaq = post.faq ?? [];
 
-  const formattedDate = formatPostDate(post.publishedAt, "long");
+  const formattedDate = formatPostDate(post.publishedAt, "long", locale);
 
   return (
     <article className="container mx-auto px-4 py-12 max-w-5xl">
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([
-          { name: "Home", path: "/" },
-          { name: "Blog", path: "/blog" },
+          { name: t("home"), path: "/" },
+          { name: t("blog"), path: "/blog" },
           { name: post.title, path: `/blog/${post.slug}` },
         ])}
       />
@@ -107,21 +110,21 @@ export default async function BlogPostPage({
 
       <Breadcrumbs
         crumbs={[
-          { name: "Home", href: "/" },
-          { name: "Blog", href: "/blog" },
+          { name: t("home"), href: "/" },
+          { name: t("blog"), href: "/blog" },
           { name: post.title },
         ]}
       />
 
       <header className="max-w-3xl mx-auto mb-8">
         <div className="flex items-center gap-2 text-caption text-text-muted mb-3">
-          <span className="uppercase tracking-wider">{post.category}</span>
+          <span className="uppercase tracking-wider">{t(`categories.${post.category}`)}</span>
           <span>·</span>
           <time dateTime={post.publishedAt}>{formattedDate}</time>
           {post.updatedAt !== post.publishedAt && (
             <>
               <span>·</span>
-              <span>updated {post.updatedAt}</span>
+              <span>{t("updated", {date: formatPostDate(post.updatedAt, "short", locale)})}</span>
             </>
           )}
         </div>
@@ -146,9 +149,7 @@ export default async function BlogPostPage({
 
       {related.length > 0 && (
         <section className="mt-16 max-w-5xl mx-auto">
-          <h2 className="text-h2 font-bold text-text-primary mb-6">
-            Related posts
-          </h2>
+          <h2 className="text-h2 font-bold text-text-primary mb-6">{t("relatedPosts")}</h2>
           <div className="grid gap-6 md:grid-cols-3">
             {related.map((p) => (
               <PostCard key={p.slug} post={p} />

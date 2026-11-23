@@ -28,6 +28,7 @@ export function FooterPricingLink() {
 
   return (
     <Link
+      prefetch={false}
       href="/pricing?source_surface=public_footer"
       onClick={captureClick}
       className="text-sm text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-brand"

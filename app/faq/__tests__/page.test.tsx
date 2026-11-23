@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
 import FaqPage from "../page";
 
 afterEach(cleanup);

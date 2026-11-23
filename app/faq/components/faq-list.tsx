@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import {
   Accordion,
   AccordionContent,
@@ -20,6 +21,7 @@ export function FaqList({
 }: {
   groups: { category: string; label: string; entries: FaqEntry[] }[];
 }) {
+  const t = useTranslations("publicPages");
   return (
     <div className="space-y-12">
       {groups.map((group) => (
@@ -85,9 +87,7 @@ export function FaqList({
                     </div>
                     {entry.relatedBlogSlugs.length > 0 && (
                       <div className="mt-4 pt-3 border-t border-border-subtle">
-                        <p className="text-caption uppercase tracking-wider text-text-muted mb-2">
-                          Related reading
-                        </p>
+                        <p className="text-caption uppercase tracking-wider text-text-muted mb-2">{t("related")}</p>
                         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-body-sm">
                           {entry.relatedBlogSlugs.map((s) => (
                             <li key={s}>

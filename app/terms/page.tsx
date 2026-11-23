@@ -1,157 +1,108 @@
+import { getTranslations } from "next-intl/server";
+import { useTranslations } from "next-intl";
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildBreadcrumbSchema } from "@/components/seo/breadcrumb-schema";
 import { buildWebPageSchema } from "@/components/seo/webpage-schema";
 
-export const metadata: Metadata = {
-  title: "Terms of Service - YouTube AI Chat",
-  description:
-    "Terms and conditions for using YouTube AI Chat video summarization service",
-  alternates: {
-    canonical: "/terms",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("termsTitle"),
+    description: t("termsTitleDesc"),
+    alternates: {
+      canonical: "/terms",
+    },
+  };
+}
 
 export default function TermsOfService() {
+  const t = useTranslations("publicPages");
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <JsonLd
         id="structured-data-breadcrumb"
         data={buildBreadcrumbSchema([
-          { name: "Home", path: "/" },
-          { name: "Terms of Service", path: "/terms" },
+          { name: t("home"), path: "/" },
+          { name: t("terms"), path: "/terms" },
         ])}
       />
       <JsonLd
         id="structured-data-webpage"
         data={buildWebPageSchema({
-          name: "Terms of Service",
+          name: t("terms"),
           description:
-            "Terms and conditions for using YouTube AI Chat video summarization service",
+            t("termsTitleDesc"),
           path: "/terms",
         })}
       />
-      <h1 className="text-3xl font-bold mb-8">Terms of Service</h1>
+      <h1 className="text-3xl font-bold mb-8">{t("terms")}</h1>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">1. Acceptance of Terms</h2>
-        <p className="mb-4">
-          By accessing and using YouTube AI Chat, you accept and agree to be
-          bound by the terms and provisions of this agreement.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("accept")}</h2>
+        <p className="mb-4">{t("acceptText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          2. Description of Service
-        </h2>
-        <p className="mb-4">
-          YouTube AI Chat provides an AI-powered video summarization service that
-          creates summaries and key points from YouTube videos. The service is
-          provided &ldquo;as is&rdquo; and may be modified or updated at any
-          time.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("service")}</h2>
+        <p className="mb-4">{t("serviceText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          3. User Responsibilities
-        </h2>
+        <h2 className="text-2xl font-semibold mb-4">{t("duties")}</h2>
         <ul className="list-disc pl-6 space-y-2">
-          <li>
-            You must provide accurate information when creating an account
-          </li>
-          <li>
-            You are responsible for maintaining the confidentiality of your
-            account
-          </li>
-          <li>
-            You agree not to use the service for any illegal or unauthorized
-            purpose
-          </li>
-          <li>You must comply with all applicable laws and regulations</li>
-          <li>
-            You must respect YouTube&apos;s terms of service when using our
-            service
-          </li>
+          <li>{t("accurate")}</li>
+          <li>{t("secure")}</li>
+          <li>{t("authorized")}</li>
+          <li>{t("laws")}</li>
+          <li>{t("youtube")}</li>
         </ul>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          4. Intellectual Property
-        </h2>
-        <p className="mb-4">
-          The service, including its original content, features, and
-          functionality, is owned by YouTube AI Chat and is protected by
-          international copyright, trademark, and other intellectual property
-          rights laws.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("ip")}</h2>
+        <p className="mb-4">{t("ipText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">5. Limitations of Use</h2>
-        <p className="mb-4">You agree not to:</p>
+        <h2 className="text-2xl font-semibold mb-4">{t("limits")}</h2>
+        <p className="mb-4">{t("limitsText")}</p>
         <ul className="list-disc pl-6 space-y-2">
-          <li>Use the service for any unlawful purpose</li>
-          <li>
-            Attempt to gain unauthorized access to any part of the service
-          </li>
-          <li>Interfere with or disrupt the service or servers</li>
-          <li>Collect or track personal information of other users</li>
-          <li>Spam or send unwanted messages</li>
+          <li>{t("unlawful")}</li>
+          <li>{t("access")}</li>
+          <li>{t("disrupt")}</li>
+          <li>{t("track")}</li>
+          <li>{t("spam")}</li>
         </ul>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          6. Disclaimer of Warranties
-        </h2>
-        <p className="mb-4">
-          The service is provided &ldquo;as is&rdquo; without any warranty of
-          any kind. We do not guarantee the accuracy, completeness, or
-          usefulness of any summaries generated.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("warranty")}</h2>
+        <p className="mb-4">{t("warrantyText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">
-          7. Limitation of Liability
-        </h2>
-        <p className="mb-4">
-          YouTube AI Chat shall not be liable for any indirect, incidental,
-          special, consequential, or punitive damages resulting from your use or
-          inability to use the service.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("liability")}</h2>
+        <p className="mb-4">{t("liabilityText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">8. Changes to Terms</h2>
-        <p className="mb-4">
-          We reserve the right to modify these terms at any time. We will notify
-          users of any material changes by posting the new terms on this site.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("changes")}</h2>
+        <p className="mb-4">{t("changesText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">9. Governing Law</h2>
-        <p className="mb-4">
-          These terms shall be governed by and construed in accordance with the
-          laws of the jurisdiction in which YouTube AI Chat operates, without
-          regard to its conflict of law provisions.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("jurisdiction")}</h2>
+        <p className="mb-4">{t("jurisdictionText")}</p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-2xl font-semibold mb-4">10. Contact Information</h2>
-        <p className="mb-4">
-          For any questions about these Terms of Service, please contact us at
-          terms@youtubeai.chat.
-        </p>
+        <h2 className="text-2xl font-semibold mb-4">{t("contact")}</h2>
+        <p className="mb-4">{t("contactText")}</p>
       </section>
 
       <footer className="text-sm text-text-muted">
-        Last updated: <time dateTime="2026-05-03">May 3, 2026</time>
+        {t("lastUpdated")} <time dateTime="2026-05-03">{t("termsDate")}</time>
       </footer>
     </div>
   );

@@ -1,3 +1,4 @@
+import { getTranslations } from "next-intl/server";
 import { useTranslations } from "next-intl";
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
@@ -12,9 +13,13 @@ import FaqJsonLd from "@/components/seo/faq-jsonld";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildHowToSchema } from "@/components/seo/howto-schema";
 
-export const metadata: Metadata = {
-  alternates: { canonical: "/" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("homepageTitle"),
+    alternates: { canonical: "/" },
+  };
+}
 
 // Heavy widget — pulls react-markdown + the chat hooks/UI. Dynamic-import
 // keeps it on its own JS chunk so the marketing-only sections stay

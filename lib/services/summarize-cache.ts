@@ -241,24 +241,30 @@ export async function writeCachedSummary(
   }
 
   if (params.userId) {
-    const { error: historyError } = await supabase
-      .from("user_video_history")
-      .upsert(
-        { user_id: params.userId, video_id: video.id },
-        { onConflict: "user_id,video_id" }
-      );
-    if (historyError) {
-      throw new Error(`history upsert failed: ${historyError.message}`, {
-        cause: historyError,
-      });
-    }
-    const tier = await getUserTier(
-      params.userId,
-      params.smokeProEntitled === true,
+    await recordSummaryView(video.id, params.userId, params.smokeProEntitled);
+  }
+}
+
+export async function recordSummaryView(videoId: string, userId: string, smokeProEntitled?: boolean) {
+  const supabase = getServiceRoleClient();
+  if (!supabase) throw new Error("History storage is unavailable");
+  const { error: historyError } = await supabase
+    .from("user_video_history")
+    .upsert(
+      { user_id: userId, video_id: videoId, accessed_at: new Date().toISOString() },
+      { onConflict: "user_id,video_id" }
     );
-    if (tier === "free") {
-      await enforceFreeHistoryCap(supabase, params.userId, FREE_LIMITS.historyItems);
-    }
+  if (historyError) {
+    throw new Error(`history upsert failed: ${historyError.message}`, {
+      cause: historyError,
+    });
+  }
+  const tier = await getUserTier(
+    userId,
+    smokeProEntitled === true,
+  );
+  if (tier === "free") {
+    await enforceFreeHistoryCap(supabase, userId, FREE_LIMITS.historyItems);
   }
 }
 

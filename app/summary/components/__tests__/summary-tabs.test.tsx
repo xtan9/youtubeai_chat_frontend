@@ -36,6 +36,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.spyOn(window.history, "pushState").mockImplementation((_a,_b,url) => pushMock(url));
+  vi.spyOn(window.history, "replaceState").mockImplementation((_a,_b,url) => replaceMock(url));
   pushMock.mockReset();
   replaceMock.mockReset();
   searchParamsState.value = new URLSearchParams();
@@ -122,9 +124,7 @@ describe("SummaryTabs", () => {
       ctrlKey: false,
     });
 
-    expect(pushMock).toHaveBeenCalledWith("/summary?tab=transcript", {
-      scroll: false,
-    });
+    expect(pushMock).toHaveBeenCalledWith("/summary?tab=transcript");
   });
 
   it("restores each mobile panel's last document position", () => {

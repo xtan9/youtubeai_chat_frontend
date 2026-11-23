@@ -1,5 +1,5 @@
 import type { SupportedLanguageCode } from "@/lib/constants/languages";
-import { getCachedSummary, writeCachedSummary } from "@/lib/services/summarize-cache";
+import { getCachedSummary, recordSummaryView, writeCachedSummary } from "@/lib/services/summarize-cache";
 import {
   acquireTranscript,
   type TranscriptAcquisitionOutcome,
@@ -125,6 +125,7 @@ export function createSummaryGenerationStream({
         // caller did not request the canonical Transcript payload. Keep the
         // existing Summary-cache fast path and its stored timing snapshot.
         if (cached && !includeTranscript) {
+          await recordSummaryView(cached.videoId, userId, smokeProEntitled);
           streamCached(sendEvent, cached, { includeTranscript: false });
           await completeSuccessfulSummary();
           return;
@@ -199,6 +200,7 @@ export function createSummaryGenerationStream({
           acquisitionResult.outcome === "success" &&
           acquisitionResult.reusedStoredTranscript
         ) {
+          await recordSummaryView(cached.videoId, userId, smokeProEntitled);
           streamCached(sendEvent, cached, {
             includeTranscript,
             segments: acquisitionResult.segments,
@@ -269,6 +271,7 @@ export function createSummaryGenerationStream({
         // canonical Transcript, stream the cached Summary without re-billing
         // the LLM.
         if (cached) {
+          await recordSummaryView(cached.videoId, userId, smokeProEntitled);
           sendEvent({ type: "content", text: cached.summary });
           sendEvent({
             type: "summary",

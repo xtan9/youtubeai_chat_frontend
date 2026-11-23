@@ -10,7 +10,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -81,7 +81,6 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
     ref,
   ) {
   const t = useTranslations("home");
-    const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const isMobile = useIsMobile();
@@ -147,10 +146,8 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
       const next = new URLSearchParams(searchParams.toString());
       next.delete("tab");
       const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, {
-        scroll: false,
-      });
-    }, [active, chatPermanentlyLocked, pathname, router, searchParams]);
+      window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+    }, [active, chatPermanentlyLocked, pathname, searchParams]);
 
     const setTab = useCallback(
       (value: string) => {
@@ -165,11 +162,9 @@ export const SummaryTabs = forwardRef<SummaryTabsHandle, SummaryTabsProps>(
           next.set("tab", value);
         }
         const query = next.toString();
-        router.push(query ? `${pathname}?${query}` : pathname, {
-          scroll: false,
-        });
+        window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
       },
-      [active, isMobile, pathname, router, searchParams],
+      [active, isMobile, pathname, searchParams],
     );
 
     return (

@@ -1,18 +1,21 @@
+import { getTranslations } from "next-intl/server";
 import { SignUpForm } from "./components/sign-up-form";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-export const metadata: Metadata = {
-  title: "Sign Up - YouTube AI Chat",
-  description:
-    "Create a free YouTube AI Chat account to save and revisit your AI-generated YouTube video summaries.",
-  alternates: {
-    canonical: "/auth/sign-up",
-  },
-  // Auth pages don't belong in the index — Disallow in robots.txt only
-  // suppresses crawling, not indexing of externally-linked URLs.
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("sign-upTitle"),
+    description: t("sign-upTitleDesc"),
+    alternates: {
+      canonical: "/auth/sign-up",
+    },
+    // Auth pages don't belong in the index — Disallow in robots.txt only
+    // suppresses crawling, not indexing of externally-linked URLs.
+    robots: { index: false, follow: false },
+  };
+}
 
 export default function Page() {
   return (

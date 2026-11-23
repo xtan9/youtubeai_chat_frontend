@@ -1,14 +1,18 @@
+import { getTranslations } from "next-intl/server";
 import { ForgotPasswordForm } from "./components/forgot-password-form";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-export const metadata: Metadata = {
-  title: "Reset Password - YouTube AI Chat",
-  description: "Reset your YouTube AI Chat account password.",
-  // Auth pages don't belong in the index — Disallow in robots.txt only
-  // suppresses crawling, not indexing of externally-linked URLs.
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("publicPages");
+  return {
+    title: t("forgot-passwordTitle"),
+    description: t("forgot-passwordTitleDesc"),
+    // Auth pages don't belong in the index — Disallow in robots.txt only
+    // suppresses crawling, not indexing of externally-linked URLs.
+    robots: { index: false, follow: false },
+  };
+}
 
 export default function Page() {
   return (

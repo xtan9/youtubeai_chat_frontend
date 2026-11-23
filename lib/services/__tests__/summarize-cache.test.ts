@@ -478,7 +478,7 @@ describe("writeCachedSummary", () => {
     const historyCall = mocks.historyBuilder.upsert.mock
       .calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>];
     expect(historyCall[1]).toEqual({ onConflict: "user_id,video_id" });
-    expect(historyCall[0]).toEqual({ user_id: "user-1", video_id: "v1" });
+    expect(historyCall[0]).toEqual({ user_id: "user-1", video_id: "v1", accessed_at: expect.any(String) });
   });
 
   it("throws when video upsert fails (so route's .catch logs with context)", async () => {
