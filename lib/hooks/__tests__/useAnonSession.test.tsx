@@ -47,6 +47,21 @@ describe("useAnonSession", () => {
     expect(mockSignInAnonymously).toHaveBeenCalledTimes(1);
   });
 
+  it("shares an in-flight bootstrap across widgets", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+    mockSignInAnonymously.mockResolvedValue({
+      data: { session: { access_token: "shared" } },
+      error: null,
+    });
+    const first = renderHook(() => useAnonSession());
+    const second = renderHook(() => useAnonSession());
+    await waitFor(() => {
+      expect(first.result.current.anonSession?.access_token).toBe("shared");
+      expect(second.result.current.anonSession?.access_token).toBe("shared");
+    });
+    expect(mockSignInAnonymously).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses existing anonymous session without calling signInAnonymously", async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { access_token: "existing-token" } },
@@ -68,12 +83,15 @@ describe("useAnonSession", () => {
     });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const { result } = renderHook(() => useAnonSession());
+    const { result, rerender } = renderHook(() => useAnonSession());
 
     await waitFor(() => {
       expect(errSpy).toHaveBeenCalled();
     });
     expect(result.current.anonSession).toBeNull();
+    rerender();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(mockSignInAnonymously).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });
 
