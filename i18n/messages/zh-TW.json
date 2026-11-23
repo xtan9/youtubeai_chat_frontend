@@ -292,7 +292,8 @@
     "revokeInfo": "登出所有裝置會立即撤銷其他裝置延續登入的權限。已登入的裝置可能仍可使用，直到現有的短期憑證到期。",
     "revokeUnconfirmed": "無法確認其他裝置是否已登出。請檢查網路後重試。",
     "invalidCredentials": "電子郵件信箱或密碼不正確。",
-    "authRateLimit": "請求過於頻繁，請稍後再試。"
+    "authRateLimit": "請求過於頻繁，請稍後再試。",
+    "openingScript": "開場腳本"
   },
   "home": {
     "title": "用 AI 總結 YouTube 影片",

@@ -292,7 +292,8 @@
     "revokeInfo": "Sign Out Everywhere revokes refresh access for your other devices immediately. Other devices may remain active until their already-issued short-lived access tokens expire.",
     "revokeUnconfirmed": "Couldn't confirm that your other sessions were revoked. Check your connection and try again.",
     "invalidCredentials": "Invalid email or password.",
-    "authRateLimit": "Too many attempts. Please try again later."
+    "authRateLimit": "Too many attempts. Please try again later.",
+    "openingScript": "Opening script"
   },
   "home": {
     "title": "Summarize YouTube Videos with AI",

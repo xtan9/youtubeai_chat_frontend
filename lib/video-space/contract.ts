@@ -57,6 +57,7 @@ const marker = z.object({
 const draft = z.object({
   id,
   version: z.uuid().optional(),
+  defaultTitle: z.union([z.literal("opening"), z.number().int().min(1).max(50)]).optional(),
   title: z.string().min(1).max(140),
   text: z.string().max(80000),
   markers: z.array(marker).max(300),
@@ -126,7 +127,7 @@ export type Draft = Space["drafts"][number];
 export type Passage = z.infer<typeof passageSchema>;
 export type Message = z.infer<typeof messageSchema>;
 export const emptySpace = (): Space => ({
-  drafts: [{ id: "opening", title: "开场脚本", text: "", markers: [] }],
+  drafts: [{ id: "opening", title: "Opening script", defaultTitle: "opening", text: "", markers: [] }],
   messages: [],
   resources: [],
 });

@@ -292,7 +292,8 @@
     "revokeInfo": "退出所有设备会立即撤销其他设备续期登录的权限。已登录的设备可能仍可使用，直到现有的短期凭证过期。",
     "revokeUnconfirmed": "无法确认其他设备是否已退出。请检查网络后重试。",
     "invalidCredentials": "邮箱或密码不正确。",
-    "authRateLimit": "请求过于频繁，请稍后再试。"
+    "authRateLimit": "请求过于频繁，请稍后再试。",
+    "openingScript": "开场脚本"
   },
   "home": {
     "title": "用 AI 总结 YouTube 视频",
