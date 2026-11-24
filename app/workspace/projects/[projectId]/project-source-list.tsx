@@ -1,4 +1,5 @@
 "use client";
+import {useTranslations} from "next-intl";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -15,28 +16,24 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { type ProjectVideo } from "@/lib/projects/project-source-set-contract";
 
-const STATUS_LABELS = {
-  processing: "Processing",
-  ready: "Ready",
-  failed: "Failed",
-} as const;
 
-function failureMessage(failureCode: string | null): string {
+function failureMessage(t: ReturnType<typeof useTranslations<"project">>, failureCode: string | null): string {
   switch (failureCode) {
     case "summary_quota":
-      return "Your Summary allowance is exhausted. Upgrade or retry after it resets.";
+      return t("yourSummaryAllowanceIsExhaustedUpgradeOrRetry");
     case "summary_rate_limit":
-      return "Too many requests were made. Wait a moment, then retry.";
+      return t("tooManyRequestsWereMadeWaitAMoment");
     case "processing_interrupted":
-      return "Processing was interrupted before it finished. Retry to continue.";
+      return t("processingWasInterruptedBeforeItFinishedRetryTo");
     case "summary_persistence":
-      return "The Summary could not be saved durably. Retry to continue.";
+      return t("theSummaryCouldNotBeSavedDurablyRetry");
     default:
-      return "This Video could not be processed. Retry or remove it.";
+      return t("thisVideoCouldNotBeProcessedRetryOr");
   }
 }
 
 function SourceStatus({ video }: { video: ProjectVideo }) {
+  const t = useTranslations("project");
   if (video.status === "ready") {
     return (
       <Badge
@@ -44,7 +41,7 @@ function SourceStatus({ video }: { video: ProjectVideo }) {
         className="border-accent-success/40 text-accent-success"
       >
         <CheckCircle2 aria-hidden="true" />
-        {STATUS_LABELS.ready}
+        {t("readyLabel")}
       </Badge>
     );
   }
@@ -55,14 +52,14 @@ function SourceStatus({ video }: { video: ProjectVideo }) {
         className="border-accent-warning/40 text-accent-warning"
       >
         <Clock3 aria-hidden="true" />
-        {STATUS_LABELS.processing}
+        {t("processing")}
       </Badge>
     );
   }
   return (
     <Badge variant="destructive">
       <AlertTriangle aria-hidden="true" />
-      {STATUS_LABELS.failed}
+      {t("failed")}
     </Badge>
   );
 }
@@ -105,10 +102,11 @@ export function ProjectSourceList({
   move: (video: ProjectVideo, direction: -1 | 1) => Promise<void>;
   remove: (video: ProjectVideo) => Promise<void>;
 }) {
+  const t = useTranslations("project");
   return (
-    <ol className="flex flex-col gap-3" aria-label="Ordered Project Videos">
+    <ol className="flex flex-col gap-3" aria-label={t("orderedProjectVideos")}>
       {videos.map((video, index) => {
-        const title = video.title ?? "Untitled Video";
+        const title = video.title ?? t("untitledVideo");
         const removing = pendingAction === `remove:${video.videoId}`;
         const retrying =
           pendingAction === `process:${video.videoId}`;
@@ -119,7 +117,7 @@ export function ProjectSourceList({
           >
             <span
               className={compact ? "sr-only" : "flex size-8 items-center justify-center rounded-full bg-surface-inverse text-caption font-semibold text-text-inverse"}
-              aria-label={`Position ${index + 1}`}
+              aria-label={t("position", {value1: index + 1})}
             >
               {index + 1}
             </span>
@@ -133,7 +131,7 @@ export function ProjectSourceList({
                   rel="noopener noreferrer"
                   data-testid="project-source-title"
                   className={`${compact ? "line-clamp-2 text-body-sm" : "text-body-md"} min-w-0 break-words rounded-sm font-medium text-text-primary underline-offset-4 outline-none hover:text-accent-brand hover:underline focus-visible:ring-2 focus-visible:ring-state-focus`}
-                  aria-label={`Read ${title} (opens in a new tab)`}
+                  aria-label={t("readOpensInANewTab", {value1: title})}
                   title={title}
                 >
                   {title}
@@ -147,7 +145,7 @@ export function ProjectSourceList({
               ) : null}
               {video.status === "failed" ? (
                 <p className="mt-1 text-caption text-accent-danger">
-                  {failureMessage(video.failureCode)}
+                  {failureMessage(t, video.failureCode)}
                 </p>
               ) : null}
             </div>
@@ -161,10 +159,10 @@ export function ProjectSourceList({
                     void processUrl(video.youtubeUrl, video.videoId)
                   }
                   disabled={Boolean(pendingAction)}
-                  aria-label={`Retry ${title}`}
+                  aria-label={t("retry", {value1: title})}
                 >
                   <RotateCcw aria-hidden="true" />
-                  {retrying ? "Retrying…" : "Retry"}
+                  {retrying ? t("retrying") : t("retryLabel")}
                 </Button>
               ) : null}
               <Button
@@ -174,8 +172,8 @@ export function ProjectSourceList({
                 variant="ghost"
                 onClick={() => void move(video, -1)}
                 disabled={index === 0 || Boolean(pendingAction)}
-                aria-label={`Move ${title} up`}
-                title={`Move ${title} up`}
+                aria-label={t("moveUp", {value1: title})}
+                title={t("moveUp", {value1: title})}
               >
                 <ChevronUp aria-hidden="true" />
               </Button>
@@ -188,8 +186,8 @@ export function ProjectSourceList({
                 disabled={
                   index === videos.length - 1 || Boolean(pendingAction)
                 }
-                aria-label={`Move ${title} down`}
-                title={`Move ${title} down`}
+                aria-label={t("moveDown", {value1: title})}
+                title={t("moveDown", {value1: title})}
               >
                 <ChevronDown aria-hidden="true" />
               </Button>
@@ -200,11 +198,11 @@ export function ProjectSourceList({
                 variant="ghost"
                 onClick={() => void remove(video)}
                 disabled={Boolean(pendingAction)}
-                aria-label={`Remove ${title} from Source Set`}
-                title={`Remove ${title} from Source Set`}
+                aria-label={t("removeFromSourceSet", {value1: title})}
+                title={t("removeFromSourceSet", {value1: title})}
               >
                 <Trash2 aria-hidden="true" />
-                {removing ? <span className="sr-only">Removing</span> : null}
+                {removing ? <span className="sr-only">{t("removing")}</span> : null}
               </Button>
             </div>
           </li>

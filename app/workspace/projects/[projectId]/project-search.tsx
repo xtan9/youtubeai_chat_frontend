@@ -1,5 +1,7 @@
 "use client";
 
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import { useState, type FormEvent } from "react";
 import { AlertTriangle, ExternalLink, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -38,36 +40,33 @@ function passageTimestamp(passage: ProjectTranscriptPassage) {
   return `${start}–${formatTimestamp(passage.endSeconds)}`;
 }
 
-function unavailableStatus(video: ProjectUnavailableVideo) {
+function unavailableStatus(t: ReturnType<typeof useTranslations<"project">>, video: ProjectUnavailableVideo) {
   switch (video.status) {
     case "processing":
-      return "Processing";
+      return t("processing");
     case "failed":
-      return "Failed";
+      return t("failed");
     case "unavailable":
-      return "Evidence unavailable";
+      return t("evidenceUnavailable");
   }
 }
 
 function CoverageNotice({ coverage }: { coverage: ProjectSearchCoverage }) {
+  const t = useTranslations("project");
   if (coverage.unavailableVideos.length === 0) return null;
 
   return (
     <Alert role="note">
       <AlertTriangle aria-hidden="true" />
       <AlertTitle>
-        {coverage.readyVideos} of {coverage.totalVideos} Project Videos searched
-      </AlertTitle>
+        {t("readySearched", {ready: coverage.readyVideos, total: coverage.totalVideos})}</AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
-        <p>
-          Only ready Transcripts contribute exact passages. These Videos were
-          excluded from this search:
-        </p>
-        <ul className="flex flex-col gap-1" aria-label="Unavailable search coverage">
+        <p>{t("onlyReadyTranscriptsContributeExactPassagesTheseVideos")}</p>
+        <ul className="flex flex-col gap-1" aria-label={t("unavailableSearchCoverage")}>
           {coverage.unavailableVideos.map((video) => (
             <li key={video.videoId} className="flex flex-wrap items-center gap-2">
-              <span>{video.title ?? "Untitled Video"}</span>
-              <Badge variant="secondary">{unavailableStatus(video)}</Badge>
+              <span>{video.title ?? t("untitledVideo")}</span>
+              <Badge variant="secondary">{unavailableStatus(t, video)}</Badge>
             </li>
           ))}
         </ul>
@@ -77,16 +76,14 @@ function CoverageNotice({ coverage }: { coverage: ProjectSearchCoverage }) {
 }
 
 function SearchResults({ search }: { search: DisplayedSearch }) {
+  const t = useTranslations("project");
   if (search.status === "not_ready") {
     return (
       <div className="flex flex-col gap-4">
         <Alert>
           <AlertTriangle aria-hidden="true" />
-          <AlertTitle>No ready Project Transcripts</AlertTitle>
-          <AlertDescription>
-            Add a processed History Video or wait for processing to finish.
-            Project Search never includes processing or failed Videos silently.
-          </AlertDescription>
+          <AlertTitle>{t("noReadyProjectTranscripts")}</AlertTitle>
+          <AlertDescription>{t("addAProcessedHistoryVideoOrWaitFor")}</AlertDescription>
         </Alert>
         <CoverageNotice coverage={search.coverage} />
       </div>
@@ -97,13 +94,11 @@ function SearchResults({ search }: { search: DisplayedSearch }) {
     return (
       <div className="flex flex-col gap-4">
         <div className="rounded-md border border-border-subtle bg-surface-sunken px-4 py-6">
-          <p className="text-body-md font-medium text-text-primary">
-            No matching Transcript passages
-          </p>
+          <p className="text-body-md font-medium text-text-primary">{t("noMatchingTranscriptPassages")}</p>
           <p className="mt-1 text-body-sm text-text-secondary">
             {search.coverage.unavailableVideos.length > 0
-              ? "No ready Transcript matched. Review the unavailable coverage below or try different terms."
-              : `All ${search.coverage.readyVideos} ready Project ${search.coverage.readyVideos === 1 ? "Transcript was" : "Transcripts were"} searched. Try a related term or shorter phrase.`}
+              ? t("noReadyTranscriptMatchedReviewTheUnavailableCoverage")
+              : t("allSearched", {count: search.coverage.readyVideos})}
           </p>
         </div>
         <CoverageNotice coverage={search.coverage} />
@@ -114,15 +109,12 @@ function SearchResults({ search }: { search: DisplayedSearch }) {
   return (
     <div className="flex flex-col gap-4">
       <p role="status" className="text-body-sm text-text-secondary">
-        {search.passages.length} exact Transcript
-        {search.passages.length === 1 ? " passage" : " passages"} found across{" "}
-        {search.coverage.readyVideos} ready
-        {search.coverage.readyVideos === 1 ? " Video" : " Videos"}.
+        {t("searchMatchCount", {count: search.passages.length, videos: search.coverage.readyVideos})}
       </p>
       <CoverageNotice coverage={search.coverage} />
-      <ol className="flex flex-col gap-4" aria-label="Project Search results">
+      <ol className="flex flex-col gap-4" aria-label={t("projectSearchResults")}>
         {search.passages.map((passage) => {
-          const title = passage.title ?? "Untitled Video";
+          const title = passage.title ?? t("untitledVideo");
           return (
             <li
               key={passage.passageId}
@@ -144,7 +136,7 @@ function SearchResults({ search }: { search: DisplayedSearch }) {
                     href={watchAtTimestampHref(passage)}
                     target="_blank"
                     rel="noreferrer"
-                    aria-label={`Open ${title} at ${formatTimestamp(passage.startSeconds)}`}
+                    aria-label={t("openAt", {value1: title, value2: formatTimestamp(passage.startSeconds)})}
                   >
                     {passageTimestamp(passage)}
                     <ExternalLink aria-hidden="true" />
@@ -156,8 +148,7 @@ function SearchResults({ search }: { search: DisplayedSearch }) {
                 <span data-testid="project-search-passage">{passage.text}</span>
                 {passage.truncatedEnd ? <span aria-hidden="true">…</span> : null}
               </blockquote>
-              <p className="mt-3 text-caption text-text-muted">
-                Exact Transcript excerpt · {passage.language}
+              <p className="mt-3 text-caption text-text-muted">{t("exactTranscriptExcerpt")} {passage.language}
               </p>
             </li>
           );
@@ -168,6 +159,7 @@ function SearchResults({ search }: { search: DisplayedSearch }) {
 }
 
 export function ProjectSearch({ projectId }: { projectId: string }) {
+  const t = useTranslations("project");
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +174,7 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
       queryLength < PROJECT_PASSAGE_SEARCH_QUERY_MIN_LENGTH ||
       queryLength > PROJECT_PASSAGE_SEARCH_QUERY_MAX_LENGTH
     ) {
-      setError("Enter 2 to 200 characters to search Project Transcripts.");
+      setError("enter2To200CharactersToSearchProject");
       return;
     }
 
@@ -205,7 +197,7 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
             error_class: "protocol",
           });
           setSearch(null);
-          setError("Project Search returned an invalid response. Try again.");
+          setError("projectSearchReturnedAnInvalidResponseTryAgain");
           return;
         }
       }
@@ -221,7 +213,7 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
         setSearch(null);
         setError(
           payload.message ??
-            "Project Search is unavailable. Check your connection and try again.",
+            "projectSearchIsUnavailableCheckYourConnectionAnd",
         );
         return;
       }
@@ -234,7 +226,7 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
           error_class: "protocol",
         });
         setSearch(null);
-        setError("Project Search returned an invalid response. Try again.");
+        setError("projectSearchReturnedAnInvalidResponseTryAgain");
         return;
       }
 
@@ -257,7 +249,7 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
       });
       setSearch(null);
       setError(
-        "Project Search is unavailable. Check your connection and try again.",
+        "projectSearchIsUnavailableCheckYourConnectionAnd",
       );
     } finally {
       setPending(false);
@@ -276,22 +268,14 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
             <h2
               id="project-search-heading"
               className="text-h4 font-semibold text-text-primary"
-            >
-              Project Search
-            </h2>
-            <p className="max-w-prose text-body-sm text-text-secondary">
-              Find ranked, exact passages across every ready Project Transcript.
-              Search is direct evidence retrieval—it never uses AI generation or
-              a message allowance.
-            </p>
+            >{t("projectSearch")}</h2>
+            <p className="max-w-prose text-body-sm text-text-secondary">{t("findRankedExactPassagesAcrossEveryReadyProject")}</p>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-6 pt-6">
           <form onSubmit={submit} className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor="project-transcript-search">
-                Search exact Transcript passages
-              </Label>
+              <Label htmlFor="project-transcript-search">{t("searchExactTranscriptPassages")}</Label>
               <Input
                 id="project-transcript-search"
                 type="search"
@@ -299,30 +283,26 @@ export function ProjectSearch({ projectId }: { projectId: string }) {
                 onChange={(event) => setQuery(event.target.value)}
                 minLength={PROJECT_PASSAGE_SEARCH_QUERY_MIN_LENGTH}
                 required
-                placeholder="Concept, claim, or phrase"
+                placeholder={t("conceptClaimOrPhrase")}
                 aria-describedby="project-transcript-search-help"
               />
               <p
                 id="project-transcript-search-help"
                 className="text-caption text-text-muted"
-              >
-                Queries stay in this request and are never sent to product analytics.
-              </p>
+              >{t("queriesStayInThisRequestAndAreNever")}</p>
             </div>
             <Button type="submit" disabled={pending}>
               <Search aria-hidden="true" />
-              {pending ? "Searching…" : "Search Transcripts"}
+              {pending ? t("searching") : t("searchTranscripts")}
             </Button>
           </form>
 
           {pending ? (
-            <p role="status" className="text-body-sm text-text-secondary">
-              Searching ready Project Transcripts…
-            </p>
+            <p role="status" className="text-body-sm text-text-secondary">{t("searchingReadyProjectTranscripts")}</p>
           ) : null}
           {error ? (
             <p role="alert" className="text-body-sm text-accent-danger">
-              {error}
+              {projectNotice(t, error)}
             </p>
           ) : null}
           {!pending && search ? <SearchResults search={search} /> : null}

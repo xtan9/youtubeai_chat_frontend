@@ -41,6 +41,7 @@ export function YouTubeSummarizerApp({
   continueLearningEnabled = false,
 }: YouTubeSummarizerAppProps) {
   const t = useTranslations("home");
+  const failureCopy = useTranslations("summaryFailure");
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -106,7 +107,7 @@ export function YouTubeSummarizerApp({
   const failure =
     currentSnapshot?.status === "failed" ? currentSnapshot.error : null;
   const failureMessage = failure
-    ? getSummaryRunFailureMessage(failure)
+    ? (failureCopy.has(failure.code) ? failureCopy(failure.code) : getSummaryRunFailureMessage(failure))
     : undefined;
   const summaryReturnTo = url
     ? `/summary?url=${encodeURIComponent(url)}`

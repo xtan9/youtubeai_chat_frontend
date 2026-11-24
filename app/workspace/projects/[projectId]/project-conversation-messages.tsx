@@ -1,4 +1,6 @@
 "use client";
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import { Fragment, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +18,7 @@ import {
   type ProjectConversationMessage,
 } from "@/lib/projects/project-grounded-answer-contract";
 import {
-  projectSourceSetEventLabel,
+
   type ProjectSourceSetEvent,
 } from "@/lib/projects/project-source-set-audit";
 import {
@@ -26,19 +28,20 @@ import {
 } from "@/lib/projects/project-grounded-synthesis";
 
 function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
+  const t = useTranslations("project");
   const metrics = [
-    ["Project Videos", coverage.totalVideos],
-    ["Ready Videos", coverage.readyVideos],
-    ["Used", coverage.usedVideos],
-    ["Unavailable Videos", coverage.unavailableVideos.length],
-    ["Passages examined", coverage.passagesExamined],
-    ["Passages selected", coverage.passagesUsed],
+    [t("projectVideos"), coverage.totalVideos],
+    [t("readyVideos"), coverage.readyVideos],
+    [t("used"), coverage.usedVideos],
+    [t("unavailableVideos"), coverage.unavailableVideos.length],
+    [t("passagesExamined"), coverage.passagesExamined],
+    [t("passagesSelected"), coverage.passagesUsed],
   ] as const;
   return (
     <div className="flex flex-col gap-3 border-y border-border-subtle py-3">
       <dl
         className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
-        aria-label="Source Coverage"
+        aria-label={t("sourceCoverage")}
       >
         {metrics.map(([label, value]) => (
           <div key={label} className="min-w-0">
@@ -50,10 +53,8 @@ function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
         ))}
       </dl>
       {coverage.unavailableVideos.length > 0 ? (
-        <div className="flex flex-col gap-2" aria-label="Unavailable Project Videos">
-          <p className="text-caption font-medium text-text-secondary">
-            Unavailable from this answer
-          </p>
+        <div className="flex flex-col gap-2" aria-label={t("unavailableProjectVideos")}>
+          <p className="text-caption font-medium text-text-secondary">{t("unavailableFromThisAnswer")}</p>
           <ul className="flex flex-col gap-2">
             {coverage.unavailableVideos.map((video) => (
               <li
@@ -61,14 +62,14 @@ function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
                 className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-surface-sunken px-3 py-2"
               >
                 <span className="min-w-0 break-words text-body-sm text-text-primary">
-                  {video.title ?? "Untitled Video"}
+                  {video.title ?? t("untitledVideo")}
                 </span>
                 <Badge variant="outline" className="shrink-0">
                   {video.status === "processing"
-                    ? "Processing"
+                    ? t("processing")
                     : video.status === "failed"
-                      ? "Failed"
-                      : "Unavailable"}
+                      ? t("failed")
+                      : t("unavailable")}
                 </Badge>
               </li>
             ))}
@@ -80,10 +81,11 @@ function CoverageLedger({ coverage }: { coverage: ProjectAnswerCoverage }) {
 }
 
 function SourceManifest({ manifest }: { manifest: ProjectAnswerSourceManifest }) {
+  const t = useTranslations("project");
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Answer source manifest">
+    <div className="flex flex-wrap gap-2" aria-label={t("answerSourceManifest")}>
       {manifest.sources.length === 0 ? (
-        <Badge variant="outline">No passages selected</Badge>
+        <Badge variant="outline">{t("noPassagesSelected")}</Badge>
       ) : (
         manifest.sources.map((source) => (
           <Badge
@@ -91,7 +93,7 @@ function SourceManifest({ manifest }: { manifest: ProjectAnswerSourceManifest })
             variant="secondary"
             className="max-w-full whitespace-normal text-left"
           >
-            {source.sourceId} · {source.title ?? "Untitled Video"}
+            {source.sourceId} · {source.title ?? t("untitledVideo")}
           </Badge>
         ))
       )}
@@ -99,7 +101,7 @@ function SourceManifest({ manifest }: { manifest: ProjectAnswerSourceManifest })
   );
 }
 
-function renderAnswer(
+function renderAnswer(t: ReturnType<typeof useTranslations<"project">>,
   content: string,
   manifest: ProjectAnswerSourceManifest,
   onCitationClick?: (input: {
@@ -122,7 +124,7 @@ function renderAnswer(
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-1 rounded-md font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
-        aria-label={`${part.raw}, open ${part.title} at this timestamp`}
+        aria-label={t("openAtThisTimestamp", {value1: part.raw, value2: part.title})}
         onClick={() =>
           onCitationClick?.({
             citationOrdinal: currentCitationOrdinal,
@@ -143,13 +145,11 @@ function DiagnosticNote({
 }: {
   diagnostics: readonly ProjectCitationDiagnostic[];
 }) {
+  const t = useTranslations("project");
   if (diagnostics.length === 0) return null;
   return (
     <p role="note" className="text-caption text-text-muted">
-      {diagnostics.length} citation{diagnostics.length === 1 ? "" : "s"} could
-      not be linked because the source or timestamp was not in this Evidence
-      Snapshot.
-    </p>
+      {t("unlinkedCitations", {count: diagnostics.length})}</p>
   );
 }
 
@@ -158,15 +158,15 @@ function EvidenceSnapshotLedger({
 }: {
   snapshot?: ProjectEvidenceSnapshot;
 }) {
+  const t = useTranslations("project");
   if (!snapshot) return null;
   return (
-    <div className="flex min-w-0 flex-col gap-3" aria-label="Immutable Evidence Snapshot">
-      <p className="text-caption text-text-muted">
-        Evidence Snapshot · Source Set revision {snapshot.sourceSetRevision} ·{" "}
-        {snapshot.passages.length} {snapshot.passages.length === 1 ? "passage" : "passages"}
+    <div className="flex min-w-0 flex-col gap-3" aria-label={t("immutableEvidenceSnapshot")}>
+      <p className="text-caption text-text-muted">{t("evidenceSnapshotSourceSetRevision")} {snapshot.sourceSetRevision} ·{" "}
+        {snapshot.passages.length} {snapshot.passages.length === 1 ? t("passage") : t("passages")}
       </p>
       {snapshot.passages.map((passage, index) => {
-        const title = passage.title ?? "Untitled Video";
+        const title = passage.title ?? t("untitledVideo");
         const start = formatTimestamp(passage.startSeconds);
         const timestamp = passage.endSeconds === null
           ? start
@@ -174,18 +174,16 @@ function EvidenceSnapshotLedger({
         const href = `https://www.youtube.com/watch?v=${passage.youtubeVideoId}&t=${Math.floor(passage.startSeconds)}s`;
         return (
           <details key={passage.passageId} className="min-w-0 rounded-lg border border-border-subtle bg-surface-base px-3 py-2">
-            <summary className="cursor-pointer break-words rounded-sm text-body-sm font-medium text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">
-              Passage {index + 1} · {title} · {timestamp}
+            <summary className="cursor-pointer break-words rounded-sm text-body-sm font-medium text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">{t("passageLabel")} {index + 1} · {title} · {timestamp}
             </summary>
             <div className="mt-3 flex min-w-0 flex-col gap-3">
               <blockquote className="whitespace-pre-wrap break-words border-l-2 border-border-default pl-3 text-body-sm text-text-secondary">
                 {passage.text}
               </blockquote>
               {passage.truncatedStart || passage.truncatedEnd ? (
-                <p className="text-caption text-text-muted">This excerpt starts or ends within a transcript segment.</p>
+                <p className="text-caption text-text-muted">{t("thisExcerptStartsOrEndsWithinATranscript")}</p>
               ) : null}
-              <a href={href} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 rounded-sm text-body-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus" aria-label={`Watch ${title} at ${start}`}>
-                Watch at {start}<ExternalLink aria-hidden="true" className="size-3" />
+              <a href={href} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 rounded-sm text-body-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus" aria-label={t("watchAt", {value1: title, value2: start})}>{t("watchAtLabel")} {start}<ExternalLink aria-hidden="true" className="size-3" />
               </a>
             </div>
           </details>
@@ -196,17 +194,17 @@ function EvidenceSnapshotLedger({
 }
 
 export function SourceSetChangeEvent({ event }: { event: ProjectSourceSetEvent }) {
+  const t = useTranslations("project");
   return (
     <div
       role="status"
-      aria-label={`Source Set change revision ${event.revision}`}
+      aria-label={t("sourceSetChangeRevision", {value1: event.revision})}
       className="flex min-w-0 flex-col gap-1 rounded-lg border border-dashed border-border-default bg-surface-sunken px-3 py-2 text-body-sm text-text-secondary"
     >
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <span className="font-medium text-text-primary">
-          Source Set change · {projectSourceSetEventLabel(event)}
+        <span className="font-medium text-text-primary">{t("sourceSetChange")} {t(`event_${event.kind}`, {title: event.videoTitle ?? t("untitledVideo"), from: t(`status_${event.fromStatus ?? "unknown"}`), to: t(`status_${event.toStatus ?? "unknown"}`)})}
         </span>
-        <Badge variant="outline">Revision {event.revision}</Badge>
+        <Badge variant="outline">{t("revision")} {event.revision}</Badge>
       </div>
 
     </div>
@@ -214,14 +212,15 @@ export function SourceSetChangeEvent({ event }: { event: ProjectSourceSetEvent }
 }
 
 export function SourceSetChangeGroup({ events }: { events: readonly ProjectSourceSetEvent[] }) {
+  const t = useTranslations("project");
   if (events.length === 1) return <SourceSetChangeEvent event={events[0]} />;
   const latest = events[events.length - 1];
   return (
     <details className="rounded-lg border border-dashed border-border-default bg-surface-sunken px-3 py-2">
       <summary className="cursor-pointer rounded-sm text-caption font-medium text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">
-        {events.length} source updates · revision {latest.revision}
+        {events.length} {t("sourceUpdatesRevision")} {latest.revision}
       </summary>
-      <div className="mt-3 flex flex-col gap-2" aria-label="Source update history">
+      <div className="mt-3 flex flex-col gap-2" aria-label={t("sourceUpdateHistory")}>
         {events.map((event) => <SourceSetChangeEvent key={event.eventId} event={event} />)}
       </div>
     </details>
@@ -235,41 +234,38 @@ function ClassificationBadge({
   classification: ProjectAnswerClassification | null;
   noMatchingPassages: boolean;
 }) {
+  const t = useTranslations("project");
   if (classification === null) {
-    return <Badge variant="outline">Preparing answer</Badge>;
+    return <Badge variant="outline">{t("preparingAnswer")}</Badge>;
   }
   const label =
     classification === "unsupported" && noMatchingPassages
-      ? "No matching passages"
+      ? t("noMatchingPassages")
       : classification === "supported"
-      ? "Evidence supported"
+      ? t("evidenceSupported")
       : classification === "abstained"
-        ? "Abstained"
-        : "Unsupported by sources";
+        ? t("abstained")
+        : t("unsupportedBySources");
   return <Badge variant="outline">{label}</Badge>;
 }
 
 export function ModeBadge({ mode }: { mode?: ProjectConversationMode }) {
+  const t = useTranslations("project");
   if (!mode || mode === PROJECT_DEFAULT_CONVERSATION_MODE) return null;
   const action = getProjectGuidedAction(mode);
-  return action ? <Badge variant="secondary">{action.label}</Badge> : null;
+  return action ? <Badge variant="secondary">{t(`${action.mode}Label`)}</Badge> : null;
 }
 
 function ModeTrustBoundary({ mode }: { mode?: ProjectConversationMode }) {
+  const t = useTranslations("project");
   if (mode === "find_gaps") {
     return (
-      <p role="note" className="text-caption text-text-muted">
-        Source-supported observations are kept separate from proposed questions
-        and creative opportunities.
-      </p>
+      <p role="note" className="text-caption text-text-muted">{t("sourceSupportedObservationsAreKeptSeparateFromProposed")}</p>
     );
   }
   if (mode === "project_assessment") {
     return (
-      <p role="note" className="text-caption text-text-muted">
-        Project Assessment judges support within this Project; it is not
-        externally verified truth.
-      </p>
+      <p role="note" className="text-caption text-text-muted">{t("projectAssessmentJudgesSupportWithinThisProjectIt")}</p>
     );
   }
   return null;
@@ -300,6 +296,7 @@ export function AssistantAnswer({
   messageOrdinal?: number;
   initialFeedback?: "helpful" | "not_helpful";
 }) {
+  const t = useTranslations("project");
   const [feedback, setFeedback] = useState<"helpful" | "not_helpful" | null>(
     initialFeedback ?? null,
   );
@@ -353,7 +350,7 @@ export function AssistantAnswer({
             : classifyProjectActionHttpFailure(response.status),
           response.ok ? undefined : response.status,
         );
-        throw new Error("feedback unavailable");
+        throw new Error(t("feedbackUnavailable"));
       }
       const durableRating =
         result &&
@@ -369,12 +366,12 @@ export function AssistantAnswer({
             : classifyProjectActionHttpFailure(response.status),
           response.ok ? undefined : response.status,
         );
-        throw new Error("feedback unavailable");
+        throw new Error(t("feedbackUnavailable"));
       }
       setFeedback(durableRating);
     } catch {
       captureFailure("network");
-      setFeedbackError("Couldn’t record feedback. Try again.");
+      setFeedbackError("couldnTRecordFeedbackTryAgain");
     } finally {
       setFeedbackPending(false);
     }
@@ -383,22 +380,20 @@ export function AssistantAnswer({
   return (
     <article className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-raised p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-body-sm font-medium text-text-secondary">
-          Grounded Answer
-        </p>
+        <p className="text-body-sm font-medium text-text-secondary">{t("groundedAnswer")}</p>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ModeBadge mode={mode} />
           <ClassificationBadge classification={classification} noMatchingPassages={coverage.passagesUsed === 0} />
         </div>
       </div>
       <ModeTrustBoundary mode={mode} />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-text-secondary" aria-label="Answer coverage summary">
-        <span>{coverage.usedVideos} of {coverage.totalVideos} videos used</span>
-        <span>{coverage.passagesUsed} evidence {coverage.passagesUsed === 1 ? "passage" : "passages"}</span>
-        {coverage.unavailableVideos.length > 0 ? <span className="text-accent-warning">{coverage.unavailableVideos.length} unavailable</span> : null}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-text-secondary" aria-label={t("answerCoverageSummary")}>
+        <span>{coverage.usedVideos} {t("of")} {coverage.totalVideos} {t("videosUsed")}</span>
+        <span>{coverage.passagesUsed} {t("evidence")} {coverage.passagesUsed === 1 ? t("passage") : t("passages")}</span>
+        {coverage.unavailableVideos.length > 0 ? <span className="text-accent-warning">{coverage.unavailableVideos.length} {t("unavailableLabel")}</span> : null}
       </div>
       <details className="rounded-lg bg-surface-sunken px-3 py-2">
-        <summary className="cursor-pointer rounded-sm text-caption font-medium text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">View sources and retrieval details</summary>
+        <summary className="cursor-pointer rounded-sm text-caption font-medium text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">{t("viewSourcesAndRetrievalDetails")}</summary>
         <div className="mt-3 flex flex-col gap-3">
           <SourceManifest manifest={manifest} />
           <CoverageLedger coverage={coverage} />
@@ -406,7 +401,7 @@ export function AssistantAnswer({
         </div>
       </details>
       <p className="whitespace-pre-wrap text-body-md text-text-primary">
-        {renderAnswer(
+        {renderAnswer(t,
           content,
           manifest,
           analyticsIdentity
@@ -424,14 +419,12 @@ export function AssistantAnswer({
         )}
       </p>
       {classification === "unsupported" && coverage.passagesUsed === 0 && coverage.readyVideos > 0 ? (
-        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-body-sm text-text-secondary">
-          No relevant passages were found for this question. This does not establish whether the claim is true or false. Try naming the specific claim, or use Search to inspect the transcript.
-        </p>
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-body-sm text-text-secondary">{t("noRelevantPassagesWereFoundForThisQuestion")}</p>
       ) : null}
       <DiagnosticNote diagnostics={diagnostics} />
       {analyticsIdentity ? (
-        <div className="flex flex-wrap items-center gap-2" aria-label="Answer feedback">
-          <span className="text-caption text-text-muted">Was this grounded answer useful?</span>
+        <div className="flex flex-wrap items-center gap-2" aria-label={t("answerFeedback")}>
+          <span className="text-caption text-text-muted">{t("wasThisGroundedAnswerUseful")}</span>
           <Button
             type="button"
             size="sm"
@@ -439,9 +432,7 @@ export function AssistantAnswer({
             aria-pressed={feedback === "helpful"}
             disabled={feedback !== null || feedbackPending}
             onClick={() => void submitFeedback("helpful")}
-          >
-            Useful
-          </Button>
+          >{t("useful")}</Button>
           <Button
             type="button"
             size="sm"
@@ -449,16 +440,12 @@ export function AssistantAnswer({
             aria-pressed={feedback === "not_helpful"}
             disabled={feedback !== null || feedbackPending}
             onClick={() => void submitFeedback("not_helpful")}
-          >
-            Not useful
-          </Button>
+          >{t("notUseful")}</Button>
           {feedback ? (
-            <span role="status" className="text-caption text-text-muted">
-              Feedback recorded.
-            </span>
+            <span role="status" className="text-caption text-text-muted">{t("feedbackRecorded")}</span>
           ) : feedbackError ? (
             <span role="alert" className="text-caption text-status-error">
-              {feedbackError}
+              {projectNotice(t, feedbackError)}
             </span>
           ) : null}
         </div>

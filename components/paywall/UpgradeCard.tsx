@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import {useLocale, useTranslations} from "next-intl";
 import Link from "next/link";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,57 +28,57 @@ const DEFAULT_RETURN_DESTINATION: Record<Variant, string> = {
 
 const PRO_BENEFITS: Record<Variant, string[]> = {
   "summary-cap": [
-    "Unlimited summaries — no monthly cap",
-    "Unlimited AI Chat — ask follow-ups across every video",
-    "Permanent history — never auto-replaced",
+    "limitSummaries",
+    "limitFollowups",
+    "limitHistory",
   ],
   "chat-cap": [
-    "Unlimited AI Chat across every video",
-    "Unlimited summaries — no monthly cap",
-    "Permanent history — never auto-replaced",
+    "limitChats",
+    "limitSummaries",
+    "limitHistory",
   ],
   "history-cap": [
-    "Permanent history — never auto-replaced",
-    "Unlimited summaries — no monthly cap",
-    "Unlimited AI Chat across every video",
+    "limitHistory",
+    "limitSummaries",
+    "limitChats",
   ],
 };
 
 const FALLBACK_HEADLINE: Record<Variant, { title: string; sub: string }> = {
   "summary-cap": {
-    title: "You've reached your free summary limit this month",
-    sub: "Upgrade to Pro to keep going.",
+    title: "summaryCap",
+    sub: "upgradeContinue",
   },
   "chat-cap": {
-    title: "You've used your free chats on this video",
-    sub: "Pro unlocks chat across every video, every time.",
+    title: "chatCap",
+    sub: "upgradeChats",
   },
   "history-cap": {
-    title: "Your free history is full",
-    sub: "Older summaries are auto-replaced. Pro keeps everything forever.",
+    title: "historyCap",
+    sub: "upgradeHistory",
   },
 };
 
 const MINUTES_SAVED_PER_VIDEO = 15;
 const CELEBRATION_MIN_VIDEOS = 2;
 
-function formatTimeSaved(videosCount: number): string {
+function formatTimeSaved(videosCount: number, t: ReturnType<typeof useTranslations<"reader">>): string {
   const totalMinutes = videosCount * MINUTES_SAVED_PER_VIDEO;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes} min`;
-  if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
-  return `${hours}h ${minutes}m`;
+  if (hours === 0) return t("minutes", {n: minutes});
+  if (minutes === 0) return t("hours", {n: hours});
+  return t("hoursMinutes", {hours, minutes});
 }
 
 // Compute reset date in local time so the printed "June 1" matches the
 // user's wall clock. The cap rolls over on the 1st of the next calendar
 // month — we want consistent local-day formatting, not a UTC timestamp
 // that gets re-localized and shifts a day for non-UTC users.
-function formatNextResetDate(): string {
+function formatNextResetDate(locale: string): string {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return next.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  return next.toLocaleDateString(locale, { month: "long", day: "numeric" });
 }
 
 export function UpgradeCard({
@@ -90,6 +90,8 @@ export function UpgradeCard({
   readonly tier?: ContextualLimitTier;
   readonly returnTo?: string;
 }) {
+  const t = useTranslations("reader");
+  const locale = useLocale();
   const { data: ent, isError } = useEntitlements();
   const resolvedTier: ContextualLimitTier | undefined =
     tier ?? (ent?.tier === "anon" || ent?.tier === "free" ? ent.tier : undefined);
@@ -125,17 +127,11 @@ export function UpgradeCard({
     !!ent &&
     summariesUsed >= CELEBRATION_MIN_VIDEOS;
 
-  const headline = useMemo(() => {
-    if (showCelebration) {
-      return {
-        title: `You summarized ${summariesUsed} ${summariesUsed === 1 ? "video" : "videos"} this month`,
-        sub: `≈ ${formatTimeSaved(summariesUsed)} of YouTube saved`,
-      };
-    }
-    return FALLBACK_HEADLINE[variant];
-  }, [variant, showCelebration, summariesUsed]);
-
-  const resetDate = variant === "summary-cap" ? formatNextResetDate() : null;
+  const headline = showCelebration ? {
+    title: t("savedVideos", {count: summariesUsed}),
+    sub: t("timeSaved", {time: formatTimeSaved(summariesUsed, t)}),
+  } : {title: t(FALLBACK_HEADLINE[variant].title), sub: t(FALLBACK_HEADLINE[variant].sub)};
+  const resetDate = variant === "summary-cap" ? formatNextResetDate(locale) : null;
 
   return (
     <section
@@ -165,7 +161,7 @@ export function UpgradeCard({
               aria-hidden="true"
               data-testid="upgrade-card-bullet-check"
             />
-            <span>{benefit}</span>
+            <span>{t(benefit)}</span>
           </li>
         ))}
       </ul>
@@ -173,19 +169,19 @@ export function UpgradeCard({
       {action ? (
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <Button asChild onClick={captureClick}>
-            <Link href={action.href}>{action.label}</Link>
+            <Link href={action.href}>{t(resolvedTier === "anon" ? "signUpFree" : "upgradePro")}</Link>
           </Button>
           {resolvedTier === "free" ? (
             <Button asChild variant="outline" onClick={captureClick}>
-              <Link href={action.href}>See plans</Link>
+              <Link href={action.href}>{t("seePlans")}</Link>
             </Button>
           ) : null}
         </div>
       ) : null}
 
       <p className="mt-4 text-caption text-text-muted">
-        {resetDate ? <>Free tier resets {resetDate} · </> : null}
-        Cancel anytime
+        {resetDate ? <>{t("resets", {date: resetDate})} · </> : null}
+        {t("cancelAnytime")}
       </p>
     </section>
   );

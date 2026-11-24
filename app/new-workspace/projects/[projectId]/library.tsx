@@ -1,4 +1,5 @@
 "use client";
+import {sourceLabel} from "@/i18n/saved-project-labels";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
@@ -62,6 +63,8 @@ function SourceCard({
   | "show"
 >) {
   const tr = useTranslations("ui");
+  const savedLabel = useTranslations("savedProject");
+
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState<Resource | null>(null),
     [busy, setBusy] = useState(false),
@@ -179,7 +182,7 @@ function SourceCard({
       {open && (
         <div className="vs-digest">
           <strong>{tr("sourceSummary")}</strong>
-          <p>{resource.digest?.summary || resource.coverage}</p>
+          <p>{resource.digest?.summary || sourceLabel(resource.coverage, savedLabel)}</p>
           {initial.originalPdf && (
             <button onClick={downloadPdf}>{tr("downloadOriginalPdf")}</button>
           )}
@@ -196,7 +199,7 @@ function SourceCard({
                   <a href={r.url} target="_blank" rel="noreferrer">
                     {r.label} ↗
                   </a>{" "}
-                  <small>{r.location}</small>
+                  <small>{sourceLabel(r.location, savedLabel)}</small>
                 </p>
               ))}
             </details>
@@ -206,7 +209,7 @@ function SourceCard({
               <summary>{tr("excerpts")}</summary>
               {resource.pages.map((p, i) => (
                 <blockquote key={i}>
-                  <b>{p.label}</b> {p.text}
+                  <b>{sourceLabel(p.label, savedLabel)}</b> {p.text}
                 </blockquote>
               ))}
             </details>
@@ -233,7 +236,7 @@ function SourceCard({
           )}
         </div>
       )}
-      {error && <p role="alert">{tr.has(error) ? tr(error) : error}</p>}
+      {error && <p role="alert">{tr.has(error) ? tr(error) : sourceLabel(error, savedLabel)}</p>}
     </SourceClaims>
   );
 }

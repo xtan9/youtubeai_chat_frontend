@@ -1,4 +1,5 @@
 "use client";
+import {useLocale, useTranslations} from "next-intl";
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,8 +9,8 @@ import { type ProjectArtifact } from "@/lib/projects/project-artifact-contract";
 import { parseProjectCitations } from "@/lib/projects/project-grounded-citations";
 import { type ProjectArtifactPanelDefinition } from "./project-artifact-panel";
 
-function generatedLabel(artifact: ProjectArtifact) {
-  const timestamp = new Intl.DateTimeFormat("en-US", {
+function generatedLabel(artifact: ProjectArtifact, locale: string) {
+  const timestamp = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
@@ -24,31 +25,32 @@ export function ArtifactProvenance({
   artifact: ProjectArtifact;
   title: ProjectArtifactPanelDefinition["title"];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("project");
   return (
     <div
-      aria-label={`${title} provenance`}
+      aria-label={t("provenance", {value1: title})}
       className="border-l-4 border-accent-brand bg-surface-sunken px-4 py-3"
     >
       <dl className="grid grid-cols-1 gap-3 text-body-sm sm:grid-cols-3">
         <div>
-          <dt className="text-caption text-text-muted">Evidence boundary</dt>
-          <dd className="font-semibold text-text-primary">
-            Source Set revision {artifact.sourceSetRevision}
+          <dt className="text-caption text-text-muted">{t("evidenceBoundary")}</dt>
+          <dd className="font-semibold text-text-primary">{t("sourceSetRevision")} {artifact.sourceSetRevision}
           </dd>
         </div>
         <div>
-          <dt className="text-caption text-text-muted">Evidence Snapshot</dt>
+          <dt className="text-caption text-text-muted">{t("evidenceSnapshot")}</dt>
           <dd className="font-semibold text-text-primary">
             {artifact.evidenceSnapshot.passages.length}{" "}
             {artifact.evidenceSnapshot.passages.length === 1
-              ? "passage"
-              : "passages"}
+              ? t("passage")
+              : t("passages")}
           </dd>
         </div>
         <div>
-          <dt className="text-caption text-text-muted">Generated</dt>
+          <dt className="text-caption text-text-muted">{t("generated")}</dt>
           <dd className="font-semibold text-text-primary">
-            {generatedLabel(artifact)}
+            {generatedLabel(artifact, locale)}
           </dd>
         </div>
       </dl>
@@ -63,6 +65,7 @@ export function ArtifactMarkdown({
   artifact: ProjectArtifact;
   buildMarkdown: ProjectArtifactPanelDefinition["buildMarkdown"];
 }) {
+  const t = useTranslations("project");
   const markdown = useMemo(
     () => buildMarkdown(artifact.content, artifact.sourceManifest),
     [artifact.content, artifact.sourceManifest, buildMarkdown],
@@ -151,7 +154,7 @@ export function ArtifactMarkdown({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 rounded-sm font-medium text-accent-brand underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-state-focus"
-                aria-label={`${label}, open ${source?.title ?? "source Video"} at this timestamp`}
+                aria-label={t("openAtThisTimestamp", {value1: label, value2: source?.title ?? t("sourceVideo")})}
                 onClick={() => {
                   if (!citation || citation.citationOrdinal > 100) {
                     return;
@@ -187,14 +190,15 @@ export function EarlierProvenance({
   history: readonly ProjectArtifact[];
   title: ProjectArtifactPanelDefinition["title"];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("project");
   if (history.length === 0) return null;
   return (
     <details className="rounded-lg border border-border-subtle px-4 py-3">
-      <summary className="cursor-pointer text-body-sm font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">
-        Earlier provenance ({history.length})
+      <summary className="cursor-pointer text-body-sm font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus">{t("earlierProvenance")}{history.length})
       </summary>
       <ol
-        aria-label={`Earlier ${title} provenance`}
+        aria-label={t("earlierProvenanceLabel", {value1: title})}
         className="mt-3 flex flex-col gap-2"
       >
         {history.map((artifact) => (
@@ -202,15 +206,14 @@ export function EarlierProvenance({
             key={artifact.artifactId}
             className="flex flex-col gap-1 border-t border-border-subtle pt-3 text-body-sm text-text-secondary first:border-t-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between"
           >
-            <span className="font-medium text-text-primary">
-              Source Set revision {artifact.sourceSetRevision}
+            <span className="font-medium text-text-primary">{t("sourceSetRevision")} {artifact.sourceSetRevision}
             </span>
             <span>
               {artifact.evidenceSnapshot.passages.length}{" "}
               {artifact.evidenceSnapshot.passages.length === 1
-                ? "passage"
-                : "passages"}{" "}
-              · {generatedLabel(artifact)}
+                ? t("passage")
+                : t("passages")}{" "}
+              · {generatedLabel(artifact, locale)}
             </span>
           </li>
         ))}

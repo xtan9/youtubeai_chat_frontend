@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useCallback, useState } from "react";
 import { BookOpen, Clapperboard, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ export function ProjectArtifacts({
   readonly initialCreatorBrief: ReadyArtifact;
   readonly initialProjectBrief: ReadyArtifact;
 }) {
+  const t = useTranslations("project");
   const [selected, setSelected] = useState<ArtifactChoice>(() => {
     if (initialStudyGuide.current) return "study_guide";
     if (initialCreatorBrief.current) return "creator_brief";
@@ -69,19 +71,15 @@ export function ProjectArtifacts({
             <h2
               id="project-artifacts-title"
               className="text-h4 font-semibold text-text-primary"
-            >
-              Artifacts
-            </h2>
-            <p className="max-w-prose text-body-sm text-text-secondary">
-              Turn your research into a reusable guide or brief.
-              {initialStudyGuide.tier === "free" ? " Free includes one generation across all output types." : " Each output includes its sources so you can check the evidence."}
+            >{t("artifacts")}</h2>
+            <p className="max-w-prose text-body-sm text-text-secondary">{t("turnYourResearchIntoAReusableGuideOr")}{initialStudyGuide.tier === "free" ? t("freeIncludesOneGenerationAcrossAllOutputTypes") : t("eachOutputIncludesItsSourcesSoYouCan")}
             </p>
           </div>
         </CardHeader>
         <CardContent>
           <div
             role="group"
-            aria-label="Choose Artifact type"
+            aria-label={t("chooseArtifactType")}
             className="grid grid-cols-1 gap-3 sm:grid-cols-3"
           >
             <Button
@@ -89,14 +87,14 @@ export function ProjectArtifacts({
               variant={selected === "study_guide" ? "default" : "outline"}
               className="h-auto min-h-12 justify-start gap-3 py-3 text-left"
               aria-pressed={selected === "study_guide"}
-              aria-label="Choose Study Guide"
+              aria-label={t("chooseStudyGuide")}
               onClick={() => setSelected("study_guide")}
             >
               <BookOpen aria-hidden="true" />
               <span className="flex flex-1 items-center justify-between gap-2">
-                <span>Study Guide</span>
+                <span>{t("studyGuide")}</span>
                 {hasStudyGuide ? (
-                  <Badge variant="secondary">Current</Badge>
+                  <Badge variant="secondary">{t("current")}</Badge>
                 ) : null}
               </span>
             </Button>
@@ -105,14 +103,14 @@ export function ProjectArtifacts({
               variant={selected === "creator_brief" ? "default" : "outline"}
               className="h-auto min-h-12 justify-start gap-3 py-3 text-left"
               aria-pressed={selected === "creator_brief"}
-              aria-label="Choose Creator Brief"
+              aria-label={t("chooseCreatorBrief")}
               onClick={() => setSelected("creator_brief")}
             >
               <Clapperboard aria-hidden="true" />
               <span className="flex flex-1 items-center justify-between gap-2">
-                <span>Creator Brief</span>
+                <span>{t("creatorBrief")}</span>
                 {hasCreatorBrief ? (
-                  <Badge variant="secondary">Current</Badge>
+                  <Badge variant="secondary">{t("current")}</Badge>
                 ) : null}
               </span>
             </Button>
@@ -121,14 +119,14 @@ export function ProjectArtifacts({
               variant={selected === "project_brief" ? "default" : "outline"}
               className="h-auto min-h-12 justify-start gap-3 py-3 text-left"
               aria-pressed={selected === "project_brief"}
-              aria-label="Choose Project Brief"
+              aria-label={t("chooseProjectBrief")}
               onClick={() => setSelected("project_brief")}
             >
               <FileText aria-hidden="true" />
               <span className="flex flex-1 items-center justify-between gap-2">
-                <span>Project Brief</span>
+                <span>{t("projectBrief")}</span>
                 {hasProjectBrief ? (
-                  <Badge variant="secondary">Current</Badge>
+                  <Badge variant="secondary">{t("current")}</Badge>
                 ) : null}
               </span>
             </Button>

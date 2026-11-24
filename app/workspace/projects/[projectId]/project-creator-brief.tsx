@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 import { buildProjectCreatorBriefMarkdown } from "@/lib/projects/project-creator-brief";
 import {
@@ -12,21 +13,23 @@ type ReadyCreatorBrief = Extract<
   { status: "ready" }
 >;
 
-const CREATOR_BRIEF_DEFINITION = {
-  kind: "creator_brief",
-  slug: "creator-brief",
-  responseKey: "creatorBrief",
-  title: "Creator Brief",
-  shortName: "brief",
-  icon: "creator",
-  description:
-    "A grounded creative canvas that keeps source claims separate from original directions and never imitates creator expression.",
-  emptyTitle: "Transform grounded inspiration into an original Video direction.",
-  emptyDescription:
-    "The brief will attribute source claims, then identify gaps, combinations, counterarguments, and original angles for your Project Goal.",
-  filenameSuffix: "creator-brief",
-  buildMarkdown: buildProjectCreatorBriefMarkdown,
-} satisfies ProjectArtifactPanelDefinition;
+function getDefinition(t: ReturnType<typeof useTranslations<"project">>) {
+  return {
+    kind: "creator_brief",
+    slug: "creator-brief",
+    responseKey: "creatorBrief",
+    title: t("creatorBrief"),
+    shortName: t("brief"),
+    icon: "creator",
+    description:
+      t("aGroundedCreativeCanvasThatKeepsSourceClaims"),
+    emptyTitle: t("transformGroundedInspirationIntoAnOriginalVideoDirection"),
+    emptyDescription:
+      t("theBriefWillAttributeSourceClaimsThenIdentify"),
+    filenameSuffix: "creator-brief",
+    buildMarkdown: buildProjectCreatorBriefMarkdown,
+  } satisfies ProjectArtifactPanelDefinition;
+}
 
 export function ProjectCreatorBrief({
   projectId,
@@ -45,9 +48,10 @@ export function ProjectCreatorBrief({
   readonly onGenerationsUsedChange?: (generationsUsed: number) => void;
   readonly onCurrentChange?: (hasCurrent: boolean) => void;
 }) {
+  const t = useTranslations("project");
   return (
     <ProjectArtifactPanel
-      definition={CREATOR_BRIEF_DEFINITION}
+      definition={getDefinition(t)}
       projectId={projectId}
       projectName={projectName}
       currentSourceSetRevision={currentSourceSetRevision}

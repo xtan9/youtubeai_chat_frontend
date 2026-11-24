@@ -1,4 +1,6 @@
 "use client";
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Plus, Search, Video } from "lucide-react";
@@ -65,13 +67,14 @@ export function ProjectSourceSet({
   onSourceSetChange,
   compact = false,
 }: ProjectSourceSetProps) {
+  const t = useTranslations("project");
   const [sourceSet, setSourceSet] = useState(initialSourceSet);
   const sourceSetRevisionRef = useRef(initialSourceSet.revision);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | {key: string; title: string | null} | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [candidatePage, setCandidatePage] = useState(initialCandidatePage);
   const [candidateLoading, setCandidateLoading] = useState(false);
@@ -98,7 +101,7 @@ export function ProjectSourceSet({
   ).length;
   const candidateCountLabel =
     candidatePage && candidatePage.total > 0
-      ? `History search results: ${candidatePage.total} processed ${candidatePage.total === 1 ? "Video" : "Videos"} available${appliedSearch ? ` for ${appliedSearch}` : ""}`
+      ? t("historySearchResultsProcessedAvailable", {value1: candidatePage.total, value2: candidatePage.total === 1 ? "Video" : "Videos", value3: appliedSearch ? ` for ${appliedSearch}` : ""})
       : null;
 
   const acceptLatest = useCallback(
@@ -192,18 +195,18 @@ export function ProjectSourceSet({
             tier: "free",
           });
         }
-        setError(payload.message ?? "Couldn’t process that Video. Try again.");
+        setError(payload.message ?? "couldnTProcessThatVideoTryAgain");
         setUpgradeUrl(payload.upgradeUrl ?? null);
         await refreshSourceSet();
         return;
       }
 
       if (payload.outcome === "already_ready") {
-        setNotice("That Video is already ready in this Project.");
+        setNotice("thatVideoIsAlreadyReadyInThisProject");
       } else if (payload.outcome === "already_processing") {
-        setNotice("That Video is already processing. Its status will update here.");
+        setNotice("thatVideoIsAlreadyProcessingItsStatusWill");
       } else {
-        setNotice("Video accepted. Processing will continue if you leave this page.");
+        setNotice("videoAcceptedProcessingWillContinueIfYouLeave");
       }
       setYoutubeUrl("");
       if (!payload.sourceSet) await refreshSourceSet();
@@ -213,7 +216,7 @@ export function ProjectSourceSet({
         action_kind: "source_add",
         error_class: "network",
       });
-      setError("Couldn’t process that Video. Check your connection and try again.");
+      setError("couldnTProcessThatVideoCheckYourConnection");
       await refreshSourceSet();
     } finally {
       setPendingAction(null);
@@ -245,7 +248,7 @@ export function ProjectSourceSet({
       if (!response.ok || !payload.candidatePage) {
         setCandidateError(
           payload.message ??
-            "Couldn’t load processed History Videos. Check your connection and try again.",
+            "couldnTLoadProcessedHistoryVideosCheckYour",
         );
         return;
       }
@@ -253,7 +256,7 @@ export function ProjectSourceSet({
       setAppliedSearch(normalizedSearch);
     } catch {
       setCandidateError(
-        "Couldn’t load processed History Videos. Check your connection and try again.",
+        "couldnTLoadProcessedHistoryVideosCheckYour",
       );
     } finally {
       setCandidateLoading(false);
@@ -299,11 +302,11 @@ export function ProjectSourceSet({
             ? { http_status: response.status }
             : {}),
         });
-        setError(payload.message ?? "Couldn’t add that History Video. Try again.");
+        setError(payload.message ?? "couldnTAddThatHistoryVideoTryAgain");
         setPickerOpen(false);
         return;
       }
-      setNotice(`Added ${candidate.title ?? "Untitled Video"}.`);
+      setNotice({key: "added", title: candidate.title});
       setSearchInput("");
       setAppliedSearch("");
       setPickerOpen(false);
@@ -313,7 +316,7 @@ export function ProjectSourceSet({
         action_kind: "source_add",
         error_class: "network",
       });
-      setError("Couldn’t add that History Video. Check your connection and try again.");
+      setError("couldnTAddThatHistoryVideoCheckYour");
       setPickerOpen(false);
     } finally {
       setPendingAction(null);
@@ -334,12 +337,12 @@ export function ProjectSourceSet({
       const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
-        setError(payload.message ?? "Couldn’t remove that Video. Try again.");
+        setError(payload.message ?? "couldnTRemoveThatVideoTryAgain");
         return;
       }
-      setNotice(`Removed ${video.title ?? "Untitled Video"}.`);
+      setNotice({key: "removed", title: video.title});
     } catch {
-      setError("Couldn’t remove that Video. Check your connection and try again.");
+      setError("couldnTRemoveThatVideoCheckYourConnection");
     } finally {
       setPendingAction(null);
     }
@@ -375,12 +378,12 @@ export function ProjectSourceSet({
       const payload = await readSourceSetPayload(response);
       acceptLatest(payload.sourceSet);
       if (!response.ok) {
-        setError(payload.message ?? "Couldn’t reorder the Source Set. Try again.");
+        setError(payload.message ?? "couldnTReorderTheSourceSetTryAgain");
         return;
       }
-      setNotice("Source order updated.");
+      setNotice("sourceOrderUpdated");
     } catch {
-      setError("Couldn’t reorder the Source Set. Check your connection and try again.");
+      setError("couldnTReorderTheSourceSetCheckYour");
     } finally {
       setPendingAction(null);
     }
@@ -394,39 +397,35 @@ export function ProjectSourceSet({
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
                 <h2 id="source-set-heading" className="text-h4 font-semibold text-text-primary">
-                  {compact ? "Sources" : "Source Set"}
+                  {compact ? t("sources") : t("sourceSet")}
                 </h2>
                 <Badge
                   variant="secondary"
                   role="status"
-                  aria-label={`${sourceSet.videos.length} of ${PROJECT_VIDEO_LIMIT} Project Videos`}
+                  aria-label={t("ofProjectVideos", {value1: sourceSet.videos.length, value2: PROJECT_VIDEO_LIMIT})}
                 >
                   <span aria-hidden="true">
-                    {sourceSet.videos.length} of {PROJECT_VIDEO_LIMIT}
+                    {sourceSet.videos.length} {t("of")} {PROJECT_VIDEO_LIMIT}
                   </span>
                 </Badge>
               </div>
               <p className="max-w-prose text-body-sm text-text-secondary">
-                {compact ? "Open a video to inspect its transcript and summary." : "Order the Videos this Project can use as evidence."}
+                {compact ? t("openAVideoToInspectItsTranscriptAnd") : t("orderTheVideosThisProjectCanUseAs")}
               </p>
             </div>
 
             <Dialog open={pickerOpen} onOpenChange={changePickerOpen}>
               <DialogTrigger asChild>
                 <Button size={compact ? "sm" : "default"} variant="outline" disabled={atLimit || Boolean(pendingAction)} className={compact && atLimit ? "hidden" : undefined}>
-                  <Plus aria-hidden="true" />
-                  Add from History
-                </Button>
+                  <Plus aria-hidden="true" />{t("addFromHistory")}</Button>
               </DialogTrigger>
               <DialogContent
                 className="ph-no-capture max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl"
                 data-ph-no-autocapture
               >
                 <DialogHeader>
-                  <DialogTitle>Add a History Video</DialogTitle>
-                  <DialogDescription>
-                    Choose a video you have already processed. Its transcript and summary will be ready to use here.
-                  </DialogDescription>
+                  <DialogTitle>{t("addAHistoryVideo")}</DialogTitle>
+                  <DialogDescription>{t("chooseAVideoYouHaveAlreadyProcessedIts")}</DialogDescription>
                 </DialogHeader>
 
                 <form
@@ -434,38 +433,34 @@ export function ProjectSourceSet({
                   onSubmit={searchCandidates}
                 >
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <Label htmlFor="project-history-search">Search History</Label>
+                    <Label htmlFor="project-history-search">{t("searchHistory")}</Label>
                     <Input
                       id="project-history-search"
                       value={searchInput}
                       onChange={(event) => setSearchInput(event.target.value)}
-                      placeholder="Video title or channel"
+                      placeholder={t("videoTitleOrChannel")}
                       maxLength={100}
                     />
                   </div>
                   <Button type="submit" variant="outline" disabled={candidateLoading}>
-                    <Search aria-hidden="true" />
-                    Search
-                  </Button>
+                    <Search aria-hidden="true" />{t("search")}</Button>
                 </form>
 
                 {candidateLoading ? (
-                  <p role="status" className="text-body-sm text-text-secondary">
-                    Loading processed History Videos…
-                  </p>
+                  <p role="status" className="text-body-sm text-text-secondary">{t("loadingProcessedHistoryVideos")}</p>
                 ) : candidateError ? (
                   <Alert>
                     <AlertTriangle aria-hidden="true" />
-                    <AlertTitle>Processed History is unavailable</AlertTitle>
+                    <AlertTitle>{t("processedHistoryIsUnavailable")}</AlertTitle>
                     <AlertDescription>
-                      {candidateError}
+                      {projectNotice(t, candidateError)}
                     </AlertDescription>
                   </Alert>
                 ) : !candidatePage || candidatePage.total === 0 ? (
                   <p className="rounded-md border border-border-subtle bg-surface-sunken px-4 py-6 text-body-sm text-text-secondary">
                     {appliedSearch
-                      ? `No processed History Videos match “${appliedSearch}”. Try another title or channel.`
-                      : "No processed History Videos are available. A Video appears here only after its canonical Transcript and Summary are ready."}
+                      ? t("noProcessedHistoryVideosMatchTryAnotherTitle", {value1: appliedSearch})
+                      : t("noProcessedHistoryVideosAreAvailableAVideo")}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">
@@ -474,17 +469,14 @@ export function ProjectSourceSet({
                       role="status"
                       aria-label={candidateCountLabel ?? undefined}
                     >
-                      {candidatePage.total} processed {candidatePage.total === 1 ? "Video" : "Videos"} available
-                      {appliedSearch ? ` for “${appliedSearch}”` : ""}.
+                      {candidatePage.total} {t("processed")} {candidatePage.total === 1 ? t("video") : t("videosLabel")} {t("available")}{appliedSearch ? t("for", {value1: appliedSearch}) : ""}.
                     </p>
                     {availableHistory.length === 0 ? (
-                      <p className="rounded-md border border-border-subtle bg-surface-sunken px-4 py-6 text-body-sm text-text-secondary">
-                        This page no longer has available Videos. Move to another page or search again.
-                      </p>
+                      <p className="rounded-md border border-border-subtle bg-surface-sunken px-4 py-6 text-body-sm text-text-secondary">{t("thisPageNoLongerHasAvailableVideosMove")}</p>
                     ) : (
-                      <ul className="flex flex-col gap-2" aria-label="Processed History Videos">
+                      <ul className="flex flex-col gap-2" aria-label={t("processedHistoryVideos")}>
                         {availableHistory.map((candidate) => {
-                          const title = candidate.title ?? "Untitled Video";
+                          const title = candidate.title ?? t("untitledVideo");
                           const adding = pendingAction === `add:${candidate.videoId}`;
                           return (
                             <li
@@ -508,10 +500,10 @@ export function ProjectSourceSet({
                                 variant="outline"
                                 onClick={() => void add(candidate)}
                                 disabled={Boolean(pendingAction)}
-                                aria-label={`Add ${title} to Source Set`}
+                                aria-label={t("addToSourceSet", {value1: title})}
                               >
                                 <Plus aria-hidden="true" />
-                                {adding ? "Adding…" : "Add"}
+                                {adding ? t("adding") : t("add")}
                               </Button>
                             </li>
                           );
@@ -528,11 +520,8 @@ export function ProjectSourceSet({
                           void loadCandidates(candidatePage.page - 1, appliedSearch)
                         }
                       >
-                        <ChevronLeft aria-hidden="true" />
-                        Previous
-                      </Button>
-                      <span className="text-caption text-text-muted">
-                        Page {candidatePage.page} of {candidatePage.totalPages}
+                        <ChevronLeft aria-hidden="true" />{t("previous")}</Button>
+                      <span className="text-caption text-text-muted">{t("historyPage", {page: candidatePage.page, pages: candidatePage.totalPages})}
                       </span>
                       <Button
                         type="button"
@@ -545,9 +534,7 @@ export function ProjectSourceSet({
                         onClick={() =>
                           void loadCandidates(candidatePage.page + 1, appliedSearch)
                         }
-                      >
-                        Next
-                        <ChevronRight aria-hidden="true" />
+                      >{t("next")}<ChevronRight aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
@@ -562,12 +549,8 @@ export function ProjectSourceSet({
             <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-border-default bg-surface-sunken px-6 py-10 text-center">
               <Video className="text-text-muted" aria-hidden="true" />
               <div className="flex flex-col gap-1">
-                <p className="text-body-md font-medium text-text-primary">
-                  Add your first source
-                </p>
-                <p className="text-body-sm text-text-muted">
-                  Paste a YouTube URL below or choose a processed Video from History.
-                </p>
+                <p className="text-body-md font-medium text-text-primary">{t("addYourFirstSource")}</p>
+                <p className="text-body-sm text-text-muted">{t("pasteAYoutubeUrlBelowOrChooseA")}</p>
               </div>
             </div>
           ) : (
@@ -581,20 +564,18 @@ export function ProjectSourceSet({
             />
           )}
 
-          {!compact ? <p className="text-body-sm text-text-secondary">
-            Up to five Videos per Project. Answers show which Videos contributed evidence.
-          </p> : null}
+          {!compact ? <p className="text-body-sm text-text-secondary">{t("upToFiveVideosPerProjectAnswersShow")}</p> : null}
 
           {!compact || !atLimit ? (
             <details open={!compact || sourceSet.videos.length === 0} className="group">
-              <summary className={compact ? "cursor-pointer rounded-md py-1 text-body-sm font-medium text-accent-brand outline-none focus-visible:ring-2 focus-visible:ring-state-focus" : "hidden"}>Add a YouTube video</summary>
+              <summary className={compact ? "cursor-pointer rounded-md py-1 text-body-sm font-medium text-accent-brand outline-none focus-visible:ring-2 focus-visible:ring-state-focus" : "hidden"}>{t("addAYoutubeVideo")}</summary>
           <form
             className="rounded-md border border-border-subtle bg-surface-sunken p-4"
             onSubmit={submitUrl}
           >
             <div className={compact ? "flex flex-col gap-3" : "flex flex-col gap-2 sm:flex-row sm:items-end"}>
               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="project-youtube-url">YouTube Video URL</Label>
+                <Label htmlFor="project-youtube-url">{t("youtubeVideoUrl")}</Label>
                 <Input
                   id="project-youtube-url"
                   type="url"
@@ -610,9 +591,7 @@ export function ProjectSourceSet({
                 <p
                   id="project-youtube-url-description"
                   className="text-caption text-text-muted"
-                >
-                  Paste a link to add a video and prepare its transcript.
-                </p>
+                >{t("pasteALinkToAddAVideoAnd")}</p>
               </div>
               <Button
                 type="submit"
@@ -621,7 +600,7 @@ export function ProjectSourceSet({
                 }
               >
                 <Plus aria-hidden="true" />
-                {pendingAction === "process:new" ? "Processing…" : "Add Video"}
+                {pendingAction === "process:new" ? t("processingLabel") : t("addVideo")}
               </Button>
             </div>
           </form>
@@ -631,10 +610,8 @@ export function ProjectSourceSet({
           {atLimit ? (
             <Alert role="note">
               <AlertTriangle aria-hidden="true" />
-              <AlertTitle>Source Set limit reached</AlertTitle>
-              <AlertDescription>
-                Projects include five video slots on every plan. Remove a video to add a different one.
-              </AlertDescription>
+              <AlertTitle>{t("sourceSetLimitReached")}</AlertTitle>
+              <AlertDescription>{t("projectsIncludeFiveVideoSlotsOnEveryPlan")}</AlertDescription>
             </Alert>
           ) : null}
 
@@ -642,33 +619,29 @@ export function ProjectSourceSet({
             <Alert role="note">
               <AlertTriangle aria-hidden="true" />
               <AlertTitle>
-                {unavailableCount} of {sourceSet.videos.length} Project Videos unavailable
-              </AlertTitle>
-              <AlertDescription>
-                Answers can use {readyCount} ready {readyCount === 1 ? "video" : "videos"}. The others will be included once ready.
-              </AlertDescription>
+                {unavailableCount} {t("of")} {sourceSet.videos.length} {t("projectVideosUnavailable")}</AlertTitle>
+              <AlertDescription>{t("readyForAnswers", {count: readyCount})}</AlertDescription>
             </Alert>
           ) : null}
 
           {error ? (
             <div className="flex flex-wrap items-center gap-3" role="alert">
-              <p className="text-body-sm text-accent-danger">{error}</p>
+              <p className="text-body-sm text-accent-danger">{projectNotice(t, error)}</p>
               {upgradeUrl ? (
                 <Button asChild size="sm" variant="outline">
-                  <Link href={upgradeUrl}>View plans</Link>
+                  <Link href={upgradeUrl}>{t("viewPlans")}</Link>
                 </Button>
               ) : null}
             </div>
           ) : null}
           {notice ? (
             <p role="status" className="text-body-sm text-accent-success">
-              {notice}
+              {typeof notice === "string" ? projectNotice(t, notice) : t(notice.key, {value1: notice.title ?? t("untitledVideo")})}
             </p>
           ) : null}
           {processingCount > 0 ? (
             <p role="status" className="sr-only">
-              {processingCount} Project {processingCount === 1 ? "Video is" : "Videos are"} processing.
-            </p>
+              {t("processingCount", {count: processingCount})}</p>
           ) : null}
 
 

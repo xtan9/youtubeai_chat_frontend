@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {renderWithLocale as render} from "@/tests-utils/locale-provider";
+import { screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const captureMock = vi.hoisted(() => vi.fn());

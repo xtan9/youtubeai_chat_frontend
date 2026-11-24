@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 import { buildProjectBriefMarkdown } from "@/lib/projects/project-brief";
 import {
@@ -12,21 +13,23 @@ type ReadyProjectBrief = Extract<
   { status: "ready" }
 >;
 
-const PROJECT_BRIEF_DEFINITION = {
-  kind: "project_brief",
-  slug: "project-brief",
-  responseKey: "projectBrief",
-  title: "Project Brief",
-  shortName: "brief",
-  icon: "document",
-  description:
-    "A durable research brief that keeps findings, agreements, disagreements, and open questions tied to this Project’s Evidence Snapshot.",
-  emptyTitle: "Turn your ready sources into a decision-ready brief.",
-  emptyDescription:
-    "The brief separates what sources support, where they materially disagree, and what remains unresolved, with every factual line linked to Transcript evidence.",
-  filenameSuffix: "project-brief",
-  buildMarkdown: buildProjectBriefMarkdown,
-} satisfies ProjectArtifactPanelDefinition;
+function getDefinition(t: ReturnType<typeof useTranslations<"project">>) {
+  return {
+    kind: "project_brief",
+    slug: "project-brief",
+    responseKey: "projectBrief",
+    title: t("projectBrief"),
+    shortName: t("brief"),
+    icon: "document",
+    description:
+      t("aDurableResearchBriefThatKeepsFindingsAgreements"),
+    emptyTitle: t("turnYourReadySourcesIntoADecisionReady"),
+    emptyDescription:
+      t("theBriefSeparatesWhatSourcesSupportWhereThey"),
+    filenameSuffix: "project-brief",
+    buildMarkdown: buildProjectBriefMarkdown,
+  } satisfies ProjectArtifactPanelDefinition;
+}
 
 export function ProjectBrief({
   projectId,
@@ -45,9 +48,10 @@ export function ProjectBrief({
   readonly onGenerationsUsedChange?: (generationsUsed: number) => void;
   readonly onCurrentChange?: (hasCurrent: boolean) => void;
 }) {
+  const t = useTranslations("project");
   return (
     <ProjectArtifactPanel
-      definition={PROJECT_BRIEF_DEFINITION}
+      definition={getDefinition(t)}
       projectId={projectId}
       projectName={projectName}
       currentSourceSetRevision={currentSourceSetRevision}

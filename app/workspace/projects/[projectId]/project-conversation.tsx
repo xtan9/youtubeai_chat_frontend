@@ -1,4 +1,6 @@
 "use client";
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Check, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
@@ -40,10 +42,12 @@ export function ProjectConversation({
   initialConversation: ProjectConversation;
   initialConversations?: readonly ProjectConversationSummary[];
 }) {
-  const [question, setQuestion] = useState("");
+  const t = useTranslations("project");
+  const [editedQuestion, setQuestion] = useState<string | null>("");
   const [questionMode, setQuestionMode] = useState<ProjectConversationMode>(
     PROJECT_DEFAULT_CONVERSATION_MODE,
   );
+  const question = editedQuestion ?? t(`${questionMode}Question`);
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const paywallCapturedRef = useRef(false);
@@ -157,23 +161,18 @@ export function ProjectConversation({
               <h2
                 id="project-conversation-heading"
                 className="text-h4 font-semibold text-text-primary"
-              >
-                Project Conversation
-              </h2>
-              <p className="text-body-sm text-text-secondary">
-                Ask questions, compare viewpoints, and check the cited video passages.
-              </p>
+              >{t("projectConversation")}</h2>
+              <p className="text-body-sm text-text-secondary">{t("askQuestionsCompareViewpointsAndCheckTheCited")}</p>
             </div>
             {conversation.conversation.messagesLimit === 5 ? (
               <Badge
                 variant="outline"
                 role="status"
-                aria-label={`${conversation.conversation.messagesUsed} of 5 free Project messages used`}
+                aria-label={t("of5FreeProjectMessagesUsed", {value1: conversation.conversation.messagesUsed})}
               >
-                {conversation.conversation.messagesUsed}/5 free messages
-              </Badge>
+                {conversation.conversation.messagesUsed}{t("5FreeMessages")}</Badge>
             ) : (
-              <Badge variant="outline">Pro · unlimited</Badge>
+              <Badge variant="outline">{t("proUnlimited")}</Badge>
             )}
           </div>
         </CardHeader>
@@ -186,9 +185,7 @@ export function ProjectConversation({
               <h3
                 id="project-conversation-list-heading"
                 className="text-body-sm font-semibold text-text-primary"
-              >
-                Conversation threads
-              </h3>
+              >{t("conversationThreads")}</h3>
               <Button
                 type="button"
                 variant="outline"
@@ -196,15 +193,14 @@ export function ProjectConversation({
                 onClick={() => void conversation.createConversation()}
                 disabled={conversation.streaming || conversation.conversationLoading}
               >
-                <Plus aria-hidden="true" />
-                New conversation
-              </Button>
+                <Plus aria-hidden="true" />{t("newConversation")}</Button>
             </div>
             {visibleConversations.length > 0 ? (
-              <ul className="flex flex-wrap gap-2" aria-label="Project Conversations">
+              <ul className="flex flex-wrap gap-2" aria-label={t("projectConversations")}>
                 {visibleConversations.map((item) => {
                   const active =
                     item.conversationId === conversation.activeConversationId;
+                  const displayName = item.name === "Project Conversation" ? t("projectConversation") : item.name === "New conversation" ? t("newConversation") : item.name;
                   const editing = item.conversationId === editingConversationId;
                   return (
                     <li
@@ -221,9 +217,7 @@ export function ProjectConversation({
                               .then(() => setEditingConversationId(null));
                           }}
                         >
-                          <Label htmlFor={`conversation-name-${item.conversationId}`} className="sr-only">
-                            Conversation name
-                          </Label>
+                          <Label htmlFor={`conversation-name-${item.conversationId}`} className="sr-only">{t("conversationName")}</Label>
                           <Input
                             id={`conversation-name-${item.conversationId}`}
                             value={editingName}
@@ -232,14 +226,14 @@ export function ProjectConversation({
                             autoFocus
                             className="h-8 w-40"
                           />
-                          <Button type="submit" size="icon" variant="ghost" aria-label="Save conversation name">
+                          <Button type="submit" size="icon" variant="ghost" aria-label={t("saveConversationName")}>
                             <Check aria-hidden="true" />
                           </Button>
                           <Button
                             type="button"
                             size="icon"
                             variant="ghost"
-                            aria-label="Cancel renaming conversation"
+                            aria-label={t("cancelRenamingConversation")}
                             onClick={() => setEditingConversationId(null)}
                           >
                             <X aria-hidden="true" />
@@ -253,16 +247,16 @@ export function ProjectConversation({
                             aria-pressed={active}
                             onClick={() => void conversation.selectConversation(item.conversationId)}
                           >
-                            <span className="block max-w-48 truncate">{item.name}</span>
+                            <span className="block max-w-48 truncate">{displayName}</span>
                             <span className="block text-caption text-text-muted">
-                              {item.messageCount} {item.messageCount === 1 ? "message" : "messages"}
+                              {t("threadMessages", {count: item.messageCount})}
                             </span>
                           </button>
                           <Button
                             type="button"
                             size="icon"
                             variant="ghost"
-                            aria-label={`Rename ${item.name}`}
+                            aria-label={t("rename", {value1: displayName})}
                             onClick={() => {
                               setEditingConversationId(item.conversationId);
                               setEditingName(item.name);
@@ -276,7 +270,7 @@ export function ProjectConversation({
                               type="button"
                               size="icon"
                               variant="ghost"
-                              aria-label={`Clear ${item.name}`}
+                              aria-label={t("clear", {value1: displayName})}
                               onClick={() => void conversation.clearConversation(item.conversationId)}
                               disabled={conversation.streaming || conversation.conversationLoading}
                             >
@@ -290,14 +284,10 @@ export function ProjectConversation({
                 })}
               </ul>
             ) : (
-              <p className="text-body-sm text-text-secondary">
-                No saved conversations yet. Start a question or create a new thread.
-              </p>
+              <p className="text-body-sm text-text-secondary">{t("noSavedConversationsYetStartAQuestionOr")}</p>
             )}
             {conversation.conversationLoading ? (
-              <p role="status" className="text-caption text-text-muted">
-                Loading conversation history…
-              </p>
+              <p role="status" className="text-caption text-text-muted">{t("loadingConversationHistory")}</p>
             ) : null}
           </section>
 
@@ -306,7 +296,7 @@ export function ProjectConversation({
             role="log"
             aria-live="off"
             aria-relevant="additions"
-            aria-label="Project Conversation messages"
+            aria-label={t("projectConversationMessages")}
           >
             {conversation.conversation.nextEventCursor ? (
               <div className="flex justify-center">
@@ -318,8 +308,8 @@ export function ProjectConversation({
                   onClick={() => void conversation.loadEarlierActivity()}
                 >
                   {conversation.loadingEarlierActivity
-                    ? "Loading activity…"
-                    : "Load earlier activity"}
+                    ? t("loadingActivity")
+                    : t("loadEarlierActivity")}
                 </Button>
               </div>
             ) : null}
@@ -332,19 +322,14 @@ export function ProjectConversation({
                   disabled={conversation.loadingEarlier}
                   onClick={() => void conversation.loadEarlier()}
                 >
-                  {conversation.loadingEarlier ? "Loading…" : "Load earlier"}
+                  {conversation.loadingEarlier ? t("loading") : t("loadEarlier")}
                 </Button>
               </div>
             ) : null}
             {!hasMessages && !conversation.draft ? (
               <div className="rounded-lg border border-dashed border-border-default bg-surface-sunken p-6 text-center">
-                <p className="text-body-md font-medium text-text-primary">
-                  What would you like to understand?
-                </p>
-                <p className="mt-1 text-body-sm text-text-secondary">
-                  Ask in your own words, or choose a research action below.
-                  Answers cite your videos; they do not independently verify their claims.
-                </p>
+                <p className="text-body-md font-medium text-text-primary">{t("whatWouldYouLikeToUnderstand")}</p>
+                <p className="mt-1 text-body-sm text-text-secondary">{t("askInYourOwnWordsOrChooseA")}</p>
 
               </div>
             ) : null}
@@ -393,46 +378,37 @@ export function ProjectConversation({
               aria-atomic="true"
               className="text-body-sm text-text-secondary"
             >
-              {conversation.announcement}
+              {projectNotice(t, conversation.announcement)}
             </p>
           ) : null}
           {conversation.error ? (
             <div className="flex flex-wrap items-center gap-3" role="alert">
-              <p className="text-body-sm text-accent-danger">{conversation.error}</p>
+              <p className="text-body-sm text-accent-danger">{projectNotice(t, conversation.error)}</p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => void conversation.retry()}
                 disabled={conversation.streaming || conversation.conversationLoading}
-              >
-                Try again
-              </Button>
+              >{t("tryAgain")}</Button>
             </div>
           ) : null}
 
           {atCap ? (
             <div className="rounded-lg border border-border-subtle bg-surface-sunken p-4 text-center">
-              <p className="text-body-md font-medium text-text-primary">
-                You’ve used 5/5 free messages in this Project.
-              </p>
-              <p className="mt-1 text-body-sm text-text-secondary">
-                Upgrade to Pro for unlimited Project questions within technical
-                limits.
-              </p>
+              <p className="text-body-md font-medium text-text-primary">{t("youVeUsed55FreeMessagesIn")}</p>
+              <p className="mt-1 text-body-sm text-text-secondary">{t("upgradeToProForUnlimitedProjectQuestionsWithin")}</p>
               <Button asChild size="sm" className="mt-3">
                 <Link
                   href={buildAttributedPricingHref("project_chat_limit")}
                   onClick={subscriptionDiscovery.captureClick}
-                >
-                  View Pro plans
-                </Link>
+                >{t("viewProPlans")}</Link>
               </Button>
             </div>
           ) : (
             <form onSubmit={submit} className="flex scroll-mt-16 flex-col gap-3 rounded-xl border border-border-default bg-surface-base p-4 shadow-sm">
               <div className="sm:hidden">
-                <Label htmlFor="project-research-action" className="sr-only">Research action</Label>
+                <Label htmlFor="project-research-action" className="sr-only">{t("researchAction")}</Label>
                 <select
                   id="project-research-action"
                   value={questionMode}
@@ -441,23 +417,23 @@ export function ProjectConversation({
                     const mode = event.target.value as ProjectConversationMode;
                     setQuestionMode(mode);
                     const action = PROJECT_GUIDED_ACTIONS.find((item) => item.mode === mode);
-                    if (action) setQuestion(action.question);
+                    setQuestion(action ? null : "");
                   }}
                   className="h-10 w-full min-w-0 rounded-md border border-border-default bg-surface-base px-3 text-body-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-state-focus disabled:opacity-50"
                 >
-                  <option value={PROJECT_DEFAULT_CONVERSATION_MODE}>Ask a question</option>
-                  {PROJECT_GUIDED_ACTIONS.map((action) => <option key={action.mode} value={action.mode}>{action.label}</option>)}
+                  <option value={PROJECT_DEFAULT_CONVERSATION_MODE}>{t("askAQuestion")}</option>
+                  {PROJECT_GUIDED_ACTIONS.map((action) => <option key={action.mode} value={action.mode}>{t(`${action.mode}Label`)}</option>)}
                 </select>
               </div>
-              <div className="hidden flex-wrap gap-2 sm:flex" aria-label="Guided Project Conversation actions">
+              <div className="hidden flex-wrap gap-2 sm:flex" aria-label={t("guidedProjectConversationActions")}>
                 <Button
                   type="button"
                   size="sm"
                   variant={questionMode === PROJECT_DEFAULT_CONVERSATION_MODE ? "secondary" : "ghost"}
                   aria-pressed={questionMode === PROJECT_DEFAULT_CONVERSATION_MODE}
                   disabled={conversation.streaming || conversation.conversationLoading}
-                  onClick={() => setQuestionMode(PROJECT_DEFAULT_CONVERSATION_MODE)}
-                >Ask a question</Button>
+                  onClick={() => { setQuestion(question); setQuestionMode(PROJECT_DEFAULT_CONVERSATION_MODE); }}
+                >{t("askAQuestion")}</Button>
                 {PROJECT_GUIDED_ACTIONS.map((action) => (
                   <Button
                     key={action.mode}
@@ -465,24 +441,22 @@ export function ProjectConversation({
                     size="sm"
                     variant={questionMode === action.mode ? "secondary" : "ghost"}
                     className="h-auto min-h-8 whitespace-normal text-left"
-                    title={action.description}
+                    title={t(`${action.mode}Description`)}
                     aria-pressed={questionMode === action.mode}
                     onClick={() => {
-                      setQuestion(action.question);
+                      setQuestion(null);
                       setQuestionMode(action.mode);
                     }}
                     disabled={conversation.streaming || conversation.conversationLoading}
-                  >{action.label}</Button>
+                  >{t(`${action.mode}Label`)}</Button>
                 ))}
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="project-question">Ask the Project</Label>
+                <Label htmlFor="project-question">{t("askTheProject")}</Label>
                 {questionMode !== PROJECT_DEFAULT_CONVERSATION_MODE ? (
                   <div className="flex flex-wrap items-center gap-2" role="status">
                     <ModeBadge mode={questionMode} />
-                    <span className="text-caption text-text-muted">
-                      Edit this question before sending.
-                    </span>
+                    <span className="text-caption text-text-muted">{t("editThisQuestionBeforeSending")}</span>
                   </div>
                 ) : null}
                 <Textarea
@@ -493,11 +467,10 @@ export function ProjectConversation({
                   disabled={conversation.streaming || conversation.conversationLoading}
                   aria-describedby="project-question-help"
                   aria-invalid={question.length > 0 && !questionIsValid}
-                  placeholder="What do these videos agree on? Which claims have stronger evidence?"
+                  placeholder={t("whatDoTheseVideosAgreeOnWhichClaims")}
                 />
                 <p id="project-question-help" className="text-caption text-text-muted">
-                  {questionLength}/{PROJECT_QUESTION_MAX_LENGTH} characters.
-                  {conversation.conversation.messagesLimit === 5 ? " Free includes five user messages per Project." : " Answers use the videos in this Project."}
+                  {questionLength}/{PROJECT_QUESTION_MAX_LENGTH} {t("characters")}{conversation.conversation.messagesLimit === 5 ? t("freeIncludesFiveUserMessagesPerProject") : t("answersUseTheVideosInThisProject")}
                 </p>
               </div>
               <div className="flex justify-end">
@@ -514,16 +487,14 @@ export function ProjectConversation({
                       <Square aria-hidden="true" />
                     )}
                     {conversation.reconciling
-                      ? "Reconciling..."
+                      ? t("reconciling")
                       : conversation.persistenceStarted
-                        ? "Saving..."
-                        : "Stop"}
+                        ? t("saving")
+                        : t("stop")}
                   </Button>
                 ) : (
                   <Button type="submit" disabled={!questionIsValid || conversation.conversationLoading}>
-                    <Send aria-hidden="true" />
-                    Ask Project
-                  </Button>
+                    <Send aria-hidden="true" />{t("askProject")}</Button>
                 )}
               </div>
             </form>
