@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { resourceSchema } from "@/lib/video-space/contract";
+import { HighlightTranslation } from "@/app/summary/components/highlight-translation";
+import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
+import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import {
@@ -205,6 +209,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       "question",
       "excerpt",
       "section",
+      "draft",
     ]) {
       url.searchParams.delete(k);
       if (next[k] !== undefined) url.searchParams.set(k, next[k]);
@@ -348,12 +353,10 @@ export function IntentDesk({ name, projectId, store, initial }) {
     }
   }
   function startResearch(q) {
-    const background = space.resources
-      .slice(0, 8)
-      .map((m) => ({
-        title: m.title.slice(0, 140),
-        excerpt: (m.pages[0]?.text || m.digest?.summary || "").slice(0, 320),
-      }));
+    const background = space.resources.slice(0, 8).map((m) => ({
+      title: m.title.slice(0, 140),
+      excerpt: (m.pages[0]?.text || m.digest?.summary || "").slice(0, 320),
+    }));
     return investigate(
       q.title,
       {
@@ -365,11 +368,12 @@ export function IntentDesk({ name, projectId, store, initial }) {
       q.id,
     );
   }
-  function show(id, excerpt) {
+  function show(id, excerpt, draft) {
     const q = runs[id]?.question;
     if (q) {
       showRoute({
         question: q.id,
+        draft,
         finding: id,
         excerpt: excerpt || q.references[0],
       });
@@ -392,7 +396,9 @@ export function IntentDesk({ name, projectId, store, initial }) {
     ];
   }
   function returnToDraft(q) {
-    if (q && w.draft.markers.some((m) => m.finding === answerId(q))) {
+    const target = space.drafts.find((d) => d.id === route.draft) || w.draft;
+    if (q && target.markers.some((m) => m.finding === answerId(q))) {
+      if (target.id !== w.draft.id) w.changeDraft(target.id);
       returnMarker.current = answerId(q);
       setFull(false);
     }
@@ -518,9 +524,23 @@ export function IntentDesk({ name, projectId, store, initial }) {
       retry,
     );
   }
+  const roomRef = useRef(null);
+  const discussionLock = useRef(false);
   const [chatBusy, setChatBusy] = useState(false);
   async function discuss(q, finding) {
-    if (!room || chatBusy) return;
+    if (
+      !room ||
+      discussionLock.current ||
+      !q.trim() ||
+      initial.history === null
+    )
+      return;
+    if ((live.current.claimDiscussion?.length || 0) >= 2000) {
+      setFailure((prev) => ({ ...prev, [room.id]: tr("discussionFull") }));
+      return;
+    }
+    discussionLock.current = true;
+    setFailure((prev) => ({ ...prev, [room.id]: "" }));
     const key = room.id;
     setChatBusy(true);
     try {
@@ -537,7 +557,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
         finding:
           finding && JSON.stringify(finding.document.synthesis).slice(0, 12000),
       });
-      update((s) => ({
+      const accepted = update((s) => ({
         ...s,
         claimDiscussion: [
           ...(s.claimDiscussion || []),
@@ -551,13 +571,16 @@ export function IntentDesk({ name, projectId, store, initial }) {
           },
         ],
       }));
-      setQuestions((prev) => ({ ...prev, [key]: "" }));
+      if (!accepted) throw Error("discussionSave");
+      setQuestions((prev) => (prev[key] === q ? { ...prev, [key]: "" } : prev));
+      await flush();
     } catch (e) {
       setFailure((prev) => ({
         ...prev,
         [key]: tr.has(e.message) ? tr(e.message) : e.message,
       }));
     } finally {
+      discussionLock.current = false;
       setChatBusy(false);
     }
   }
@@ -590,7 +613,9 @@ export function IntentDesk({ name, projectId, store, initial }) {
     setDestination(null);
     setMobile("paper");
   }
+  const [excerptError, setExcerptError] = useState("");
   function addExcerpt(e) {
+    setExcerptError("");
     e.preventDefault();
     const data = new FormData(e.currentTarget),
       text = String(data.get("quote")).trim(),
@@ -626,6 +651,10 @@ export function IntentDesk({ name, projectId, store, initial }) {
         ],
       },
     };
+    if (!resourceSchema.safeParse(resource).success) {
+      setExcerptError(tr("invalidSpaceRequest"));
+      return;
+    }
     if (update((s) => ({ ...s, resources: [...s.resources, resource] })))
       setShowExcerpt(false);
   }
@@ -832,6 +861,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                     <input
                       type="url"
                       name="url"
+                      maxLength={3000}
                       onInput={(e) => e.target.setCustomValidity("")}
                     />
                   </label>
@@ -839,9 +869,11 @@ export function IntentDesk({ name, projectId, store, initial }) {
                     {t("locationInOriginalOptional")}{" "}
                     <input
                       name="location"
+                      maxLength={140}
                       placeholder={t("pageParagraphOrTimestamp")}
                     />
                   </label>
+                  {excerptError && <p role="alert">{excerptError}</p>}
                   <button className="secondary">{t("saveExcerpt")}</button>{" "}
                   <button
                     type="button"
@@ -891,7 +923,19 @@ export function IntentDesk({ name, projectId, store, initial }) {
           </nav>
         </aside>
         {inRoom && (
-          <section className="pane room" aria-label={t("claimResearch")}>
+          <section
+            ref={roomRef}
+            data-translation-room=""
+            data-translation-version={
+              room &&
+              !room.resource &&
+              !space.customClaims?.some((c) => c.id === room.id)
+                ? room.versions[0]?.id
+                : undefined
+            }
+            className="pane room"
+            aria-label={t("claimResearch")}
+          >
             <div
               className="native vs native-room"
               key={room?.id || route.source}
@@ -905,7 +949,19 @@ export function IntentDesk({ name, projectId, store, initial }) {
                     }
                     onBack={() => showRoute({})}
                     directoryToggle={null}
-                  />
+                  >
+                    <HighlightTranslation
+                      key={room.id}
+                      projectId={projectId}
+                      claimId={room.id}
+                      ensureSaved={store.ensureReadingSaved}
+                      readingRef={roomRef}
+                      browserLanguage={pickDefaultLanguage(
+                        Array.from(navigator.languages || []),
+                        SUPPORTED_LANGUAGE_CODES,
+                      )}
+                    />
+                  </ClaimRoomHeader>
                   {failure[room.id] && <p role="alert">{failure[room.id]}</p>}
                   <ClaimRoom
                     room={room}
@@ -1045,7 +1101,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
               flush={flush}
               space={space}
               update={update}
-              show={show}
+              show={(finding, excerpt) => show(finding, excerpt, w.draft.id)}
               full={full}
               onFull={setFull}
               rooms={inRoom ? [] : [...index.rooms.values()]}

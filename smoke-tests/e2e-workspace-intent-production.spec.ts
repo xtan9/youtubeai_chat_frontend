@@ -79,6 +79,35 @@ test("published workspace from naming to independently cited manuscript @workspa
       .poll(async () => (await read()).purpose, { timeout: 20000 })
       .toBe(kind);
     await expect(page.locator(".paper .block")).not.toHaveCount(0);
+    if (kind === "blog") {
+      const before = (await read()).drafts.find((d) =>
+        d.id.startsWith("blog/"),
+      )!;
+      const continuation = page.waitForResponse(
+        (r) =>
+          r.url() === endpoint + "/space" &&
+          r.request().method() === "POST" &&
+          r.request().postDataJSON()?.action === "write",
+        { timeout: 120000 },
+      );
+      await page.getByRole("button", { name: "接着写", exact: true }).click();
+      const reply = await continuation;
+      expect(reply.status()).toBe(200);
+      expect(reply.request().postDataJSON().format).toBe("blog");
+      await expect
+        .poll(
+          async () => {
+            const text = (await read()).drafts.find(
+              (d) => d.id === before.id,
+            )?.text;
+            return (
+              text?.startsWith(before.text) && text.length > before.text.length
+            );
+          },
+          { timeout: 20000 },
+        )
+        .toBe(true);
+    }
     console.log("Saved editable " + kind + " draft.");
   }
   expect(new Set((await read()).drafts.map((d) => d.text)).size).toBe(5);
@@ -139,6 +168,7 @@ test("published workspace from naming to independently cited manuscript @workspa
   await page.setViewportSize({ width: 1440, height: 900 });
   const evidence: unknown[] = [];
   let inserted = "";
+  let citedQuestion = "";
   async function investigate(title: string) {
     await page.getByRole("button", { name: title, exact: true }).click();
     const response = page.waitForResponse(
@@ -189,10 +219,11 @@ test("published workspace from naming to independently cited manuscript @workspa
         await expect(page.locator(".q-passage blockquote").first()).toHaveText(
           cited[0].quote,
         );
-        await expect(page.locator(".q-passage a").first()).toHaveAttribute(
-          "href",
-          cited[0].url,
-        );
+        const original = await page
+          .locator(".q-passage a")
+          .first()
+          .getAttribute("href");
+        expect(original?.split("#")[0]).toBe(cited[0].url);
         await page.reload();
         await expect(page.locator(".q-passage blockquote").first()).toHaveText(
           cited[0].quote,
@@ -200,6 +231,7 @@ test("published workspace from naming to independently cited manuscript @workspa
         await page.getByRole("button", { name: "返回文稿" }).click();
         await expect(marker).toBeVisible();
         inserted = v.id;
+        citedQuestion = title;
       }
       console.log("Supported answer and exact quotations for " + title);
     }
@@ -225,6 +257,26 @@ test("published workspace from naming to independently cited manuscript @workspa
     await investigate(control);
   }
   expect(inserted).toBeTruthy();
+  await page
+    .getByRole("button", { name: "编辑「" + citedQuestion + "」" })
+    .click();
+  await page.getByLabel("问题标题").fill(citedQuestion + "（修订）");
+  await page
+    .locator(".q-edit")
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await page.getByRole("button", { name: "返回文稿" }).click();
+  await page
+    .locator('.q-draft-cites[data-answer-id="' + inserted + '"] button')
+    .first()
+    .click();
+  await expect(page.locator(".q-sheet h2")).toHaveText(citedQuestion);
+  await expect(
+    page.getByText("引用时的研究记录", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".q-results blockquote").first()).toBeVisible();
+  await page.getByRole("button", { name: "返回文稿" }).click();
   await add("一个临时研究问题");
   await page.getByRole("button", { name: "编辑「一个临时研究问题」" }).click();
   await page.getByLabel("问题标题").fill("改名后的临时问题");

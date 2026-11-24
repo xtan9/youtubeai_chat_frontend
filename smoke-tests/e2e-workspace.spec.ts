@@ -1077,7 +1077,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   page,
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
-  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/manage`);
 
   // Wait for the client auth provider before exercising keyboard activation;
   // otherwise an SSR-visible button can receive Enter before React hydrates.
@@ -1111,7 +1111,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await expect(recentHeadings).toHaveText(["Creator brief", "Evidence review"]);
 
   await firstCard.getByRole("link", { name: "Open Evidence review" }).click();
-  await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001$/);
+  await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001\/materials$/);
   await expect(page.getByRole("heading", { name: "Evidence review", level: 1 })).toBeVisible();
   await openProjectSection(page, "Settings");
   await expect(page.getByRole("heading", { name: "Guidance, not evidence" })).toBeVisible();
@@ -1147,6 +1147,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
 
   await page.getByRole("link", { name: "Back to Workspace" }).click();
   await expect(page).toHaveURL(`${appUrl}/workspace`);
+  await page.getByRole("link", {name:"Manage projects",exact:true}).click();
   await expect(recentHeadings).toHaveText(["Evidence synthesis", "Creator brief"]);
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1168,7 +1169,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await deleteDialog.getByRole("button", { name: "Delete Project" }).click();
   await expect(page).toHaveURL(`${appUrl}/workspace`);
   await expect(page.getByRole("heading", { name: "Evidence synthesis" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Creator brief" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Creator brief" })).toBeVisible();
 
   await page.goto(`${appUrl}/workspace/projects/not-a-project-id`);
   await expect(
@@ -2281,7 +2282,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
     .getByRole("alertdialog", { name: "Delete “Free research home”?" })
     .getByRole("button", { name: "Delete Project" })
     .click();
-  await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
+  await expect(page.getByLabel("Project name")).toBeVisible();
 
   const concurrent = await Promise.all([
     context.request.post(`${appUrl}/api/workspace/projects`, {
@@ -2302,7 +2303,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
     upgradeUrl: "/pricing",
   });
 
-  await page.reload();
+  await page.goto(`${appUrl}/workspace/manage`);
   await expect(page.locator('[aria-labelledby="recent-projects-heading"] h3')).toHaveCount(1);
 });
 

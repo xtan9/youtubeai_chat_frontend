@@ -116,6 +116,28 @@ describe("external literature HTTP boundary", () => {
     expect(result.evidence).toHaveLength(1);
     expect(result.partial).toBe(true);
   });
+  it("keeps a publisher's original abstract when medical discovery is unavailable", async () => {
+    const work = {
+      DOI: "10.1234/household-oils", title: ["Household cooking in the twentieth century"],
+      type: "book-chapter", issued: { "date-parts": [[2001]] },
+      abstract: "<jats:p>The historical survey counted household purchases in two cities.</jats:p>",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: URL) =>
+      url.origin === "https://api.crossref.org"
+        ? Response.json({ message: { items: [
+            work, { ...work, DOI: "not-a-doi" }, { ...work, type: "posted-content" },
+            { ...work, title: ["Retraction of another chapter"], DOI: "10.1234/retraction" },
+          ] } })
+        : new Response(null, { status: 503 })
+    ));
+    const result = await searchResearchLiterature("historical cooking oil", new AbortController().signal, true);
+    expect(result.partial).toBe(true);
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      url: "https://doi.org/10.1234/household-oils", year: "2001",
+      text: "The historical survey counted household purchases in two cities.",
+    });
+  });
   it("does not treat provider failure as an empty search", async () => {
     vi.stubGlobal(
       "fetch",

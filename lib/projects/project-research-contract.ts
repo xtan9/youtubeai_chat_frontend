@@ -67,7 +67,7 @@ export const ResearchEvidenceSchema = z
     url: z
       .url()
       .refine((url) =>
-        /^https:\/\/(?:europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
+        /^https:\/\/(?:doi\.org\/10\.\d{4,9}\/|europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
           url,
         ),
       ),

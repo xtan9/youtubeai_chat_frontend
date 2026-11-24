@@ -20,7 +20,10 @@ function Editable({ as: Tag = "p", value, label, onEdit, className }) {
       role="textbox"
       aria-label={label}
       data-placeholder={t("writeYourIdeasHere")}
-      onInput={(e) => onEdit(e.currentTarget.innerText)}
+      onInput={(e) => {
+        if (onEdit(e.currentTarget.innerText) === false)
+          e.currentTarget.textContent = value;
+      }}
     />
   );
 }
@@ -56,6 +59,8 @@ export function Document({
     kind = formats[d.id.split("/")[0]],
     chunks = paragraphRanges(d.text);
   const rename = (title) =>
+    !!title.trim() &&
+    title.length <= 140 &&
     update((s) => ({
       ...s,
       drafts: s.drafts.map((old) =>
@@ -63,7 +68,7 @@ export function Document({
           ? {
               ...old,
               defaultTitle: undefined,
-              title: title.slice(0, 140) || old.title,
+              title,
             }
           : old,
       ),
@@ -140,6 +145,7 @@ export function Document({
           </button>
         </div>
       </div>
+      {w.error && <p role="alert">{w.error}</p>}
       {full ? (
         <div className="native vs native-script">
           <Script

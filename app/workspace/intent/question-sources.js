@@ -1,3 +1,5 @@
+import { findingReferences } from "@/lib/video-space/claim-spaces";
+
 export function getFormats(t) {
   return {
     research: {
@@ -46,7 +48,10 @@ export function researchRecords(versions, t) {
   for (const version of versions) {
     const { document, id } = version;
     const context = document.space;
-    const refs = document.synthesis.judgment.references;
+    const refs = context?.questionId
+      ? document.synthesis.judgment.references
+      : findingReferences(document);
+    const seen = new Map();
     const passages = [];
     for (const ref of refs) {
       const evidence = document.evidence.find((item) => item.id === ref.id);
@@ -59,7 +64,12 @@ export function researchRecords(versions, t) {
         passages: [],
       };
       sources.set(evidence.url, source);
-      const passageId = id + "-" + ref.id;
+      const quotes = seen.get(ref.id) || new Set();
+      if (quotes.has(ref.quote)) continue;
+      const passageId =
+        id + "-" + ref.id + (quotes.size ? "-" + quotes.size : "");
+      quotes.add(ref.quote);
+      seen.set(ref.id, quotes);
       const passage = {
         id: passageId,
         label:
@@ -67,7 +77,14 @@ export function researchRecords(versions, t) {
             ? t("videoTranscript")
             : t("researchAbstract"),
         quote: ref.quote,
-        anchor: "",
+        anchor:
+          evidence.kind === "video"
+            ? ""
+            : "#:~:text=" +
+              encodeURIComponent(ref.quote.trim().slice(0, 160)).replace(
+                /-/g,
+                "%2D",
+              ),
         uses: [{ id, title: document.question }],
       };
       source.passages.push(passage);
