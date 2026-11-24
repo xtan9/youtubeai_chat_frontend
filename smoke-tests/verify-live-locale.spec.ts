@@ -166,3 +166,73 @@ test("desktop legacy project localizes visible draft names and preserves authore
     expect((await page.request.delete(endpoint)).ok()).toBeTruthy();
   }
 });
+
+test("legacy materials, excerpts and conversation defaults switch in place", async ({page}) => {
+  test.setTimeout(160000);
+  const base = "https://www.youtubeai.chat";
+  await page.goto(base + "/auth/login");
+  await page.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
+  await page.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
+  await page.locator('form button[type=submit]').click();
+  await page.waitForURL(url => ["/","/dashboard"].includes(url.pathname));
+  const name = "自定义项目名称 " + Date.now();
+  const result = await page.request.post(base+"/api/workspace/projects",{data:{name, goal:"自己的研究目标"}});
+  expect(result.status()).toBe(201);
+  const id=(await result.json()).project.id;
+  const target=base+"/api/projects/"+id;
+  try {
+    const seeded=await page.request.put(target+"/space",{data:{revision:0,document:{
+      drafts:[{id:"opening",title:"开场脚本",text:"手写开场",markers:[]}],
+      resources:[{id:"old-pdf",title:"原始素材名称",kind:"pdf",analyzed:true,coverage:"已提取 1 页文字摘录 · 原文共 7 页",
+        pages:[{label:"第 4 页",text:"原文保持原样"}],
+        references:[{url:"https://example.org/study",label:"引用作者的标题",location:"第 4 页"}]}],messages:[]}}});
+    expect(seeded.ok()).toBeTruthy();
+    expect((await page.request.post(target+"/conversations",{data:{}})).ok()).toBeTruthy();
+    await page.goto(base+"/new-workspace/projects/"+id);
+    const lang=page.locator("header select").first();
+    await lang.selectOption("en");
+    await page.getByRole("button",{name:"Summary +",exact:true}).click();
+    await page.getByText("Excerpts",{exact:true}).click();
+    await page.locator(".vs-digest details summary").first().click();
+    for(const [locale,opening,loc,coverage] of [
+      ["en","Opening script","Page 4","Extracted text from 1 of 7 pages."],
+      ["zh","开场脚本","第 4 页","已提取 1 页文字摘录 · 原文共 7 页"],
+      ["zh-TW","開場腳本","第 4 頁","已提取 1 頁文字摘錄 · 原文共 7 頁"],
+    ]){
+      await lang.selectOption(locale);
+      await expect(page.getByRole("heading",{name:opening,exact:true})).toBeVisible();
+      await expect(page.getByText(coverage,{exact:true})).toBeVisible();
+      await expect(page.locator(".vs-digest b")).toHaveText(loc);
+      await expect(page.locator(".vs-digest small")).toHaveText(loc);
+      await expect(page.getByRole("link",{name:/引用作者的标题/})).toBeVisible();
+      await expect(page.getByText("原文保持原样",{exact:false}).last()).toBeVisible();
+    }
+    await page.goto(base+"/workspace/projects/"+id);
+    for (const [locale,research,outputs,search,settings,thread,details,action,outputTitle,sourceButton] of [
+      ["en","Research","Outputs","Search","Settings","New conversation","Project details","Compare viewpoints","Study Guide","Add from History"],
+      ["zh","研究","成果","搜索","设置","新对话","项目详情","比较观点","学习指南","从历史记录添加"],
+      ["zh-TW","研究","成果","搜尋","設定","新對話","專案詳情","比較觀點","學習指南","從歷史記錄添加"],
+    ]) {
+      await lang.selectOption(locale);
+      await expect(page.getByRole("heading",{name,exact:true})).toBeVisible();
+      await page.getByRole("tab",{name:research,exact:true}).click();
+      await expect(page.getByRole("list").getByText(thread,{exact:true})).toBeVisible();
+      await page.getByRole("button",{name:action,exact:true}).click();
+      await expect(page.locator("#project-question")).not.toBeEmpty();
+      await page.getByRole("tab",{name:outputs,exact:true}).click();
+      await expect(page.getByRole("heading",{name:outputTitle,exact:true})).toBeVisible();
+      await page.getByRole("tab",{name:search,exact:true}).click();
+      await expect(page.locator('input:visible').first()).toBeVisible();
+      await page.getByRole("tab",{name:settings,exact:true}).click();
+      await expect(page.getByRole("heading",{name:details,exact:true})).toBeVisible();
+      await page.getByRole("button",{name:sourceButton,exact:true}).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
+    await page.reload();
+    await expect(lang).toHaveValue("zh-TW");
+    await expect(page.getByRole("tab",{name:"設定",exact:true})).toBeVisible();
+  } finally {
+    expect((await page.request.delete(target)).status()).toBe(204);
+  }
+});
