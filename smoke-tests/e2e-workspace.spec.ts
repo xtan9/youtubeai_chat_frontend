@@ -631,6 +631,11 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await page.getByRole("button",{name:"Create and open"}).click();
   await page.getByRole("link",{name:"Original Project materials",exact:false}).click();
 
+  await openProjectSection(page,"Settings");
+  await page.getByLabel("Project Goal (optional)").fill("Explore local climate adaptation decisions.");
+  await page.getByRole("button",{name:"Save changes"}).click();
+  await expect(page.getByText("Changes saved.",{exact:true})).toBeVisible();
+  await openProjectSection(page,"Research");
   async function addFixtureVideo(title: string) {
     await showProjectSources(page);
     await page.getByRole("button", { name: "Add from History" }).press("Enter");
