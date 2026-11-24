@@ -152,6 +152,7 @@ test("published workspace from naming to independently cited manuscript @workspa
   }
   for (const question of questions) await add(question);
   await page.getByRole("button", { name: questions[0], exact: true }).click();
+  await expect.poll(async ()=>(await read()).questions?.length).toBe(4);
   await page.screenshot({ path: folder + "/desktop.png" });
   const grid = page.locator(".integrated");
   const geometry = await grid.evaluate((el) => ({

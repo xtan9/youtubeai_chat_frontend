@@ -61,13 +61,13 @@ export const ResearchSynthesisSchema = z
 export const ResearchEvidenceSchema = z
   .object({
     id: z.string().regex(/^[VE][a-f0-9]{16}$/u),
-    kind: z.enum(["video", "publication_abstract"]),
+    kind: z.enum(["video", "publication_abstract", "reference_article"]),
     originId: z.string().min(1).max(300),
     title: z.string().min(1).max(1000),
     url: z
       .url()
       .refine((url) =>
-        /^https:\/\/(?:doi\.org\/10\.\d{4,9}\/|europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
+        /^https:\/\/(?:en\.wikipedia\.org\/w\/index\.php\?oldid=\d+$|doi\.org\/10\.\d{4,9}\/|europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
           url,
         ),
       ),
@@ -131,6 +131,7 @@ export function parseResearchJson(raw: string): unknown {
 export function validateResearchSynthesis(
   raw: string,
   evidence: readonly ResearchEvidence[],
+  preservePassages = false,
 ) {
   const parsed = ResearchSynthesisSchema.parse(parseResearchJson(raw));
   const byId = new Map(evidence.map((item) => [item.id, item]));
@@ -146,16 +147,17 @@ export function validateResearchSynthesis(
     // every excerpt first, then render one citation to the complete source.
     const seen = new Set<string>();
     item.references = item.references.filter((reference) => {
-      if (seen.has(reference.id)) return false;
-      seen.add(reference.id);
+      const key = preservePassages ? JSON.stringify([reference.id,reference.quote]) : reference.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   }
   if (
-    evidence.some((item) => item.kind === "publication_abstract") &&
+    evidence.some((item) => item.kind !== "video") &&
     ![parsed.judgment, ...parsed.findings].some((item) =>
       item.references.some(
-        (ref) => byId.get(ref.id)?.kind === "publication_abstract",
+        (ref) => byId.get(ref.id)!.kind !== "video",
       ),
     )
   ) {

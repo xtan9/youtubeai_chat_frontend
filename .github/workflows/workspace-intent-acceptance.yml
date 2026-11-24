@@ -18,9 +18,21 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Install the headless browser
+        run: |
+          pnpm exec playwright install chromium --only-shell
+          if ! node -e 'require("@playwright/test").chromium.launch().then(browser => browser.close()).catch(() => process.exit(1))'; then
+            pnpm exec playwright install-deps chromium
+          fi
       - name: Install Chinese typefaces for visual acceptance
-        run: sudo apt-get install -y fonts-noto-cjk
+        run: |
+          mkdir -p "$HOME/.local/share/fonts"
+          base=https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c
+          for family in Sans Serif; do
+            font="Noto${family}CJKsc-Regular.otf"
+            curl -fsSL --retry 2 --max-time 90 "$base/$family/OTF/SimplifiedChinese/$font" -o "$HOME/.local/share/fonts/$font"
+          done
+          fc-cache "$HOME/.local/share/fonts"
       - name: Verify the dedicated smoke account
         run: pnpm exec tsx smoke-tests/verify-live-summary-account.ts
         env:

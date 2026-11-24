@@ -165,7 +165,7 @@ function OriginalPassage({ source, passage }) {
   return (
     <div className="q-passage">
       <blockquote>{passage.quote}</blockquote>
-      <p>{passage.note}</p>
+      <p>{passage.note || source.credit}</p>
       <a target="_blank" rel="noreferrer" href={source.url + passage.anchor}>
         {t("openOriginal")} <ArrowUpRight size={13} />
       </a>

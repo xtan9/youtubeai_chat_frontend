@@ -248,3 +248,75 @@ async function searchCrossref(
     return result.success ? [result.data] : [];
   });
 }
+
+const referencePage = z.object({
+  pageid: z.number().int().positive(),
+  index: z.number().int(),
+  title: z.string(),
+  extract: z.string(),
+  revisions: z.array(z.object({ revid: z.number().int().positive() })).min(1),
+});
+
+/** Introductory text from discovered entries, linked to the exact revision read. */
+export async function searchReferenceArticles(
+  topic: string,
+  callerSignal: AbortSignal,
+): Promise<ResearchEvidence[]> {
+  const url = new URL("https://en.wikipedia.org/w/api.php");
+  url.search = new URLSearchParams({
+    action: "query",
+    generator: "search",
+    gsrsearch: topic,
+    gsrnamespace: "0",
+    gsrlimit: "4",
+    prop: "extracts|revisions",
+    rvprop: "ids",
+    exintro: "1",
+    explaintext: "1",
+    exlimit: "max",
+    formatversion: "2",
+    format: "json",
+  }).toString();
+  const response = await fetch(url, {
+    signal: AbortSignal.any([callerSignal, AbortSignal.timeout(10_000)]),
+    cache: "no-store",
+    redirect: "error",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "YouTubeAI-Research/1.0 (+https://www.youtubeai.chat)",
+    },
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw Error("reference_provider_unavailable");
+  }
+  const result = z
+    .object({ query: z.object({ pages: z.array(z.unknown()) }).optional() })
+    .parse(JSON.parse(await boundedJsonText(response)));
+  const pages = (result.query?.pages || [])
+    .flatMap((page) => {
+      const parsed = referencePage.safeParse(page);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .sort((a, b) => a.index - b.index);
+  return pages
+    .flatMap((page) => {
+      if (/may (?:also )?refer to:/iu.test(page.extract)) return [];
+      const revision = page.revisions[0].revid,
+        originId = "wikipedia:en:" + revision;
+      const record = ResearchEvidenceSchema.safeParse({
+        kind: "reference_article",
+        id: researchEvidenceId("E", originId),
+        originId,
+        title: page.title,
+        url: "https://en.wikipedia.org/w/index.php?oldid=" + revision,
+        text: page.extract.trim(),
+        year: null,
+        authors: "Wikipedia contributors · CC BY-SA 4.0",
+        publicationTypes: [],
+        retrievedAt: new Date().toISOString(),
+      });
+      return record.success ? [record.data] : [];
+    })
+    .slice(0, 3);
+}

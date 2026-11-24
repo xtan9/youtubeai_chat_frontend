@@ -992,6 +992,7 @@
     "transformGroundedInspirationIntoAnOriginalVideoDirection": "Transform grounded inspiration into an original Video direction.",
     "theBriefWillAttributeSourceClaimsThenIdentify": "The brief will attribute source claims, then identify gaps, combinations, counterarguments, and original angles for your Project Goal.",
     "video": "Video",
+    "referenceArticle": "Reference article",
     "publicationAbstract": "Publication abstract",
     "opensInANewTab": "(opens in a new tab)",
     "researchQuestion": "Research question:",
@@ -1399,6 +1400,7 @@
     "iHavenTDecided": "I haven't decided",
     "topicExploration": "Topic exploration",
     "videoTranscript": "Video transcript",
+    "referenceArticle": "Reference article",
     "researchAbstract": "Research abstract",
     "manageProjects": "Manage projects",
     "optionalMaterial": "Add articles, PDFs or excerpts as optional background."

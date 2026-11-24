@@ -35,7 +35,7 @@ function Observation({
         const source = evidence.find((item) => item.id === reference.id)!;
         return (
           <a
-            key={reference.id}
+            key={JSON.stringify([reference.id,reference.quote])}
             href={source.url}
             target="_blank"
             rel="noopener noreferrer"
@@ -45,7 +45,7 @@ function Observation({
             [{evidence.indexOf(source) + 1}]
             <span className="sr-only">
               {" "}
-              {source.kind === "video" ? t("video") : t("publicationAbstract")}:{" "}
+              {source.kind === "video" ? t("video") : source.kind==="reference_article" ? t("referenceArticle") : t("publicationAbstract")}:{" "}
               {source.title} {t("opensInANewTab")}</span>
           </a>
         );
@@ -128,7 +128,7 @@ function Judgment({ document }: { document: ResearchDocument }) {
                   [{index + 1}]{" "}
                   {source.kind === "video"
                     ? t("video")
-                    : t("publicationAbstractLabel", {value1: source.year ?? "—"})}{" "}
+                    : source.kind==="reference_article" ? t("referenceArticle") : t("publicationAbstractLabel", {value1: source.year ?? "—"})}{" "}
                   — {source.title}
                 </summary>
                 <p className="my-2 text-caption text-text-muted">
