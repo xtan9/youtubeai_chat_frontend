@@ -57,7 +57,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test --coverage
       - name: Install Project GA browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          pnpm exec playwright install chromium --only-shell
+          if ! node -e 'require("@playwright/test").chromium.launch().then(browser => browser.close()).catch(() => process.exit(1))'; then
+            pnpm exec playwright install-deps chromium
+          fi
       - name: Verify registered Project journey and Free-limit races
         run: >-
           pnpm exec playwright test smoke-tests/e2e-workspace.spec.ts
