@@ -98,6 +98,15 @@ test("published workspace from naming to independently cited manuscript @workspa
     expect((await first.json()).stage).toBe("ask");
     const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
     await expect(confirm).toHaveCount(0);
+    if (kind === "video") {
+      const followUp = waitForAction("interview");
+      await page.getByRole("textbox", { name: "消息", exact: true }).fill("还没想好，我只是先选了视频这个形式。");
+      await page.getByRole("button", { name: "发送消息" }).click();
+      const reply = await followUp;
+      expect(reply.status()).toBe(200);
+      expect((await reply.json()).stage).toBe("ask");
+      await expect(confirm).toHaveCount(0);
+    }
     const answers = [
       "我想从厨房里的两瓶油出发，比较葵花籽油和菜籽油的标签。给第一次独自做饭的人看，看完能说出名称各自指哪种植物。用我在厨房翻看标签的场景开头，口吻平实，中文，约300字，分两段。只讲名称和原料，不推断哪种更健康；缺资料就标为待核查。这些是我确定的需求，其他编辑选择交给你。",
       "接受你这一轮的建议。保留两瓶油的标签作为唯一例子。没有实物照片和逐字标签，其余资料均待核查；避免品牌、价格、具体营养数字或编造场景细节。篇幅、顺序和细节由你按刚才讨论的用途决定。",
