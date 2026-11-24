@@ -29,6 +29,6 @@ const legacyNotices: Record<string, string> = {
 };
 
 export function projectNotice(t: ReturnType<typeof useTranslations<"project">>, message: string, values?: Record<string, string | number>) {
-  const key = legacyNotices[message] ?? message;
+  const key = Object.hasOwn(legacyNotices, message) ? legacyNotices[message] : message;
   return t.has(key) ? t(key, values) : message;
 }

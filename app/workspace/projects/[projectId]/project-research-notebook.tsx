@@ -171,6 +171,7 @@ export function ProjectResearchNotebook({
   const t = useTranslations("project");
   const inputId = useId();
   const [versions, setVersions] = useState<ResearchVersion[]>([]);
+  const ui = useTranslations("ui");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(true);
@@ -255,7 +256,7 @@ export function ProjectResearchNotebook({
       const payload = await response.json();
       if (!response.ok) {
         setError(
-          typeof payload.message === "string"
+          typeof payload.messageKey === "string" ? payload.messageKey : typeof payload.message === "string"
             ? payload.message
             : "researchCouldNotFinishPleaseRetry",
         );
@@ -374,7 +375,7 @@ export function ProjectResearchNotebook({
         )}
         {error && (
           <p role="alert" className="text-body-sm text-state-error">
-            {projectNotice(t, error)}
+            {ui.has(error) ? ui(error) : projectNotice(t, error)}
           </p>
         )}
       </form>
