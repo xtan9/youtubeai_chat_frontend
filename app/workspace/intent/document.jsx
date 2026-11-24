@@ -92,8 +92,8 @@ export function Document({
             <BookOpen size={13} />
             <span>
               {sectionMarkers.length > 1
-                ? q.title + " " + t("sources")
-                : t("sources")}
+                ? q.title + " " + t("citationLabel")
+                : t("citationLabel")}
             </span>
             {questionPassages(q).map(({ source, passage }, i) => (
               <button
