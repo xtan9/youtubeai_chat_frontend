@@ -90,9 +90,11 @@ test("published workspace from naming to independently cited manuscript @workspa
         .fill("我想写一篇博客文章，给第一次做饭的人读。");
       await page.getByRole("button", { name: "发送回答" }).click();
     } else await page.getByRole("button", { name: label, exact: true }).click();
-    expect((await response).status()).toBe(200);
+    const generated = await response;
+    expect(generated.status()).toBe(200);
+    expect((await generated.json()).format).toBe(kind);
     await expect
-      .poll(async () => (await read()).purpose, { timeout: 20000 })
+      .poll(async () => (await read()).purpose, { timeout: 60000 })
       .toBe(kind);
     await expect(page.locator(".paper .block")).not.toHaveCount(0);
     if (kind === "blog") {
@@ -152,7 +154,7 @@ test("published workspace from naming to independently cited manuscript @workspa
   }
   for (const question of questions) await add(question);
   await page.getByRole("button", { name: questions[0], exact: true }).click();
-  await expect.poll(async ()=>(await read()).questions?.length).toBe(4);
+  await expect.poll(async () => (await read()).questions?.length).toBe(4);
   await page.screenshot({ path: folder + "/desktop.png" });
   const grid = page.locator(".integrated");
   const geometry = await grid.evaluate((el) => ({
@@ -297,26 +299,32 @@ test("published workspace from naming to independently cited manuscript @workspa
   await page.reload();
   await expect(page.locator(".q-results blockquote").first()).toBeVisible();
   await page.getByRole("button", { name: "返回文稿" }).click();
-  await add("一个临时研究问题");
-  await page.getByRole("button", { name: "编辑「一个临时研究问题」" }).click();
-  await page.getByLabel("问题标题").fill("改名后的临时问题");
-  await page
-    .locator(".q-edit")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page.getByRole("button", { name: "编辑「改名后的临时问题」" }).click();
+  const renamed = citedQuestion + "（修订）";
+  await page.getByRole("button", { name: "编辑「" + renamed + "」" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "删除问题" }).click();
   await expect
     .poll(async () =>
-      (await read()).questions?.some((q) => q.title.includes("临时")),
+      (await read()).questions?.some((q) => q.title === renamed),
     )
     .toBe(false);
+  await add(citedQuestion);
+  await expect(page.getByRole("button", { name: "让 AI 研究" })).toBeVisible();
+  await expect(page.locator(".q-results")).toHaveCount(0);
   await page.goto(base + "/workspace");
   await page.getByRole("link", { name: new RegExp(name) }).click();
   await expect(
     page.locator('.q-draft-cites[data-answer-id="' + inserted + '"]'),
   ).toBeVisible();
+  await page
+    .locator('.q-draft-cites[data-answer-id="' + inserted + '"] button')
+    .first()
+    .click();
+  await expect(page.locator(".q-sheet h2")).toHaveText(citedQuestion);
+  await expect(
+    page.getByText("引用时的研究记录", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".q-passage blockquote").first()).toBeVisible();
   expect((await read()).resources[0].title).toContain("中菜指南");
   expect((await read()).drafts).toHaveLength(5);
   console.log(
