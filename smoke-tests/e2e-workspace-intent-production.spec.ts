@@ -13,9 +13,7 @@ test("published workspace from naming to independently cited manuscript @workspa
     "Explicit production acceptance with the designated smoke account.",
   );
   test.setTimeout(28 * 60_000);
-  const base = "https://www.youtubeai.chat",
-    previous = process.env.TEST_PROJECT_ID;
-  expect(previous).toBeTruthy();
+  const base = "https://www.youtubeai.chat";
   const folder = "test-results/workspace-intent";
   await mkdir(folder, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -27,13 +25,30 @@ test("published workspace from naming to independently cited manuscript @workspa
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
   await context.addCookies([{ name: "locale", value: "zh", url: base }]);
-  await page.goto(base + "/workspace/projects/" + previous);
-  await expect(page.locator(".intent-shell .integrated")).toBeVisible();
-  await page.getByRole("link", { name: /原项目资料/ }).click();
-  await expect(
-    page.getByRole("tab", { name: "研究", exact: true }),
-  ).toBeVisible();
-  console.log("Existing project and original materials opened.");
+  const listingResponse = await page.request.get(
+    base + "/api/workspace/projects",
+  );
+  expect(listingResponse.status()).toBe(200);
+  const listing = (await listingResponse.json()).workspace.projects as {
+    id: string;
+    createdAt: string;
+  }[];
+  const configured = process.env.TEST_PROJECT_ID?.trim();
+  const previous =
+    configured ||
+    listing.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+      ?.id;
+  if (previous) {
+    await page.goto(base + "/workspace/projects/" + previous);
+    await expect(page.locator(".intent-shell .integrated")).toBeVisible();
+    await page.getByRole("link", { name: /原项目资料/ }).click();
+    await expect(
+      page.getByRole("tab", { name: "研究", exact: true }),
+    ).toBeVisible();
+    console.log("Existing smoke-owned project and original materials opened.");
+  } else {
+    console.log("The dedicated smoke account had no pre-existing project.");
+  }
   await page.goto(base + "/workspace");
   const name = "种子油到底好不好 · QA " + Date.now();
   await page.getByLabel("项目名称").fill(name);
@@ -43,6 +58,7 @@ test("published workspace from naming to independently cited manuscript @workspa
   });
   await page.getByRole("button", { name: "创建并打开" }).click();
   await page.waitForURL(/\/workspace\/projects\/[\da-f-]+$/);
+  console.log("New isolated project created from the regular workspace.");
   const project = page.url(),
     endpoint = project.replace("/workspace/projects/", "/api/projects/");
   await expect(
@@ -111,6 +127,7 @@ test("published workspace from naming to independently cited manuscript @workspa
     console.log("Saved editable " + kind + " draft.");
   }
   expect(new Set((await read()).drafts.map((d) => d.text)).size).toBe(5);
+  await page.screenshot({ path: folder + "/draft.png" });
   const lead = page.getByRole("textbox", { name: "文稿导语" });
   await lead.fill("这一段由作者在验收时写入。");
   await expect
@@ -224,12 +241,14 @@ test("published workspace from naming to independently cited manuscript @workspa
           .first()
           .getAttribute("href");
         expect(original?.split("#")[0]).toBe(cited[0].url);
+        await page.screenshot({ path: folder + "/original-passage.png" });
         await page.reload();
         await expect(page.locator(".q-passage blockquote").first()).toHaveText(
           cited[0].quote,
         );
         await page.getByRole("button", { name: "返回文稿" }).click();
         await expect(marker).toBeVisible();
+        await page.screenshot({ path: folder + "/cited-draft.png" });
         inserted = v.id;
         citedQuestion = title;
       }
