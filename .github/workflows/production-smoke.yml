@@ -1,5 +1,11 @@
 name: production-smoke
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      audit_ref:
+        description: Git ref containing the copy audit and its message catalogs
+        required: false
+        default: main
 permissions:
   contents: read
 jobs:
@@ -14,9 +20,11 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Load the released copy audit
+      - name: Load the copy audit and matching catalogs
+        env:
+          AUDIT_REF: ${{ inputs.audit_ref }}
         run: |
-          git fetch --depth=1 origin main
+          git fetch --depth=1 origin "$AUDIT_REF"
           git restore --source=FETCH_HEAD -- i18n/messages smoke-tests/e2e-signed-in-copy.spec.ts
       - run: pnpm exec playwright install chromium --only-shell
       - name: Exercise production workspace in all three interface languages
