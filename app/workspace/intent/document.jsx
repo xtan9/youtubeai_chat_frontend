@@ -264,7 +264,7 @@ export function Document({
                       </details>
                     )}
                   {d.id.startsWith("explore/") && (
-                    <button className="link" onClick={() => onAngle(heading)}>
+                    <button className="link" onClick={() => onAngle(heading, body)}>
                       {t("exploreThisAngle")}{" "}
                     </button>
                   )}

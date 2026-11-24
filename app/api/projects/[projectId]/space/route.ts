@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
 import { loadProjectSourceSet } from "@/lib/projects/project-source-set";
+import { loadResearchVersions } from "@/lib/projects/project-research-journal";
 import {
   spaceSchema,
   emptySpace,
@@ -20,6 +21,9 @@ import {
   summarize,
   writerRequest,
   starterRequest,
+  interviewRequest,
+  interviewContext,
+  interviewAuthor,
   createStarter,
   writeScript,
   discussionRequest,
@@ -97,6 +101,7 @@ export async function PUT(request: Request, context: Context) {
 const action = z.discriminatedUnion("action", [
   writerRequest,
   starterRequest,
+  interviewRequest,
   discussionRequest,
   z.object({ action: z.literal("web"), url: publicLink }),
   z.object({ action: z.literal("video"), videoId: z.uuid() }),
@@ -119,7 +124,32 @@ export async function POST(request: Request, context: Context) {
     }
     const limit = await checkRateLimit(auth.subject.ownerId, false);
     if (!limit.allowed) return fail(429, "请求过于频繁，请稍后重试。");
-    if (body.action === "starter") return Response.json(await createStarter(auth.subject.name, body, request.signal));
+    if (body.action === "starter" || body.action === "interview") {
+      const row = await auth.client.from("video_spaces").select("document")
+        .eq("project_id", auth.projectId).maybeSingle();
+      if (row.error) return fail(503, "无法读取已保存的脚本，请重试。");
+      const space = spaceSchema.parse(row.data?.document ?? emptySpace());
+      const interview = space.interview;
+      if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
+      if (body.action === "starter" && (!interview.confirmed || interview.pending || !interview.brief || !interview.format))
+        return fail(409, "reviewBriefFirst");
+      if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
+      const [versions, sources] = await Promise.all([
+        loadResearchVersions(auth.client, auth.projectId),
+        loadProjectSourceSet(auth.client, auth.subject),
+      ]);
+      if (sources.kind !== "resolved") return projectOutcomeResponse(sources);
+      const imported = new Set(space.resources.map(resource => resource.id));
+      const linkedVideos = await Promise.all(sources.value.videos
+        .filter(video => video.status === "ready" && !imported.has(video.videoId))
+        .map(readVideo));
+      const context = interviewContext(auth.subject.name, {
+        ...space, resources: [...linkedVideos, ...space.resources],
+      }, versions);
+      return Response.json(body.action === "interview"
+        ? await interviewAuthor(context, body.locale, request.signal)
+        : await createStarter(context, interview.brief!, body.locale, request.signal));
+    }
     if (body.action === "web")
       return Response.json(await readWebPage(body.url, request.signal));
     if (body.action === "summary")

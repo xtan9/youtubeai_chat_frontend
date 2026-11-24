@@ -77,22 +77,60 @@ test("published workspace from naming to independently cited manuscript @workspa
   ];
   for (const [i, [label, kind]] of formats.entries()) {
     if (i) await page.getByRole("button", { name: "试试其他回答" }).click();
-    const response = page.waitForResponse(
-      (r) =>
-        r.url() === endpoint + "/space" &&
-        r.request().method() === "POST" &&
-        r.request().postDataJSON()?.action === "starter",
+    const beforeDrafts = (await read()).drafts.filter(d => d.text).length;
+    const waitForAction = (action: string) => page.waitForResponse(
+      r => r.url() === endpoint + "/space" && r.request().method() === "POST" && r.request().postDataJSON()?.action === action,
       { timeout: 120000 },
     );
+    const opening = waitForAction("interview");
     if (kind === "blog") {
       await page
         .getByLabel("用自己的话回答")
         .fill("我想写一篇博客文章，给第一次做饭的人读。");
       await page.getByRole("button", { name: "发送回答" }).click();
     } else await page.getByRole("button", { name: label, exact: true }).click();
+    if (kind === "video") {
+      await expect(page.getByRole("status", { name: "助手正在思考" })).toBeVisible();
+      await page.locator(".pane.chat").screenshot({ path: folder + "/interview-thinking.png" });
+    }
+    const first = await opening;
+    expect(first.status()).toBe(200);
+    expect((await first.json()).stage).toBe("ask");
+    const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
+    await expect(confirm).toHaveCount(0);
+    if (kind === "video") {
+      const followUp = waitForAction("interview");
+      await page.getByRole("textbox", { name: "消息", exact: true }).fill("还没想好，我只是先选了视频这个形式。");
+      await page.getByRole("button", { name: "发送消息" }).click();
+      const reply = await followUp;
+      expect(reply.status()).toBe(200);
+      expect((await reply.json()).stage).toBe("ask");
+      await expect(confirm).toHaveCount(0);
+    }
+    const answers = [
+      "我想从厨房里的两瓶油出发，比较葵花籽油和菜籽油的标签。给第一次独自做饭的人看，看完能说出名称各自指哪种植物。用我在厨房翻看标签的场景开头，口吻平实，中文，约300字，分两段。只讲名称和原料，不推断哪种更健康；缺资料就标为待核查。这些是我确定的需求，其他编辑选择交给你。",
+      "接受你这一轮的建议。保留两瓶油的标签作为唯一例子。没有实物照片和逐字标签，其余资料均待核查；避免品牌、价格、具体营养数字或编造场景细节。篇幅、顺序和细节由你按刚才讨论的用途决定。",
+      "我对上一轮提出的选择都接受你的推荐，其他尚未决定的编辑选择也明确委托给你。请整理需求让我核对。",
+    ];
+    for (const answer of answers) {
+      const round = waitForAction("interview");
+      await page.getByRole("textbox", { name: "消息", exact: true }).fill(answer);
+      await page.getByRole("button", { name: "发送消息" }).click();
+      const result = await round;
+      expect(result.status()).toBe(200);
+      if ((await result.json()).stage === "review") break;
+    }
+    await expect(confirm).toBeVisible();
+    await expect(page.locator(".chat-log .turn").last()).toContainText(/葵花|菜籽/);
+    if (kind === "video") await page.locator(".pane.chat").screenshot({ path: folder + "/interview-brief.png" });
+    expect((await read()).drafts.filter(d => d.text)).toHaveLength(beforeDrafts);
+    const response = waitForAction("starter");
+    await confirm.click();
     const generated = await response;
     expect(generated.status()).toBe(200);
-    expect((await generated.json()).format).toBe(kind);
+    const manuscript = await generated.json();
+    expect(manuscript.format).toBe(kind);
+    expect(JSON.stringify([manuscript.lead, manuscript.sections])).toMatch(/葵花|菜籽/);
     await expect
       .poll(async () => (await read()).purpose, { timeout: 60000 })
       .toBe(kind);
