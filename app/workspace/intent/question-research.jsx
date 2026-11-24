@@ -1,5 +1,5 @@
 import { useTranslations } from "next-intl";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -228,6 +228,18 @@ export function QuestionSheet({
     targets.find((t) => t.value === section) ?? targets.at(-1);
   const [target, setTarget] = useState(defaultTarget.value);
   const body = useRef(null);
+  useLayoutEffect(() => {
+    const paper = body.current;
+    if (!excerpt || !paper) return;
+    const target = paper.querySelector(
+      '[data-passage="' + CSS.escape(excerpt) + '"]',
+    );
+    if (target)
+      paper.scrollTop +=
+        target.getBoundingClientRect().top -
+        paper.getBoundingClientRect().top -
+        16;
+  }, [excerpt]);
   async function start() {
     await research();
     if (body.current) body.current.scrollTop = 0;

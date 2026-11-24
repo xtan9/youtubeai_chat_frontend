@@ -244,6 +244,9 @@ test("published workspace from naming to independently cited manuscript @workspa
           .first()
           .getAttribute("href");
         expect(original?.split("#")[0]).toBe(cited[0].url);
+        await expect(
+          page.locator(".q-passage blockquote").first(),
+        ).toBeInViewport({ ratio: 0.5 });
         await page.screenshot({ path: folder + "/original-passage.png" });
         await page.reload();
         await expect(page.locator(".q-passage blockquote").first()).toHaveText(
