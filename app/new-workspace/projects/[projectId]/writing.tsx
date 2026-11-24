@@ -4,6 +4,7 @@ import { useRef, useState, type RefObject } from "react";
 import { BookOpen, Undo2 } from "lucide-react";
 import {
   editDraft,
+  intentFormat,
   type Space,
   type Draft,
   type Message,
@@ -58,8 +59,10 @@ export function useWriting({
     setPassage(undefined);
   }
   function type(text: string) {
+    if (text.length > 80000) {setError("scriptLengthLimitReached"); return false;}
+    setError("");
     setPassage(undefined);
-    update((s) => ({
+    return update((s) => ({
       ...s,
       drafts: s.drafts.map((d) => (d.id === draft.id ? editDraft(d, text) : d)),
     }));
@@ -86,7 +89,7 @@ export function useWriting({
     }
     const start = suggestion.start;
     const insert =
-      !suggestion.length && start && !before.text.endsWith("\n")
+      !suggestion.length && start && before.text[start - 1] !== "\n"
         ? "\n" + text
         : text;
     const after = editDraft(
@@ -154,6 +157,7 @@ export function useWriting({
         target: "append" | "passage" | "whole";
       }>(api + "/space", "POST", {
         action: "write",
+        format:intentFormat.safeParse(draft.id.split("/")[0]).data ?? space.purpose,
         appendOnly,
         prompt: instruction,
         script: draft.text,

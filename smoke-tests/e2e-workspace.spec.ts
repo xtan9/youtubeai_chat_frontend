@@ -627,16 +627,15 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await expect(
     page.getByRole("link", { name: "Workspace", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Create Project" }).press("Enter");
   await page.getByLabel("Project name").fill("Multilingual climate research");
-  await page
-    .getByLabel("Project Goal (optional)")
-    .fill("Explore local climate adaptation decisions.");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
-  await page
-    .getByRole("link", { name: "Open Multilingual climate research" })
-    .click();
+  await page.getByRole("button",{name:"Create and open"}).click();
+  await page.getByRole("link",{name:"Original Project materials",exact:false}).click();
 
+  await openProjectSection(page,"Settings");
+  await page.getByLabel("Project Goal (optional)").fill("Explore local climate adaptation decisions.");
+  await page.getByRole("button",{name:"Save changes"}).click();
+  await expect(page.getByText("Changes saved.",{exact:true})).toBeVisible();
+  await openProjectSection(page,"Research");
   async function addFixtureVideo(title: string) {
     await showProjectSources(page);
     await page.getByRole("button", { name: "Add from History" }).press("Enter");
@@ -807,6 +806,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   await page
     .getByRole("link", { name: "Open Multilingual climate research" })
     .click();
+  await page.getByRole("link",{name:"Original Project materials",exact:false}).click();
   const artifactChoicesConversation = page.getByRole("button", {
     name: /Artifact choices 0 messages/iu,
   });
@@ -854,7 +854,7 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   const projectId = await createGroundedFixtureProject(context, "Compare climate evidence", { sourceCount: 2 });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByLabel("Ask the Project").fill("absent");
   await page.getByRole("button", { name: "Ask Project" }).click();
   await expect(page.getByText("No matching passages", { exact: true })).toBeVisible();
@@ -1042,7 +1042,7 @@ test("concurrent Free Project limits expose exactly one public winner @projects-
     artifactGenerationsLimit: 1,
   });
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await expect(
     page.getByRole("status", { name: "5 of 5 free Project messages used" }),
   ).toBeVisible();
@@ -1077,7 +1077,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   page,
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
-  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/manage`);
 
   // Wait for the client auth provider before exercising keyboard activation;
   // otherwise an SSR-visible button can receive Enter before React hydrates.
@@ -1111,7 +1111,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await expect(recentHeadings).toHaveText(["Creator brief", "Evidence review"]);
 
   await firstCard.getByRole("link", { name: "Open Evidence review" }).click();
-  await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001$/);
+  await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001\/materials$/);
   await expect(page.getByRole("heading", { name: "Evidence review", level: 1 })).toBeVisible();
   await openProjectSection(page, "Settings");
   await expect(page.getByRole("heading", { name: "Guidance, not evidence" })).toBeVisible();
@@ -1132,7 +1132,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   try {
     await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
     await expect(otherPage.getByRole("heading", { name: "Project not found" })).toBeVisible();
 
     const crossOwnerUpdate = await otherContext.request.patch(
@@ -1147,6 +1147,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
 
   await page.getByRole("link", { name: "Back to Workspace" }).click();
   await expect(page).toHaveURL(`${appUrl}/workspace`);
+  await page.getByRole("link", {name:"Manage projects",exact:true}).click();
   await expect(recentHeadings).toHaveText(["Evidence synthesis", "Creator brief"]);
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1168,7 +1169,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await deleteDialog.getByRole("button", { name: "Delete Project" }).click();
   await expect(page).toHaveURL(`${appUrl}/workspace`);
   await expect(page.getByRole("heading", { name: "Evidence synthesis" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Creator brief" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Creator brief" })).toBeVisible();
 
   await page.goto(`${appUrl}/workspace/projects/not-a-project-id`);
   await expect(
@@ -1186,7 +1187,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "Grounded conversation lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await expect(page.getByRole("heading", { name: "Project Conversation" }))
     .toBeVisible();
   await page.getByLabel("Ask the Project").fill("What does the evidence support?");
@@ -1282,7 +1283,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   );
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await expect(
     page.getByRole("button", { name: "Compare viewpoints" }),
   ).toBeVisible();
@@ -1362,7 +1363,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
   seedSourceSetAuditConversation(projectId);
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await expect(page.getByText("Historical answer from revision one.")).toBeVisible();
   await expect(
     page.getByRole("status", { name: "Source Set change revision 2" }),
@@ -1429,7 +1430,7 @@ test("Project Conversation persists a retrieval-miss fallback without generating
     "Grounded fallback lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByLabel("Ask the Project").fill("absent");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1465,7 +1466,7 @@ test("Project Conversation preserves only the user message after gateway failure
   gatewayOutcome = "failure";
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByLabel("Ask the Project").fill("What fails safely?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1496,7 +1497,7 @@ test("Project Conversation releases reconciliation after cancellation stays unav
   groundedAttemptLeaseMilliseconds = 500;
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByLabel("Ask the Project").fill("What remains recoverable?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1525,7 +1526,7 @@ test("Researcher switches, clears, and retries named Project Conversations on de
     "Conversation management lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(
     page.getByRole("button", { name: /New conversation \d+ messages/ }),
@@ -1609,7 +1610,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await openProjectSection(page, "Outputs");
   const guide = page.getByRole("region", { name: "Study Guide" });
   await expect(guide.getByRole("button", { name: "Generate Study Guide" })).toBeVisible();
@@ -1738,7 +1739,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
       "Free Study Guide",
     );
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}/materials`);
     await openProjectSection(otherPage, "Outputs");
     const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
     await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
@@ -1782,7 +1783,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   const brief = page.getByRole("region", { name: "Creator Brief" });
@@ -1897,7 +1898,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   ).toBe(true);
 
   await page.goto(`${appUrl}/workspace`);
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await openProjectSection(page, "Outputs");
   await expect(
     brief.getByLabel("Creator Brief provenance", { exact: true }),
@@ -1919,7 +1920,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
       { goal: "Explore local climate adaptation decisions." },
     );
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}/materials`);
     await openProjectSection(otherPage, "Outputs");
     await otherPage.getByRole("button", { name: "Choose Creator Brief" }).click();
     const freeBrief = otherPage.getByRole("region", { name: "Creator Brief" });
@@ -1961,7 +1962,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
@@ -2243,7 +2244,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
   page,
 }) => {
   await addSessionCookie(context, OTHER_ID, "other@example.test");
-  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/manage`);
 
   await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Free research home");
@@ -2281,7 +2282,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
     .getByRole("alertdialog", { name: "Delete “Free research home”?" })
     .getByRole("button", { name: "Delete Project" })
     .click();
-  await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
+  await expect(page.getByLabel("Project name")).toBeVisible();
 
   const concurrent = await Promise.all([
     context.request.post(`${appUrl}/api/workspace/projects`, {
@@ -2302,7 +2303,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
     upgradeUrl: "/pricing",
   });
 
-  await page.reload();
+  await page.goto(`${appUrl}/workspace/manage`);
   await expect(page.locator('[aria-labelledby="recent-projects-heading"] h3')).toHaveCount(1);
 });
 
@@ -2335,7 +2336,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   page,
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
-  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/manage`);
   await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Climate evidence map");
   await page.getByLabel("Project Goal (optional)").fill("Compare the source claims.");
@@ -2573,7 +2574,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   try {
     await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
     await expect(otherPage.getByRole("heading", { name: "Project not found" })).toBeVisible();
     const privateSourceSet = await otherContext.request.get(
       `${appUrl}/api/projects/${projectId}/source-set`,
@@ -2633,7 +2634,7 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   page,
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
-  await page.goto(`${appUrl}/workspace`);
+  await page.goto(`${appUrl}/workspace/manage`);
   await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("URL evidence lab");
   await page.getByRole("button", { name: "Create Project" }).last().click();
@@ -5139,7 +5140,7 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
     return route.fulfill({ status: 201, json: { versions } });
   });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
   await page.getByLabel("Research question", { exact: true }).fill("种子油确实有害吗？请检查外部研究。");
   await page.getByRole("button", { name: "Start research", exact: true }).click();
   await expect(page.getByRole("region", { name: "Current research judgment" })).toContainText("现有人体试验");
@@ -5262,14 +5263,13 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   });
   expect(legacy.ok()).toBeTruthy();
   await page.goto(appUrl + "/workspace");
-  await page.getByRole("navigation", {name:"Primary", exact:true}).getByRole("link",{name:"New Workspace"}).click({timeout:5000});
-  await expect(page.getByRole("heading",{name:"Video Spaces"})).toBeVisible();
   await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
-  await expect(page).toHaveURL(appUrl + "/new-workspace/projects/" + projectId);
+  await expect(page).toHaveURL(appUrl+"/workspace/projects/"+projectId);
+  await page.getByRole("button",{name:"Start writing"}).click();
   for (const [locale, opening, second] of [
     ["en", "Opening script", "Script 2"], ["zh-TW", "開場腳本", "腳本 2"], ["zh", "开场脚本", "脚本 2"],
   ]) {
-    await page.locator("header select").selectOption(locale);
+    await page.locator("header:visible select").selectOption(locale);
     await expect(page.getByRole("heading", {name: opening, exact: true})).toBeVisible();
     await expect(page.locator(".vs-meta option:checked")).toHaveText(opening);
     await expect(page.locator('.vs-meta option[value="second"]')).toHaveText(second);
@@ -5279,6 +5279,7 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   await editor.fill("厨房里的这瓶油，究竟改变了什么？");
   await expect(page.getByText("已保存",{exact:true})).toBeVisible();
   await page.reload();
+  await page.getByRole("button",{name:"全文编辑"}).click();
   await expect(editor).toHaveValue("厨房里的这瓶油，究竟改变了什么？");
   await addSessionCookie(context,OTHER_ID,"other@example.test");
   expect((await context.request.get(appUrl+"/api/projects/"+projectId+"/space")).status()).toBe(404);
@@ -5310,7 +5311,8 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
     expect(seeded.ok()).toBeTruthy();
     expect((await page.request.post(target+"/conversations",{data:{}})).ok()).toBeTruthy();
     await page.goto(base+"/new-workspace/projects/"+id);
-    const lang=page.locator("header select").first();
+    await page.getByRole("button",{name:/全文编辑|Full text editor|全文編輯/}).click();
+    const lang=page.locator("header:visible select").first();
     await lang.selectOption("en");
     await page.getByRole("button",{name:"Summary +",exact:true}).click();
     await page.getByText("Excerpts",{exact:true}).click();
@@ -5328,7 +5330,7 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
       await expect(page.getByRole("link",{name:/引用作者的标题/})).toBeVisible();
       await expect(page.getByText("原文保持原样",{exact:false}).last()).toBeVisible();
     }
-    await page.goto(base+"/workspace/projects/"+id);
+    await page.goto(base+"/workspace/projects/"+id+"/materials");
     for (const [locale,research,outputs,search,settings,thread,details,action,outputTitle,sourceButton] of [
       ["en","Research","Outputs","Search","Settings","New conversation","Project details","Compare viewpoints","Study Guide","Add from History"],
       ["zh","研究","成果","搜索","设置","新对话","项目详情","比较观点","学习指南","从历史记录添加"],
@@ -5356,4 +5358,66 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
   } finally {
     expect((await page.request.delete(target)).status()).toBe(204);
   }
+});
+
+test("named project preserves research citations after a question changes @projects-ga-critical", async ({context,page},info)=>{
+  await addSessionCookie(context,OWNER_ID,"owner@example.test");
+  await context.addCookies([{name:"locale",value:"zh",url:appUrl}]);
+  await page.setViewportSize({width:1440,height:900});
+  await page.goto(appUrl+"/workspace");
+  await page.getByLabel("项目名称").fill("种子油到底好不好");
+  await page.screenshot({path:info.outputPath("creation.png")});
+  await page.getByRole("button",{name:"创建并打开"}).click();
+  await page.waitForURL(/\/workspace\/projects\/[a-f0-9-]+$/);
+  const endpoint=page.url().replace("/workspace/projects/","/api/projects/");
+  await page.route(endpoint+"/space",async route=>{
+    if(route.request().method()!=="POST") return route.fallback();
+    const data=route.request().postDataJSON();
+    expect(data.action).toBe("starter");expect(data.format).toBe("video");
+    await route.fulfill({json:{format:"video",title:"今晚炒菜，要换掉这瓶油吗？",lead:"口播初稿",sections:[{heading:"00:00　开场",body:"先看名称。"},{heading:"00:15　出处",body:"再看出处。"}],reply:"开场已经写进脚本。"}});
+  });
+  await page.getByRole("button",{name:"做 YouTube 视频"}).click();
+  await expect(page.getByRole("textbox",{name:"文稿标题"})).toHaveText("今晚炒菜，要换掉这瓶油吗？");
+  const titles=["种子油都有哪些？","为什么叫种子油？","他们有哪些共同特征？","种子油是什么时候开始被用在家庭里的？"];
+  for(const title of titles){
+    await page.getByRole("button",{name:"新增问题",exact:true}).click();
+    await page.getByLabel("问题标题").fill(title);
+    await page.locator(".q-edit").getByRole("button",{name:"保存",exact:true}).click();
+    await expect(page.locator(".q-sheet h2")).toHaveText(title);
+  }
+  await page.getByRole("button",{name:titles[0],exact:true}).click();
+  await page.screenshot({path:info.outputPath("desktop.png")});
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.locator(".integrated > .pane:visible")).toHaveCount(1);
+  await page.screenshot({path:info.outputPath("mobile.png")});
+  await page.setViewportSize({width:1440,height:900});
+  const source="Sunflower seed oil is extracted from sunflower seeds.";
+  const findingId=crypto.randomUUID();
+  let results:unknown[]=[];
+  await page.route(endpoint+"/research", async route=>{
+    if(route.request().method()==="POST"){
+      const payload=route.request().postDataJSON();
+      expect(payload.space.background).toEqual([]);
+      results=[{id:findingId,created_at:new Date().toISOString(),document:{space:payload.space,question:payload.question,
+        evidence:[{id:"E1234567890123456",kind:"publication_abstract",url:"https://europepmc.org/article/MED/123",text:source,title:"Oilseed report"}],
+        synthesis:{judgment:{text:"葵花籽油是一个例子。",references:[{id:"E1234567890123456",quote:source}]}},
+      }}];
+    }
+    return route.fulfill({json:{versions:results}});
+  });
+  await page.getByRole("button",{name:"让 AI 研究"}).click();
+  await page.getByLabel("写入位置").selectOption({index:0});
+  await page.getByRole("button",{name:"带出处写入文稿"}).click();
+  const marker=page.locator(".q-draft-cites button");
+  await expect(marker).toContainText("Oilseed report");
+  await page.getByRole("button",{name:"编辑「"+titles[0]+"」"}).click();
+  await page.getByLabel("问题标题").fill("改名后的研究问题");
+  await page.locator(".q-edit").getByRole("button",{name:"保存",exact:true}).click();
+  await expect(page.getByRole("button",{name:"让 AI 研究"})).toBeVisible();
+  await page.getByRole("button",{name:"返回文稿"}).click();
+  await marker.click();
+  await expect(page.locator(".q-sheet h2")).toHaveText(titles[0]);
+  await expect(page.locator(".q-passage blockquote")).toHaveText(source);
+  await page.reload();
+  await expect(page.locator(".q-passage blockquote")).toHaveText(source);
 });

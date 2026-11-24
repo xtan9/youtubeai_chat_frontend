@@ -22,7 +22,7 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
   await page.context().addCookies([{name: "locale", value: "zh", url: base}]);
-  await page.goto(base + "/new-workspace/projects/" + id);
+  await page.goto(base + "/new-workspace/projects/" + id+"?view=investigations");
   const left = page.getByRole("region", { name: "研究台", exact: true }),
     right = page.getByRole("region", { name: "创作搭档", exact: true });
   await page.getByRole("button", { name: "新建脚本" }).click();

@@ -19,6 +19,8 @@ import { readWebPage } from "@/lib/video-space/read-web";
 import {
   summarize,
   writerRequest,
+  starterRequest,
+  createStarter,
   writeScript,
   discussionRequest,
   discussClaim,
@@ -94,6 +96,7 @@ export async function PUT(request: Request, context: Context) {
 }
 const action = z.discriminatedUnion("action", [
   writerRequest,
+  starterRequest,
   discussionRequest,
   z.object({ action: z.literal("web"), url: publicLink }),
   z.object({ action: z.literal("video"), videoId: z.uuid() }),
@@ -116,6 +119,7 @@ export async function POST(request: Request, context: Context) {
     }
     const limit = await checkRateLimit(auth.subject.ownerId, false);
     if (!limit.allowed) return fail(429, "请求过于频繁，请稍后重试。");
+    if (body.action === "starter") return Response.json(await createStarter(auth.subject.name, body, request.signal));
     if (body.action === "web")
       return Response.json(await readWebPage(body.url, request.signal));
     if (body.action === "summary")

@@ -28,7 +28,7 @@ test("real Project Conversation completes the production grounded-answer path @p
   ]);
 
   const response = await page.goto(
-    `${PROD_URL}/workspace/projects/${projectId}`,
+    `${PROD_URL}/workspace/projects/${projectId}/materials`,
   );
   expect(response?.status()).toBe(200);
   await expect(
@@ -58,10 +58,10 @@ test("signed-in video workspace remembers its interface language @project-ground
   await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
   await page.goto(PROD_URL + "/new-workspace/projects/" + projectId);
   const picker = page.getByRole("combobox", {name: "Interface language"});
-  await expect(page.getByRole("textbox", {name: "Script text"})).toBeVisible();
+  await expect(page.getByRole("heading", {name: "Project assistant"})).toBeVisible();
   await picker.selectOption("zh-TW");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-TW");
   await page.reload();
-  await expect(page.getByRole("textbox", {name: "腳本正文"})).toBeVisible();
-  await expect(page.getByRole("navigation", {name: "素材目錄"})).toBeVisible();
+  await expect(page.getByRole("heading", {name: "項目助手"})).toBeVisible();
+  await expect(page.getByRole("navigation", {name: "素材列表"})).toBeVisible();
 });

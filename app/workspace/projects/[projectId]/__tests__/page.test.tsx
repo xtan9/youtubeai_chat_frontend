@@ -52,7 +52,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-import ProjectPage from "../page";
+import ProjectPage from "../materials-page";
 
 const studyGuide: Extract<
   ProjectArtifactLoadResolution,

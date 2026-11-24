@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
 import { resolveProjectSubject } from "@/lib/projects/project-subject";
 import { projectOutcomeResponse } from "@/lib/projects/api-outcomes";
-import { ResearchRequestSchema } from "@/lib/projects/project-research-contract";
+import { ResearchRequestSchema, QuestionEvidenceGap } from "@/lib/projects/project-research-contract";
 import {
   completeResearch,
   failResearch,
@@ -201,6 +201,7 @@ export async function POST(request: Request, context: Context) {
       { status: 201 },
     );
   } catch (cause) {
+    if (cause instanceof QuestionEvidenceGap) return error(422, cause.message);
     logAppEvent("error", "[project-research] update failed", {
       errorId: "PROJECT_RESEARCH_FAILED",
       stage,

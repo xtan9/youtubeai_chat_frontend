@@ -445,3 +445,14 @@ it("regenerates a Japanese judgment for a Chinese follow-up with an English pape
   expect(result.synthesis.judgment.text).toBe(chinese.judgment.text);
   expect(replies).toHaveLength(0);
 });
+
+it("keeps a scoped question open when the retrieved passage is only a household example", async () => {
+  const question="什么时候开始在家庭中使用这些油？";
+  const outputs=[plan,{gap:"请先明确地区、油种和时间范围。"}];
+  stream.mockImplementation(async function*(){yield {type:"delta",text:JSON.stringify(outputs.shift())};});
+  await expect(runProjectResearch({...args,question,space:{
+    questionId:crypto.randomUUID(),background:[{title:"中菜指南",excerpt:"一道菜中用了花生油。"}],
+  }})).rejects.toThrow("请先明确地区、油种和时间范围。");
+  expect(search).toHaveBeenCalled();
+  expect(stream.mock.calls[1][0].messages[0].content).toContain("OPTIONAL_BACKGROUND_NOT_EVIDENCE");
+});

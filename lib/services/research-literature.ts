@@ -12,31 +12,35 @@ export function researchEvidenceId(kind: "V" | "E", identity: string) {
   );
 }
 function plainText(value: string) {
-  return value
-    // Statistical comparisons (P<0.001) are text, not the start of a tag.
-    // A broad angle-bracket matcher can swallow the entire remaining Results section.
-    .replace(/<\/?[a-z][^<>]*>/giu, " ")
-    .replace(/&#(x[0-9a-f]+|[0-9]+);/giu, (_, code: string) => {
-      const point =
-        code[0].toLowerCase() === "x"
-          ? parseInt(code.slice(1), 16)
-          : Number(code);
-      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : " ";
-    })
-    .replace(
-      /&(?:amp|lt|gt|quot|apos|nbsp);/gu,
-      (entity) =>
-        ({
-          "&amp;": "&",
-          "&lt;": "<",
-          "&gt;": ">",
-          "&quot;": '"',
-          "&apos;": "'",
-          "&nbsp;": " ",
-        })[entity]!,
-    )
-    .replace(/\s+/gu, " ")
-    .trim();
+  return (
+    value
+      // Statistical comparisons (P<0.001) are text, not the start of a tag.
+      // A broad angle-bracket matcher can swallow the entire remaining Results section.
+      .replace(/<\/?[a-z][^<>]*>/giu, " ")
+      .replace(/&#(x[0-9a-f]+|[0-9]+);/giu, (_, code: string) => {
+        const point =
+          code[0].toLowerCase() === "x"
+            ? parseInt(code.slice(1), 16)
+            : Number(code);
+        return point > 0 && point <= 0x10ffff
+          ? String.fromCodePoint(point)
+          : " ";
+      })
+      .replace(
+        /&(?:amp|lt|gt|quot|apos|nbsp);/gu,
+        (entity) =>
+          ({
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": '"',
+            "&apos;": "'",
+            "&nbsp;": " ",
+          })[entity]!,
+      )
+      .replace(/\s+/gu, " ")
+      .trim()
+  );
 }
 const RecordSchema = z.object({
   id: z.string().regex(/^(?:[0-9]+|PMC[0-9]+)$/u),
@@ -54,22 +58,24 @@ const RecordSchema = z.object({
 export async function searchResearchLiterature(
   query: string,
   callerSignal: AbortSignal,
+  includeCrossref = false,
 ): Promise<{ evidence: ResearchEvidence[]; partial: boolean }> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(15_000)]);
   // Relevance in Europe PMC favors recent records. Also discover established
   // work by citation count; neither ranking is a measure of study quality.
-  const rankings = await Promise.allSettled(
-    ["score desc", "CITED desc"].map((sort) =>
-      searchRankedLiterature(query, sort, signal),
-    ),
+  const requests = ["score desc", "CITED desc"].map((sort) =>
+    searchRankedLiterature(query, sort, signal),
   );
+  if (includeCrossref) requests.splice(1, 0, searchCrossref(query, signal));
+  const rankings = await Promise.allSettled(requests);
   callerSignal.throwIfAborted();
   if (rankings.every((ranking) => ranking.status === "rejected"))
     throw new Error("literature_provider_unavailable");
   const selected = new Map<string, ResearchEvidence>();
   for (let index = 0; index < 5; index++)
     for (const ranking of rankings) {
-      const item = ranking.status === "fulfilled" ? ranking.value[index] : undefined;
+      const item =
+        ranking.status === "fulfilled" ? ranking.value[index] : undefined;
       if (item && selected.size < 5) selected.set(item.originId, item);
     }
   return {
@@ -104,16 +110,7 @@ async function searchRankedLiterature(
     await response.body?.cancel();
     throw new Error("literature_provider_unavailable");
   }
-  // Bound provider data before parsing. A malformed/oversized response is a failed search.
-  if (!response.body) throw new Error("literature_provider_unavailable");
-  let raw = "";
-  const decoder = new TextDecoder();
-  for await (const chunk of response.body) {
-    raw += decoder.decode(chunk, { stream: true });
-    if (raw.length > 500_000) {
-      throw new Error("literature_response_too_large");
-    }
-  }
+  const raw = await boundedJsonText(response);
   const payload = z
     .object({ resultList: z.object({ result: z.array(z.unknown()) }) })
     .parse(JSON.parse(raw));
@@ -149,5 +146,105 @@ async function searchRankedLiterature(
       publicationTypes: row.pubTypeList?.pubType ?? [],
     });
     return evidence.success ? [evidence.data] : [];
+  });
+}
+
+async function boundedJsonText(response: Response) {
+  // Bound provider data before parsing. A malformed/oversized response is a failed search.
+  if (!response.body) throw new Error("literature_provider_unavailable");
+  let raw = "";
+  const decoder = new TextDecoder();
+  for await (const chunk of response.body) {
+    raw += decoder.decode(chunk, { stream: true });
+    if (raw.length > 500_000) {
+      throw new Error("literature_response_too_large");
+    }
+  }
+  return raw + decoder.decode();
+}
+
+const crossrefWork = z.object({
+  DOI: z
+    .string()
+    .regex(/^10\.\d{4,9}\/[^\s?#]+$/iu)
+    .max(280),
+  title: z.array(z.string()).min(1),
+  abstract: z.string(),
+  type: z.string(),
+  issued: z.object({ "date-parts": z.array(z.array(z.number())) }),
+  author: z
+    .array(
+      z.object({ family: z.string().optional(), given: z.string().optional() }),
+    )
+    .optional(),
+});
+
+// Include publisher-deposited abstracts from disciplines outside Europe PMC.
+async function searchCrossref(
+  query: string,
+  signal: AbortSignal,
+): Promise<ResearchEvidence[]> {
+  const url = new URL("https://api.crossref.org/works");
+  url.search = new URLSearchParams({
+    "query.bibliographic": query
+      .replace(/\b(?:AND|OR|NOT)\b|["()]/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim(),
+    filter: "has-abstract:true",
+    rows: "5",
+    select: "DOI,title,abstract,type,issued,author",
+  }).toString();
+  const response = await fetch(url, {
+    signal,
+    redirect: "error",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "YouTubeAI-Research/1.0 (+https://www.youtubeai.chat)",
+    },
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw Error("literature_provider_unavailable");
+  }
+  const { message } = z
+    .object({ message: z.object({ items: z.array(z.unknown()) }) })
+    .parse(JSON.parse(await boundedJsonText(response)));
+  return message.items.flatMap((item) => {
+    const parsed = crossrefWork.safeParse(item);
+    if (!parsed.success) return [];
+    const row = parsed.data,
+      originId = row.DOI.toLowerCase(),
+      title = plainText(row.title[0]);
+    if (
+      ![
+        "journal-article",
+        "book-chapter",
+        "monograph",
+        "reference-entry",
+        "standard",
+        "book",
+        "proceedings-article",
+      ].includes(row.type) ||
+      /^(?:retract(?:ed|ion)|withdrawn|correction|erratum)\b/iu.test(title)
+    )
+      return [];
+    const result = ResearchEvidenceSchema.safeParse({
+      id: researchEvidenceId("E", originId),
+      kind: "publication_abstract",
+      originId,
+      title,
+      url: "https://doi.org/" + originId,
+      text: plainText(row.abstract),
+      retrievedAt: new Date().toISOString(),
+      year: row.issued["date-parts"][0]?.[0]?.toString() ?? null,
+      authors:
+        row.author
+          ?.slice(0, 12)
+          .map((a) => [a.given, a.family].filter(Boolean).join(" "))
+          .join(", ") || null,
+      publicationTypes: [row.type],
+    });
+    return result.success ? [result.data] : [];
   });
 }
