@@ -41,6 +41,10 @@ const SpaceContextSchema = z
     claimId: z.string().min(1).max(120).optional(),
     claimTitle: z.string().min(1).max(2000).optional(),
     followUpTo: z.uuid().optional(),
+    questionId: z.uuid().optional(),
+    questionRevision: z.uuid().optional(),
+    hypothesis: z.string().max(1000).optional(),
+    background: z.array(z.object({title:z.string().max(140), excerpt:z.string().max(320)})).max(8).optional(),
   })
   .strict();
 export const ResearchSynthesisSchema = z
@@ -159,3 +163,5 @@ export function validateResearchSynthesis(
   }
   return parsed;
 }
+
+export class QuestionEvidenceGap extends Error {}

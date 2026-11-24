@@ -1,0 +1,46 @@
+name: Workspace production acceptance
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: workspace-intent-acceptance
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify the dedicated smoke account
+        run: pnpm exec tsx smoke-tests/verify-live-summary-account.ts
+        env:
+          TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
+          TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
+          TEST_NON_ADMIN_EMAIL: ${{ secrets.TEST_NON_ADMIN_EMAIL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      - name: Walk the deployed project journey
+        run: pnpm exec playwright test smoke-tests/e2e-workspace-intent-production.spec.ts --config playwright.production.config.ts --workers=1 --retries=0 --reporter=list
+        env:
+          BASE_URL: https://www.youtubeai.chat
+          RUN_WORKSPACE_INTENT_LIVE: '1'
+          TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
+          TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
+          TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
+      - name: Preserve isolated project visual and citation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: workspace-intent
+          path: test-results/workspace-intent/
+          if-no-files-found: ignore
+          retention-days: 7

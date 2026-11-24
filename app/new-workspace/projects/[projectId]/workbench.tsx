@@ -1,6 +1,8 @@
 "use client";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
+import {IntentShell} from "@/app/workspace/intent/shell";
+import {IntentDesk} from "@/app/workspace/intent/desk";
 import { useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -78,12 +80,12 @@ function ProjectHeading({ projectId, name }: ProjectHeadingProps) {
         </nav>
         <h1>{name}</h1>
       </div>
-      <Link href={"/workspace/projects/" + projectId}>{tr("originalProjectMaterials")}</Link>
+      <Link href={"/workspace/projects/" + projectId+"/materials"}>{tr("originalProjectMaterials")}</Link>
     </header>
   );
 }
 
-export function Workbench({ projectId, name }: ProjectHeadingProps) {
+export function Workbench({ projectId, name, legacy=false }: ProjectHeadingProps & {legacy?:boolean}) {
   const tr = useTranslations("ui");
   const api = "/api/projects/" + projectId;
   const store = useSpace(api + "/space");
@@ -115,6 +117,10 @@ export function Workbench({ projectId, name }: ProjectHeadingProps) {
     return () => controller.abort();
   }, [api]);
 
+  if(!legacy) return <IntentShell><div id="work">{store.space && initial ?
+    <IntentDesk name={name} projectId={projectId} initial={initial} store={store}/> :
+    <p role={store.loadError?"alert":"status"}>{store.loadError || tr("loadingProject")} {store.loadError && <button onClick={()=>location.reload()}>{tr("reload")}</button>}</p>
+  }</div></IntentShell>;
   return (
     <div className="vs ph-no-capture" data-ph-no-autocapture>
       <ProjectHeading projectId={projectId} name={name} />
@@ -197,7 +203,6 @@ function Desk({
   const discussionLock = useRef(false);
   const roomRef = useRef<HTMLElement>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [newClaim, setNewClaim] = useState<string | null>(null);
   const tree = useRef<HTMLElement>(null);
   const deskPosition = useRef<{
     top: number;
@@ -485,21 +490,6 @@ function Desk({
       finding: v.id,
     });
   }
-  function addClaim() {
-    const text = newClaim?.trim();
-    if (!text || text.length < 3) return;
-    const id = crypto.randomUUID();
-    if ((space.customClaims?.length ?? 0) >= 150) return;
-    if (
-      update((s) => ({
-        ...s,
-        customClaims: [...(s.customClaims ?? []), { id, text }],
-      }))
-    ) {
-      setNewClaim(null);
-      navigate(id);
-    }
-  }
   function panel(side: Side, children: ReactNode) {
     const collapsed = !inRoom && fold[side] && max !== side,
       title = tr(side === "research" ? "researchDesk" : "writingPartner"),
@@ -625,38 +615,8 @@ function Desk({
                 >
                   <Plus size={14} /> {tr("sources")}
                 </button>
-                <button
-                  aria-expanded={newClaim !== null}
-                  onClick={() => setNewClaim(newClaim === null ? "" : null)}
-                >
-                  {tr("newClaim")}
-                </button>
               </div>
             </div>
-            {newClaim !== null && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addClaim();
-                }}
-              >
-                <input
-                  autoFocus
-                  aria-label={tr("claimTitle")}
-                  value={newClaim}
-                  maxLength={1400}
-                  onChange={(e) => setNewClaim(e.target.value)}
-                />
-                <button
-                  disabled={
-                    newClaim.trim().length < 3 ||
-                    (space.customClaims?.length ?? 0) >= 150
-                  }
-                >
-                  {tr("openClaim")}
-                </button>
-              </form>
-            )}
             <nav className="vs-library" aria-label={tr("directory")} ref={tree}>
               <Library
                 initialSources={initial.sources}

@@ -67,7 +67,7 @@ function captureProjectLimitReached(source: ProjectLimitSource, used: number) {
   });
 }
 
-function ProjectLimitUpgrade({
+export function ProjectLimitUpgrade({
   source,
   used,
 }: {
@@ -293,7 +293,7 @@ function CreateProjectDialog({
   );
 }
 
-export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initialWorkspace: PersonalWorkspace; videoSpace?: boolean }) {
+export function WorkspaceView({ initialWorkspace, videoSpace = false, manage = false }: { initialWorkspace: PersonalWorkspace; videoSpace?: boolean; manage?: boolean }) {
   const format = useFormatter();
   function activityLabel(value: string) {
     const date = new Date(value);
@@ -399,7 +399,7 @@ export function WorkspaceView({ initialWorkspace, videoSpace = false }: { initia
                 </CardContent>
                 <CardFooter className="justify-end pl-7">
                   <Button asChild variant="outline">
-                    <Link href={`${videoSpace ? "/new-workspace" : "/workspace"}/projects/${project.id}`} aria-label={tr("openNamedProject", {name: project.name})}>
+                    <Link href={`${videoSpace ? "/new-workspace" : "/workspace"}/projects/${project.id}${manage?"/materials":""}`} aria-label={tr("openNamedProject", {name: project.name})}>
                       {videoSpace ? tr("openVideoSpace") : tr("openProject")}
                       <ArrowRight aria-hidden="true" />
                     </Link>

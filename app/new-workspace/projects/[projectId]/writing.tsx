@@ -58,6 +58,7 @@ export function useWriting({
     setPassage(undefined);
   }
   function type(text: string) {
+    if (text.length > 80000) {setError("scriptLengthLimitReached"); return;}
     setPassage(undefined);
     update((s) => ({
       ...s,
@@ -86,7 +87,7 @@ export function useWriting({
     }
     const start = suggestion.start;
     const insert =
-      !suggestion.length && start && !before.text.endsWith("\n")
+      !suggestion.length && start && before.text[start - 1] !== "\n"
         ? "\n" + text
         : text;
     const after = editDraft(

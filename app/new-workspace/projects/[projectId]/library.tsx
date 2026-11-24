@@ -18,6 +18,7 @@ import { SourceClaims } from "./source-claims";
 import type { ClaimSpace } from "@/lib/video-space/claim-spaces";
 
 type Props = {
+  emptyHint?:string;
   initialSources: ProjectSourceSet | null;
   bySource: Map<string, ClaimSpace[]>;
   selected?: string;
@@ -241,6 +242,7 @@ function SourceCard({
   );
 }
 export function Library({
+  emptyHint,
   initialSources,
   adding,
   setAdding,
@@ -388,7 +390,7 @@ export function Library({
       {error && <p role="alert">{tr.has(error) ? tr(error) : error}</p>}
       {!sources && <p role="alert">{tr("couldNotLoadVideoSources")}</p>}
       {sources && !items.length && (
-        <p className="vs-hint">{tr("addTheFirstSourceForThisVideo")}</p>
+        <p className="vs-hint">{emptyHint ?? tr("addTheFirstSourceForThisVideo")}</p>
       )}
       {items.map(({ resource, video }, i) => (
         <SourceCard

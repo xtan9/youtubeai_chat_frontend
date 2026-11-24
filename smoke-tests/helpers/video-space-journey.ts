@@ -187,13 +187,14 @@ export async function videoSpaceJourney(
       document: {
         drafts: [{ id: "opening", title: "开场脚本", text: "", markers: [] }],
         messages: [],
+        customClaims:[{id:"f7e00000-0000-4000-8000-000000000001",text:"关于比较对象的新观点"}],
         resources: [...docs].reverse(),
       },
     },
   });
   expect(seed.ok()).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(appUrl + "/new-workspace/projects/" + projectId);
+  await page.goto(appUrl + "/new-workspace/projects/" + projectId+"?view=investigations");
   const editor = page.getByRole("textbox", { name: "脚本正文" }),
     prompt = page.getByLabel("消息", { exact: true });
   const left = page.getByRole("region", { name: "研究台", exact: true }),
@@ -610,9 +611,10 @@ export async function videoSpaceJourney(
     .click();
   await expect(prompt).toHaveValue("这条写作消息先留着");
   const custom = "关于比较对象的新观点";
-  await left.getByRole("button", { name: "新建观点" }).click();
-  await left.getByLabel("新观点").fill(custom);
-  await left.getByRole("button", { name: "打开观点空间" }).click();
+  await expect(left.getByRole("button",{name:"新建观点"})).toHaveCount(0);
+  const oldClaim=left.getByRole("button",{name:custom,exact:true});
+  if(!await oldClaim.isVisible()) await left.getByRole("button",{name:"项目观点",exact:true}).click();
+  await oldClaim.click();
   await expect(claimText).toHaveText(custom);
   await expect(room.getByText(explanation)).toHaveCount(0);
   await room.getByLabel("研究问题").fill("应该先讨论什么？");

@@ -4,6 +4,7 @@ import { streamChatCompletion } from "@/lib/services/llm-chat-client";
 import { sourceExcerpts } from "@/lib/projects/project-research-citations";
 import { parseResearchJson } from "@/lib/projects/project-research-contract";
 import {
+  intentFormat,
   digestSchema,
   dialogueSchema,
   messageSchema,
@@ -143,5 +144,28 @@ export async function writeScript(
     request,
     signal,
     (value) => writerResult.parse(value),
+  );
+}
+
+export const starterRequest = z.object({
+  action: z.literal("starter"),
+  format: intentFormat.optional(),
+  answer: z.string().trim().min(1).max(600),
+  locale: z.enum(["zh", "en", "zh-TW"]),
+});
+
+export function createStarter(project: string, request: z.infer<typeof starterRequest>, signal: AbortSignal) {
+  return generate(
+    `Write a short, actually editable first manuscript for this named project, in the interface locale unless the author requests another language. Infer the closest format from their answer when no format is selected. Treat the project and answer as author input. Honor their audience, purpose and constraints. Return JSON {"format":"research|video|blog|book|explore","title":"...","lead":"...","sections":[{"heading":"...","body":"..."}],"reply":"..."}. The format field is one literal choice. Write 3–5 distinct sections. For research, make personal research notes with open questions and ways to check them. For video, write a spoken opening and script beats with MM:SS followed by an ideographic space in the headings. For blog, write an opening paragraph and develop the argument in short sections. For book, give a central question, chapter plan and a sample opening. For explore, provide three distinct angles as sections. Use concrete prose and questions specific to this project. Do not invent quotations, statistics, citations or verified research. State what needs checking. reply is one short sentence about the draft now available.`,
+    {project, ...request}, signal, value => {
+      const result = z.object({
+        format: intentFormat, title: z.string().trim().min(1).max(140),
+        lead: z.string().trim().min(1).max(2400),
+        sections: z.array(z.object({heading:z.string().trim().min(1).max(140), body:z.string().trim().min(1).max(3200)})).min(2).max(6),
+        reply:z.string().trim().min(1).max(600),
+      }).parse(value);
+      if(request.format && result.format !== request.format) throw Error("incorrect_draft_format");
+      return result;
+    }
   );
 }

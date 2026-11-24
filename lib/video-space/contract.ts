@@ -57,7 +57,9 @@ const marker = z.object({
 const draft = z.object({
   id,
   version: z.uuid().optional(),
-  defaultTitle: z.union([z.literal("opening"), z.number().int().min(1).max(50)]).optional(),
+  defaultTitle: z
+    .union([z.literal("opening"), z.number().int().min(1).max(50)])
+    .optional(),
   title: z.string().min(1).max(140),
   text: z.string().max(80000),
   markers: z.array(marker).max(300),
@@ -88,7 +90,24 @@ const claimTurnSchema = dialogueSchema.extend({
   finding: z.uuid().optional(),
 });
 export type ClaimTurn = z.infer<typeof claimTurnSchema>;
+export const intentFormat = z.enum([
+  "research",
+  "video",
+  "blog",
+  "book",
+  "explore",
+]);
+export const questionSchema = z.object({
+  id: z.uuid(),
+  revision: z.uuid().optional(),
+  title: z.string().trim().min(3).max(500),
+  hypothesis: z.string().max(1000).optional(),
+  gap: z.string().max(1000).optional(),
+});
+export type ProjectQuestion = z.infer<typeof questionSchema>;
 export const spaceSchema = z.object({
+  purpose: intentFormat.optional(),
+  questions: z.array(questionSchema).max(150).optional(),
   claimDiscussion: z.array(claimTurnSchema).max(2000).optional(),
   activeDraft: id.optional(),
   customClaims: z
@@ -127,7 +146,15 @@ export type Draft = Space["drafts"][number];
 export type Passage = z.infer<typeof passageSchema>;
 export type Message = z.infer<typeof messageSchema>;
 export const emptySpace = (): Space => ({
-  drafts: [{ id: "opening", title: "Opening script", defaultTitle: "opening", text: "", markers: [] }],
+  drafts: [
+    {
+      id: "opening",
+      title: "Opening script",
+      defaultTitle: "opening",
+      text: "",
+      markers: [],
+    },
+  ],
   messages: [],
   resources: [],
 });
