@@ -65,6 +65,7 @@ const draft = z.object({
   markers: z.array(marker).max(300),
 });
 export const messageSchema = z.object({
+  interviewId: z.uuid().optional(),
   suggestion: z
     .object({
       draft: id,
@@ -107,6 +108,14 @@ export const questionSchema = z.object({
 export type ProjectQuestion = z.infer<typeof questionSchema>;
 export const spaceSchema = z.object({
   purpose: intentFormat.optional(),
+  interview: z.object({
+    id: z.uuid(),
+    turnId: z.uuid(),
+    format: intentFormat.optional(),
+    pending: z.boolean(),
+    notes: z.string().max(6000),
+    brief: z.string().trim().min(1).max(6000).optional(),
+  }).optional(),
   questions: z.array(questionSchema).max(150).optional(),
   claimDiscussion: z.array(claimTurnSchema).max(2000).optional(),
   activeDraft: id.optional(),

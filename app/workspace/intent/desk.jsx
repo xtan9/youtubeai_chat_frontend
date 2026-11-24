@@ -32,6 +32,7 @@ import {
 } from "@/app/new-workspace/projects/[projectId]/use-space";
 import { Document, paragraphRanges } from "./document";
 import { InkIcon } from "./ink-icon";
+import { useIntentInterview } from "./use-intent-interview";
 import { ProjectChat } from "./project-chat";
 import { FindingList } from "./finding-list";
 import {
@@ -61,8 +62,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const [pending, setPending] = useState("");
   const [failure, setFailure] = useState({});
   const lock = useRef(false);
-  const [generating, setGenerating] = useState(false);
-  const starterLock = useRef(false);
   const { runs, sources: aiSources } = useMemo(
     () => researchRecords(versions, t),
     [versions, t],
@@ -82,7 +81,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const libraryTitle = t("questionsAndSources");
   const returnMarker = useRef(null);
   const fresh =
-    !space.purpose &&
+    !space.interview && !space.purpose &&
     !space.messages.length &&
     !space.drafts.some((d) => d.text);
   const [mobile, setMobile] = useState(
@@ -90,14 +89,13 @@ export function IntentDesk({ name, projectId, store, initial }) {
       ? "room"
       : route.question
         ? "paper"
-        : fresh
+        : fresh || space.interview
           ? "chat"
           : "paper",
   );
   const [materials, setMaterials] = useState(true);
   const [choosing, setChoosing] = useState(fresh),
-    [answer, setAnswer] = useState(""),
-    [clarify, setClarify] = useState("");
+    [answer, setAnswer] = useState("");
   const [full, setFull] = useState(false),
     [adding, setAdding] = useState(false),
     [showExcerpt, setShowExcerpt] = useState(false);
@@ -259,7 +257,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
     showRoute({ question: q.id, section });
   }
 
-  const initialQuestion = (name) => t("purpose", { name });
   function saveQuestion(id, title) {
     const key = id || crypto.randomUUID();
     const ok = setProjectQuestions((items) =>
@@ -445,72 +442,20 @@ export function IntentDesk({ name, projectId, store, initial }) {
     setMobile("chat");
   }
 
-  async function choose(type, reply) {
-    if (starterLock.current || !reply.trim()) return;
-    starterLock.current = true;
-    setGenerating(true);
-    setClarify("");
-    try {
-      const starter = await requestJson(api + "/space", "POST", {
-        action: "starter",
-        format: type,
-        answer: reply,
-        locale,
-      });
-      const id = starter.format + "/" + crypto.randomUUID();
-      const draft = {
-        id,
-        title: starter.title,
-        text: [
-          starter.lead,
-          ...starter.sections.map(
-            (section) => "## " + section.heading + "\n" + section.body,
-          ),
-        ].join("\n\n"),
-        markers: [],
-      };
-      const ok = update((s) => ({
-        ...s,
-        purpose: starter.format,
-        activeDraft: id,
-        drafts: [
-          ...s.drafts.filter(
-            (d) =>
-              d.id !== "opening" ||
-              d.text ||
-              d.markers.length ||
-              !d.defaultTitle,
-          ),
-          draft,
-        ],
-        messages: [
-          ...s.messages,
-          ...(!s.messages.length
-            ? [{ role: "assistant", text: initialQuestion(name) }]
-            : []),
-          { role: "user", text: reply },
-          { role: "assistant", text: starter.reply },
-        ],
-      }));
-      if (!ok) return;
-      w.changeDraft(id);
+  const interview = useIntentInterview({
+    api, store, locale, name, t, tr,
+    onSend() {
       setChoosing(false);
       setAnswer("");
+      toChat();
+    },
+    onDraft(id) {
+      w.changeDraft(id);
       setFull(false);
       setDestination(null);
       showRoute({});
-      await flush();
-    } catch (e) {
-      setClarify(tr.has(e.message) ? tr(e.message) : e.message);
-    } finally {
-      starterLock.current = false;
-      setGenerating(false);
-    }
-  }
-  function sendIntent(e) {
-    e.preventDefault();
-    void choose(undefined, answer);
-  }
+    },
+  });
   function research(q, parent, retry) {
     return investigate(
       q,
@@ -1115,7 +1060,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 toChat();
               }}
               onAngle={(angle) =>
-                choose("research", t("angle", { angle }), angle)
+                interview.ask(t("angle", { angle }), { format: "research" })
               }
             />
           )}
@@ -1135,10 +1080,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
               setChoosing={setChoosing}
               answer={answer}
               setAnswer={setAnswer}
-              sendIntent={sendIntent}
-              choose={choose}
-              generating={generating}
-              clarify={clarify}
+              interview={interview}
               show={show}
               destination={destination}
               applyToParagraph={applyToParagraph}

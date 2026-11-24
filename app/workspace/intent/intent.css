@@ -498,6 +498,7 @@ body:has(.intent-shell) > :is(header, footer) {
     height: 13px;
   }
   .chat-text {
+    white-space: pre-wrap;
     font-size: 14px;
     line-height: 1.85;
     overflow-wrap: anywhere;
@@ -530,6 +531,14 @@ body:has(.intent-shell) > :is(header, footer) {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+  }
+  .chat-pending {
+    align-self: flex-start;
+    margin: 0 16px 8px;
+    padding: 8px 12px;
+    border-radius: 9px 9px 9px 2px;
+    background: #eae9e2;
+    color: var(--muted);
   }
   .composer {
     margin: 0 12px 12px;

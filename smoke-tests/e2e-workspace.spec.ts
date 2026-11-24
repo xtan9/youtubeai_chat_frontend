@@ -5370,13 +5370,62 @@ test("named project preserves research citations after a question changes @proje
   await page.getByRole("button",{name:"创建并打开"}).click();
   await page.waitForURL(/\/workspace\/projects\/[a-f0-9-]+$/);
   const endpoint=page.url().replace("/workspace/projects/","/api/projects/");
-  await page.route(endpoint+"/space",async route=>{
-    if(route.request().method()!=="POST") return route.fallback();
-    const data=route.request().postDataJSON();
-    expect(data.action).toBe("starter");expect(data.format).toBe("video");
+  const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
+  const thinking = page.getByRole("status", { name: "助手正在思考" });
+  const approvedBrief = "给今晚做饭的人看，比较葵花籽油和菜籽油，避免健康结论。";
+  let interviews = 0, drafts = 0;
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route(endpoint+"/space", async route => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const data = route.request().postDataJSON();
+    if (data.action === "interview") {
+      interviews++;
+      if (interviews === 1) {
+        await waiting;
+        return route.fulfill({ json: { stage: "ask", format: "video", notes: "视频", reply: "观众看完后要做什么决定？" } });
+      }
+      if (interviews === 2) return route.fulfill({ status: 503, json: { messageKey: "spaceUnavailable" } });
+      return route.fulfill({ json: { stage: "review", format: "video", brief: interviews === 3 ? "给今晚做饭的人看，比较两瓶油。" : approvedBrief } });
+    }
+    expect(data).toMatchObject({ action: "starter", confirmBrief: true });
+    drafts++;
     await route.fulfill({json:{format:"video",title:"今晚炒菜，要换掉这瓶油吗？",lead:"口播初稿",sections:[{heading:"00:00　开场",body:"先看名称。"},{heading:"00:15　出处",body:"再看出处。"}],reply:"开场已经写进脚本。"}});
   });
   await page.getByRole("button",{name:"做 YouTube 视频"}).click();
+  await expect(thinking).toBeVisible();
+  await expect(thinking.locator("span")).toHaveCount(3);
+  await expect(confirm).toHaveCount(0);
+  release();
+  await expect(page.getByText("观众看完后要做什么决定？")).toBeVisible();
+  await expect(thinking).toHaveCount(0);
+  const readSpace = async () => (await (await page.request.get(endpoint + "/space")).json()).document;
+  await expect.poll(async () => (await readSpace()).interview?.pending).toBe(false);
+  const premature = await page.request.post(endpoint + "/space", { data: {
+    action: "starter", turnId: (await readSpace()).interview.turnId, confirmBrief: true, locale: "zh",
+  } });
+  expect(premature.status()).toBe(409);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const message = page.getByRole("textbox", { name: "消息", exact: true });
+  await expect(message).toBeVisible();
+  await message.fill("想帮今晚做饭的人读懂两瓶油的标签。");
+  await message.press("Enter");
+  await expect(page.getByRole("button", {name:"重新获取回复"})).toBeVisible();
+  await expect(thinking).toHaveCount(0);
+  await page.getByRole("button", {name:"重新获取回复"}).click();
+  await expect(confirm).toBeVisible();
+  await message.fill("补充：只比较葵花籽油和菜籽油，不做健康结论。");
+  await expect(confirm).toBeDisabled();
+  await message.press("Enter");
+  await expect(page.getByText(approvedBrief)).toBeVisible();
+  await expect.poll(async () => (await readSpace()).interview?.brief).toBe(approvedBrief);
+  await page.reload();
+  await expect(page.getByText(approvedBrief)).toBeVisible();
+  expect((await readSpace()).drafts.every((d: {text: string}) => !d.text)).toBe(true);
+  expect(drafts).toBe(0);
+  await confirm.click();
+  await page.setViewportSize({width:1440,height:900});
   await expect(page.getByRole("textbox",{name:"文稿标题"})).toHaveText("今晚炒菜，要换掉这瓶油吗？");
   const titles=["种子油都有哪些？","为什么叫种子油？","他们有哪些共同特征？","种子油是什么时候开始被用在家庭里的？"];
   for(const title of titles){

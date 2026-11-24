@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import { ThinkingDots } from "@/components/ui/thinking-dots";
 import { InkIcon } from "./ink-icon";
 import { getFormats } from "./question-sources";
 
@@ -36,10 +37,7 @@ export function ProjectChat({
   setChoosing,
   answer,
   setAnswer,
-  sendIntent,
-  choose,
-  generating,
-  clarify,
+  interview,
 
   show,
   destination,
@@ -55,10 +53,15 @@ export function ProjectChat({
           text: t("purpose", { name }),
         },
       ];
-  const prompt = choosing ? answer : w.prompt;
+  const planning = space.interview;
+  const composing = choosing || Boolean(planning);
+  const busy = Boolean(interview.busy || w.busy);
+  const prompt = composing ? answer : w.prompt;
   function submit(event) {
     event.preventDefault();
-    if (choosing) sendIntent(event);
+    if (busy) return;
+    if (choosing) void interview.ask(prompt, {});
+    else if (planning) void interview.ask(prompt);
     else if (prompt.trim()) void w.send();
   }
   function chooseAgain() {
@@ -83,7 +86,7 @@ export function ProjectChat({
             <Turn key={i} message={m}>
               {(m.role === "handoff" || m.finding) && (
                 <div className="chat-action">
-                  {target && (
+                  {target && !composing && (
                     <button
                       className="choice"
                       onClick={applyToParagraph}
@@ -92,7 +95,7 @@ export function ProjectChat({
                       {t("insertInThisSectionWithCitation")}{" "}
                     </button>
                   )}
-                  {m.role === "handoff" && (
+                  {m.role === "handoff" && !composing && (
                     <button
                       className="link"
                       disabled={w.busy}
@@ -121,7 +124,7 @@ export function ProjectChat({
                     className="choice"
                     onClick={() => w.apply(m.suggestion, option, m.finding)}
                     disabled={
-                      w.draft.id !== m.suggestion.draft ||
+                      Boolean(composing) || w.draft.id !== m.suggestion.draft ||
                       w.draft.version !== m.suggestion.version
                     }
                   >
@@ -136,36 +139,41 @@ export function ProjectChat({
         })}
         {choosing ? (
           <>
-            {generating && <p role="status">{t("writingYourDraft")}</p>}
-            {clarify && (
-              <p className="chat-text" role="status">
-                {clarify}
-              </p>
-            )}
             <div className="choices">
               {Object.entries(formats).map(([key, format]) => (
                 <button
                   className="choice"
-                  disabled={generating}
+                  disabled={busy}
                   key={key}
-                  onClick={() => choose(key, format.label)}
+                  onClick={() => interview.ask(format.label, { format: key })}
                 >
                   {format.label}
                 </button>
               ))}
             </div>
-            {space.messages.length > 0 && (
+            {(planning || space.purpose || space.drafts.some(d => d.text)) && (
               <button className="link" onClick={() => setChoosing(false)}>
-                {t("returnToWriting")}{" "}
+                {t(planning ? "returnToDiscussion" : "returnToWriting")}{" "}
               </button>
             )}
           </>
         ) : (
           <div className="chat-action">
-            <button className="link" onClick={chooseAgain}>
+            {planning?.brief && (
+              <button className="choice" disabled={busy || !!prompt.trim()} onClick={interview.confirm}>
+                {t("confirmAndDraft")}
+              </button>
+            )}
+            {planning && space.drafts.some(d => d.text) && (
+              <button className="link" disabled={busy} onClick={interview.returnToDraft}>{t("returnToWriting")}</button>
+            )}
+            {planning?.pending && !busy && (
+              <button className="choice" onClick={interview.retry}>{t("retryInterview")}</button>
+            )}
+            <button className="link" disabled={busy} onClick={chooseAgain}>
               {t("tryAnotherPurpose")}{" "}
             </button>
-            <button
+            {!planning && <button
               className="link contextual"
               disabled={w.busy}
               onClick={() =>
@@ -177,11 +185,11 @@ export function ProjectChat({
               }
             >
               {t("continueWriting")}{" "}
-            </button>
+            </button>}
           </div>
         )}
       </div>
-      {!choosing && w.passage && (
+      {!composing && w.passage && (
         <blockquote className="quoted-selection">
           {w.passage.title} · “{w.passage.text}”{" "}
           <button className="link" onClick={() => w.setPassage(undefined)}>
@@ -189,20 +197,26 @@ export function ProjectChat({
           </button>
         </blockquote>
       )}
-      {!choosing && w.error && <p role="alert">{w.error}</p>}
+      {!composing && w.error && <p role="alert">{w.error}</p>}
+      {interview.error && <p role="alert">{interview.error}</p>}
+      {busy && (
+        <div className="chat-pending">
+          <ThinkingDots label={interview.busy === "starter" ? t("writingYourDraft") : undefined} />
+        </div>
+      )}
       <form className="composer" onSubmit={submit}>
         <textarea
           aria-label={choosing ? t("answerInYourOwnWords") : t("message")}
           rows={1}
-          maxLength={choosing ? 600 : 4000}
+          maxLength={4000}
           value={prompt}
           placeholder={
             choosing
               ? t("orAnswerInYourOwnWords")
-              : t("discussAnAngleOrAskMeToKeepWriting")
+              : planning ? t(planning.brief ? "correctBrief" : "answerInterview") : t("discussAnAngleOrAskMeToKeepWriting")
           }
           onChange={(e) =>
-            choosing ? setAnswer(e.target.value) : w.setPrompt(e.target.value)
+            composing ? setAnswer(e.target.value) : w.setPrompt(e.target.value)
           }
           onKeyDown={(e) => {
             if (
@@ -216,7 +230,7 @@ export function ProjectChat({
         />
         <button
           className="send"
-          disabled={generating || w.busy}
+          disabled={busy}
           aria-label={choosing ? t("sendAnswer") : t("sendMessage")}
         >
           <InkIcon name="up" />

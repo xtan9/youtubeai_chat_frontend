@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
-import type { Resource } from "../contract";
+import { emptySpace, type Resource } from "../contract";
 
 vi.mock("server-only", () => ({}));
 const { stream } = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: stream,
 }));
-import { discussClaim, summarize, writeScript } from "../assistant";
+import { discussClaim, interviewAuthor, interviewContext, summarize, writeScript } from "../assistant";
 
 const resource: Resource = {
   id: "video",
@@ -106,4 +106,23 @@ it("answers a claim discussion from the supplied passage, finding and prior conv
   expect(stream.mock.lastCall?.[0].messages[0].content).toContain(
     JSON.stringify(request),
   );
+});
+
+it("asks on format selection even if the model prematurely offers a brief", async () => {
+  const space = emptySpace();
+  const id = crypto.randomUUID();
+  space.interview = { id, turnId: crypto.randomUUID(), pending: true, notes: "", format: "video" };
+  space.messages = [
+    { role: "user", text: "A separate draft" },
+    { role: "user", interviewId: id, text: "YouTube" },
+  ];
+  space.resources = [resource];
+  const context = interviewContext("New project", space, []);
+  expect(context.turns).toEqual([{ role: "user", text: "YouTube" }]);
+  expect(context.materials[0].excerpt).toBe(resource.pages[0].text);
+  const ask = { stage: "ask", format: "video", notes: "Video selected", reply: "Who should see this?" };
+  const delta = (reply: object) => [{ type: "delta", text: JSON.stringify(reply) }];
+  stream.mockReturnValueOnce(delta({ stage: "review", format: "video", brief: "A generic script." }))
+    .mockReturnValueOnce(delta(ask));
+  expect(await interviewAuthor(context, "en", new AbortController().signal)).toEqual(ask);
 });

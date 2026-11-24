@@ -1,7 +1,7 @@
 "use client";
 
-import {useTranslations} from "next-intl";
 import { useEffect, useRef } from "react";
+import { ThinkingDots } from "@/components/ui/thinking-dots";
 import { ChatMessage } from "./chat-message";
 import type { ChatMessage as ChatMessageRow } from "@/lib/hooks/useChatThread";
 import type { TranscriptTimingStatus } from "./transcript-timing-notice";
@@ -68,30 +68,14 @@ export function ChatMessageList({
               onTimestampActivated={onTimestampActivated}
             />
           ) : streaming ? (
-            <ThinkingIndicator />
+            <div className="flex justify-start" data-testid="chat-thinking-indicator">
+              <div className="rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-3 text-text-muted">
+                <ThinkingDots />
+              </div>
+            </div>
           ) : null}
         </>
       )}
-    </div>
-  );
-}
-
-function ThinkingIndicator() {
-  const t = useTranslations("reader");
-  return (
-    <div className="flex justify-start" data-testid="chat-thinking-indicator">
-      <div
-        role="status"
-        aria-live="polite"
-        aria-label={t("thinking")}
-        className="rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-3"
-      >
-        <span className="flex items-center gap-1">
-          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:0ms]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:150ms]" />
-          <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:300ms]" />
-        </span>
-      </div>
     </div>
   );
 }
