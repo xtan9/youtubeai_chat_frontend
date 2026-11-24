@@ -471,3 +471,19 @@ it("can answer a question from an independently retrieved reference entry during
   expect(answer.evidence).toEqual([reference]);
   expect(answer.synthesis.judgment.references[0].quote).toBe(reference.text);
 });
+
+it("rechecks a narrower answer after a proposed example fails the quotation check", async () => {
+  const revisions=[plan,generatedSynthesis,{supported:false,gap:"One example lacks supporting text."},generatedSynthesis,{supported:true}];
+  stream.mockImplementation(async function*(){yield {type:"delta",text:JSON.stringify(revisions.shift())};});
+  const result=await runProjectResearch({...args,space:{questionId:crypto.randomUUID()}});
+  expect(stream.mock.calls[3][0].messages[0].content).toContain("One example lacks supporting text.");
+  expect(result.synthesis.judgment.references).toEqual(observation.references);
+  expect(revisions).toHaveLength(0);
+});
+it("keeps the question open if even the narrower draft lacks direct support", async () => {
+  const rejected={supported:false,gap:"This passage does not establish a date."};
+  const revisions=[plan,generatedSynthesis,rejected,generatedSynthesis,rejected];
+  stream.mockImplementation(async function*(){yield {type:"delta",text:JSON.stringify(revisions.shift())};});
+  await expect(runProjectResearch({...args,space:{questionId:crypto.randomUUID()}})).rejects.toThrow(rejected.gap);
+  expect(revisions).toHaveLength(0);
+});
