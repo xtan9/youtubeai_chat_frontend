@@ -236,3 +236,63 @@ test("legacy materials, excerpts and conversation defaults switch in place", asy
     expect((await page.request.delete(target)).status()).toBe(204);
   }
 });
+
+test("saved web excerpts, transcript locators and research errors use the current language", async ({page})=>{
+  const base="https://www.youtubeai.chat";
+  await page.goto(base+"/auth/login");
+  await page.locator("#email").fill(process.env.TEST_LIVE_SUMMARY_EMAIL!);
+  await page.locator("#password").fill(process.env.TEST_LIVE_SUMMARY_PASSWORD!);
+  await page.locator("form button[type=submit]").click();
+  await page.waitForURL(url=>["/","/dashboard"].includes(url.pathname));
+  const creation=await page.request.post(base+"/api/workspace/projects",{data:{name:"素材位置验收 "+Date.now(),goal:""}});
+  expect(creation.ok()).toBeTruthy();
+  const {project:{id}}=await creation.json();
+  const api=base+"/api/projects/"+id;
+  const claim="aa18f738-a834-43d7-ae0f-1341c1447d22";
+  const oldError="检索已完成，但没有找到可核查的相关摘要。现有证据不足。";
+  const labels=[
+    ["en","Paragraph 3","Transcript excerpt","Web page body","Project video transcript excerpts","The search finished without any relevant, verifiable abstracts. The available evidence is insufficient."],
+    ["zh","段落 3","字幕摘录","网页正文","项目视频字幕摘录",oldError],
+    ["zh-TW","段落 3","字幕摘錄","網頁正文","專案影片字幕摘錄","檢索已完成，但沒有找到可核查的相關摘要。現有證據不足。"],
+  ];
+  try {
+    const result=await page.request.put(api+"/space",{data:{revision:0,document:{
+      drafts:[{id:"opening",title:"开场脚本",text:"",markers:[]}],messages:[],
+      customClaims:[{id:claim,text:"自己的待查观点"}],
+      researchAttempts:[{id:"5c496375-d191-41bf-a58b-00695228ea72",claimId:claim,question:"自己的研究问题",message:oldError,evidenceGap:true,created:new Date().toISOString()}],
+      resources:[
+        {id:"legacy-web",kind:"web",title:"作者的网页",analyzed:true,pages:[{label:"段落 3",text:"网页原文"}],coverage:"已读取网页摘录 · 1 段",
+         references:[{label:"作者署名",location:"网页正文",url:"https://example.org/citation"}]},
+        {id:"legacy-transcript",kind:"video",title:"原视频标题",analyzed:true,pages:[{label:"字幕摘录",text:"视频原文"},{label:"3:04",text:"字幕原文"}],coverage:"项目视频字幕摘录"},
+      ],
+    }}});
+    expect(result.ok()).toBeTruthy();
+    const url=base+"/new-workspace/projects/"+id;
+    await page.goto(url);
+    const lang=page.locator("header select").first();
+    await lang.selectOption("en");
+    const web=page.locator(".vs-source").filter({has:page.getByRole("heading",{name:"作者的网页"})});
+    const video=page.locator(".vs-source").filter({has:page.getByRole("heading",{name:"原视频标题"})});
+    for(const card of [web,video]){
+      await card.getByRole("button",{name:"Summary +",exact:true}).click();
+      await card.getByText("Excerpts",{exact:true}).click();
+    }
+    await web.locator(".vs-digest details summary").first().click();
+    for(const [locale,paragraph,caption,body,coverage] of labels){
+      await lang.selectOption(locale);
+      await expect(web.locator(".vs-digest b")).toHaveText(paragraph);
+      await expect(web.locator(".vs-digest small")).toHaveText(body);
+      await expect(video.locator(".vs-digest b")).toHaveText([caption,"3:04"]);
+      await expect(video.getByText(coverage,{exact:true})).toBeVisible();
+      await expect(web.getByRole("link",{name:/作者署名/})).toBeVisible();
+    }
+    await page.goto(url+"?claim="+claim);
+    for(const [locale,,,,,error] of labels){
+      await lang.selectOption(locale);
+      await expect(page.locator(".vs-turn [role=alert]")).toContainText(error);
+      await expect(page.getByText("自己的研究问题",{exact:true})).toBeVisible();
+    }
+  } finally {
+    expect((await page.request.delete(api)).ok()).toBeTruthy();
+  }
+});
