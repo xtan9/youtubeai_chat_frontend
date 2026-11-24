@@ -1012,6 +1012,7 @@
     "transformGroundedInspirationIntoAnOriginalVideoDirection": "从有据可查的灵感出发，构思原创视频。",
     "theBriefWillAttributeSourceClaimsThenIdentify": "简报将注明观点出处，并根据项目目标梳理空白、可能的组合、反方论点和原创角度。",
     "video": "视频",
+    "referenceArticle": "百科条目",
     "publicationAbstract": "论文摘要",
     "opensInANewTab": "（在新标签页中打开）",
     "researchQuestion": "研究问题：",
@@ -1419,6 +1420,7 @@
     "iHavenTDecided": "还没决定",
     "topicExploration": "选题探索页",
     "videoTranscript": "视频原文",
+    "referenceArticle": "百科条目",
     "researchAbstract": "研究摘要",
     "manageProjects": "管理项目",
     "optionalMaterial": "可添加文章、PDF 或摘录，给 AI 补充背景。"

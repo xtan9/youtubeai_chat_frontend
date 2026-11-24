@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-const { stream, search } = vi.hoisted(() => ({
+const { stream, search, references } = vi.hoisted(() => ({
   stream: vi.fn(),
   search: vi.fn(),
+  references: vi.fn(),
 }));
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: stream,
@@ -12,6 +13,7 @@ vi.mock("@/lib/services/research-literature", async (importOriginal) => ({
     typeof import("@/lib/services/research-literature")
   >()),
   searchResearchLiterature: search,
+  searchReferenceArticles: references,
 }));
 import { ChatGatewayError } from "@/lib/services/llm-chat-error";
 import { runProjectResearch } from "../project-research-engine";
@@ -92,6 +94,7 @@ const plan = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
+  references.mockResolvedValue([]);
   search.mockResolvedValue({ evidence: [external], partial: false });
   let calls = 0;
   stream.mockImplementation(async function* () {
@@ -455,4 +458,16 @@ it("keeps a scoped question open when the retrieved passage is only a household 
   }})).rejects.toThrow("请先明确地区、油种和时间范围。");
   expect(search).toHaveBeenCalled();
   expect(stream.mock.calls[1][0].messages[0].content).toContain("OPTIONAL_BACKGROUND_NOT_EVIDENCE");
+});
+
+it("can answer a question from an independently retrieved reference entry during a literature outage", async () => {
+  const reference:ResearchEvidence={...external,kind:"reference_article",url:"https://en.wikipedia.org/w/index.php?oldid=123",originId:"wikipedia:en:123"};
+  references.mockResolvedValue([reference]);
+  search.mockRejectedValue(new Error("literature_provider_unavailable"));
+  const replies=[{...plan,referenceTopic:"botany"},generatedSynthesis,{supported:true}];
+  stream.mockImplementation(async function*(){yield {type:"delta",text:JSON.stringify(replies.shift())};});
+  const answer=await runProjectResearch({...args,space:{questionId:crypto.randomUUID()}});
+  expect(references).toHaveBeenCalledWith("botany",args.signal);
+  expect(answer.evidence).toEqual([reference]);
+  expect(answer.synthesis.judgment.references[0].quote).toBe(reference.text);
 });

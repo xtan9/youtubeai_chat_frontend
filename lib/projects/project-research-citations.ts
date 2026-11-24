@@ -38,7 +38,7 @@ export function sourceExcerpts(text: string, maxLength = 900) {
   return result;
 }
 
-export function prepareResearchCitations(evidence: readonly ResearchEvidence[]) {
+export function prepareResearchCitations(evidence: readonly ResearchEvidence[], preservePassages = false) {
   const sources = evidence.map(({ text, ...metadata }) => ({
     ...metadata,
     excerpts: sourceExcerpts(text).map((text, index) => ({ index, text })),
@@ -65,7 +65,7 @@ export function prepareResearchCitations(evidence: readonly ResearchEvidence[]) 
           findings: selected.findings.map(resolve),
           reasoning: resolve(selected.reasoning),
         }),
-        evidence,
+        evidence, preservePassages,
       );
     },
   };

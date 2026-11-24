@@ -73,6 +73,7 @@ it("coalesces repeated source IDs only after checking every exact quotation", ()
   const result = validateResearchSynthesis(JSON.stringify(output), evidence);
   expect(result.judgment.references).toEqual(observation.references);
   expect(result.judgment.text).toBe(observation.text);
+  expect(validateResearchSynthesis(JSON.stringify(output), evidence, true).judgment.references).toEqual(output.judgment.references);
 });
 it("still rejects an altered second quote even when its source was already cited", () => {
   const output = plan();

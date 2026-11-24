@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-import { searchResearchLiterature } from "../research-literature";
+import { searchResearchLiterature, searchReferenceArticles } from "../research-literature";
 afterEach(() => vi.unstubAllGlobals());
 const record = {
   id: "123",
@@ -151,4 +151,19 @@ describe("external literature HTTP boundary", () => {
       searchResearchLiterature("fats", new AbortController().signal),
     ).rejects.toThrow("literature_provider_unavailable");
   });
+});
+
+it("binds discovered reference text to a specific revision and excludes disambiguation pages", async()=>{
+  const excerpt="The instrument was invented in the seventeenth century.";
+  vi.stubGlobal("fetch",vi.fn(async(url:URL)=>{
+    expect(url.origin).toBe("https://en.wikipedia.org");
+    expect(url.searchParams.get("gsrsearch")).toBe("instrument");
+    return Response.json({query:{pages:[
+      {pageid:2,revisions:[{revid:91}],title:"Ambiguous entry",index:1,extract:"Instrument may refer to:"},
+      {pageid:3,revisions:[{revid:92}],title:"Instrument",index:2,extract:excerpt},
+    ]}});
+  }));
+  const entries=await searchReferenceArticles("instrument",new AbortController().signal);
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({url:"https://en.wikipedia.org/w/index.php?oldid=92",kind:"reference_article",text:excerpt});
 });

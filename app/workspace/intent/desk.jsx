@@ -669,6 +669,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
           <div className="crumb">
             <Link href="/workspace">{t("myWorkspace")}</Link> <span>/</span>{" "}
             {t("project")}{" "}
+            {status === tr("saving") && <small role="status">{status}</small>}
           </div>
           <h1>{name}</h1>
         </div>
@@ -682,7 +683,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       {initial.history === null && (
         <p role="alert">{tr("researchHistoryCouldNotBeLoadedPleaseReload")}</p>
       )}
-      {status !== tr("saved") && (
+      {status !== tr("saved") && status !== tr("saving") && (
         <p role="status">
           {status}{" "}
           {status !== tr("saving") && (

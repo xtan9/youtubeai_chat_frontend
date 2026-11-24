@@ -1012,6 +1012,7 @@
     "transformGroundedInspirationIntoAnOriginalVideoDirection": "從有據可查的靈感出發，構思原創影片。",
     "theBriefWillAttributeSourceClaimsThenIdentify": "簡報將注明觀點出處，並根據專案目標梳理空白、可能的組合、反方論點和原創角度。",
     "video": "影片",
+    "referenceArticle": "百科條目",
     "publicationAbstract": "論文摘要",
     "opensInANewTab": "（在新分頁中打開）",
     "researchQuestion": "研究問題：",
@@ -1419,6 +1420,7 @@
     "iHavenTDecided": "還沒決定",
     "topicExploration": "選題探索頁",
     "videoTranscript": "視頻原文",
+    "referenceArticle": "百科條目",
     "researchAbstract": "研究摘要",
     "manageProjects": "管理專案",
     "optionalMaterial": "可新增文章、PDF 或摘錄，給 AI 補充背景。"

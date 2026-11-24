@@ -1679,3 +1679,14 @@ body:has(.intent-shell) > :is(header, footer) {
     flex-shrink: 0;
   }
 }
+
+.intent-shell .native.vs.native-library {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+.intent-shell .native-library .vs-hint {
+  padding: 0 5px;
+  font: 12px/1.65 var(--sans);
+  color: var(--muted);
+}

@@ -75,7 +75,9 @@ export function researchRecords(versions, t) {
         label:
           evidence.kind === "video"
             ? t("videoTranscript")
-            : t("researchAbstract"),
+            : evidence.kind === "reference_article"
+              ? t("referenceArticle")
+              : t("researchAbstract"),
         quote: ref.quote,
         anchor:
           evidence.kind === "video"
