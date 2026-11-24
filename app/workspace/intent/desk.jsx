@@ -82,7 +82,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const returnMarker = useRef(null);
   const fresh =
     !space.interview && !space.purpose &&
-    !space.messages.length &&
     !space.drafts.some((d) => d.text);
   const [mobile, setMobile] = useState(
     route.claim || route.source !== undefined
@@ -94,7 +93,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
           : "paper",
   );
   const [materials, setMaterials] = useState(true);
-  const [choosing, setChoosing] = useState(fresh),
+  const [changePurpose, setChoosing] = useState(false),
     [answer, setAnswer] = useState("");
   const [full, setFull] = useState(false),
     [adding, setAdding] = useState(false),
@@ -148,6 +147,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
     left = useRef(null),
     deskReturn = useRef(null);
   const w = useWriting({ space, live, update, api, versions });
+  const requiresPurpose = !space.interview && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
+  const choosing = changePurpose || requiresPurpose;
   const index = useMemo(
     () =>
       groupClaimSpaces(
@@ -1059,8 +1060,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 setChoosing(false);
                 toChat();
               }}
-              onAngle={(angle) =>
-                interview.ask(t("angle", { angle }), { format: "research" })
+              onAngle={(heading, body) =>
+                interview.ask(t("angle", { angle: heading }) + "\n" + body.slice(0, 4000), { format: "research" })
               }
             />
           )}
@@ -1077,6 +1078,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
               w={w}
               space={space}
               choosing={choosing}
+              canCancelChoice={!requiresPurpose}
               setChoosing={setChoosing}
               answer={answer}
               setAnswer={setAnswer}

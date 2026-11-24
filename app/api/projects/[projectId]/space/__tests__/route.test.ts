@@ -155,6 +155,9 @@ it("generates only from the current saved brief after an explicit confirmation",
   expect((await POST(req({ ...confirm, confirmBrief: false }), context)).status).toBe(400);
   expect((await POST(req({ ...confirm, turnId: crypto.randomUUID() }), context)).status).toBe(409);
   expect(m.starter).not.toHaveBeenCalled();
+  expect((await POST(req(confirm), context)).status).toBe(409);
+  space.interview.confirmed = true;
+  m.sourceSet.mockResolvedValue({ kind: "resolved", value: { videos: [] } });
   m.versions.mockResolvedValue([]);
   m.starter.mockResolvedValue({ title: "Reading an oil label" });
   expect((await POST(req({ ...confirm, brief: "An unrelated client-supplied brief" }), context)).status).toBe(200);

@@ -5370,6 +5370,12 @@ test("named project preserves research citations after a question changes @proje
   await page.getByRole("button",{name:"创建并打开"}).click();
   await page.waitForURL(/\/workspace\/projects\/[a-f0-9-]+$/);
   const endpoint=page.url().replace("/workspace/projects/","/api/projects/");
+  // A research handoff predating the first manuscript must still open the interview.
+  const initialSpace = await (await page.request.get(endpoint + "/space")).json();
+  initialSpace.document.messages.push({ role: "handoff", text: "标签上的名称来自哪种植物？", finding: crypto.randomUUID() });
+  expect((await page.request.put(endpoint + "/space", { data: initialSpace })).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "接着写", exact: true })).toHaveCount(0);
   const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
   const thinking = page.getByRole("status", { name: "助手正在思考" });
   const approvedBrief = "给今晚做饭的人看，比较葵花籽油和菜籽油，避免健康结论。";

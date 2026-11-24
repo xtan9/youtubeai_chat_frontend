@@ -35,6 +35,7 @@ export function ProjectChat({
   space,
   choosing,
   setChoosing,
+  canCancelChoice,
   answer,
   setAnswer,
   interview,
@@ -124,7 +125,8 @@ export function ProjectChat({
                     className="choice"
                     onClick={() => w.apply(m.suggestion, option, m.finding)}
                     disabled={
-                      Boolean(composing) || w.draft.id !== m.suggestion.draft ||
+                      Boolean(composing) ||
+                      w.draft.id !== m.suggestion.draft ||
                       w.draft.version !== m.suggestion.version
                     }
                   >
@@ -151,7 +153,7 @@ export function ProjectChat({
                 </button>
               ))}
             </div>
-            {(planning || space.purpose || space.drafts.some(d => d.text)) && (
+            {canCancelChoice && (
               <button className="link" onClick={() => setChoosing(false)}>
                 {t(planning ? "returnToDiscussion" : "returnToWriting")}{" "}
               </button>
@@ -160,32 +162,46 @@ export function ProjectChat({
         ) : (
           <div className="chat-action">
             {planning?.brief && (
-              <button className="choice" disabled={busy || !!prompt.trim()} onClick={interview.confirm}>
+              <button
+                className="choice"
+                disabled={busy || !!prompt.trim()}
+                onClick={interview.confirm}
+              >
                 {t("confirmAndDraft")}
               </button>
             )}
-            {planning && space.drafts.some(d => d.text) && (
-              <button className="link" disabled={busy} onClick={interview.returnToDraft}>{t("returnToWriting")}</button>
+            {planning && space.drafts.some((d) => d.text) && (
+              <button
+                className="link"
+                disabled={busy}
+                onClick={interview.returnToDraft}
+              >
+                {t("returnToWriting")}
+              </button>
             )}
             {planning?.pending && !busy && (
-              <button className="choice" onClick={interview.retry}>{t("retryInterview")}</button>
+              <button className="choice" onClick={interview.retry}>
+                {t("retryInterview")}
+              </button>
             )}
             <button className="link" disabled={busy} onClick={chooseAgain}>
               {t("tryAnotherPurpose")}{" "}
             </button>
-            {!planning && <button
-              className="link contextual"
-              disabled={w.busy}
-              onClick={() =>
-                void w.send(
-                  t("continueThisDraftWithAnotherParagraph"),
-                  undefined,
-                  true,
-                )
-              }
-            >
-              {t("continueWriting")}{" "}
-            </button>}
+            {!planning && (
+              <button
+                className="link contextual"
+                disabled={w.busy}
+                onClick={() =>
+                  void w.send(
+                    t("continueThisDraftWithAnotherParagraph"),
+                    undefined,
+                    true,
+                  )
+                }
+              >
+                {t("continueWriting")}{" "}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -201,19 +217,26 @@ export function ProjectChat({
       {interview.error && <p role="alert">{interview.error}</p>}
       {busy && (
         <div className="chat-pending">
-          <ThinkingDots label={interview.busy === "starter" ? t("writingYourDraft") : undefined} />
+          <ThinkingDots
+            label={
+              interview.busy === "starter" ? t("writingYourDraft") : undefined
+            }
+          />
         </div>
       )}
       <form className="composer" onSubmit={submit}>
         <textarea
           aria-label={choosing ? t("answerInYourOwnWords") : t("message")}
+          readOnly={interview.busy === "starter"}
           rows={1}
           maxLength={4000}
           value={prompt}
           placeholder={
             choosing
               ? t("orAnswerInYourOwnWords")
-              : planning ? t(planning.brief ? "correctBrief" : "answerInterview") : t("discussAnAngleOrAskMeToKeepWriting")
+              : planning
+                ? t(planning.brief ? "correctBrief" : "answerInterview")
+                : t("discussAnAngleOrAskMeToKeepWriting")
           }
           onChange={(e) =>
             composing ? setAnswer(e.target.value) : w.setPrompt(e.target.value)

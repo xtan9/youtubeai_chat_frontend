@@ -131,11 +131,21 @@ export async function POST(request: Request, context: Context) {
       const space = spaceSchema.parse(row.data?.document ?? emptySpace());
       const interview = space.interview;
       if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
-      if (body.action === "starter" && (interview.pending || !interview.brief || !interview.format))
+      if (body.action === "starter" && (!interview.confirmed || interview.pending || !interview.brief || !interview.format))
         return fail(409, "reviewBriefFirst");
       if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
-      const versions = await loadResearchVersions(auth.client, auth.projectId);
-      const context = interviewContext(auth.subject.name, space, versions);
+      const [versions, sources] = await Promise.all([
+        loadResearchVersions(auth.client, auth.projectId),
+        loadProjectSourceSet(auth.client, auth.subject),
+      ]);
+      if (sources.kind !== "resolved") return projectOutcomeResponse(sources);
+      const imported = new Set(space.resources.map(resource => resource.id));
+      const linkedVideos = await Promise.all(sources.value.videos
+        .filter(video => video.status === "ready" && !imported.has(video.videoId))
+        .map(readVideo));
+      const context = interviewContext(auth.subject.name, {
+        ...space, resources: [...linkedVideos, ...space.resources],
+      }, versions);
       return Response.json(body.action === "interview"
         ? await interviewAuthor(context, body.locale, request.signal)
         : await createStarter(context, interview.brief!, body.locale, request.signal));

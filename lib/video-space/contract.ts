@@ -113,6 +113,7 @@ export const spaceSchema = z.object({
     turnId: z.uuid(),
     format: intentFormat.optional(),
     pending: z.boolean(),
+    confirmed: z.literal(true).optional(),
     notes: z.string().max(6000),
     brief: z.string().trim().min(1).max(6000).optional(),
   }).optional(),

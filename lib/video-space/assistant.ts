@@ -162,6 +162,20 @@ export const starterRequest = turnRequest.extend({
 
 export function interviewContext(project: string, space: Space, versions: ResearchVersion[]) {
   const interview = space.interview!;
+  const activeQuestion = new Map(space.questions?.map(q => [q.id, q]));
+  const included = new Set<string>();
+  // Research history is newest first. Keep one current finding per question or claim.
+  const currentVersions = versions.filter(({ document }) => {
+    const scope = document.space;
+    if (scope?.questionId) {
+      const question = activeQuestion.get(scope.questionId);
+      if (!question || question.revision !== scope.questionRevision || question.title !== document.question) return false;
+    }
+    const key = scope?.questionId || scope?.claimId || document.question;
+    if (included.has(key)) return false;
+    included.add(key);
+    return true;
+  });
   const turns = space.messages
     .filter(m => m.interviewId === interview.id)
     .map(({ role, text }) => ({ role, text }));
@@ -176,7 +190,7 @@ export function interviewContext(project: string, space: Space, versions: Resear
       summary: r.digest?.summary.slice(0, 600),
       excerpt: (r.digest?.claims[0]?.quote || r.pages[0]?.text)?.slice(0, 500),
     })),
-    research: versions.map(({ document }) => ({
+    research: currentVersions.map(({ document }) => ({
       question: document.question,
       finding: document.synthesis.judgment.text,
       limits: document.synthesis.uncertainties,
@@ -200,9 +214,12 @@ Use a branching interview. Start from what the author actually said. Track settl
 Resolve the purpose, audience (self is valid), central question or stance, desired takeaway, shape/voice/scope and evidence boundaries to the extent they affect THIS work. Respect explicit delegation or deliberate uncertainty. Do not silently pick the author's position or count messages as readiness. Distinguish proposals from decisions and the author's experiences from established facts. Keep cumulative notes of all decisions, constraints, unresolved choices and corrections across rounds.
 When anything material is unresolved return {"stage":"ask","reply":"a short tailored round of questions","notes":"updated cumulative decision record","format":"..."}. Once all material choices have been settled or explicitly delegated, return {"stage":"review","brief":"a concise standalone brief in the author's language stating their actual choices, evidence limits and desired deliverable for them to approve or correct","format":"..."}. A correction after a brief must be incorporated and the revised understanding reviewed again. Never imply consent to draft. Format must be research, video, blog, book or explore; use the chosen format unless the author explicitly changes it; use explore if undecided.
 ${firstRound ? "This is the opening round. Ask a grounded question and wait for the author to answer." : ""}`,
-    { ...context, locale }, signal, value => firstRound
-      ? nextRound.parse(value)
-      : z.discriminatedUnion("stage", [nextRound, review]).parse(value),
+    { ...context, locale }, signal, value => {
+      if (!firstRound) return z.discriminatedUnion("stage", [nextRound, review]).parse(value);
+      const result = nextRound.parse(value);
+      if (context.format && context.format !== result.format) throw Error("incorrect_interview_format");
+      return result;
+    },
   );
 }
 
