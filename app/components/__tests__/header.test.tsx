@@ -430,9 +430,9 @@ describe("Header checkout activation guard", () => {
     );
 
     const html = renderToString(
-      <CheckoutActivationGuard>
+      <TestLocaleProvider><CheckoutActivationGuard>
         <a href="/pricing">Upgrade to Pro</a>
-      </CheckoutActivationGuard>,
+      </CheckoutActivationGuard></TestLocaleProvider>,
     );
 
     expect(html).toContain("Activating Pro");

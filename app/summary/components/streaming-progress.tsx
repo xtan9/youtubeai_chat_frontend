@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { Brain, CheckCircle, Clock, FileText, Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,17 @@ export function StreamingProgressIndicator({
   readonly onCancel: () => void;
   readonly autoScroll: boolean;
 }) {
+  const t = useTranslations("reader");
+  const systemMessages: Record<string, string> = {
+    "Preparing summary...": "prepareMessage",
+    "Using cached transcript, summarizing...": "cacheMessage",
+    "Extracting captions...": "extractMessage",
+    "No captions found. Transcribing audio...": "audioMessage",
+    "Summary complete": "doneMessage",
+  };
+  const detected = /^Detected language: (.+)$/.exec(progress.message);
+  const message = detected ? t("detected", {language: detected[1]})
+    : systemMessages[progress.message] ? t(systemMessages[progress.message]) : progress.message;
   const messageRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -52,14 +64,14 @@ export function StreamingProgressIndicator({
           </div>
           <div className="min-w-0">
             <p className="text-body-lg font-semibold capitalize text-text-primary">
-              {progress.stage}
+              {t(progress.stage)}
             </p>
             <p ref={messageRef} className="text-body-sm text-text-secondary">
-              {progress.message}
+              {message}
             </p>
             <div className="flex items-center gap-1 text-caption text-text-muted">
               <Clock className="h-3 w-3" />
-              {progress.elapsedSeconds.toFixed(1)}s elapsed
+              {t("elapsed", {n: progress.elapsedSeconds.toFixed(1)})}
             </div>
           </div>
         </div>
@@ -68,10 +80,10 @@ export function StreamingProgressIndicator({
           variant="outline"
           size="sm"
           onClick={onCancel}
-          aria-label="Cancel summary"
+          aria-label={t("cancelSummary")}
           className="self-end sm:self-auto"
         >
-          Cancel summary
+          {t("cancelSummary")}
         </Button>
       </div>
     </div>

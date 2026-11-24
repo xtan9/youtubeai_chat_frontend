@@ -345,7 +345,7 @@ function Desk({
     if (discussion.length >= 2000) {
       setDiscussionErrors((old) => ({
         ...old,
-        [room.id]: tr("discussionFull"),
+        [room.id]: "discussionFull",
       }));
       return;
     }
@@ -392,7 +392,7 @@ function Desk({
           claimDiscussion: [...(s.claimDiscussion ?? []), turn],
         }))
       )
-        throw Error(tr("discussionSave"));
+        throw Error("discussionSave");
       setQuestions((old) =>
         old[room.id] === question ? { ...old, [room.id]: "" } : old,
       );

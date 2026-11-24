@@ -1,3 +1,4 @@
+import {researchWarning} from "@/i18n/saved-project-labels";
 import {useTranslations} from "next-intl";
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 
@@ -5,6 +6,8 @@ import { findingReferences } from "@/lib/video-space/claim-spaces";
 
 export function Finding({ version }: { version: ResearchVersion }) {
   const tr = useTranslations("ui");
+
+  const savedLabel = useTranslations("savedProject");
   const { document: d } = version,
     { judgment, assessment } = d.synthesis;
   const citations = findingReferences(d);
@@ -33,7 +36,7 @@ export function Finding({ version }: { version: ResearchVersion }) {
           {tr("scope", {abstracts: d.evidence.filter(e => e.kind === "publication_abstract").length, videos: d.evidence.filter(e => e.kind === "video").length})}
         </small>
         {d.warnings.map((w) => (
-          <p key={w} data-translation-block="0">{w}</p>
+          <p key={w}>{researchWarning(w, savedLabel)}</p>
         ))}
       </details>
       <details>

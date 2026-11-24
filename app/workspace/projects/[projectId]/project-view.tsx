@@ -1,5 +1,7 @@
 "use client";
 
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState, type FormEvent } from "react";
@@ -73,6 +75,7 @@ export function ProjectView({
   initialCreatorBrief,
   initialProjectBrief,
 }: ProjectViewProps) {
+  const t = useTranslations("project");
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
   const [name, setName] = useState(initialProject.name);
@@ -119,7 +122,7 @@ export function ProjectView({
       setSaved(true);
       router.refresh();
     } catch {
-      setError({ message: "Couldn’t save changes. Check your connection and try again." });
+      setError({ message: "couldnTSaveChangesCheckYourConnectionAnd" });
     } finally {
       setPending(false);
     }
@@ -134,14 +137,14 @@ export function ProjectView({
       const response = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
       if (!response.ok) {
         const payload = (await response.json()) as ApiError;
-        setDeleteError(payload.message ?? "Couldn’t delete the Project. Try again.");
+        setDeleteError(payload.message ?? "couldnTDeleteTheProjectTryAgain");
         setDeleting(false);
         return;
       }
       router.push("/workspace");
       router.refresh();
     } catch {
-      setDeleteError("Couldn’t delete the Project. Check your connection and try again.");
+      setDeleteError("couldnTDeleteTheProjectCheckYourConnection");
       setDeleting(false);
     }
   }
@@ -157,18 +160,16 @@ export function ProjectView({
         href="/workspace"
         className="inline-flex w-fit items-center gap-2 rounded-md text-body-sm font-medium text-text-secondary outline-none hover:text-text-primary focus-visible:ring-2 focus-visible:ring-state-focus"
       >
-        <ArrowLeft aria-hidden="true" />
-        Back to Workspace
-      </Link>
+        <ArrowLeft aria-hidden="true" />{t("backToWorkspace")}</Link>
 
       <header className="flex flex-col gap-2 border-b border-border-subtle pb-5">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-caption font-medium uppercase tracking-wider text-text-muted">Research project</p>
-          <Badge variant="outline">{sourceVideos.filter((video) => video.status === "ready").length}/{sourceVideos.length} videos ready</Badge>
+          <p className="text-caption font-medium uppercase tracking-wider text-text-muted">{t("researchProject")}</p>
+          <Badge variant="outline">{t("readyCount", {ready: sourceVideos.filter((video) => video.status === "ready").length, total: sourceVideos.length})}</Badge>
         </div>
         <h1 className="break-words text-h2 text-text-primary">{project.name}</h1>
         <p className="max-w-prose text-body-md text-text-secondary">
-          {project.goal ?? "Bring your videos together. Ask questions, compare viewpoints, and follow the evidence."}
+          {project.goal ?? t("bringYourVideosTogetherAskQuestionsCompareViewpoints")}
         </p>
       </header>
 
@@ -181,12 +182,12 @@ export function ProjectView({
           aria-expanded={sourcesOpen}
           onClick={() => setSourcesOpen((current) => !current)}
         >
-          <span className="flex items-center gap-2"><BookOpen aria-hidden="true" />Sources · {sourceVideos.length} videos</span>
-          <span className="text-caption">{sourcesOpen ? "Hide" : "Show"}</span>
+          <span className="flex items-center gap-2"><BookOpen aria-hidden="true" />{t("sourcesCount", {count: sourceVideos.length})}</span>
+          <span className="text-caption">{sourcesOpen ? t("hide") : t("show")}</span>
         </Button>
         <aside
           id="project-sources-panel"
-          aria-label="Project sources"
+          aria-label={t("projectSources")}
           className={`${sourcesOpen ? "block" : "hidden"} min-w-0 lg:sticky lg:top-6 lg:block`}
         >
           <ProjectSourceSet
@@ -201,15 +202,15 @@ export function ProjectView({
         <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-4">
           {/* The site header scrolls normally; keep section navigation available
               at the viewport edge while reading a long conversation. */}
-          <TabsList aria-label="Project sections" className="sticky top-0 z-20 grid h-11 w-full grid-cols-4 shadow-sm">
-            <TabsTrigger value="research"><MessageSquare aria-hidden="true" className="hidden sm:block" /><span>Research</span></TabsTrigger>
-            <TabsTrigger value="outputs"><FileText aria-hidden="true" className="hidden sm:block" /><span>Outputs</span></TabsTrigger>
-            <TabsTrigger value="search"><Search aria-hidden="true" className="hidden sm:block" /><span>Search</span></TabsTrigger>
-            <TabsTrigger value="settings"><Settings2 aria-hidden="true" className="hidden sm:block" /><span>Settings</span></TabsTrigger>
+          <TabsList aria-label={t("projectSections")} className="sticky top-0 z-20 grid h-11 w-full grid-cols-4 shadow-sm">
+            <TabsTrigger value="research"><MessageSquare aria-hidden="true" className="hidden sm:block" /><span>{t("research")}</span></TabsTrigger>
+            <TabsTrigger value="outputs"><FileText aria-hidden="true" className="hidden sm:block" /><span>{t("outputs")}</span></TabsTrigger>
+            <TabsTrigger value="search"><Search aria-hidden="true" className="hidden sm:block" /><span>{t("search")}</span></TabsTrigger>
+            <TabsTrigger value="settings"><Settings2 aria-hidden="true" className="hidden sm:block" /><span>{t("settings")}</span></TabsTrigger>
           </TabsList>
           <TabsContent value="research" forceMount hidden={activeTab !== "research"}>
             <ProjectResearchNotebook key={project.id} projectId={project.id} currentSourceSetRevision={currentSourceSetRevision} />
-            <p className="mb-3 text-body-sm text-text-secondary">Video-only conversation · Ask about the project transcripts without external research.</p>
+            <p className="mb-3 text-body-sm text-text-secondary">{t("videoOnlyConversationAskAboutTheProjectTranscripts")}</p>
             <ProjectConversation
               projectId={project.id}
               initialConversation={initialConversation}
@@ -233,12 +234,12 @@ export function ProjectView({
       <div className="grid min-w-0 grid-cols-1 gap-4">
         <Card>
           <CardHeader>
-            <h2 className="text-h4 font-semibold text-text-primary">Project details</h2>
+            <h2 className="text-h4 font-semibold text-text-primary">{t("projectDetails")}</h2>
           </CardHeader>
           <CardContent>
             <form onSubmit={save} className="flex flex-col gap-6">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="project-name">Project name</Label>
+                <Label htmlFor="project-name">{t("projectName")}</Label>
                 <Input
                   id="project-name"
                   value={name}
@@ -252,13 +253,13 @@ export function ProjectView({
                 />
                 {error?.fieldErrors?.name?.[0] ? (
                   <p id="project-name-error" className="text-body-sm text-accent-danger">
-                    {error.fieldErrors.name[0]}
+                    {projectNotice(t, error.fieldErrors.name[0])}
                   </p>
                 ) : null}
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor="project-goal">Project Goal (optional)</Label>
+                <Label htmlFor="project-goal">{t("projectGoalOptional")}</Label>
                 <Textarea
                   id="project-goal"
                   value={goal}
@@ -275,57 +276,49 @@ export function ProjectView({
                       : "project-goal-help"
                   }
                 />
-                <p id="project-goal-help" className="text-body-sm text-text-muted">
-                  Describe what you want to learn, compare, or create.
-                </p>
+                <p id="project-goal-help" className="text-body-sm text-text-muted">{t("describeWhatYouWantToLearnCompareOr")}</p>
                 {error?.fieldErrors?.goal?.[0] ? (
                   <p id="project-goal-error" className="text-body-sm text-accent-danger">
-                    {error.fieldErrors.goal[0]}
+                    {projectNotice(t, error.fieldErrors.goal[0])}
                   </p>
                 ) : null}
               </div>
 
               {error?.message ? (
                 <p role="alert" className="text-body-sm text-accent-danger">
-                  {error.message}
+                  {projectNotice(t, error.message)}
                 </p>
               ) : null}
               {saved ? (
-                <p role="status" className="text-body-sm text-accent-success">
-                  Changes saved.
-                </p>
+                <p role="status" className="text-body-sm text-accent-success">{t("changesSaved")}</p>
               ) : null}
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <Button type="submit" disabled={pending || deleting}>
                   <Save aria-hidden="true" />
-                  {pending ? "Saving…" : "Save changes"}
+                  {pending ? t("savingLabel") : t("saveChanges")}
                 </Button>
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button type="button" variant="destructive" disabled={pending || deleting}>
-                      <Trash2 aria-hidden="true" />
-                      Delete Project
-                    </Button>
+                      <Trash2 aria-hidden="true" />{t("deleteProject")}</Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent
                     className="ph-no-capture"
                     data-ph-no-autocapture
                   >
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This permanently removes this Project and its future Project work. Shared cached Videos, Transcripts, and Summaries are not deleted.
-                      </AlertDialogDescription>
+                      <AlertDialogTitle>{t("deleteNamed", {name: project.name})}</AlertDialogTitle>
+                      <AlertDialogDescription>{t("thisPermanentlyRemovesThisProjectAndItsFuture")}</AlertDialogDescription>
                       {deleteError ? (
                         <p role="alert" className="text-body-sm text-accent-danger">
-                          {deleteError}
+                          {projectNotice(t, deleteError)}
                         </p>
                       ) : null}
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel disabled={deleting}>Keep Project</AlertDialogCancel>
+                      <AlertDialogCancel disabled={deleting}>{t("keepProject")}</AlertDialogCancel>
                       <AlertDialogAction
                         className={buttonVariants({ variant: "destructive" })}
                         onClick={(event) => {
@@ -334,7 +327,7 @@ export function ProjectView({
                         }}
                         disabled={deleting}
                       >
-                        {deleting ? "Deleting…" : "Delete Project"}
+                        {deleting ? t("deleting") : t("deleteProject")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -348,13 +341,11 @@ export function ProjectView({
           <Card className="bg-surface-sunken/50">
             <CardHeader>
               <h2 className="flex items-center gap-2 text-h5 font-semibold text-text-primary">
-                <Lightbulb aria-hidden="true" className="text-accent-brand" />
-                Guidance, not evidence
-              </h2>
+                <Lightbulb aria-hidden="true" className="text-accent-brand" />{t("guidanceNotEvidence")}</h2>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-body-sm text-text-secondary">
-              <p>Your Goal helps future conversations and outputs focus on what matters to you.</p>
-              <p>It is never cited, searched, or treated as proof. Only Project Videos can support grounded claims.</p>
+              <p>{t("yourGoalHelpsFutureConversationsAndOutputsFocus")}</p>
+              <p>{t("itIsNeverCitedSearchedOrTreatedAs")}</p>
             </CardContent>
           </Card>
         </aside>

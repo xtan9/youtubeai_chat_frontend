@@ -199,7 +199,7 @@ function CreateProjectDialog({
           {tr("createProject")}
         </Button>
       </DialogTrigger>
-      <DialogContent className="ph-no-capture" data-ph-no-autocapture>
+      <DialogContent closeLabel={tr("close")} className="ph-no-capture" data-ph-no-autocapture>
         <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>{tr("createAProject")}</DialogTitle>

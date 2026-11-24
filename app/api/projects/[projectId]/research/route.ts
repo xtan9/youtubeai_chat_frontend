@@ -1,3 +1,4 @@
+import {spaceNoticeKey} from "@/i18n/space-notice";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRegisteredResearcher } from "@/lib/projects/registered-researcher";
@@ -21,7 +22,7 @@ import { logAppEvent } from "@/lib/observability";
 export const maxDuration = 300;
 type Context = { params: Promise<{ projectId: string }> };
 const error = (status: number, message: string) =>
-  Response.json({ message }, { status });
+  Response.json({ message, messageKey: spaceNoticeKey(message) }, { status });
 async function authorized(context: Context) {
   const researcher = await requireRegisteredResearcher("project");
   if (researcher.kind === "error") return { response: researcher.response };

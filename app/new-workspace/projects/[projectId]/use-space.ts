@@ -33,7 +33,7 @@ export async function requestJson<T>(
   if (!response.ok)
     throw new SpaceRequestError(
       response.status,
-      json.message || "请求失败，请重试。",
+      json.messageKey || json.message || "spaceRequestFailed",
     );
   return json;
 }

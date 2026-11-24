@@ -1,3 +1,5 @@
+import {spaceNoticeKey} from "@/i18n/space-notice";
+import {sourceLabel} from "@/i18n/saved-project-labels";
 import {useTranslations} from "next-intl";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
@@ -60,6 +62,8 @@ export function ClaimRoomHeader({
   children?: ReactNode;
 }) {
   const tr = useTranslations("ui");
+
+  const savedLabel = useTranslations("savedProject");
   const origin = room?.origin;
   const sourceLink = room && claimSourceLink(room);
   const versions = room?.resource ? undefined : room?.versions;
@@ -122,13 +126,13 @@ export function ClaimRoomHeader({
                 target="_blank"
                 rel="noreferrer"
                 aria-label={
-                  origin?.location ? `${tr("openSource")} · ${origin.location}` : undefined
+                  origin?.location ? `${tr("openSource")} · ${sourceLabel(origin.location, savedLabel)}` : undefined
                 }
               >
-                {origin?.location || tr("openSource")} ↗
+                {origin?.location ? sourceLabel(origin.location, savedLabel) : tr("openSource")} ↗
               </a>
             ) : origin?.location ? (
-              <small className="vs-claim-location">{origin.location}</small>
+              <small className="vs-claim-location">{sourceLabel(origin.location, savedLabel)}</small>
             ) : null}
           </div>
           {showQuote && (
@@ -353,7 +357,7 @@ export function ClaimRoom({
                   <strong data-translation-block="0">{a.question}</strong>
                   <p role="alert">
                     {a.evidenceGap ? tr("gap") : ""}
-                    {a.message}
+                    {tr.has(spaceNoticeKey(a.message)) ? tr(spaceNoticeKey(a.message)) : a.message}
                   </p>
                   <button
                     disabled={busy || !ready}
@@ -368,7 +372,7 @@ export function ClaimRoom({
         </div>
         {pending && <p role="status">{tr("checking")}{pending}</p>}
         {chatStatus && <p role="status">{chatStatus}</p>}
-        {chatError && <p role="alert">{chatError}</p>}
+        {chatError && <p role="alert">{tr.has(chatError) ? tr(chatError) : chatError}</p>}
         <form
           onSubmit={(e) => {
             e.preventDefault();

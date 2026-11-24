@@ -1,4 +1,6 @@
 "use client";
+import {projectNotice} from "@/i18n/project-notice";
+import {useTranslations} from "next-intl";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
@@ -40,8 +42,8 @@ export type ProjectArtifactPanelDefinition = Readonly<{
   kind: ProjectArtifactKind;
   slug: "study-guide" | "creator-brief" | "project-brief";
   responseKey: "studyGuide" | "creatorBrief" | "projectBrief";
-  title: "Study Guide" | "Creator Brief" | "Project Brief";
-  shortName: "guide" | "brief";
+  title: string;
+  shortName: string;
   icon: "book" | "creator" | "document";
   description: string;
   emptyTitle: string;
@@ -86,6 +88,7 @@ export function ProjectArtifactPanel({
   readonly onGenerationsUsedChange?: (generationsUsed: number) => void;
   readonly onCurrentChange?: (hasCurrent: boolean) => void;
 }) {
+  const t = useTranslations("project");
   const [artifactState, setArtifactState] = useState(initialArtifact);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -178,7 +181,7 @@ export function ProjectArtifactPanel({
           message:
             typeof body.message === "string"
               ? body.message
-              : `Couldn’t generate the ${definition.title}. Try again.`,
+              : "couldnTGenerateTheTryAgain",
           upgradeUrl:
             response.status === 402 && body.upgradeUrl === "/pricing"
               ? "/pricing"
@@ -201,7 +204,7 @@ export function ProjectArtifactPanel({
           failure_category: "generation",
         });
         setError({
-          message: `Couldn’t load the generated ${definition.title}. Try again.`,
+          message: "couldnTLoadTheGeneratedTryAgain",
           upgradeUrl: null,
         });
         return;
@@ -212,8 +215,8 @@ export function ProjectArtifactPanel({
       onCurrentChange?.(next.current !== null);
       setFeedback(
         current
-          ? `${definition.title} updated.`
-          : `${definition.title} generated.`,
+          ? "updated"
+          : "generatedLabel",
       );
       if (next.current) {
         captureAnalyticsEvent("project_artifact_generation_completed", {
@@ -234,7 +237,7 @@ export function ProjectArtifactPanel({
         failure_category: "network",
       });
       setError({
-        message: `Couldn’t generate the ${definition.title}. Check your connection and try again.`,
+        message: "couldnTGenerateTheCheckYourConnectionAnd",
         upgradeUrl: null,
       });
     } finally {
@@ -246,7 +249,7 @@ export function ProjectArtifactPanel({
     if (!markdown) return;
     try {
       await navigator.clipboard.writeText(markdown);
-      setFeedback("Markdown copied.");
+      setFeedback("markdownCopied");
       setError(null);
       captureAnalyticsEvent("project_artifact_exported", {
         project_id: projectId,
@@ -255,7 +258,7 @@ export function ProjectArtifactPanel({
       });
     } catch {
       setError({
-        message: `Couldn’t copy the ${definition.title}. Try downloading it instead.`,
+        message: "couldnTCopyTheTryDownloadingItInstead",
         upgradeUrl: null,
       });
     }
@@ -270,7 +273,7 @@ export function ProjectArtifactPanel({
     anchor.download = artifactFilename(projectName, definition.filenameSuffix);
     anchor.click();
     URL.revokeObjectURL(href);
-    setFeedback("Markdown downloaded.");
+    setFeedback("markdownDownloaded");
     setError(null);
     captureAnalyticsEvent("project_artifact_exported", {
       project_id: projectId,
@@ -294,7 +297,7 @@ export function ProjectArtifactPanel({
                     {definition.title}
                   </h2>
                   {updateAvailable ? (
-                    <Badge variant="outline">Update available</Badge>
+                    <Badge variant="outline">{t("updateAvailable")}</Badge>
                   ) : null}
                 </div>
                 <p className="mt-1 max-w-prose text-body-sm text-text-secondary">
@@ -310,18 +313,14 @@ export function ProjectArtifactPanel({
                   size="sm"
                   onClick={() => void copyMarkdown()}
                 >
-                  <Copy aria-hidden="true" />
-                  Copy Markdown
-                </Button>
+                  <Copy aria-hidden="true" />{t("copyMarkdown")}</Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={downloadMarkdown}
                 >
-                  <Download aria-hidden="true" />
-                  Download Markdown
-                </Button>
+                  <Download aria-hidden="true" />{t("downloadMarkdown")}</Button>
               </div>
             ) : null}
           </div>
@@ -333,13 +332,7 @@ export function ProjectArtifactPanel({
               role="status"
               className="rounded-lg border border-border-default bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
             >
-              <strong className="font-semibold text-text-primary">
-                Update available.
-              </strong>{" "}
-              The Source Set is now revision {effectiveSourceSetRevision}. Your
-              current {definition.shortName} remains unchanged until you
-              regenerate it.
-            </p>
+              <strong className="font-semibold text-text-primary">{t("updateAvailableLabel")}</strong>{" "}{t("sourceRevisionChanged", {revision: effectiveSourceSetRevision, artifact: definition.shortName})}</p>
           ) : null}
 
           {current ? (
@@ -370,32 +363,29 @@ export function ProjectArtifactPanel({
               role="alert"
               className="flex flex-col items-start gap-3 rounded-lg border border-accent-danger/40 bg-surface-sunken px-4 py-3 text-body-sm text-text-secondary"
             >
-              <p>{error.message}</p>
+              <p>{projectNotice(t, error.message, {value1: definition.title})}</p>
               {error.upgradeUrl ? (
                 <Button asChild size="sm">
-                  <Link href={error.upgradeUrl}>View Pro plans</Link>
+                  <Link href={error.upgradeUrl}>{t("viewProPlans")}</Link>
                 </Button>
               ) : null}
             </div>
           ) : null}
           {feedback ? (
             <p role="status" aria-live="polite" className="text-body-sm text-accent-success">
-              {feedback}
+              {projectNotice(t, feedback, {value1: definition.title})}
             </p>
           ) : null}
 
           <div className="flex flex-col gap-3 border-t border-border-subtle pt-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-caption text-text-muted">
               {artifactState.tier === "free" ? (
-                <p>Free Artifact generations: {generationsUsed}/1</p>
+                <p>{t("freeArtifactGenerations")} {generationsUsed}/1</p>
               ) : (
-                <p>Pro Artifact generation · Technical and abuse limits apply</p>
+                <p>{t("proArtifactGenerationTechnicalAndAbuseLimitsApply")}</p>
               )}
               {current ? (
-                <p>
-                  Regeneration replaces the current {definition.shortName};
-                  earlier provenance stays in the audit record.
-                </p>
+                <p>{t("replaceArtifact", {artifact: definition.shortName})}</p>
               ) : null}
             </div>
             <Button type="button" onClick={() => void generate()} disabled={pending}>
@@ -405,10 +395,10 @@ export function ProjectArtifactPanel({
                 <Sparkles aria-hidden="true" />
               )}
               {pending
-                ? `Generating ${definition.title}…`
+                ? t("generating", {value1: definition.title})
                 : current
-                  ? `Regenerate ${definition.title}`
-                  : `Generate ${definition.title}`}
+                  ? t("regenerate", {value1: definition.title})
+                  : t("generate", {value1: definition.title})}
             </Button>
           </div>
         </CardContent>

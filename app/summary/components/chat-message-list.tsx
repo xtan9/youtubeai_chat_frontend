@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import { useEffect, useRef } from "react";
 import { ChatMessage } from "./chat-message";
 import type { ChatMessage as ChatMessageRow } from "@/lib/hooks/useChatThread";
@@ -76,12 +77,13 @@ export function ChatMessageList({
 }
 
 function ThinkingIndicator() {
+  const t = useTranslations("reader");
   return (
     <div className="flex justify-start" data-testid="chat-thinking-indicator">
       <div
         role="status"
         aria-live="polite"
-        aria-label="Assistant is thinking"
+        aria-label={t("thinking")}
         className="rounded-2xl rounded-bl-sm border border-border-subtle bg-transparent px-4 py-3"
       >
         <span className="flex items-center gap-1">

@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import type { ReactNode } from "react";
 import { useIsCheckoutReturnPending } from "@/lib/billing/activation-pending";
 
@@ -13,6 +14,7 @@ export function CheckoutActivationGuard({
 }: {
   children?: ReactNode;
 }) {
+  const t = useTranslations("reader");
   const isCheckoutReturn = useIsCheckoutReturnPending();
 
   if (!isCheckoutReturn) return children;
@@ -23,7 +25,7 @@ export function CheckoutActivationGuard({
       aria-live="polite"
       className="whitespace-nowrap text-body-sm font-medium text-accent-brand"
     >
-      Activating Pro
+      {t("activate")}
     </span>
   );
 }

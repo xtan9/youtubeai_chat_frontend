@@ -1,5 +1,6 @@
 "use client";
 
+import {useTranslations} from "next-intl";
 import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 import { buildProjectStudyGuideMarkdown } from "@/lib/projects/project-study-guide";
 import {
@@ -12,21 +13,23 @@ type ReadyStudyGuide = Extract<
   { status: "ready" }
 >;
 
-const STUDY_GUIDE_DEFINITION = {
-  kind: "study_guide",
-  slug: "study-guide",
-  responseKey: "studyGuide",
-  title: "Study Guide",
-  shortName: "guide",
-  icon: "book",
-  description:
-    "A durable guide built only from ready Transcript passages in this Project’s Evidence Snapshot.",
-  emptyTitle: "Turn your ready sources into a reviewable guide.",
-  emptyDescription:
-    "The guide will organize key ideas and review questions, with every factual line linked back to its Transcript evidence.",
-  filenameSuffix: "study-guide",
-  buildMarkdown: buildProjectStudyGuideMarkdown,
-} satisfies ProjectArtifactPanelDefinition;
+function getDefinition(t: ReturnType<typeof useTranslations<"project">>) {
+  return {
+    kind: "study_guide",
+    slug: "study-guide",
+    responseKey: "studyGuide",
+    title: t("studyGuide"),
+    shortName: t("guide"),
+    icon: "book",
+    description:
+      t("aDurableGuideBuiltOnlyFromReadyTranscript"),
+    emptyTitle: t("turnYourReadySourcesIntoAReviewableGuide"),
+    emptyDescription:
+      t("theGuideWillOrganizeKeyIdeasAndReview"),
+    filenameSuffix: "study-guide",
+    buildMarkdown: buildProjectStudyGuideMarkdown,
+  } satisfies ProjectArtifactPanelDefinition;
+}
 
 export function ProjectStudyGuide({
   projectId,
@@ -45,9 +48,10 @@ export function ProjectStudyGuide({
   readonly onGenerationsUsedChange?: (generationsUsed: number) => void;
   readonly onCurrentChange?: (hasCurrent: boolean) => void;
 }) {
+  const t = useTranslations("project");
   return (
     <ProjectArtifactPanel
-      definition={STUDY_GUIDE_DEFINITION}
+      definition={getDefinition(t)}
       projectId={projectId}
       projectName={projectName}
       currentSourceSetRevision={currentSourceSetRevision}

@@ -1,5 +1,8 @@
 "use client";
 
+import {projectNotice} from "@/i18n/project-notice";
+import {researchWarning} from "@/i18n/saved-project-labels";
+import {useLocale, useTranslations} from "next-intl";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -24,6 +27,7 @@ function Observation({
   observation: ResearchSynthesis["judgment"];
   evidence: ResearchEvidence[];
 }) {
+  const t = useTranslations("project");
   return (
     <p className="break-words text-body-md leading-relaxed text-text-primary">
       {observation.text}{" "}
@@ -41,9 +45,8 @@ function Observation({
             [{evidence.indexOf(source) + 1}]
             <span className="sr-only">
               {" "}
-              {source.kind === "video" ? "Video" : "Publication abstract"}:{" "}
-              {source.title} (opens in a new tab)
-            </span>
+              {source.kind === "video" ? t("video") : t("publicationAbstract")}:{" "}
+              {source.title} {t("opensInANewTab")}</span>
           </a>
         );
       })}
@@ -51,34 +54,35 @@ function Observation({
   );
 }
 function Judgment({ document }: { document: ResearchDocument }) {
+  const locale = useLocale();
+  const t = useTranslations("project");
+  const savedLabel = useTranslations("savedProject");
+
   const { synthesis, evidence } = document;
   return (
     <div className="space-y-5">
-      <p className="text-body-sm text-text-secondary">
-        Research question: {document.question}
+      <p className="text-body-sm text-text-secondary">{t("researchQuestion")} {document.question}
       </p>
       <section
-        aria-label="Current research judgment"
+        aria-label={t("currentResearchJudgment")}
         className="space-y-2 border-l-4 border-accent-brand pl-4"
       >
-        <h3 className="text-h4">Current judgment</h3>
+        <h3 className="text-h4">{t("currentJudgment")}</h3>
         <Observation observation={synthesis.judgment} evidence={evidence} />
       </section>
       <section className="space-y-2">
-        <h3 className="text-h4">What changed and why</h3>
+        <h3 className="text-h4">{t("whatChangedAndWhy")}</h3>
         <p className="whitespace-pre-wrap break-words text-body-md">
           {synthesis.changes}
         </p>
       </section>
       <section className="space-y-2">
-        <h3 className="text-h4">Analysis</h3>
-        <p className="text-caption text-text-muted">
-          AI interpretation of the evidence
-        </p>
+        <h3 className="text-h4">{t("analysis")}</h3>
+        <p className="text-caption text-text-muted">{t("aiInterpretationOfTheEvidence")}</p>
         <Observation observation={synthesis.reasoning} evidence={evidence} />
       </section>
       <details className="rounded-md border border-border-subtle p-3" open>
-        <summary className="cursor-pointer font-medium">Key findings</summary>
+        <summary className="cursor-pointer font-medium">{t("keyFindings")}</summary>
         <ul className="mt-3 space-y-3">
           {synthesis.findings.map((finding, index) => (
             <li key={index}>
@@ -88,7 +92,7 @@ function Judgment({ document }: { document: ResearchDocument }) {
         </ul>
       </details>
       <section className="space-y-2">
-        <h3 className="text-h4">Still unresolved</h3>
+        <h3 className="text-h4">{t("stillUnresolved")}</h3>
         <ul className="list-disc space-y-1 pl-5">
           {synthesis.uncertainties.map((item) => (
             <li key={item}>{item}</li>
@@ -96,7 +100,7 @@ function Judgment({ document }: { document: ResearchDocument }) {
         </ul>
       </section>
       <section className="space-y-2">
-        <h3 className="text-h4">Next research steps</h3>
+        <h3 className="text-h4">{t("nextResearchSteps")}</h3>
         <ul className="list-disc space-y-1 pl-5">
           {synthesis.nextSteps.map((item) => (
             <li key={item}>{item}</li>
@@ -105,23 +109,17 @@ function Judgment({ document }: { document: ResearchDocument }) {
       </section>
       {document.warnings.map((warning) => (
         <p
-          key={warning}
+          key={researchWarning(warning, savedLabel)}
           role="status"
           className="text-body-sm text-text-secondary"
         >
-          {warning}
+          {researchWarning(warning, savedLabel)}
         </p>
       ))}
       <details className="rounded-md border border-border-subtle p-3">
-        <summary className="cursor-pointer font-medium">
-          Evidence & searches ({evidence.length}{" "}
-          {evidence.length === 1 ? "item" : "items"})
+        <summary className="cursor-pointer font-medium">{t("evidenceCount", {count: evidence.length})}
         </summary>
-        <p className="my-3 text-body-sm text-text-secondary">
-          Publication evidence comes from retrieved abstracts, not full papers.
-          Video passages describe speaker claims. This is a provisional AI
-          synthesis of selected evidence.
-        </p>
+        <p className="my-3 text-body-sm text-text-secondary">{t("publicationEvidenceComesFromRetrievedAbstractsNotFull")}</p>
         <ol className="space-y-3">
           {evidence.map((source, index) => (
             <li key={source.id} className="rounded-md bg-surface-sunken p-3">
@@ -129,13 +127,12 @@ function Judgment({ document }: { document: ResearchDocument }) {
                 <summary className="cursor-pointer break-words font-medium">
                   [{index + 1}]{" "}
                   {source.kind === "video"
-                    ? "Video"
-                    : `Publication abstract · ${source.year}`}{" "}
+                    ? t("video")
+                    : t("publicationAbstractLabel", {value1: source.year ?? "—"})}{" "}
                   — {source.title}
                 </summary>
                 <p className="my-2 text-caption text-text-muted">
-                  {source.authors} {source.publicationTypes.join(" · ")} ·
-                  Retrieved {new Date(source.retrievedAt).toLocaleDateString()}
+                  {source.authors} {source.publicationTypes.join(" · ")} {t("retrieved")} {new Date(source.retrievedAt).toLocaleDateString(locale)}
                 </p>
                 <blockquote className="whitespace-pre-wrap break-words border-l-2 pl-3 text-body-sm">
                   {source.text}
@@ -145,20 +142,17 @@ function Judgment({ document }: { document: ResearchDocument }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-2 inline-block text-accent-brand underline"
-                >
-                  Open original source
-                  <span className="sr-only"> (opens in a new tab)</span>
+                >{t("openOriginalSource")}<span className="sr-only"> {t("opensInANewTab")}</span>
                 </a>
               </details>
             </li>
           ))}
         </ol>
-        <h4 className="mt-4 font-medium">Literature searches</h4>
+        <h4 className="mt-4 font-medium">{t("literatureSearches")}</h4>
         <ul className="mt-2 space-y-2">
           {document.searches.map((search, index) => (
             <li key={index} className="break-words text-body-sm">
-              <strong>{search.query}</strong> · {search.results} abstracts
-              retrieved<p>{search.purpose}</p>
+              <strong>{search.query}</strong> · {search.results} {t("abstractsRetrieved")}<p>{search.purpose}</p>
             </li>
           ))}
         </ul>
@@ -173,8 +167,11 @@ export function ProjectResearchNotebook({
   projectId: string;
   currentSourceSetRevision: number;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("project");
   const inputId = useId();
   const [versions, setVersions] = useState<ResearchVersion[]>([]);
+  const ui = useTranslations("ui");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(true);
@@ -203,7 +200,7 @@ export function ProjectResearchNotebook({
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
-          setError("Couldn’t load research history. Retry to continue safely.");
+          setError("couldnTLoadResearchHistoryRetryToContinue");
         }
       })
       .finally(() => {
@@ -229,7 +226,7 @@ export function ProjectResearchNotebook({
       ]);
       setHistoryCursor(payload.nextCursor);
     } catch {
-      setError("Couldn’t load older judgments. Please retry.");
+      setError("couldnTLoadOlderJudgmentsPleaseRetry");
     } finally {
       setLoadingOlder(false);
     }
@@ -259,9 +256,9 @@ export function ProjectResearchNotebook({
       const payload = await response.json();
       if (!response.ok) {
         setError(
-          typeof payload.message === "string"
+          typeof payload.messageKey === "string" ? payload.messageKey : typeof payload.message === "string"
             ? payload.message
-            : "Research could not finish. Please retry.",
+            : "researchCouldNotFinishPleaseRetry",
         );
         return;
       }
@@ -272,7 +269,7 @@ export function ProjectResearchNotebook({
       setQuestion("");
     } catch {
       setError(
-        "Couldn’t finish the update. Reload history before retrying to check whether it was saved.",
+        "couldnTFinishTheUpdateReloadHistoryBefore",
       );
     } finally {
       setPending(false);
@@ -284,31 +281,18 @@ export function ProjectResearchNotebook({
       className="mb-5 space-y-5 rounded-xl border border-border-subtle bg-surface-raised p-4 sm:p-6"
     >
       <header className="space-y-2">
-        <h2 id="research-notebook-title" className="text-h3">
-          Project research
-        </h2>
-        <p className="text-body-sm text-text-secondary">
-          Investigate a question, supplement your videos with scientific
-          literature, and build a judgment that evolves with the evidence.
-        </p>
-        <p className="text-caption text-text-muted">
-          Searches Europe PMC titles and abstracts using relevance and citation
-          discovery. Citation count does not establish study quality. Free includes
-          one research
-          update; Pro supports continued research.
-        </p>
+        <h2 id="research-notebook-title" className="text-h3">{t("projectResearch")}</h2>
+        <p className="text-body-sm text-text-secondary">{t("investigateAQuestionSupplementYourVideosWithScientific")}</p>
+        <p className="text-caption text-text-muted">{t("searchesEuropePmcTitlesAndAbstractsUsingRelevance")}</p>
       </header>
-      {loading && <p role="status">Loading research history…</p>}
+      {loading && <p role="status">{t("loadingResearchHistory")}</p>}
       {!loading && !loadFailed && !latest && (
-        <p className="text-body-sm text-text-secondary">
-          Start with what you want to find out. We’ll compare your videos with
-          external research and identify what still needs checking.
-        </p>
+        <p className="text-body-sm text-text-secondary">{t("startWithWhatYouWantToFindOut")}</p>
       )}
       {selected && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Label htmlFor={`${inputId}-versions`}>Research history</Label>
+            <Label htmlFor={`${inputId}-versions`}>{t("researchHistory")}</Label>
             <select
               id={`${inputId}-versions`}
               value={selected.id}
@@ -317,8 +301,8 @@ export function ProjectResearchNotebook({
             >
               {versions.map((version, index) => (
                 <option value={version.id} key={version.id}>
-                  {index === 0 ? "Latest" : "Earlier judgment"} ·{" "}
-                  {new Date(version.created_at).toLocaleString()}
+                  {index === 0 ? t("latest") : t("earlierJudgment")} ·{" "}
+                  {new Date(version.created_at).toLocaleString(locale)}
                 </option>
               ))}
             </select>
@@ -331,21 +315,15 @@ export function ProjectResearchNotebook({
               onClick={loadOlder}
             >
               {loadingOlder
-                ? "Loading older judgments…"
-                : "Load older judgments"}
+                ? t("loadingOlderJudgments")
+                : t("loadOlderJudgments")}
             </Button>
           )}
           {selected.id !== latest?.id && (
-            <p role="status">
-              Viewing an earlier judgment. New research always builds on the
-              latest version.
-            </p>
+            <p role="status">{t("viewingAnEarlierJudgmentNewResearchAlwaysBuilds")}</p>
           )}
           {selected.document.sourceSetRevision !== currentSourceSetRevision && (
-            <p role="status">
-              Project videos have changed since this judgment. Update the
-              research to include the current sources.
-            </p>
+            <p role="status">{t("projectVideosHaveChangedSinceThisJudgmentUpdate")}</p>
           )}
           <Judgment document={selected.document} />
         </>
@@ -355,14 +333,14 @@ export function ProjectResearchNotebook({
         className="space-y-3 border-t border-border-subtle pt-4"
       >
         <Label htmlFor={inputId}>
-          {latest ? "Continue your research" : "Research question"}
+          {latest ? t("continueYourResearch") : t("researchQuestionLabel")}
         </Label>
         <Textarea
           id={inputId}
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
           maxLength={2000}
-          placeholder="What do the videos claim, what does outside research show, and what should I conclude?"
+          placeholder={t("whatDoTheVideosClaimWhatDoesOutside")}
           disabled={pending}
         />
         <div className="flex flex-wrap gap-2">
@@ -377,10 +355,10 @@ export function ProjectResearchNotebook({
             }
           >
             {pending
-              ? "Researching & updating…"
+              ? t("researchingUpdating")
               : latest
-                ? "Research & update judgment"
-                : "Start research"}
+                ? t("researchUpdateJudgment")
+                : t("startResearch")}
           </Button>
           <Button
             type="button"
@@ -390,20 +368,14 @@ export function ProjectResearchNotebook({
               setLoading(true);
               setLoadKey((key) => key + 1);
             }}
-          >
-            Reload research history
-          </Button>
+          >{t("reloadResearchHistory")}</Button>
         </div>
         {pending && (
-          <p role="status" className="text-body-sm text-text-secondary">
-            Retrieving video context, searching literature, and comparing
-            evidence. This can take a few minutes. Your previous judgment stays
-            available.
-          </p>
+          <p role="status" className="text-body-sm text-text-secondary">{t("retrievingVideoContextSearchingLiteratureAndComparingEvidence")}</p>
         )}
         {error && (
           <p role="alert" className="text-body-sm text-state-error">
-            {error}
+            {ui.has(error) ? ui(error) : projectNotice(t, error)}
           </p>
         )}
       </form>

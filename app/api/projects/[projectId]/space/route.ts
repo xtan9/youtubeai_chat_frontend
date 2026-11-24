@@ -1,3 +1,4 @@
+import {spaceNoticeKey} from "@/i18n/space-notice";
 import { identifyClaims, identifySpaceClaims } from "@/lib/video-space/identify-claims.server";
 import { z } from "zod";
 import { logAppEvent } from "@/lib/observability";
@@ -27,7 +28,7 @@ import { checkRateLimit } from "@/lib/services/rate-limit";
 export const maxDuration = 90;
 type Context = { params: Promise<{ projectId: string }> };
 const fail = (status: number, message: string) =>
-  Response.json({ message }, { status });
+  Response.json({ message, messageKey: spaceNoticeKey(message) }, { status });
 async function authorize(context: Context) {
   const auth = await requireRegisteredResearcher("project");
   if (auth.kind === "error") return { response: auth.response } as const;
