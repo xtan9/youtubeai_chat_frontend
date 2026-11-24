@@ -14,10 +14,14 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Load the released copy audit
+        run: |
+          git fetch --depth=1 origin main
+          git restore --source=FETCH_HEAD -- i18n/messages smoke-tests/e2e-signed-in-copy.spec.ts
+      - run: pnpm exec playwright install chromium --only-shell
       - name: Exercise production workspace in all three interface languages
         env:
           BASE_URL: https://www.youtubeai.chat
           TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
           TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
-        run: pnpm exec playwright test smoke-tests/verify-live-locale.spec.ts --workers=1 --retries=0 --trace=off
+        run: pnpm exec playwright test smoke-tests/verify-live-locale.spec.ts smoke-tests/e2e-signed-in-copy.spec.ts --workers=1 --retries=0 --trace=off
