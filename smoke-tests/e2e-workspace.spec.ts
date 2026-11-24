@@ -5348,7 +5348,7 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
       await expect(page.getByRole("heading",{name:details,exact:true})).toBeVisible();
       await page.getByRole("button",{name:sourceButton,exact:true}).click();
       await expect(page.getByRole("dialog")).toBeVisible();
-      await page.keyboard.press("Escape");
+      await page.getByRole("dialog").getByRole("button", {name: locale === "en" ? "Close" : locale === "zh" ? "关闭" : "關閉", exact: true}).click();
     }
     await page.reload();
     await expect(lang).toHaveValue("zh-TW");

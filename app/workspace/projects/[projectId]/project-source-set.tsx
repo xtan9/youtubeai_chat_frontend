@@ -68,6 +68,7 @@ export function ProjectSourceSet({
   compact = false,
 }: ProjectSourceSetProps) {
   const t = useTranslations("project");
+  const ui = useTranslations("ui");
   const [sourceSet, setSourceSet] = useState(initialSourceSet);
   const sourceSetRevisionRef = useRef(initialSourceSet.revision);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -420,6 +421,7 @@ export function ProjectSourceSet({
                   <Plus aria-hidden="true" />{t("addFromHistory")}</Button>
               </DialogTrigger>
               <DialogContent
+                closeLabel={ui("close")}
                 className="ph-no-capture max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl"
                 data-ph-no-autocapture
               >
