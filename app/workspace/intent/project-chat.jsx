@@ -56,10 +56,11 @@ export function ProjectChat({
         },
       ];
   const planning = space.interview;
-  const composing = choosing || Boolean(planning);
+  const outline = w.draft.outline;
+  const composing = choosing || Boolean(planning) || Boolean(outline);
   const busy = Boolean(interview.busy || w.busy);
   const awaitingDraft = interview.busy === "starter" && Boolean(planning);
-  const showDots = w.busy || interview.busy === "interview" || awaitingDraft;
+  const showDots = w.busy || Boolean(interview.busy);
   const activeQuestion = planning && !choosing && !busy && !planning.pending && !planning.brief
     ? turns.findLast(m => m.interviewId === planning.id)
     : null;
@@ -72,7 +73,7 @@ export function ProjectChat({
     event.preventDefault();
     if (busy) return;
     if (choosing) void interview.ask(prompt, {});
-    else if (planning) void interview.ask(prompt);
+    else if (planning || outline) void interview.ask(prompt, undefined, outline);
     else if (prompt.trim()) void w.send();
   }
   function chooseAgain() {
@@ -194,7 +195,12 @@ export function ProjectChat({
           </>
         ) : (
           <div className="chat-action">
-            {planning?.brief && (
+            {planning?.format === "video" && !planning.pending && (
+              <button className="choice" disabled={busy} onClick={() => interview.ask(prompt.trim() || t("showVideoOutline"))}>
+                {t("showVideoOutline")}
+              </button>
+            )}
+            {planning?.brief && planning.format !== "video" && (
               <button
                 className="choice"
                 disabled={busy || !!prompt.trim()}
@@ -220,7 +226,7 @@ export function ProjectChat({
             <button className="link" disabled={busy} onClick={chooseAgain}>
               {t("tryAnotherPurpose")}{" "}
             </button>
-            {!planning && (
+            {!planning && !outline && (
               <button
                 className="link contextual"
                 disabled={w.busy}
@@ -260,7 +266,7 @@ export function ProjectChat({
               ? t("orAnswerInYourOwnWords")
               : planning
                 ? t(planning.brief ? "correctBrief" : "answerInterview")
-                : t("discussAnAngleOrAskMeToKeepWriting")
+                : t(outline ? "adjustVideoOutline" : "discussAnAngleOrAskMeToKeepWriting")
           }
           onChange={(e) =>
             composing ? setAnswer(e.target.value) : w.setPrompt(e.target.value)

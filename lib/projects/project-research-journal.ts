@@ -13,6 +13,7 @@ export async function loadResearchVersions(
   client: SupabaseClient,
   projectId: string,
   beforeId?: string,
+  question?: { id: string; title: string; revision?: string },
 ): Promise<ResearchVersion[]> {
   let query = client
     .from("project_research_runs")
@@ -21,7 +22,12 @@ export async function loadResearchVersions(
     .eq("state", "completed")
     .order("completed_at", { ascending: false })
     .order("id", { ascending: false })
-    .limit(10);
+    .limit(question ? 1 : 10);
+  if (question) {
+    query = query.eq("document->space->>questionId", question.id).eq("document->>question", question.title);
+    query = question.revision ? query.eq("document->space->>questionRevision", question.revision)
+      : query.is("document->space->>questionRevision", null);
+  }
   if (beforeId) {
     const cursor = await client
       .from("project_research_runs")

@@ -5,6 +5,33 @@ function keepDraft(draft) {
   return draft.id !== "opening" || draft.text || draft.markers.length || !draft.defaultTitle;
 }
 
+// Keep a question's identity and research when a revised outline reuses it.
+function saveVideoOutline(space, interview, result) {
+  const questions = [...(space.questions || [])];
+  const sections = result.sections.map(({ heading, questions: titles }) => {
+    const questionIds = titles.map(({ title, startingPoint }) => {
+      let q = questions.find(item => item.title === title);
+      if (!q) {
+        q = { id: crypto.randomUUID(), title, startingPoint };
+        questions.push(q);
+      } else if (q.startingPoint !== startingPoint) {
+        questions[questions.indexOf(q)] = { ...q, startingPoint };
+      }
+      return q.id;
+    });
+    return { heading, questionIds: [...new Set(questionIds)] };
+  });
+  if (questions.length > 150) throw Error("capacity");
+  const id = "outline/" + interview.id;
+  const outline = {
+    id, title: result.title, text: "", markers: [], version: crypto.randomUUID(),
+    outline: { interviewId: interview.id, angle: result.angle, sections },
+  };
+  const drafts = space.drafts.filter(keepDraft);
+  return { ...space, questions, purpose: "video", interview: undefined, activeDraft: id,
+    drafts: drafts.some(d => d.id === id) ? drafts.map(d => d.id === id ? outline : d) : [...drafts, outline] };
+}
+
 export function useIntentInterview({
   api,
   store,
@@ -43,19 +70,20 @@ export function useIntentInterview({
     }
   }
 
-  async function run(action, prepare) {
+  async function run(action, prepare, outlineRequest) {
     if (lock.current) return;
     lock.current = true;
     setBusy(action);
     setError("");
     try {
       const before = live.current;
-      const authorTurn = action === "starter" || Boolean(prepare);
+      const writing = action !== "interview";
+      const authorTurn = writing || Boolean(prepare);
       const purposePrompt = !before.messages.length && action === "interview" && authorTurn;
       const messagesNeeded = 1 + Number(authorTurn) + Number(purposePrompt);
       if (
         before.messages.length + messagesNeeded > 2000 ||
-        (action === "starter" && before.drafts.filter(keepDraft).length >= 50)
+        (writing && before.drafts.filter(keepDraft).length >= 50)
       )
         throw Error("capacity");
       if (prepare && !prepare()) throw Error("capacity");
@@ -64,16 +92,27 @@ export function useIntentInterview({
       const result = await requestJson(api + "/space", "POST", {
         action,
         locale,
-        turnId: interview.turnId,
+        ...(outlineRequest || { turnId: interview.turnId }),
         ...(action === "starter" && { confirmBrief: true }),
       });
-      if (live.current.interview?.turnId !== interview.turnId) return;
+      if (outlineRequest) {
+        const current = live.current.drafts.find(d => d.id === outlineRequest.outlineId);
+        if (current?.version !== outlineRequest.version) throw Error("interviewChanged");
+      } else if (live.current.interview?.turnId !== interview.turnId) return;
       const message = (role, text) => ({
         role,
         text,
-        interviewId: interview.id,
+        interviewId: interview?.id,
       });
-      if (action === "interview") {
+      if (action === "interview" && result.stage === "outline") {
+        const accepted = update(s => ({
+          ...saveVideoOutline(s, interview, result),
+          messages: [...s.messages, message("assistant", t("outlineReady"))],
+        }));
+        if (!accepted) throw Error("capacity");
+        onDraft("outline/" + interview.id);
+        if (!(await flush())) throw Error("retrySave");
+      } else if (action === "interview") {
         const brief = result.stage === "review" ? result.brief : undefined;
         const accepted = update((s) => ({
           ...s,
@@ -98,11 +137,11 @@ export function useIntentInterview({
             setError(tr("retrySave"));
         });
       } else {
-        const id = result.format + "/" + interview.id;
+        const id = result.format + "/" + (outlineRequest ? crypto.randomUUID() : interview.id);
         const draft = {
           id,
           title: result.title,
-          markers: [],
+          markers: result.markers ?? [],
           text: [
             result.lead,
             ...result.sections.map(
@@ -118,13 +157,13 @@ export function useIntentInterview({
           drafts: [...s.drafts.filter(keepDraft), draft],
           messages: [
             ...s.messages,
-            message("user", t("confirmAndDraft")),
+            message("user", t(outlineRequest ? (outlineRequest.section === undefined ? "writeVideoScript" : "writeOutlineSection") : "confirmAndDraft")),
             message("assistant", result.reply),
           ],
         }));
         if (!accepted) throw Error("capacity");
-        if (!(await flush())) throw Error("retrySave");
         onDraft(id);
+        if (!(await flush())) throw Error("retrySave");
       }
     } catch (e) {
       setError(tr.has(e.message) ? tr(e.message) : e.message);
@@ -134,18 +173,18 @@ export function useIntentInterview({
     }
   }
 
-  function ask(input, newPurpose) {
+  function ask(input, newPurpose, outline) {
     const text = input.trim();
     if (!text) return;
     return run("interview", () => {
       const previous = newPurpose ? undefined : live.current.interview;
-      const id = previous?.id ?? crypto.randomUUID();
+      const id = previous?.id ?? outline?.interviewId ?? crypto.randomUUID();
       const saved = update((s) => ({
         ...s,
         interview: {
           id,
           turnId: crypto.randomUUID(),
-          format: previous?.format ?? newPurpose?.format,
+          format: previous?.format ?? newPurpose?.format ?? (outline ? "video" : undefined),
           notes: previous?.notes ?? "",
           pending: true,
         },
@@ -163,6 +202,14 @@ export function useIntentInterview({
   }
   return {
     ask,
+    writeOutline(draft, section) {
+      // Claim the saved snapshot using the store's revision check before paying for generation.
+      const version = crypto.randomUUID();
+      return run("draftOutline", () => {
+        if (live.current.drafts.find(d => d.id === draft.id)?.version !== draft.version) throw Error("interviewChanged");
+        return update(s => ({ ...s, drafts: s.drafts.map(d => d.id === draft.id ? { ...d, version } : d) }));
+      }, { outlineId: draft.id, version, section });
+    },
     loadQuickReplies,
     loadingReplies,
     busy,

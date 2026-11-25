@@ -70,12 +70,19 @@ export function Document({
       (m) => m.start + m.text.length > start && m.start + m.text.length <= end,
     );
     return sectionMarkers.map((m) => {
+      if (m.material) return (
+        <details className="q-draft-cites" key={m.start + "/" + m.material.id}>
+          <summary>{m.material.title} · {m.material.location}</summary>
+          <blockquote>{m.material.quote}</blockquote>
+          {m.material.url && <a href={m.material.url} target="_blank" rel="noreferrer">{t("viewSource")}</a>}
+        </details>
+      );
       const q = runs[m.finding]?.question;
       if (q)
         return (
           <div
             className="q-draft-cites"
-            key={m.start}
+            key={m.start + "/" + m.finding}
             data-answer-id={m.finding}
             tabIndex={-1}
           >
