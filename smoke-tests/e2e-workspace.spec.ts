@@ -5389,6 +5389,8 @@ test("named project preserves research citations after a question changes @proje
     expect(gap).toBeLessThanOrEqual(12);
   }
   const approvedBrief = "给今晚做饭的人看，比较葵花籽油和菜籽油，避免健康结论。";
+  const cookingChoice = "把煎炒、油炸和反复加热也作为重点";
+  const choices = page.getByRole("group", { name: "快捷回答" });
   let interviews = 0, drafts = 0;
   let release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });
@@ -5399,14 +5401,18 @@ test("named project preserves research citations after a question changes @proje
       await savingBrief;
     if (route.request().method() !== "POST") return route.fallback();
     const data = route.request().postDataJSON();
+    if (data.action === "quickReplies") {
+      return route.fulfill({ json: { quickReplies: ["以这三块原理为主", cookingChoice] } });
+    }
     if (data.action === "interview") {
       interviews++;
       if (interviews === 1) {
         await waiting;
-        return route.fulfill({ json: { stage: "ask", format: "video", notes: "视频", reply: "观众看完后要做什么决定？" } });
+        return route.fulfill({ json: { stage: "ask", format: "video", notes: "视频", reply: "原理部分要以这三块为主，还是把煎炒、油炸和反复加热也作为重点？" } });
       }
       if (interviews === 2) return route.fulfill({ status: 503, json: { messageKey: "spaceUnavailable" } });
-      return route.fulfill({ json: { stage: "review", format: "video", brief: interviews === 3 ? "给今晚做饭的人看，比较两瓶油。" : approvedBrief } });
+      if (interviews === 3) return route.fulfill({ json: { stage: "ask", format: "video", notes: "讲烹饪", reply: "先讲标签还是先讲用法？", quickReplies: ["先讲标签", "先讲用法"] } });
+      return route.fulfill({ json: { stage: "review", format: "video", brief: interviews === 4 ? "给今晚做饭的人看，比较两瓶油。" : approvedBrief } });
     }
     expect(data).toMatchObject({ action: "starter", confirmBrief: true });
     drafts++;
@@ -5418,7 +5424,7 @@ test("named project preserves research citations after a question changes @proje
   await expect(thinking.locator("span")).toHaveCount(3);
   await expect(confirm).toHaveCount(0);
   release();
-  await expect(page.getByText("观众看完后要做什么决定？")).toBeVisible();
+  await expect(page.getByText("原理部分要以这三块为主，还是把煎炒、油炸和反复加热也作为重点？")).toBeVisible();
   await expect(thinking).toHaveCount(0);
   const readSpace = async () => (await (await page.request.get(endpoint + "/space")).json()).document;
   await expect.poll(async () => (await readSpace()).interview?.pending).toBe(false);
@@ -5430,12 +5436,22 @@ test("named project preserves research citations after a question changes @proje
   await page.reload();
   const message = page.getByRole("textbox", { name: "消息", exact: true });
   await expect(message).toBeVisible();
-  await message.fill("想帮今晚做饭的人读懂两瓶油的标签。");
-  await message.press("Enter");
+  await page.getByRole("button", { name: "显示快捷回答" }).click();
+  await expect(choices.getByRole("button")).toHaveCount(2);
+  await expect.poll(async () => (await readSpace()).interview?.quickReplies).toContain(cookingChoice);
+  await page.reload();
+  const cooking = choices.getByRole("button", { name: cookingChoice });
+  await message.fill("我也可以自己回答");
+  await expect(cooking).toBeDisabled();
+  await message.fill("");
+  await cooking.click();
+  await expect(page.locator(".user-text").filter({ hasText: cookingChoice })).toHaveCount(1);
   await expect(page.getByRole("button", {name:"重新获取回复"})).toBeVisible();
   await expect(thinking).toHaveCount(0);
   await page.getByRole("button", {name:"重新获取回复"}).click();
+  await choices.getByRole("button", { name: "先讲标签" }).click();
   await expect(confirm).toBeVisible();
+  await expect(choices).toHaveCount(0);
   await message.fill("补充：只比较葵花籽油和菜籽油，不做健康结论。");
   await expect(confirm).toBeDisabled();
   await message.press("Enter");

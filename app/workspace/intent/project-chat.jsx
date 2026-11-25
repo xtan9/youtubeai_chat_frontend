@@ -60,10 +60,13 @@ export function ProjectChat({
   const busy = Boolean(interview.busy || w.busy);
   const awaitingDraft = interview.busy === "starter" && Boolean(planning);
   const showDots = w.busy || interview.busy === "interview" || awaitingDraft;
+  const activeQuestion = planning && !choosing && !busy && !planning.pending && !planning.brief
+    ? turns.findLast(m => m.interviewId === planning.id)
+    : null;
   const log = useRef(null);
   useLayoutEffect(() => {
     log.current.scrollTop = log.current.scrollHeight;
-  }, [space.messages, choosing, showDots]);
+  }, [space.messages, choosing, showDots, planning?.quickReplies]);
   const prompt = composing ? answer : w.prompt;
   function submit(event) {
     event.preventDefault();
@@ -92,6 +95,22 @@ export function ProjectChat({
             destination.version === w.draft.version;
           return (
             <Turn key={i} message={m}>
+              {m === activeQuestion && m.role === "assistant" && (
+                planning.quickReplies === undefined ? (
+                  <button className="link" type="button"
+                    disabled={interview.loadingReplies === planning.turnId}
+                    onClick={interview.loadQuickReplies}>
+                    {t(interview.loadingReplies === planning.turnId ? "loadingQuickReplies" : "showQuickReplies")}
+                  </button>
+                ) : planning.quickReplies.length > 0 && (
+                  <div className="choices" role="group" aria-label={t("quickReplies")}>
+                    {[...new Set(planning.quickReplies)].map(reply => (
+                      <button key={reply} type="button" className="choice" disabled={!!prompt.trim()}
+                        onClick={() => interview.ask(reply)}>{reply}</button>
+                    ))}
+                  </div>
+                )
+              )}
               {(m.role === "handoff" || m.finding) && (
                 <div className="chat-action">
                   {target && !composing && (

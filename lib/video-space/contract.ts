@@ -106,6 +106,7 @@ export const questionSchema = z.object({
   gap: z.string().max(1000).optional(),
 });
 export type ProjectQuestion = z.infer<typeof questionSchema>;
+export const quickRepliesSchema = z.array(z.string().trim().min(1).max(120)).max(4);
 export const spaceSchema = z.object({
   purpose: intentFormat.optional(),
   interview: z.object({
@@ -115,6 +116,7 @@ export const spaceSchema = z.object({
     pending: z.boolean(),
     confirmed: z.literal(true).optional(),
     notes: z.string().max(6000),
+    quickReplies: quickRepliesSchema.optional(),
     brief: z.string().trim().min(1).max(6000).optional(),
   }).optional(),
   questions: z.array(questionSchema).max(150).optional(),

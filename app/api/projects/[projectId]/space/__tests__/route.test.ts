@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   from: vi.fn(),
   write: vi.fn(),
   starter: vi.fn(),
+  replies: vi.fn(),
   versions: vi.fn(),
   rate: vi.fn(),
   sourceSet: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("@/lib/video-space/assistant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/video-space/assistant")>()),
   writeScript: m.write,
   createStarter: m.starter,
+  suggestQuickReplies: m.replies,
 }));
 vi.mock("@/lib/projects/project-research-journal", () => ({ loadResearchVersions: m.versions }));
 vi.mock("@/lib/projects/project-source-set", () => ({
@@ -166,4 +168,21 @@ it("generates only from the current saved brief after an explicit confirmation",
       { role: "user", text: "Compare the plant names, without health claims." },
     ]) }), space.interview.brief, "en", expect.anything(),
   );
+});
+
+it("offers choices for the current saved question without starting another interview or draft", async () => {
+  const space = emptySpace();
+  const turnId = crypto.randomUUID();
+  space.interview = { id, turnId, notes: "", pending: false };
+  space.messages.push({ role: "assistant", text: "Include cooking examples or focus on chemistry?", interviewId: id });
+  m.from.mockReturnValue({ select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+    maybeSingle: async () => ({ data: { document: space } }) });
+  const body = { action: "quickReplies", turnId, locale: "en" };
+  m.replies.mockResolvedValue({ quickReplies: ["Include cooking examples", "Focus on chemistry"] });
+  expect(await (await POST(req(body), context)).json()).toEqual({ quickReplies: ["Include cooking examples", "Focus on chemistry"] });
+  expect(m.replies).toHaveBeenCalledWith(space.messages[0].text, "en", expect.anything());
+  space.interview.brief = "Review this brief.";
+  expect((await POST(req(body), context)).status).toBe(409);
+  expect(m.replies).toHaveBeenCalledTimes(1);
+  expect(m.starter).not.toHaveBeenCalled();
 });

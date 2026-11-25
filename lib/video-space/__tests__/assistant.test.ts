@@ -120,7 +120,7 @@ it("asks on format selection even if the model prematurely offers a brief", asyn
   const context = interviewContext("New project", space, []);
   expect(context.turns).toEqual([{ role: "user", text: "YouTube" }]);
   expect(context.materials[0].excerpt).toBe(resource.pages[0].text);
-  const ask = { stage: "ask", format: "video", notes: "Video selected", reply: "Who should see this?" };
+  const ask = { stage: "ask", format: "video", notes: "Video selected", reply: "Who should see this?", quickReplies: [] };
   const delta = (reply: object) => [{ type: "delta", text: JSON.stringify(reply) }];
   stream.mockReturnValueOnce(delta({ stage: "review", format: "video", brief: "A generic script." }))
     .mockReturnValueOnce(delta(ask));
