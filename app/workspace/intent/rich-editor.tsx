@@ -43,6 +43,11 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     q.setContents(initial, "silent");
     model.current = draftContents(initial);
     q.history.clear();
+    q.keyboard.addBinding({ key: "k", shortKey: true }, range => {
+      const address = q.getFormat(range).link;
+      setLink(typeof address === "string" ? address : "");
+      setInvalid(false);
+    });
     function selection(range: Range | null) {
       if (!range || !model.current) return; // Keep the passage when focus moves to the assistant.
       const doc = latest.current.draft;
@@ -86,8 +91,9 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     if (!q || !current) return;
     if (w.draft.text === current.text && (w.draft.formatting === current.formatting ||
       (!w.draft.formatting && !current.formatting.length))) return;
+    if (w.draft.text === current.text &&
+      JSON.stringify(current.formatting) === JSON.stringify(w.draft.formatting ?? [])) return;
     const next = editorContents(w.draft);
-    if (!q.getContents().diff(next).length()) return;
     q.setContents(next, "silent");
     model.current = draftContents(next);
     q.history.clear();
@@ -117,6 +123,9 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
       {options.map((key, i) => <option key={key} value={values[i]}>{t(key)}</option>)}
     </select>;
   }
+  const size = select("size", ["regular", "small", "large", "huge"], ["", "small", "large", "huge"]);
+  const alignment = select("align", ["left", "center", "right", "justify"], ["", "center", "right", "justify"]);
+
   function applyLink() {
     const url = link?.trim() ?? "";
     if (url && (url.length > 3000 || !URL.canParse(url) ||
@@ -156,17 +165,22 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     <div className="rich-tools" role="toolbar" aria-label={t("toolbar")}>
       <div className="rich-tool-row">
         {select("header", ["paragraph", "h1", "h2", "h3", "h4", "h5", "h6"], ["", "1", "2", "3", "4", "5", "6"])}
+        <span className="rich-wide">{size}</span>
         {toggle("bold", Bold)}{toggle("italic", Italic)}{toggle("underline", Underline)}
         {toggle("list", List, "bullet")}{toggle("list", ListOrdered, "ordered")}
+        <span className="rich-wide">{alignment}</span>
         {button("link", Link, () => { setInvalid(false); setLink(typeof formats.link === "string" ? formats.link : ""); }, Boolean(formats.link))}
         {button("undo", Undo2, () => editor.current?.history.undo())}
         {button("redo", Redo2, () => editor.current?.history.redo())}
-        {button("more", Ellipsis, () => setMore(!more), more)}
+        <button type="button" aria-label={t("more")} title={t("more")} aria-expanded={more}
+          onMouseDown={e => e.preventDefault()} onClick={() => setMore(!more)}>
+          <Ellipsis size={16}/><span className="rich-wide">{t("more")}</span>
+        </button>
       </div>
       {more && <div className="rich-tool-row extended">
         {select("font", ["defaultFont", "serif", "monospace"], ["", "serif", "monospace"])}
-        {select("size", ["regular", "small", "large", "huge"], ["", "small", "large", "huge"])}
-        {select("align", ["left", "center", "right", "justify"], ["", "center", "right", "justify"])}
+        <span className="rich-narrow">{size}</span>
+        <span className="rich-narrow">{alignment}</span>
         {(["color", "background"] as const).map(name => <label key={name} className="rich-color" title={t(name)}>
           <span>{t(name)}</span><input aria-label={t(name)} type="color" value={String(formats[name] || (name === "color" ? "#222222" : "#ffff99"))}
             onChange={e => format(name, e.target.value)} /></label>)}

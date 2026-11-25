@@ -69,3 +69,10 @@
   .intent-shell .rich-tool-row { gap: 1px; }
   .intent-shell .rich-tool-row button { min-height: 36px; min-width: 30px; }
 }
+
+.intent-shell .rich-tools { container-type: inline-size; }
+.intent-shell .rich-wide { display: none; }
+@container (min-width: 580px) {
+  .intent-shell .rich-wide { display: inline-flex; }
+  .intent-shell .rich-narrow { display: none; }
+}

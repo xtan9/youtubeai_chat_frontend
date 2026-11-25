@@ -5292,9 +5292,13 @@ test("rich paste, quoted rewrite and undo preserve surrounding formatting and ci
     el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   });
   await expect(body.locator("h2 em")).toHaveText("补充");
-  await body.getByText("请改写", { exact: true }).click();
-  await body.press("Home");
-  await body.press("Shift+End");
+  await body.getByText("请改写", { exact: true }).evaluate(paragraph => {
+    const range = document.createRange();
+    range.selectNodeContents(paragraph.firstChild!);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  await expect(page.locator(".quoted-selection")).toContainText("请改写");
   await page.getByRole("button", { name: "改写", exact: true }).click();
   await page.getByRole("button", { name: "发送消息" }).click();
   const before = "## 标题🙂补充\n请改写\n引文";
