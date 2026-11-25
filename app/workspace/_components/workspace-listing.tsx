@@ -1,3 +1,5 @@
+import { NextIntlClientProvider } from "next-intl";
+import { getNow } from "next-intl/server";
 import { resolveRequestPrincipal } from "@/lib/auth/request-principal";
 import { listWorkspaceProjects } from "@/lib/projects/project-subject";
 import { createClient } from "@/lib/supabase/server";
@@ -24,6 +26,12 @@ export async function WorkspaceListing({ videoSpace = false, manage = false } = 
     return <ProjectOutcomeState kind="unavailable" />;
   }
 
-  if(!manage) return <IntentLanding workspace={result.value}/>;
+  if (!manage) {
+    return (
+      <NextIntlClientProvider now={await getNow()}>
+        <IntentLanding workspace={result.value} />
+      </NextIntlClientProvider>
+    );
+  }
   return <WorkspaceView manage={manage} initialWorkspace={result.value} videoSpace={videoSpace} />;
 }

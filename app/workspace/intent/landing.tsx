@@ -2,14 +2,58 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { useTranslations } from "next-intl";
-import { ArrowRight } from "lucide-react";
+import { useFormatter, useNow, useTranslations } from "next-intl";
+import { ArrowRight, ChevronRight, Clock3 } from "lucide-react";
 import type { PersonalWorkspace } from "@/lib/projects/project-subject";
 import { decodeProjectLimitResponse } from "@/lib/projects/project-limit-response";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
 import { ProjectLimitUpgrade } from "../_components/workspace-view";
 import { IntentShell } from "./shell";
+
+function RecentProjects({ projects }: { projects: PersonalWorkspace["projects"] }) {
+  const ui = useTranslations("ui"), t = useTranslations("intent");
+  const format = useFormatter();
+  const now = useNow({ updateInterval: 60_000 });
+  return (
+    <section className="recent-projects" aria-labelledby="recent-directory-title">
+      <div className="recent-heading">
+        <h2 id="recent-directory-title">{ui("recentlyActive")}</h2>
+        <Link className="manage-projects" href="/workspace/manage">
+          {t("manageProjects")} <ArrowRight aria-hidden="true" />
+        </Link>
+      </div>
+      <ul className="recent-grid" role="list">
+        {projects.map((project) => {
+          const activeAt = new Date(project.lastActiveAt);
+          const validDate = Number.isFinite(activeAt.getTime());
+          // Use the project UUID so a book keeps its cover when activity reorders the list.
+          const cover = parseInt(project.id.slice(-2), 16) % 5;
+          return (
+            <li key={project.id}>
+              <Link className="recent-entry" href={"/workspace/projects/" + project.id}
+                aria-label={ui("openNamedProject", { name: project.name })}
+                aria-describedby={validDate ? "activity-" + project.id : undefined}>
+                <span className="recent-cover" data-cover={cover} aria-hidden="true" />
+                <div className="recent-details">
+                  <h3>{project.name}</h3>
+                  {project.goal && <p className="recent-goal">{project.goal}</p>}
+                  {validDate && (
+                    <time id={"activity-" + project.id} dateTime={project.lastActiveAt}
+                      title={ui("activeDate", { date: format.dateTime(activeAt, { dateStyle: "long", timeStyle: "long", timeZone: "UTC" }) })}>
+                      <Clock3 aria-hidden="true" />{format.relativeTime(activeAt, now)}
+                    </time>
+                  )}
+                </div>
+                <ChevronRight className="recent-open" aria-hidden="true" />
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 export function IntentLanding({ workspace }: { workspace: PersonalWorkspace }) {
   const t = useTranslations("intent"),
@@ -98,24 +142,7 @@ export function IntentLanding({ workspace }: { workspace: PersonalWorkspace }) {
             </div>
           </div>
         </div>
-        {!!workspace.projects.length && (
-          <section className="recent-projects">
-            <h2>{ui("recentlyActive")}</h2>
-            <Link className="link" href="/workspace/manage">
-              {t("manageProjects")}
-            </Link>
-            {workspace.projects.map((project) => (
-              <Link
-                key={project.id}
-                className="file"
-                href={"/workspace/projects/" + project.id}
-                aria-label={ui("openNamedProject", { name: project.name })}
-              >
-                {project.name}
-              </Link>
-            ))}
-          </section>
-        )}
+        {!!workspace.projects.length && <RecentProjects projects={workspace.projects} />}
       </div>
     </IntentShell>
   );

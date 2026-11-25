@@ -5425,6 +5425,48 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
   }
 });
 
+test("recent projects form a responsive, keyboard-accessible directory @projects-ga-critical", async ({ context, page }, info) => {
+  const names = ["种子油与日常烹饪", "种子油与日常烹饪：证据笔记", "厨房里的油脂", "阅读笔记", "What we know about cooking oils", "一周的研究问题", "选题草稿"];
+  const now = Date.now();
+  const seeds = names.map((name, index) => {
+    const date = new Date(now - (index + 1) ** 2 * 2_400_000).toISOString();
+    return {
+      id: `a0000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      workspace_id: OWNER_WORKSPACE_ID, name, goal: index === 1 ? "梳理每条结论背后的来源" : null,
+      created_at: date, updated_at: date, last_active_at: date,
+    };
+  });
+  projects.push(...seeds);
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
+  await page.setViewportSize({ width: 1674, height: 1344 });
+  await page.goto(appUrl + "/workspace");
+  const directory = page.getByRole("region", { name: "最近使用" });
+  const entries = directory.getByRole("listitem");
+  await expect(entries.getByRole("heading")).toHaveText(names);
+  await expect(entries.nth(1)).toContainText(seeds[1].goal!);
+  await expect(entries.first().locator("time")).toHaveAttribute("datetime", seeds[0].last_active_at);
+  await expect(directory.getByRole("link", { name: "管理项目" })).toHaveAttribute("href", "/workspace/manage");
+  const positions = () => entries.evaluateAll(items => items.map(item => {
+    const { x, y, right } = item.getBoundingClientRect();
+    return { x, y, right };
+  }));
+  const desktop = await positions();
+  expect(desktop[0].y).toBe(desktop[1].y);
+  expect(desktop[1].x).toBeGreaterThan(desktop[0].right);
+  const screenshotStyle = "nextjs-portal, .tsqd-parent-container { display: none !important; }";
+  await directory.screenshot({ path: info.outputPath("recent-desktop.png"), style: screenshotStyle });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobile = await positions();
+  expect(mobile.every(({ x, right }) => x === mobile[0].x && right <= 390)).toBe(true);
+  expect(mobile[1].y).toBeGreaterThan(mobile[0].y);
+  await directory.screenshot({ path: info.outputPath("recent-mobile.png"), style: screenshotStyle });
+  const link = entries.nth(1).getByRole("link", { name: "打开" + names[1] });
+  await link.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(appUrl + "/workspace/projects/" + seeds[1].id);
+});
+
 test("named project preserves research citations after a question changes @projects-ga-critical", async ({context,page},info)=>{
   await addSessionCookie(context,OWNER_ID,"owner@example.test");
   await context.addCookies([{name:"locale",value:"zh",url:appUrl}]);
