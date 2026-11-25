@@ -43,7 +43,7 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     q.setContents(initial, "silent");
     model.current = draftContents(initial);
     q.history.clear();
-    q.keyboard.addBinding({ key: "k", shortKey: true }, range => {
+    q.keyboard.addBinding({ key: "k", shortKey: true }, (range: Range) => {
       const address = q.getFormat(range).link;
       setLink(typeof address === "string" ? address : "");
       setInvalid(false);
