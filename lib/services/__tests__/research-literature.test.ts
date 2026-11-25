@@ -167,3 +167,52 @@ it("binds discovered reference text to a specific revision and excludes disambig
   expect(entries).toHaveLength(1);
   expect(entries[0]).toMatchObject({url:"https://en.wikipedia.org/w/index.php?oldid=92",kind:"reference_article",text:excerpt});
 });
+
+it("selects a directly matching indexed trial before general rankings fill the evidence budget", async () => {
+  const trial = {
+    ...record, id: "24235903", doi: "10.5664/jcsm.3170",
+    meshHeadingList: { meshHeading: [{ descriptorName: "Adult" }, { descriptorName: "Humans" }] },
+  };
+  const others = Array.from({ length: 10 }, (_, index) => ({
+    ...record, id: String(100 + index), doi: "10.1234/other" + index,
+  }));
+  const fetch = vi.fn(async (url: URL) => {
+    const filtered = url.searchParams.get("query")?.includes('PUB_TYPE:"Randomized Controlled Trial"');
+    const cited = url.searchParams.get("sort") === "CITED desc";
+    return Response.json({ resultList: { result: filtered && cited ? [trial] :
+      cited ? [others[5], others[6], trial] : others.slice(0, 5) } });
+  });
+  vi.stubGlobal("fetch", fetch);
+  const terms = 'caffeine AND "6 hours" AND sleep';
+  const signal = new AbortController().signal;
+  expect((await searchResearchLiterature(terms, signal)).evidence.map(s => s.originId)).not.toContain(trial.doi);
+  const { evidence } = await searchResearchLiterature(terms, signal, false, "controlled_trial");
+  expect(evidence[0]).toMatchObject({ originId: trial.doi, indexedSubjects: ["Adult", "Humans"] });
+});
+
+it("reads PubMed Best Match trial abstracts when the other provider times out", async () => {
+  const fetch = vi.fn(async (url: URL) => {
+    if (url.hostname !== "eutils.ncbi.nlm.nih.gov") return new Response(null, { status: 503 });
+    if (url.pathname.endsWith("/esearch.fcgi")) {
+      expect(url.searchParams.get("term")).toContain("randomized controlled trial[pt]");
+      return Response.json({ esearchresult: { idlist: ["24235903", "888"] } });
+    }
+    expect(url.searchParams.get("id")).toBe("24235903,888");
+    return new Response(`<PubmedArticleSet><PubmedArticle><MedlineCitation>
+      <PMID>24235903</PMID><Article><Journal><JournalIssue><PubDate><Year>2013</Year></PubDate></JournalIssue></Journal>
+      <ArticleTitle>Study of sleep</ArticleTitle><Abstract><AbstractText Label="METHODS">The study compared timing.</AbstractText>
+      <AbstractText Label="RESULTS">The difference was significant (p &lt; 0.05).</AbstractText></Abstract>
+      <PublicationTypeList><PublicationType>Randomized Controlled Trial</PublicationType></PublicationTypeList></Article>
+      <MeshHeadingList><MeshHeading><DescriptorName>Adult</DescriptorName></MeshHeading></MeshHeadingList>
+      </MedlineCitation><PubmedData><ArticleIdList><ArticleId IdType="doi">10.5664/jcsm.3170</ArticleId></ArticleIdList></PubmedData></PubmedArticle>
+      </PubmedArticleSet>`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { evidence, partial } = await searchResearchLiterature("intervention AND sleep", new AbortController().signal, false, "controlled_trial");
+  expect(partial).toBe(true);
+  expect(evidence).toHaveLength(1);
+  expect(evidence[0]).toMatchObject({
+    originId: "10.5664/jcsm.3170", url: "https://pubmed.ncbi.nlm.nih.gov/24235903/",
+    indexedSubjects: ["Adult"], text: "METHODS The study compared timing. RESULTS The difference was significant (p < 0.05).",
+  });
+});
