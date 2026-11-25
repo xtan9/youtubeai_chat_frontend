@@ -71,9 +71,10 @@ const draft = z.object({
   }).optional(),
   id,
   version: z.uuid().optional(),
+  // null records an author-entered title, even when it matches a legacy UI label.
   defaultTitle: z
     .union([z.literal("opening"), z.number().int().min(1).max(50)])
-    .optional(),
+    .nullish(),
   title: z.string().min(1).max(140),
   text: z.string().max(80000),
   markers: z.array(marker).max(300),
@@ -172,6 +173,20 @@ export type Space = z.infer<typeof spaceSchema>;
 export type Draft = Space["drafts"][number];
 export type Passage = z.infer<typeof passageSchema>;
 export type Message = z.infer<typeof messageSchema>;
+
+export function defaultDraftTitle(
+  draft: Pick<Draft, "id" | "title" | "defaultTitle">,
+  index: number,
+) {
+  if (draft.defaultTitle !== undefined) return draft.defaultTitle;
+  // Older saves stored localized default names as plain text.
+  if (draft.id === "opening" && ["开场脚本", "Opening script", "開場腳本"].includes(draft.title))
+    return "opening";
+  const n = index + 1;
+  if (n > 1 && [`Script ${n}`, `脚本 ${n}`, `腳本 ${n}`].includes(draft.title)) return n;
+  return null;
+}
+
 export const emptySpace = (): Space => ({
   drafts: [
     {

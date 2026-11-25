@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { resourceSchema } from "@/lib/video-space/contract";
+import { defaultDraftTitle, resourceSchema } from "@/lib/video-space/contract";
 import { HighlightTranslation } from "@/app/summary/components/highlight-translation";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
@@ -97,7 +97,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const returnMarker = useRef(null);
   const fresh =
     !space.interview && !space.purpose &&
-    !space.drafts.some((d) => d.text);
+    !space.drafts.some((d, i) => d.text || defaultDraftTitle(d, i) === null);
   const [mobile, setMobile] = useState(
     route.claim || route.source !== undefined
       ? "room"
@@ -698,8 +698,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
             <button
               className="mini"
               onClick={() => {
-                w.addDraft();
-                setFull(true);
+                if (!w.addDraft()) return;
+                setFull(false);
                 showRoute({});
               }}
             >
@@ -1041,39 +1041,12 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 if (!q.versionId && !q.gap && initial.history !== null) void startResearch(q);
               }}
               write={section => interview.writeOutline(w.draft, section)} />
-          ) : !w.draft.text && !full ? (
-            <>
-              <h2 className="pane-head">
-                <InkIcon name="page" />
-                {t("editor")}{" "}
-                <button
-                  className="meta mode-link contextual"
-                  onClick={() => setFull(true)}
-                >
-                  {t("startWriting")}{" "}
-                </button>
-              </h2>
-              <div className="paper-body blank">
-                <div className="blank-message">
-                  <div className="empty-icon">
-                    <InkIcon name="page" />
-                  </div>
-                  <h2>{t("yourFirstDraft")}</h2>
-                  <p>
-                    {t(
-                      "tellTheProjectAssistantWhatYouWantToDoYourFirstDraftWillAppearHere",
-                    )}{" "}
-                  </p>
-                </div>
-              </div>
-            </>
           ) : (
             <Document
               w={w}
               status={status}
               flush={flush}
               space={space}
-              update={update}
               show={(finding, excerpt) => show(finding, excerpt, w.draft.id)}
               full={full}
               onFull={setFull}
