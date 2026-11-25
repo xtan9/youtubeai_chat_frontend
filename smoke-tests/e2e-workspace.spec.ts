@@ -5668,7 +5668,7 @@ for (const clear of [true, false]) {
     expect((await read()).drafts.every(d => !d.text)).toBe(true);
     expect(written).toBe(0);
     await (clear ? outline.getByRole("button", { name: "写脚本初稿" }) : first.getByRole("button", { name: "写这一段" })).click();
-    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveText("读懂标签");
+    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("读懂标签");
     expect(written).toBe(1);
     expect((await read()).drafts.some(d => d.outline)).toBe(true);
     await page.locator(".q-draft-cites button").first().click();
