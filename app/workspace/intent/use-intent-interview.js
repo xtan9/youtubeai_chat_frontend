@@ -67,6 +67,12 @@ export function useIntentInterview({
           ],
         }));
         if (!accepted) throw Error("capacity");
+        // The reply is visible now. The next turn will await the shared save
+        // queue before it asks the server to read the updated conversation.
+        void flush().then((saved) => {
+          if (!saved && live.current.interview?.turnId === interview.turnId)
+            setError(tr("retrySave"));
+        });
       } else {
         const id = result.format + "/" + interview.id;
         const draft = {
@@ -95,9 +101,7 @@ export function useIntentInterview({
         if (!accepted) throw Error("capacity");
         if (!(await flush())) throw Error("retrySave");
         onDraft(id);
-        return;
       }
-      if (!(await flush())) throw Error("retrySave");
     } catch (e) {
       setError(tr.has(e.message) ? tr(e.message) : e.message);
     } finally {

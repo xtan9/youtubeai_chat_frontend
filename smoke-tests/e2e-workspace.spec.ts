@@ -5382,7 +5382,11 @@ test("named project preserves research citations after a question changes @proje
   let interviews = 0, drafts = 0;
   let release!: () => void;
   const waiting = new Promise<void>(resolve => { release = resolve; });
+  let finishBriefSave!: () => void;
+  const savingBrief = new Promise<void>(resolve => { finishBriefSave = resolve; });
   await page.route(endpoint+"/space", async route => {
+    if (route.request().method() === "PUT" && route.request().postDataJSON().document.interview?.brief === "给今晚做饭的人看，比较两瓶油。")
+      await savingBrief;
     if (route.request().method() !== "POST") return route.fallback();
     const data = route.request().postDataJSON();
     if (data.action === "interview") {
@@ -5424,6 +5428,9 @@ test("named project preserves research citations after a question changes @proje
   await message.fill("补充：只比较葵花籽油和菜籽油，不做健康结论。");
   await expect(confirm).toBeDisabled();
   await message.press("Enter");
+  // The correction is accepted even with the previous brief's PUT still in flight.
+  await expect(page.getByText("补充：只比较葵花籽油和菜籽油，不做健康结论。", {exact: true})).toBeVisible();
+  finishBriefSave();
   await expect(page.getByText(approvedBrief)).toBeVisible();
   await expect.poll(async () => (await readSpace()).interview?.brief).toBe(approvedBrief);
   await page.reload();
