@@ -176,6 +176,9 @@ export async function POST(request: Request, context: Context) {
     logAppEvent("warn", "[video-space] request failed", {
       stage: body.action,
       errorCode: reason,
+      ...(error instanceof z.ZodError && {
+        fields: error.issues.slice(0, 3).map(issue => ({ path: issue.path.join("."), code: issue.code })),
+      }),
       ...(error instanceof ChatGatewayError && { status: error.httpStatus }),
     });
     return fail(
