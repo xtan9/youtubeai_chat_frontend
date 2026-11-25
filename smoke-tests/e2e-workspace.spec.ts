@@ -5378,6 +5378,16 @@ test("named project preserves research citations after a question changes @proje
   await expect(page.getByRole("button", { name: "接着写", exact: true })).toHaveCount(0);
   const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
   const thinking = page.getByRole("status", { name: "助手正在思考" });
+  async function expectDotsUnder(message: string) {
+    const turn = page.locator(".chat-log .user-text").filter({ hasText: message }).last();
+    const dots = turn.locator("+ .chat-pending");
+    await expect(dots.getByRole("status")).toBeInViewport({ ratio: 1 });
+    const bubble = (await turn.boundingBox())!;
+    const indicator = (await dots.boundingBox())!;
+    const gap = indicator.y - (bubble.y + bubble.height);
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(12);
+  }
   const approvedBrief = "给今晚做饭的人看，比较葵花籽油和菜籽油，避免健康结论。";
   let interviews = 0, drafts = 0;
   let release!: () => void;
@@ -5403,6 +5413,7 @@ test("named project preserves research citations after a question changes @proje
     await route.fulfill({json:{format:"video",title:"今晚炒菜，要换掉这瓶油吗？",lead:"口播初稿",sections:[{heading:"00:00　开场",body:"先看名称。"},{heading:"00:15　出处",body:"再看出处。"}],reply:"开场已经写进脚本。"}});
   });
   await page.getByRole("button",{name:"做 YouTube 视频"}).click();
+  await expectDotsUnder("做 YouTube 视频");
   await expect(thinking).toBeVisible();
   await expect(thinking.locator("span")).toHaveCount(3);
   await expect(confirm).toHaveCount(0);
@@ -5430,6 +5441,7 @@ test("named project preserves research citations after a question changes @proje
   await message.press("Enter");
   // The correction is accepted even with the previous brief's PUT still in flight.
   await expect(page.getByText("补充：只比较葵花籽油和菜籽油，不做健康结论。", {exact: true})).toBeVisible();
+  await expectDotsUnder("补充：只比较葵花籽油和菜籽油，不做健康结论。");
   finishBriefSave();
   await expect(page.getByText(approvedBrief)).toBeVisible();
   await expect.poll(async () => (await readSpace()).interview?.brief).toBe(approvedBrief);

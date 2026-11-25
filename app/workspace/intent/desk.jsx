@@ -143,8 +143,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       </div>
     );
   }
-  const right = useRef(null),
-    left = useRef(null),
+  const left = useRef(null),
     deskReturn = useRef(null);
   const w = useWriting({ space, live, update, api, versions });
   const requiresPurpose = !space.interview && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
@@ -237,12 +236,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
         previous.trigger.focus({ preventScroll: true });
     }
   }, [inRoom]);
-  useEffect(() => {
-    if (right.current) {
-      const log = right.current.querySelector(".chat-log");
-      if (log) log.scrollTop = log.scrollHeight;
-    }
-  }, [space.messages, inRoom, choosing]);
   function openClaim(id, paragraph = null) {
     if (!inRoom)
       deskReturn.current = {
@@ -1067,7 +1060,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
           )}
         </section>
         {!inRoom && (
-          <aside className="pane chat" ref={right}>
+          <aside className="pane chat">
             <h2 className="pane-head">
               <InkIcon name="chat" />
               <span>{t("projectAssistant")}</span>
