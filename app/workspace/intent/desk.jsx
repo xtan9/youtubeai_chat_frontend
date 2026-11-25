@@ -460,6 +460,11 @@ export function IntentDesk({ name, projectId, store, initial }) {
       showRoute({});
     },
   });
+  const writingOutline = interview.busy === "draftOutline";
+  const canStartQuestionResearch = !pending && !writingOutline && initial.history !== null;
+  const researchStatus = pending
+    ? t(pending === projectQuestion?.id ? "searchingAndCheckingSources" : "anotherInvestigationInProgress")
+    : writingOutline ? t("researchAfterDraft") : "";
   function research(q, parent, retry) {
     return investigate(
       q,
@@ -1010,7 +1015,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 targets={insertionTargets()}
                 written={written}
                 section={route.section}
-                busy={!!pending || initial.history === null}
+                busy={!canStartQuestionResearch}
+                researchStatus={researchStatus}
                 error={failure[projectQuestion.id]}
                 research={() => startResearch(projectQuestion)}
                 write={writeAnswer}
@@ -1030,10 +1036,10 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 }),
               }))}
               busy={Boolean(interview.busy || space.interview || pending)}
-              writing={interview.busy === "draftOutline"} error={interview.error}
+              writing={writingOutline} pending={pending} error={interview.error}
               open={q => {
                 openQuestion(q);
-                if (!q.versionId && !q.gap && initial.history !== null) void startResearch(q);
+                if (!q.versionId && !q.gap && canStartQuestionResearch) void startResearch(q);
               }}
               write={section => interview.writeOutline(w.draft, section)} />
           ) : (

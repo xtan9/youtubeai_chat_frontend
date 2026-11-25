@@ -5715,6 +5715,8 @@ for (const clear of [true, false]) {
       (await (await page.request.get(endpoint + "/space")).json()).document;
     const question = "这两瓶油的原料名称是什么？";
     let interviews = 0, written = 0, searched = 0;
+    const researchGate = Promise.withResolvers<void>();
+    const draftGate = Promise.withResolvers<void>();
     await page.route(endpoint + "/space", async route => {
       if (route.request().method() !== "POST") return route.fallback();
       const data = route.request().postDataJSON();
@@ -5728,6 +5730,7 @@ for (const clear of [true, false]) {
       expect(data.action).toBe("draftOutline");
       expect(data.section).toBe(clear ? undefined : 0);
       written++;
+      if (clear) await draftGate.promise;
       return route.fulfill({ json: { format: "video", title: "读懂标签", lead: "从瓶身读起。",
         sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }], reply: "写好了。",
         markers: [{start: "从瓶身读起。\n\n## 原料\n".length, text: "原文列出了葵花籽油。", finding: findingId}] } });
@@ -5740,6 +5743,7 @@ for (const clear of [true, false]) {
         const { space, question: title } = route.request().postDataJSON();
         expect(title).toBe(question);
         searched++;
+        if (clear) await researchGate.promise;
         versions = [{ id: findingId, created_at: new Date().toISOString(), document: { space, question: title,
           evidence: [{ id: "E1234567890123456", kind: "publication_abstract", title: "Bottle label", text: source, url: "https://example.org/label" }],
           synthesis: { judgment: { text: "原文列出了葵花籽油。", references: [{ id: "E1234567890123456", quote: source }] } },
@@ -5772,6 +5776,22 @@ for (const clear of [true, false]) {
     await first.getByLabel("段落标题").fill("从实物标签开始");
     await first.getByLabel("段落标题").press("Enter");
     await first.getByRole("button", { name: new RegExp(question) }).click();
+    if (clear) {
+      try {
+        await expect.poll(() => searched).toBe(1);
+        await page.getByRole("button", { name: "返回大纲" }).click();
+        const other = outline.getByRole("button", { name: /名称最初来自哪里/ });
+        await expect(other).toBeEnabled({ timeout: 3000 });
+        await other.click();
+        await expect(page.locator(".q-sheet h2")).toHaveText("名称最初来自哪里？");
+        await expect(page.getByRole("button", { name: "让 AI 研究" })).toBeDisabled();
+        await page.getByRole("button", { name: "返回大纲" }).click();
+        await first.getByRole("button", { name: new RegExp(question) }).click();
+        expect(searched).toBe(1);
+      } finally {
+        researchGate.resolve();
+      }
+    }
     await expect(page.locator(".q-sheet")).toContainText("原文列出了葵花籽油。");
     await expect(page.getByRole("button", { name: "带出处写入文稿" })).toHaveCount(0);
     await page.getByRole("button", { name: "返回大纲" }).click();
@@ -5783,6 +5803,22 @@ for (const clear of [true, false]) {
     expect((await read()).drafts.every(d => !d.text)).toBe(true);
     expect(written).toBe(0);
     await (clear ? outline.getByRole("button", { name: "写脚本初稿" }) : first.getByRole("button", { name: "写这一段" })).click();
+    if (clear) {
+      try {
+        await expect.poll(() => written).toBe(1);
+        await expect(outline.getByRole("button", { name: "写脚本初稿" })).toBeDisabled();
+        await first.getByRole("button", { name: new RegExp(question) }).click({ timeout: 3000 });
+        await expect(page.locator(".q-sheet")).toContainText("原文列出了葵花籽油。");
+      } finally {
+        draftGate.resolve();
+      }
+      await expect.poll(async () => (await read()).drafts.some(d => d.title === "读懂标签")).toBe(true);
+      await expect(page.locator(".q-sheet h2")).toHaveText(question);
+      await page.getByRole("button", { name: "返回大纲" }).click();
+      await expect(outline.getByLabel("大纲标题")).toBeVisible();
+      await page.getByRole("button", { name: "文稿", exact: true }).click();
+      await page.getByRole("button", { name: "读懂标签", exact: true }).click();
+    }
     await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("读懂标签");
     expect(written).toBe(1);
     expect((await read()).drafts.some(d => d.outline)).toBe(true);

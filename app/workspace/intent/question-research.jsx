@@ -212,6 +212,7 @@ export function QuestionSheet({
   excerpt,
   research,
   busy,
+  researchStatus,
   error,
   write,
   back,
@@ -419,7 +420,7 @@ export function QuestionSheet({
             {t("researchAgain")}{" "}
           </button>
         )}
-        {busy && <p role="status">{t("searchingAndCheckingSources")}</p>}
+        {researchStatus && <p role="status">{researchStatus}</p>}
         {error && <p role="alert">{error}</p>}
       </article>
     </>
