@@ -21,6 +21,7 @@ async function generate<T>(
   data: unknown,
   callerSignal: AbortSignal,
   validate: (value: unknown) => T,
+  maxOutputTokens = 2400,
 ) {
   // Use the same single-turn JSON protocol as the production research notebook.
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(75_000)]);
@@ -31,7 +32,7 @@ async function generate<T>(
     for await (const event of streamChatCompletion({
       messages: [{ role: "user", content: prompt + reminder }],
       signal,
-      maxOutputTokens: 2400,
+      maxOutputTokens,
     })) {
       if (event.type === "delta") raw += event.text;
       if (raw.length > 48000) throw Error("Response too long");
@@ -246,12 +247,12 @@ const outlineResponse = z.object({
   stage: z.literal("outline"), format: z.literal("video"),
   title: z.string().trim().min(1).max(140), angle: z.string().trim().min(1).max(280),
   sections: z.array(z.object({
-    id: z.uuid().optional(), note: z.string().trim().max(600).optional(),
+    id: z.uuid().optional(), note: z.string().trim().min(1).max(600),
     heading: z.string().trim().min(1).max(140),
     questions: z.array(z.object({
       title: z.string().trim().min(3).max(240), startingPoint: z.string().trim().min(1).max(240),
     })).min(1).max(3),
-  })).min(1).max(6),
+  })).min(1).max(maxOutlineSections),
 });
 const videoClarification = z.object({
   format: z.literal("video"), stage: z.literal("ask"),
@@ -262,7 +263,7 @@ const videoClarification = z.object({
   })).min(1).max(3),
   quickReplies: quickRepliesSchema.optional(),
 });
-const videoGuidance = `For video, the first deliverable is a provisional outline with reporting questions, never narration or a brief for manuscript approval. Use the project title, saved goal, the author's words, any existing outline and materials to judge direction. If the subject and angle are clear, return the outline immediately, including on the first turn. Revise a supplied outline in light of the author's request and research. Return {"format":"video","stage":"outline","title":"...","angle":"one or two sentences on how the story unfolds","sections":[{"heading":"...","note":"what this beat contributes","questions":[{"title":"...","startingPoint":"where to begin looking or what to compare"}]}]}. Make 2–5 short, editable story beats in viewing order. Give each beat a distinct contribution to the story in its note. Name a concrete comparison, a supported finding or an unresolved factual question. Avoid generic instructions like “look at the evidence”. On revision retain the supplied section id for a continuing beat. Under each put 1–3 specific questions the author can investigate. Put the most consequential question first. Give a concrete starting point without inventing a source. Include original or visual evidence where it matters. Reuse existing question wording for the same investigation. Treat unsupported conclusions as open.
+const videoGuidance = `For video, the first deliverable is a provisional outline with reporting questions, never narration or a brief for manuscript approval. Use the project title, saved goal, the author's words, any existing outline and materials to judge direction. If the subject and angle are clear, return the outline immediately, including on the first turn. Revise a supplied outline in light of the author's request and research. Return {"format":"video","stage":"outline","title":"...","angle":"one or two sentences on how the story unfolds","sections":[{"heading":"...","note":"what this beat contributes","questions":[{"title":"...","startingPoint":"where to begin looking or what to compare"}]}]}. For a new outline, make 2–5 short, editable story beats in viewing order. For revisions keep every existing beat and its ID unless the author explicitly asks to remove or merge it; keep the title unless a change was requested. Give each beat a distinct contribution to the story in its note. Name a concrete comparison, a supported finding or an unresolved factual question. Avoid generic instructions like “look at the evidence”. On revision retain the supplied section id for a continuing beat. Under each put 1–3 specific questions the author can investigate. Put the most consequential question first. Give a concrete starting point without inventing a source. Include original or visual evidence where it matters. Reuse existing question wording for the same investigation. Treat unsupported conclusions as open.
 Only if genuinely different plausible angles would require different reporting, and clarification is allowed this turn, collect the independent choices together in ONE short round: {"format":"video","stage":"ask","notes":"...","prompts":[{"question":"...","recommendation":"..."}],"quickReplies":[]}. Use everyday words. Each question asks one thing and fits in a single short line (aim for under 25 Chinese characters or 12 English words); each recommendation is one short answer the author can accept. Two independent choices belong in the same message. Ask only for author decisions; defer details like duration, voice and visual style and put factual unknowns in the reporting questions. Quick replies must answer the entire round. After any answer, partial answer, delegation or skip, produce a useful outline using provisional assumptions. Never ask again.`;
 
 export function interviewAuthor(context: InterviewContext, locale: string, signal: AbortSignal) {
@@ -288,7 +289,7 @@ ${firstRound ? "For non-video formats, ask a grounded question and wait for the 
       }
       if (!firstRound) return z.discriminatedUnion("stage", [nextRound, review]).parse(value);
       return nextRound.parse(value);
-    },
+    }, 2400 + (context.outline?.sections.length ?? 0) * 300,
   );
 }
 
@@ -334,6 +335,6 @@ Write a ${format} manuscript. Return exactly this JSON shape using the English k
         return { start, text: citation.text, material: { id: m.id, title: m.title, location: m.location, quote: m.excerpt!, url: m.url } };
       });
       return { ...result, format, markers };
-    }
+    }, Math.max(2400, (context.outline?.sections.length ?? 0) * 500)
   );
 }

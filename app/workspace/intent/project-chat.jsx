@@ -40,6 +40,8 @@ export function ProjectChat({
   answer,
   setAnswer,
   interview,
+  discussingOutline,
+  endOutlineDiscussion,
 
   show,
   destination,
@@ -56,7 +58,7 @@ export function ProjectChat({
         },
       ];
   const planning = space.interview;
-  const outline = !w.draft.text.trim() ? w.draft.outline : undefined;
+  const outline = !w.draft.text.trim() || discussingOutline ? w.draft.outline : undefined;
   const composing = choosing || Boolean(planning) || Boolean(outline);
   const busy = Boolean(interview.busy || w.busy);
   const awaitingDraft = interview.busy === "starter" && Boolean(planning);
@@ -209,6 +211,7 @@ export function ProjectChat({
                 {t("confirmAndDraft")}
               </button>
             )}
+            {discussingOutline && !planning && <button className="link" disabled={busy} onClick={endOutlineDiscussion}>{t("returnToWriting")}</button>}
             {planning && space.drafts.some((d) => d.text) && (
               <button
                 className="link"

@@ -88,14 +88,15 @@ for (const scenario of scenarios) {
       expect(plan.outline!.sections.every(s => s.questionIds.length > 0)).toBe(true);
       expect(planned.drafts.filter(d => d.text.trim())).toHaveLength(0);
       report.outline = { title: plan.title, sections: plan.outline!.sections.map(s => ({
-        heading: s.heading, questions: s.questionIds.map(id => planned.questions!.find(q => q.id === id)!.title),
+        heading: s.heading, note:s.note, questions: s.questionIds.map(id => planned.questions!.find(q => q.id === id)!.title),
       })) };
+      expect(plan.outline!.sections.every(s => s.note?.trim())).toBe(true);
       await outline.screenshot({ path: evidencePath + "-outline.png" });
       if (scenario.id === "seed-oil") {
         await outline.getByRole("button", {name:"编辑大纲"}).click();
         const editor = outline.locator("form");
         await editor.getByLabel("本节要点").first().fill("用随机分组和观察性分析的比较对象解释数字。");
-        await editor.getByRole("button", {name:"添加章节"}).click();
+        await editor.getByRole("button", {name:"添加小节"}).click();
         await editor.getByLabel("段落标题").last().fill("核对家庭用油的适用范围");
         await editor.getByRole("button", {name:"上移"}).last().click();
         await editor.getByRole("button", {name:"保存大纲"}).click();
@@ -200,7 +201,7 @@ for (const scenario of scenarios) {
       }
       expect(writeCalls()).toEqual(["draftOutline"]);
       report.script = { title: script.title, characters: script.text.length, citations: script.markers.length,
-        sectionOnly, preview: script.text.slice(0, 180) };
+        sectionOnly, text: script.text };
       await page.getByRole("region", { name: "当前文稿" }).screenshot({ path: evidencePath + "-script.png" });
       console.log(JSON.stringify(report));
     } finally {

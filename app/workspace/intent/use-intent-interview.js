@@ -30,7 +30,7 @@ function saveVideoOutline(space, interview, result) {
   });
   if (questions.length > 150) throw Error("capacity");
   const id = existing?.id ?? "outline/" + interview.id;
-  const outline = reviseOutline(existing ?? { id, title: result.title, text: "", markers: [] }, sections, result.angle, interview.id);
+  const outline = reviseOutline({ ...(existing ?? { id, text: "", markers: [] }), title: result.title }, sections, result.angle, interview.id);
   const drafts = space.drafts.filter(keepDraft);
   return { ...space, questions, purpose: "video", interview: undefined,
     drafts: drafts.some(d => d.id === id) ? drafts.map(d => d.id === id ? outline : d) : [...drafts, outline] };
@@ -81,7 +81,6 @@ export function useIntentInterview({
     setError("");
     try {
       const before = live.current;
-      const initialOutline = before.drafts.find(d => d.outline && (d.outline.interviewId === before.interview?.id || d.id === before.activeDraft));
       const writing = action !== "interview";
       const authorTurn = writing || Boolean(prepare);
       const purposePrompt = !before.messages.length && action === "interview" && authorTurn;
@@ -92,6 +91,8 @@ export function useIntentInterview({
       )
         throw Error("capacity");
       if (prepare && !prepare()) throw Error("capacity");
+      const requestedInterview = live.current.interview;
+      const initialOutline = before.drafts.find(d => d.outline && d.outline.interviewId === requestedInterview?.id);
       const startUrl = window.location.href;
       if (!(await flush())) throw Error("retrySave");
       const interview = live.current.interview;

@@ -85,11 +85,14 @@ export function IntentDesk({ name, projectId, store, initial }) {
       const changed = new Set(previous.filter(q => current.get(q.id) !== q).map(q => q.id));
       // A script in flight must still match the questions and findings the author sees.
       const drafts = s.drafts.map(d => {
-        if (!d.outline?.sections.some(section => section.questionIds.some(id => changed.has(id)))) return d;
-        const sections = d.outline.sections.map(section => ({
+        const outline = d.outline;
+        if (!outline || ![...outline.sections, ...(outline.removed ?? [])].some(
+          section => section.questionIds.some(id => changed.has(id)))) return d;
+        const keepQuestions = section => ({
           ...section, questionIds: section.questionIds.filter(id => current.has(id)),
-        }));
-        return { ...d, version: crypto.randomUUID(), outline: { ...d.outline, sections } };
+        });
+        return { ...d, version: crypto.randomUUID(), outline: { ...outline,
+          sections: outline.sections.map(keepQuestions), removed: outline.removed?.map(keepQuestions) } };
       });
       return { ...s, questions, drafts };
     });
@@ -164,6 +167,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const w = useWriting({ space, live, update, api, versions });
   const [bodyFocus, setBodyFocus] = useState(null);
   const [outlineError, setOutlineError] = useState("");
+  const [outlineChatDraft, setOutlineChatDraft] = useState(null);
   const requiresPurpose = !space.interview && !w.draft.outline && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
   const choosing = changePurpose || requiresPurpose;
   const index = useMemo(
@@ -457,6 +461,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       toChat();
     },
     onDraft(id) {
+      setOutlineChatDraft(null);
       w.changeDraft(id);
       setView("rich");
       setDestination(null);
@@ -1035,8 +1040,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
                   if (!d || d.version !== form.version) return "interviewChanged";
                   const sections = form.sections.map(s => ({...s, heading:s.heading.trim(), note:s.note.trim()}));
                   const next = reviseOutline(d, sections, form.angle.trim(), form.interviewId);
-                  next.outline.removed = form.removed;
-                  if (next.outline.removed.length > 300) return "capacity";
                   const ok = update(s => ({ ...s, purpose: s.purpose ?? "video", drafts: s.drafts.map(item =>
                     item.id === d.id ? {...next, title:form.title.trim(), defaultTitle:null} : item) }));
                   if (ok) {setChoosing(false);setOutlineError("")}
@@ -1048,6 +1051,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                   openQuestion(q);
                   if (!q.versionId && !q.gap && canStartQuestionResearch) void startResearch(q);
                 }}
+                discuss={() => {setOutlineChatDraft(w.draft.id);setAnswer("");toChat()}}
                 write={section => interview.writeOutline(w.draft, section)}
                 jump={offset => {setView("rich");setBodyFocus({draft:w.draft.id,offset})}}
                 startSection={index => {
@@ -1100,6 +1104,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
               answer={answer}
               setAnswer={setAnswer}
               interview={interview}
+              discussingOutline={outlineChatDraft === w.draft.id}
+              endOutlineDiscussion={() => {setOutlineChatDraft(null);setAnswer("")}}
               show={show}
               destination={destination}
               applyToParagraph={applyToParagraph}

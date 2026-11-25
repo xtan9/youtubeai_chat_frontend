@@ -144,7 +144,7 @@ it("allows a clear video direction to go straight to an outline and ends clarifi
   space.interview = { id, turnId: crypto.randomUUID(), pending: true, notes: "", format: "video" };
   space.messages = [{ role: "user", interviewId: id, text: "Trace the original railway map on camera." }];
   const outline = { stage: "outline", format: "video", title: "Tracing the railway map", angle: "Trace the first edition.",
-    sections: [{ heading: "Find the first map", questions: [{title: "Which archive holds the first edition?", startingPoint: "Check the library catalogue."}] }] };
+    sections: [{ heading: "Find the first map", note: "Compare the archive markings on the two editions.", questions: [{title: "Which archive holds the first edition?", startingPoint: "Check the library catalogue."}] }] };
   const delta = (value: unknown) => [{ type: "delta", text: JSON.stringify(value) }];
   stream.mockReturnValue(delta(outline));
   const plan = () => interviewAuthor(interviewContext("Railways", space, []), "en", new AbortController().signal);

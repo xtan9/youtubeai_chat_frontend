@@ -26,6 +26,7 @@ export function VideoOutline({
   error,
   jump,
   startSection,
+  discuss,
 }) {
   const t = useTranslations("intent"),
     ui = useTranslations("ui");
@@ -98,6 +99,8 @@ export function VideoOutline({
       }
       if (await flush()) setForm(null);
       else setProblem(ui("retrySave"));
+    } catch (e) {
+      setProblem(ui.has(e.message) ? ui(e.message) : ui("retrySave"));
     } finally {
       setSaving(false);
     }
@@ -367,7 +370,8 @@ export function VideoOutline({
                   {t("writeVideoScript")}
                 </button>
               )}
-              {!!draft.text.trim() && (
+              {!!draft.text.trim() && <button type="button" className="link" disabled={busy} onClick={discuss}>{t("discussOutline")}</button>}
+            {!!draft.text.trim() && (
                 <button
                   className="secondary"
                   onClick={() => {

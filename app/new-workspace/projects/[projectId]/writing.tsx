@@ -72,7 +72,7 @@ export function useWriting({
       }),
     }));
   }
-  function type(text: string, formatting?: FormatRange[], markers?: Draft["markers"]) {
+  function type(text: string, formatting?: FormatRange[], markers?: Draft["markers"], outline?: Draft["outline"]) {
     if (text.length > 80000) {setError("scriptLengthLimitReached"); return false;}
     setError("");
     setPassage(undefined);
@@ -82,6 +82,7 @@ export function useWriting({
         if (d.id !== draft.id) return d;
         const next = editDraft(d, text, formatting);
         if (markers) next.markers = markers;
+        if (outline) next.outline = outline;
         return next;
       }),
     }));
@@ -143,12 +144,12 @@ export function useWriting({
   function revert() {
     if (!undo || draft.version !== undo.after || draft.id !== undo.before.id)
       return;
-    const { text, markers, formatting } = undo.before;
+    const { text, markers, formatting, outline } = undo.before;
     update((s) => ({
       ...s,
       drafts: s.drafts.map((d) =>
         d.id === draft.id
-          ? { ...d, text, markers, formatting, version: crypto.randomUUID() }
+          ? { ...d, text, markers, formatting, outline, version: crypto.randomUUID() }
           : d,
       ),
     }));
@@ -183,7 +184,7 @@ export function useWriting({
         target: "append" | "passage" | "whole";
       }>(api + "/space", "POST", {
         action: "write",
-        format:intentFormat.safeParse(draft.id.split("/")[0]).data ?? space.purpose,
+        format:draft.outline ? "video" : intentFormat.safeParse(draft.id.split("/")[0]).data ?? space.purpose,
         appendOnly,
         prompt: instruction,
         script: draft.text,

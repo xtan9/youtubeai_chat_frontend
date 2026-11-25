@@ -7,6 +7,7 @@ import type Table from "quill/modules/table";
 import { Bold, Italic, Underline, Strikethrough, Code, Link, List, ListOrdered, ListChecks, Quote,
   Undo2, Redo2, Ellipsis, IndentIncrease, IndentDecrease, RemoveFormatting } from "lucide-react";
 import { DraftTitle, type useWriting } from "@/app/new-workspace/projects/[projectId]/writing";
+import { moveOutlineAnchors } from "@/lib/video-space/contract";
 import { draftContents, editorContents, editorFormats, moveEditorMarkers } from "@/lib/video-space/rich-text";
 import "quill/dist/quill.core.css";
 import "./rich-editor.css";
@@ -61,7 +62,10 @@ export default function RichEditor({ w, bodyFocus, flush, status, openWriter, ch
     function change(delta: Delta) {
       const updated = draftContents(q.getContents());
       const markers = moveEditorMarkers(latest.current.draft.markers, model.current!, updated, delta);
-      if (latest.current.type(updated.text, updated.formatting, markers)) model.current = updated;
+      const before = model.current!;
+      const outline = moveOutlineAnchors(latest.current.draft, updated.text, (pos, end) =>
+        updated.sourceIndex(delta.transformPosition(before.editorIndex(pos), end), end || pos===0 || before.text[pos-1]==="\n"));
+      if (latest.current.type(updated.text, updated.formatting, markers, outline)) model.current = updated;
       else {
         const accepted = editorContents(latest.current.draft);
         q.setContents(accepted, "silent");

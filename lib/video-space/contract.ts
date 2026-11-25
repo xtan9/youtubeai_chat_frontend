@@ -249,6 +249,22 @@ export function editDraft(draft: Draft, text: string, formatting?: FormatRange[]
   return replaceDraftRange(draft, text, start, oldEnd, end, formatting);
 }
 
+// Compare both ends of each linked passage. A fully deleted passage no longer
+// owns the next section's first character. Its outline beat can be written again.
+export function moveOutlineAnchors(draft: Draft, text: string, position: (offset: number, end: boolean) => number) {
+  const outline = draft.outline;
+  if (!outline) return undefined;
+  const starts = [...outline.sections, ...(outline.removed ?? [])].flatMap(s => s.bodyStart ?? []).sort((a,b) => a-b);
+  const move = (section: z.infer<typeof outlineSection>) => {
+    if (section.bodyStart === undefined) return section;
+    const start = section.bodyStart;
+    const end = starts.find(next => next > start) ?? draft.text.length;
+    const next = position(start, false);
+    return { ...section, bodyStart: text.trim() && next < position(end, true) ? next : undefined };
+  };
+  return { ...outline, sections: outline.sections.map(move), removed: outline.removed?.map(move) };
+}
+
 export function replaceDraftRange(draft: Draft, text: string, start: number, oldEnd: number, end: number, formatting?: FormatRange[]): Draft {
   const markers = draft.markers.flatMap((m) =>
     m.start + m.text.length <= start
@@ -266,16 +282,10 @@ export function replaceDraftRange(draft: Draft, text: string, start: number, old
       ...(stop > right ? [{ ...r, start: right + end - oldEnd, length: stop - right }] : []),
     ];
   });
-  const moveAnchor = (section: z.infer<typeof outlineSection>) => {
-    const pos = section.bodyStart;
-    if (pos === undefined) return section;
-    if (!text.trim()) return { ...section, bodyStart: undefined };
-    if (pos < start) return section;
-    if (pos >= oldEnd) return { ...section, bodyStart: pos + end - oldEnd };
-    // Replacement through an anchor leaves it at the start of the replacement.
-    return { ...section, bodyStart: start };
-  };
-  const outline = draft.outline;
-  return { ...draft, ...(outline && { outline: { ...outline, sections: outline.sections.map(moveAnchor),
-    removed: outline.removed?.map(moveAnchor) } }), text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
+  const outline = moveOutlineAnchors(draft, text, (pos, atEnd) => {
+    if (pos < start || (pos === start && atEnd)) return pos;
+    if (pos >= oldEnd) return pos + end - oldEnd;
+    return start;
+  });
+  return { ...draft, ...(outline && {outline}), text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
 }

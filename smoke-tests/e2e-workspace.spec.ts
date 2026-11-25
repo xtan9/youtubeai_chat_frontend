@@ -5713,6 +5713,7 @@ for (const clear of [true, false]) {
     const endpoint = page.url().replace("/workspace/projects/", "/api/projects/");
     const read = async (): Promise<import("../lib/video-space/contract").Space> =>
       (await (await page.request.get(endpoint + "/space")).json()).document;
+    page.setDefaultTimeout(15_000);
     const question = "这两瓶油的原料名称是什么？";
     let interviews = 0, written = 0, searched = 0;
     const researchGate = Promise.withResolvers<void>();
@@ -5777,7 +5778,7 @@ for (const clear of [true, false]) {
     const edit = outline.locator("form");
     await edit.getByLabel("段落标题").first().fill("从实物标签开始");
     await edit.getByLabel("本节要点").first().fill("逐字比较植物名称");
-    await edit.getByRole("button", { name: "添加章节" }).click();
+    await edit.getByRole("button", { name: "添加小节" }).click();
     await edit.getByLabel("段落标题").last().fill("核对背标");
     await edit.getByRole("button", { name: "上移" }).last().click();
     await edit.getByRole("button", { name: "保存大纲" }).click();
@@ -5835,3 +5836,42 @@ for (const clear of [true, false]) {
     await expect(page.locator(".q-passage blockquote")).toHaveText(source);
   });
 }
+
+test("authors can handwrite an outline and restore its body in the same video manuscript @projects-ga-critical", async ({context,page}) => {
+  page.setDefaultTimeout(15_000);
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{name:"locale",value:"zh",url:appUrl}]);
+  await page.goto(appUrl+"/workspace");
+  await page.getByLabel("项目名称").fill("种子油手写大纲");
+  await page.getByRole("button",{name:"创建并打开"}).click();
+  await page.waitForURL(/\/workspace\/projects\/[a-f0-9-]+$/);
+  await page.getByRole("button",{name:"手写视频大纲"}).click();
+  const outline = page.locator(".manuscript-outline");
+  const edit = outline.locator("form");
+  await edit.getByLabel("大纲标题").fill("我的用油笔记");
+  await edit.getByLabel("段落标题").fill("比较对象");
+  await edit.getByLabel("本节要点").fill("用同一条原话讲清比较对象");
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await outline.getByRole("button",{name:"手写这一节"}).click();
+  await expect(page.locator(".ql-editor")).toBeFocused();
+  await page.keyboard.insertText("先核对试验里的两组人。");
+  const url=page.url().replace("/workspace/projects/","/api/projects/").split("?")[0]+"/space";
+  const saved=async ()=>(await (await page.request.get(url)).json()).document.drafts[0];
+  await expect.poll(async()=>(await saved()).text).toContain("先核对试验里的两组人。");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByLabel("本节要点").fill("取消的文字");
+  await edit.getByRole("button",{name:"取消"}).click();
+  await expect(outline).not.toContainText("取消的文字");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByRole("button",{name:"移除",exact:true}).click();
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await expect.poll(async()=>(await saved()).outline.removed?.length).toBe(1);
+  await page.reload();
+  await expect(outline).toContainText("已移出大纲");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByRole("button",{name:"放回大纲"}).click();
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await outline.getByRole("button",{name:"跳到正文"}).click();
+  await expect(page.locator(".ql-editor")).toBeFocused();
+  await expect(page.locator(".ql-editor")).toContainText("先核对试验里的两组人。");
+});
