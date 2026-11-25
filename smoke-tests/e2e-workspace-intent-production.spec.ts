@@ -90,8 +90,9 @@ test("published workspace from naming to independently cited manuscript @workspa
       await page.getByRole("button", { name: "发送回答" }).click();
     } else await page.getByRole("button", { name: label, exact: true }).click();
     if (kind === "video") {
-      await expect(page.getByRole("status", { name: "助手正在思考" })).toBeVisible();
-      await page.locator(".pane.chat").screenshot({ path: folder + "/interview-thinking.png" });
+      const pending = page.locator(".chat-log .user-text").filter({ hasText: label })
+        .last().locator("+ .chat-pending").getByRole("status", { name: "助手正在思考" });
+      await expect(pending).toBeInViewport({ ratio: 1 });
     }
     const first = await opening;
     expect(first.status()).toBe(200);
@@ -102,6 +103,9 @@ test("published workspace from naming to independently cited manuscript @workspa
       const followUp = waitForAction("interview");
       await page.getByRole("textbox", { name: "消息", exact: true }).fill("还没想好，我只是先选了视频这个形式。");
       await page.getByRole("button", { name: "发送消息" }).click();
+      await expect(page.locator(".chat-log .user-text").filter({ hasText: "还没想好，我只是先选了视频这个形式。" })
+        .locator("+ .chat-pending")).toBeInViewport({ ratio: 1 });
+      await page.locator(".pane.chat").screenshot({ path: folder + "/interview-thinking.png" });
       const reply = await followUp;
       expect(reply.status()).toBe(200);
       expect((await reply.json()).stage).toBe("ask");

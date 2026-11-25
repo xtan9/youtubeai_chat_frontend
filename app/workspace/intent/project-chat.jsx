@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { ThinkingDots } from "@/components/ui/thinking-dots";
 import { InkIcon } from "./ink-icon";
@@ -57,6 +58,12 @@ export function ProjectChat({
   const planning = space.interview;
   const composing = choosing || Boolean(planning);
   const busy = Boolean(interview.busy || w.busy);
+  const awaitingDraft = interview.busy === "starter" && Boolean(planning);
+  const showDots = w.busy || interview.busy === "interview" || awaitingDraft;
+  const log = useRef(null);
+  useLayoutEffect(() => {
+    log.current.scrollTop = log.current.scrollHeight;
+  }, [space.messages, choosing, showDots]);
   const prompt = composing ? answer : w.prompt;
   function submit(event) {
     event.preventDefault();
@@ -76,7 +83,7 @@ export function ProjectChat({
   }
   return (
     <div className="log-wrap">
-      <div className="chat-log" aria-live="polite">
+      <div className="chat-log" aria-live="polite" ref={log}>
         {turns.map((m, i) => {
           const target =
             m.role === "handoff" &&
@@ -139,7 +146,14 @@ export function ProjectChat({
             </Turn>
           );
         })}
-        {choosing ? (
+        {awaitingDraft && (
+          <Turn message={{ role: "user", text: t("confirmAndDraft") }} />
+        )}
+        {showDots ? (
+          <div className="chat-pending">
+            <ThinkingDots label={awaitingDraft ? t("writingYourDraft") : undefined} />
+          </div>
+        ) : choosing ? (
           <>
             <div className="choices">
               {Object.entries(formats).map(([key, format]) => (
@@ -215,15 +229,6 @@ export function ProjectChat({
       )}
       {!composing && w.error && <p role="alert">{w.error}</p>}
       {interview.error && <p role="alert">{interview.error}</p>}
-      {busy && (
-        <div className="chat-pending">
-          <ThinkingDots
-            label={
-              interview.busy === "starter" ? t("writingYourDraft") : undefined
-            }
-          />
-        </div>
-      )}
       <form className="composer" onSubmit={submit}>
         <textarea
           aria-label={choosing ? t("answerInYourOwnWords") : t("message")}
