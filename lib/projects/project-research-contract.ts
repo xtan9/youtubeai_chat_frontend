@@ -67,7 +67,7 @@ export const ResearchEvidenceSchema = z
     url: z
       .url()
       .refine((url) =>
-        /^https:\/\/(?:en\.wikipedia\.org\/w\/index\.php\?oldid=\d+$|doi\.org\/10\.\d{4,9}\/|europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
+        /^https:\/\/(?:en\.wikipedia\.org\/w\/index\.php\?oldid=\d+$|doi\.org\/10\.\d{4,9}\/|pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/$|europepmc\.org\/article\/(?:MED|PMC)\/|www\.youtube\.com\/watch\?v=)/u.test(
           url,
         ),
       ),
@@ -76,6 +76,7 @@ export const ResearchEvidenceSchema = z
     year: z.string().max(4).nullable(),
     authors: z.string().max(1000).nullable(),
     publicationTypes: z.array(z.string().max(100)).max(20),
+    indexedSubjects: z.array(z.string().max(200)).max(50).optional(),
   })
   .strict();
 export type ResearchEvidence = z.infer<typeof ResearchEvidenceSchema>;
@@ -92,6 +93,7 @@ export const ResearchDocumentSchema = z
           .object({
             query: z.string().max(500),
             purpose: z.string().max(400),
+            studyDesign: z.literal("controlled_trial").optional(),
             results: z.number().int().nonnegative(),
           })
           .strict(),

@@ -487,3 +487,21 @@ it("keeps the question open if even the narrower draft lacks direct support", as
   await expect(runProjectResearch({...args,space:{questionId:crypto.randomUUID()}})).rejects.toThrow(rejected.gap);
   expect(revisions).toHaveLength(0);
 });
+
+it("runs the planned trial facet and preserves design, indexing and distinct cited passages at review", async () => {
+  const question = "哪些成人随机对照研究直接比较了睡前六小时摄入咖啡因和安慰剂，并测量当晚总睡眠时间？";
+  const source = { ...external, indexedSubjects: ["Adult"], text: "One placebo-controlled comparison. ".repeat(40) + "The result was measured." };
+  search.mockResolvedValue({ evidence: [source], partial: false });
+  const queries = [{ query: 'intervention AND "6 hours"', purpose: "Find direct comparisons", studyDesign: "controlled_trial" }, ...plan.queries.slice(0, 1)];
+  const judgment = { ...selectedObservation, references: [0, 1].map(excerptIndex => ({ id: source.id, excerptIndex })) };
+  const replies = [{ queries }, { ...generatedSynthesis, judgment }, { supported: true }];
+  stream.mockImplementation(async function* () { yield { type: "delta", text: JSON.stringify(replies.shift()) }; });
+  const { searches, synthesis } = await runProjectResearch({ ...args, question, space: { questionId: crypto.randomUUID() } });
+  expect(search).toHaveBeenCalledWith(queries[0].query, args.signal, false, "controlled_trial");
+  expect(search).toHaveBeenCalledWith(queries[1].query, args.signal, true, undefined);
+  expect(searches[0]).toMatchObject({ studyDesign: "controlled_trial" });
+  const review = JSON.parse(stream.mock.calls[2][0].messages[0].content.split("\n").at(-1));
+  expect(review.cited).toHaveLength(2);
+  expect(review.cited[0]).toMatchObject({ authors: source.authors, year: source.year, publicationTypes: source.publicationTypes, indexedSubjects: ["Adult"], quote: synthesis.judgment.references[0].quote });
+  expect(review.cited[1].quote).toBe(synthesis.judgment.references[1].quote);
+});
