@@ -1641,13 +1641,121 @@ body:has(.intent-shell) > :is(header, footer) {
   }
 
   .recent-projects {
-    margin-top: 24px;
+    margin-top: clamp(30px, 4vw, 46px);
   }
-  .recent-projects h2 {
-    font-weight: 600;
+  .recent-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 15px;
   }
-  .recent-projects a:hover {
-    text-decoration: underline;
+  .recent-heading h2 {
+    font: 600 clamp(22px, 2.4vw, 28px)/1.3 var(--serif);
+    letter-spacing: -0.035em;
+  }
+  .manage-projects {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .manage-projects:hover { color: var(--ink); text-decoration: underline; }
+  .manage-projects svg, .recent-open { width: 15px; height: 15px; }
+  .recent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: 10px 14px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  .recent-entry {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: clamp(13px, 2vw, 20px);
+    height: 100%;
+    padding: 15px 18px;
+    background: var(--white);
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    color: var(--ink);
+  }
+  .recent-entry:is(:hover, :focus-visible) {
+    border-color: #a5a39b;
+    box-shadow: 0 2px 8px #28251f0c;
+  }
+  .recent-open { color: var(--muted); }
+  .recent-details h3 {
+    font: 600 18px/1.4 var(--serif);
+    overflow-wrap: anywhere;
+  }
+  .recent-goal {
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .recent-details time {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .recent-details time svg { width: 12px; height: 12px; }
+  .recent-cover {
+    position: relative;
+    width: 47px;
+    height: 60px;
+    overflow: hidden;
+    border-radius: 1px 3px 3px 1px;
+    border-left: 4px solid #494842;
+    background: #e7e4da;
+    color: #878379;
+    box-shadow: inset 0 0 0 1px #302e2519, 1px 1px 0 var(--white), 2px 2px 0 #c5c2b8;
+  }
+  .recent-cover::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 7px;
+    width: 13px;
+    height: 2px;
+    background: currentColor;
+  }
+  .recent-cover::after {
+    content: "";
+    position: absolute;
+    inset: 35% 0 0;
+    background: repeating-linear-gradient(145deg, transparent 0 5px, currentColor 5px 7px);
+  }
+  .recent-cover[data-cover="1"] {
+    background: #55554f;
+    color: #c9c7bc;
+    border-color: #363630;
+  }
+  .recent-cover[data-cover="1"]::after {
+    background: repeating-radial-gradient(circle at 100% 100%, transparent 0 5px, currentColor 6px 7px);
+  }
+  .recent-cover[data-cover="2"] { background: #d5d0c5; color: #797467; }
+  .recent-cover[data-cover="2"]::after {
+    background: linear-gradient(135deg, transparent 42%, currentColor 42% 60%, transparent 60%);
+  }
+  .recent-cover[data-cover="3"] { background: #d5d7d3; color: #797d78; }
+  .recent-cover[data-cover="3"]::after {
+    background: repeating-linear-gradient(0deg, transparent 0 7px, currentColor 7px 8px),
+      repeating-linear-gradient(90deg, transparent 0 7px, currentColor 7px 8px);
+  }
+  .recent-cover[data-cover="4"] { background: #79766f; color: #e9e5da; }
+  .recent-cover[data-cover="4"]::after {
+    background: radial-gradient(ellipse at 100% 100%, currentColor 0 63%, transparent 64%);
   }
   .q-edit-toggle {
     flex-shrink: 0;
