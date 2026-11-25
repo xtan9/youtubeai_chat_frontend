@@ -26,6 +26,7 @@ export function VideoOutline({ draft, questions, open, write, rename, busy, writ
       <article className="paper-body video-outline">
         <EditableHeading value={draft.title} disabled={busy} label={t("outlineTitle")}
           save={title => rename(undefined, title)} />
+        {draft.outline.angle && <p>{draft.outline.angle}</p>}
         {draft.outline.sections.map((section, index) => (
           <section key={index} className="outline-section">
             <EditableHeading value={section.heading} disabled={busy} label={t("outlineHeading")}
@@ -34,7 +35,7 @@ export function VideoOutline({ draft, questions, open, write, rename, busy, writ
               {section.questionIds.map(id => {
                 const q = byId.get(id);
                 return q && <li key={id}><button disabled={busy} onClick={() => open(q)}>
-                  <Search size={14} /><span>{q.title}</span>
+                  <Search size={14} /><span>{q.title}{q.startingPoint && <span className="question-lead">{q.startingPoint}</span>}</span>
                   <small>{t(q.gap ? "needsVerification" : q.versionId ? "answerReady" : "toResearch")}</small>
                 </button></li>;
               })}

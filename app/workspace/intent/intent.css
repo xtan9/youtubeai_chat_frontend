@@ -1722,4 +1722,5 @@ body:has(.intent-shell) > :is(header, footer) {
 }
 .intent-shell .outline-section li svg { flex-shrink: 0; align-self: center; }
 .intent-shell .outline-section li span { flex: 1; overflow-wrap: anywhere; }
+.intent-shell .outline-section .question-lead { display: block; font-size: .85em; opacity: .75; }
 .intent-shell .outline-section li small { opacity: .7; }

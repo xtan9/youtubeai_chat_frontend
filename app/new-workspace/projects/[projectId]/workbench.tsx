@@ -117,7 +117,7 @@ export function Workbench({ projectId, name, legacy=false }: ProjectHeadingProps
     return () => controller.abort();
   }, [api]);
 
-  if(!legacy) return <IntentShell><div id="work">{store.space && initial ?
+  if(!legacy || store.space?.drafts.find(d => d.id === store.space?.activeDraft)?.outline) return <IntentShell><div id="work">{store.space && initial ?
     <IntentDesk name={name} projectId={projectId} initial={initial} store={store}/> :
     <p role={store.loadError?"alert":"status"}>{store.loadError || tr("loadingProject")} {store.loadError && <button onClick={()=>location.reload()}>{tr("reload")}</button>}</p>
   }</div></IntentShell>;

@@ -85,7 +85,7 @@ export function Document({
         return (
           <div
             className="q-draft-cites"
-            key={m.start}
+            key={m.start + "/" + m.finding}
             data-answer-id={m.finding}
             tabIndex={-1}
           >

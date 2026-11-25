@@ -206,8 +206,9 @@ it("writes only the selected saved outline section using current question titles
   expect(m.starter).not.toHaveBeenCalled();
   m.starter.mockResolvedValue({ title: "Origin" });
   expect((await POST(req(body), context)).status).toBe(200);
+  expect(m.versions).toHaveBeenCalledWith(expect.anything(), id, undefined, space.questions[0]);
   expect(m.starter).toHaveBeenCalledWith(expect.objectContaining({
     format: "video", questions: ["Where is the original map?"],
-    outline: { title: "History of the railway", sections: [{ heading: "Origin", questions: ["Where is the original map?"] }] },
+    outline: { title: "History of the railway", sections: [{ heading: "Origin", questions: [{ title: "Where is the original map?" }] }] },
   }), "History of the railway", "en", expect.anything(), true);
 });

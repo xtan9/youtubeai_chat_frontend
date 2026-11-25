@@ -9,11 +9,13 @@ function keepDraft(draft) {
 function saveVideoOutline(space, interview, result) {
   const questions = [...(space.questions || [])];
   const sections = result.sections.map(({ heading, questions: titles }) => {
-    const questionIds = titles.map(title => {
+    const questionIds = titles.map(({ title, startingPoint }) => {
       let q = questions.find(item => item.title === title);
       if (!q) {
-        q = { id: crypto.randomUUID(), title };
+        q = { id: crypto.randomUUID(), title, startingPoint };
         questions.push(q);
+      } else if (!q.startingPoint) {
+        questions[questions.indexOf(q)] = { ...q, startingPoint };
       }
       return q.id;
     });
@@ -23,7 +25,7 @@ function saveVideoOutline(space, interview, result) {
   const id = "outline/" + interview.id;
   const outline = {
     id, title: result.title, text: "", markers: [], version: crypto.randomUUID(),
-    outline: { interviewId: interview.id, sections },
+    outline: { interviewId: interview.id, angle: result.angle, sections },
   };
   const drafts = space.drafts.filter(keepDraft);
   return { ...space, questions, purpose: "video", interview: undefined, activeDraft: id,
@@ -139,7 +141,7 @@ export function useIntentInterview({
         const draft = {
           id,
           title: result.title,
-          markers: [],
+          markers: result.markers ?? [],
           text: [
             result.lead,
             ...result.sections.map(
@@ -160,8 +162,8 @@ export function useIntentInterview({
           ],
         }));
         if (!accepted) throw Error("capacity");
-        if (!(await flush())) throw Error("retrySave");
         onDraft(id);
+        if (!(await flush())) throw Error("retrySave");
       }
     } catch (e) {
       setError(tr.has(e.message) ? tr(e.message) : e.message);
@@ -201,7 +203,12 @@ export function useIntentInterview({
   return {
     ask,
     writeOutline(draft, section) {
-      return run("draftOutline", undefined, { outlineId: draft.id, version: draft.version, section });
+      // Claim the saved snapshot using the store's revision check before paying for generation.
+      const version = crypto.randomUUID();
+      return run("draftOutline", () => {
+        if (live.current.drafts.find(d => d.id === draft.id)?.version !== draft.version) throw Error("interviewChanged");
+        return update(s => ({ ...s, drafts: s.drafts.map(d => d.id === draft.id ? { ...d, version } : d) }));
+      }, { outlineId: draft.id, version, section });
     },
     loadQuickReplies,
     loadingReplies,

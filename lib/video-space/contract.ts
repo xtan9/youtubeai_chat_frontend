@@ -61,6 +61,7 @@ const outlineSection = z.object({
 const draft = z.object({
   outline: z.object({
     interviewId: z.uuid(),
+    angle: z.string().max(280).optional(),
     sections: z.array(outlineSection).min(1).max(6),
   }).optional(),
   id,
@@ -110,6 +111,7 @@ export const questionSchema = z.object({
   id: z.uuid(),
   revision: z.uuid().optional(),
   title: z.string().trim().min(3).max(500),
+  startingPoint: z.string().max(240).optional(),
   hypothesis: z.string().max(1000).optional(),
   gap: z.string().max(1000).optional(),
 });

@@ -5513,7 +5513,7 @@ test("named project preserves research citations after a question changes @proje
 });
 
 for (const clear of [true, false]) {
-  test("video outline links reporting questions before explicit writing (" + (clear ? "clear" : "unclear") + ") @projects-ga-critical", async ({ context, page }) => {
+  test("video outline links reporting questions before explicit writing (" + (clear ? "clear" : "unclear") + ") @projects-ga-critical", async ({ context, page }, info) => {
     await addSessionCookie(context, OWNER_ID, "owner@example.test");
     await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -5533,14 +5533,15 @@ for (const clear of [true, false]) {
         interviews++;
         if (!clear && interviews === 1)
           return route.fulfill({ json: { stage: "ask", format: "video", notes: "角度待定", reply: "想比较哪两瓶油？给谁看？", quickReplies: [] } });
-        return route.fulfill({ json: { stage: "outline", format: "video", title: "两瓶油的标签",
-          sections: [{ heading: "读瓶身", questions: [question] }, { heading: "追溯名称", questions: ["名称最初来自哪里？"] }] } });
+        return route.fulfill({ json: { stage: "outline", format: "video", title: "两瓶油的标签", angle: "从瓶身读起。",
+          sections: [{ heading: "读瓶身", questions: [{title: question, startingPoint: "找包装上的原文"}] }, { heading: "追溯名称", questions: [{title: "名称最初来自哪里？", startingPoint: "查原始标签"}] }] } });
       }
       expect(data.action).toBe("draftOutline");
       expect(data.section).toBe(clear ? undefined : 0);
       written++;
       return route.fulfill({ json: { format: "video", title: "读懂标签", lead: "从瓶身读起。",
-        sections: [{ heading: "原料", body: "请看原料名称。" }], reply: "写好了。" } });
+        sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }], reply: "写好了。",
+        markers: [{start: "从瓶身读起。\n\n## 原料\n".length, text: "原文列出了葵花籽油。", finding: findingId}] } });
     });
     const source = "The bottle lists sunflower seed oil.";
     const findingId = crypto.randomUUID();
@@ -5571,6 +5572,11 @@ for (const clear of [true, false]) {
     await expect(page.getByRole("button", { name: "确认需求，开始起草" })).toHaveCount(0);
     await expect.poll(async () => (await read()).questions?.length).toBe(2);
     await page.reload();
+    await page.screenshot({path: info.outputPath("outline-mobile.png")});
+    if (clear) {
+      await page.setViewportSize({width: 1440, height: 900});
+      await page.screenshot({path: info.outputPath("outline-desktop.png")});
+    }
     const first = outline.locator(".outline-section").first();
     await expect(first.getByLabel("段落标题")).toHaveValue("读瓶身");
     await first.getByLabel("段落标题").fill("从实物标签开始");
@@ -5590,5 +5596,7 @@ for (const clear of [true, false]) {
     await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveText("读懂标签");
     expect(written).toBe(1);
     expect((await read()).drafts.some(d => d.outline)).toBe(true);
+    await page.locator(".q-draft-cites button").first().click();
+    await expect(page.locator(".q-passage blockquote")).toHaveText(source);
   });
 }

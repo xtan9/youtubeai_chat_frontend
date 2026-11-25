@@ -200,10 +200,11 @@ test("published workspace from naming to independently cited manuscript @workspa
       .click();
     await expect(page.locator(".q-sheet h2")).toHaveText(title);
   }
-  const priorQuestions = (await read()).questions?.length ?? 0;
-  for (const question of questions) await add(question);
+  const priorQuestions = (await read()).questions ?? [];
+  const missingQuestions = questions.filter(title => !priorQuestions.some(q => q.title === title));
+  for (const question of missingQuestions) await add(question);
   await page.getByRole("button", { name: questions[0], exact: true }).click();
-  await expect.poll(async () => (await read()).questions?.length).toBe(priorQuestions + questions.length);
+  await expect.poll(async () => (await read()).questions?.length).toBe(priorQuestions.length + missingQuestions.length);
   await page.screenshot({ path: folder + "/desktop.png" });
   const grid = page.locator(".integrated");
   const geometry = await grid.evaluate((el) => ({
@@ -378,7 +379,8 @@ test("published workspace from naming to independently cited manuscript @workspa
   ).toBeVisible();
   await expect(page.locator(".q-passage blockquote").first()).toBeVisible();
   expect((await read()).resources[0].title).toContain("中菜指南");
-  expect((await read()).drafts).toHaveLength(5);
+  expect((await read()).drafts.filter(d => d.text)).toHaveLength(5);
+  expect((await read()).drafts.some(d => d.outline)).toBe(true);
   console.log(
     "Verified desktop/mobile layout, question CRUD, background source, citation placement, reload and reopen.",
   );

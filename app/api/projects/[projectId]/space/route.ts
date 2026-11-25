@@ -152,8 +152,13 @@ export async function POST(request: Request, context: Context) {
           return fail(409, "reviewBriefFirst");
         if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
       }
+      const sections = outlineDraft?.outline?.sections;
+      const selected = body.action === "draftOutline" && body.section !== undefined ? sections?.slice(body.section, body.section + 1) : sections;
+      const questionIds = new Set(selected?.flatMap(section => section.questionIds));
       const [versions, sources] = await Promise.all([
-        loadResearchVersions(auth.client, auth.projectId),
+        selected ? Promise.all((space.questions ?? []).filter(q => questionIds.has(q.id) && !q.gap)
+          .map(q => loadResearchVersions(auth.client, auth.projectId, undefined, q))).then(pages => pages.flat())
+          : loadResearchVersions(auth.client, auth.projectId),
         loadProjectSourceSet(auth.client, auth.subject),
       ]);
       if (sources.kind !== "resolved") return projectOutcomeResponse(sources);
@@ -164,11 +169,11 @@ export async function POST(request: Request, context: Context) {
       const context = interviewContext(auth.subject.name, {
         ...space, resources: [...linkedVideos, ...space.resources],
       }, versions, outlineDraft?.outline
-        ? { id: outlineDraft.outline.interviewId, notes: "", format: "video" } : interview);
+        ? { id: outlineDraft.outline.interviewId, notes: "", format: "video" } : interview, auth.subject.guidance?.goal);
       if (body.action === "draftOutline") {
         if (!context.outline) return fail(409, "interviewChanged");
         if (body.section !== undefined) context.outline.sections = [context.outline.sections[body.section]];
-        context.questions = context.outline.sections.flatMap(section => section.questions);
+        context.questions = context.outline.sections.flatMap(section => section.questions.map(q => q.title));
         return Response.json(await createStarter(context, context.outline.title, body.locale, request.signal, body.section !== undefined));
       }
       return Response.json(body.action === "interview"

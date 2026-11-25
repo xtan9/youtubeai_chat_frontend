@@ -77,7 +77,21 @@ export function IntentDesk({ name, projectId, store, initial }) {
     return { ...q, versionId: version?.id };
   });
   function setProjectQuestions(change) {
-    return update((s) => ({ ...s, questions: change(s.questions || []) }));
+    return update(s => {
+      const previous = s.questions || [];
+      const questions = change(previous);
+      const current = new Map(questions.map(q => [q.id, q]));
+      const changed = new Set(previous.filter(q => current.get(q.id) !== q).map(q => q.id));
+      // A script in flight must still match the questions and findings the author sees.
+      const drafts = s.drafts.map(d => {
+        if (!d.outline?.sections.some(section => section.questionIds.some(id => changed.has(id)))) return d;
+        const sections = d.outline.sections.map(section => ({
+          ...section, questionIds: section.questionIds.filter(id => current.has(id)),
+        }));
+        return { ...d, version: crypto.randomUUID(), outline: { ...d.outline, sections } };
+      });
+      return { ...s, questions, drafts };
+    });
   }
   const libraryTitle = t("questionsAndSources");
   const returnMarker = useRef(null);
@@ -258,7 +272,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       id
         ? items.map((q) =>
             q.id === id && q.title !== title
-              ? { ...q, title, revision: crypto.randomUUID(), gap: undefined }
+              ? { ...q, title, revision: crypto.randomUUID(), gap: undefined, startingPoint: undefined }
               : q,
           )
         : [...items, { id: key, title }],
