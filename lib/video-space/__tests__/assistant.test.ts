@@ -6,7 +6,7 @@ const { stream } = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock("@/lib/services/llm-chat-client", () => ({
   streamChatCompletion: stream,
 }));
-import { discussClaim, interviewAuthor, interviewContext, summarize, writeScript } from "../assistant";
+import { createStarter, discussClaim, interviewAuthor, interviewContext, summarize, writeScript } from "../assistant";
 
 const resource: Resource = {
   id: "video",
@@ -125,4 +125,16 @@ it("asks on format selection even if the model prematurely offers a brief", asyn
   stream.mockReturnValueOnce(delta({ stage: "review", format: "video", brief: "A generic script." }))
     .mockReturnValueOnce(delta(ask));
   expect(await interviewAuthor(context, "en", new AbortController().signal)).toEqual(ask);
+});
+
+it("repairs the specific missing manuscript field and keeps the approved format", async () => {
+  const space = emptySpace();
+  space.interview = { id: crypto.randomUUID(), turnId: crypto.randomUUID(), pending: false, notes: "", format: "blog" };
+  const draft = { title: "Two oil labels", lead: "I turned the bottles around.", sections: [{ heading: "Plant names", body: "Compare the ingredients." }], reply: "Draft ready." };
+  const delta = (data: unknown) => [{ type: "delta", text: JSON.stringify(data) }];
+  stream.mockReturnValueOnce(delta({ ...draft, sections: [{ heading: "Plant names" }] }))
+    .mockReturnValueOnce(delta(draft));
+  const result = await createStarter(interviewContext("Labels", space, []), "Compare the two plants.", "en", new AbortController().signal);
+  expect(result).toEqual({ ...draft, format: "blog" });
+  expect(stream.mock.lastCall![0].messages[0].content).toContain("sections.0.body");
 });
