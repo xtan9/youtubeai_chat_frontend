@@ -5713,6 +5713,7 @@ for (const clear of [true, false]) {
     const endpoint = page.url().replace("/workspace/projects/", "/api/projects/");
     const read = async (): Promise<import("../lib/video-space/contract").Space> =>
       (await (await page.request.get(endpoint + "/space")).json()).document;
+    page.setDefaultTimeout(15_000);
     const question = "这两瓶油的原料名称是什么？";
     let interviews = 0, written = 0, searched = 0;
     const researchGate = Promise.withResolvers<void>();
@@ -5732,7 +5733,7 @@ for (const clear of [true, false]) {
       written++;
       if (clear) await draftGate.promise;
       return route.fulfill({ json: { format: "video", title: "读懂标签", lead: "从瓶身读起。",
-        sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }], reply: "写好了。",
+        sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }, ...(clear ? [{heading:"背标", body:"观察标签。"}, {heading:"名称",body:"追溯名称。"}] : [])], reply: "写好了。",
         markers: [{start: "从瓶身读起。\n\n## 原料\n".length, text: "原文列出了葵花籽油。", finding: findingId}] } });
     });
     const source = "The bottle lists sunflower seed oil.";
@@ -5773,8 +5774,17 @@ for (const clear of [true, false]) {
     }
     const first = outline.locator(".outline-section").first();
     await expect(first.getByLabel("段落标题")).toHaveValue("读瓶身");
-    await first.getByLabel("段落标题").fill("从实物标签开始");
-    await first.getByLabel("段落标题").press("Enter");
+    await outline.getByRole("button", { name: "编辑大纲", exact: true }).click();
+    const edit = outline.locator("form");
+    await edit.getByLabel("段落标题").first().fill("从实物标签开始");
+    await edit.getByLabel("本节要点").first().fill("逐字比较植物名称");
+    await edit.getByRole("button", { name: "添加小节" }).click();
+    await edit.getByLabel("段落标题").last().fill("核对背标");
+    await edit.getByRole("button", { name: "上移" }).last().click();
+    await edit.getByRole("button", { name: "保存大纲" }).click();
+    await expect.poll(async () => (await read()).drafts.find(d => d.outline)?.outline?.sections.map(s => s.heading))
+      .toEqual(["从实物标签开始", "核对背标", "追溯名称"]);
+    const planId = (await read()).activeDraft;
     await first.getByRole("button", { name: new RegExp(question) }).click();
     if (clear) {
       try {
@@ -5812,17 +5822,56 @@ for (const clear of [true, false]) {
       } finally {
         draftGate.resolve();
       }
-      await expect.poll(async () => (await read()).drafts.some(d => d.title === "读懂标签")).toBe(true);
+      await expect.poll(async () => (await read()).drafts.find(d => d.id === planId)?.text).toContain("原文列出了葵花籽油。");
       await expect(page.locator(".q-sheet h2")).toHaveText(question);
       await page.getByRole("button", { name: "返回大纲" }).click();
       await expect(outline.getByLabel("大纲标题")).toBeVisible();
-      await page.getByRole("button", { name: "文稿", exact: true }).click();
-      await page.getByRole("button", { name: "读懂标签", exact: true }).click();
+
     }
-    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("读懂标签");
+    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("两瓶油的标签");
+    expect((await read()).activeDraft).toBe(planId);
     expect(written).toBe(1);
     expect((await read()).drafts.some(d => d.outline)).toBe(true);
     await page.locator(".q-draft-cites button").first().click();
     await expect(page.locator(".q-passage blockquote")).toHaveText(source);
   });
 }
+
+test("authors can handwrite an outline and restore its body in the same video manuscript @projects-ga-critical", async ({context,page}) => {
+  page.setDefaultTimeout(15_000);
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{name:"locale",value:"zh",url:appUrl}]);
+  await page.goto(appUrl+"/workspace");
+  await page.getByLabel("项目名称").fill("种子油手写大纲");
+  await page.getByRole("button",{name:"创建并打开"}).click();
+  await page.waitForURL(/\/workspace\/projects\/[a-f0-9-]+$/);
+  await page.getByRole("button",{name:"手写视频大纲"}).click();
+  const outline = page.locator(".manuscript-outline");
+  const edit = outline.locator("form");
+  await edit.getByLabel("大纲标题").fill("我的用油笔记");
+  await edit.getByLabel("段落标题").fill("比较对象");
+  await edit.getByLabel("本节要点").fill("用同一条原话讲清比较对象");
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await outline.getByRole("button",{name:"手写这一节"}).click();
+  await expect(page.locator(".ql-editor")).toBeFocused();
+  await page.keyboard.insertText("先核对试验里的两组人。");
+  const url=page.url().replace("/workspace/projects/","/api/projects/").split("?")[0]+"/space";
+  const saved=async ()=>(await (await page.request.get(url)).json()).document.drafts[0];
+  await expect.poll(async()=>(await saved()).text).toContain("先核对试验里的两组人。");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByLabel("本节要点").fill("取消的文字");
+  await edit.getByRole("button",{name:"取消"}).click();
+  await expect(outline).not.toContainText("取消的文字");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByRole("button",{name:"移除",exact:true}).click();
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await expect.poll(async()=>(await saved()).outline.removed?.length).toBe(1);
+  await page.reload();
+  await expect(outline).toContainText("已移出大纲");
+  await outline.getByRole("button",{name:"编辑大纲"}).click();
+  await edit.getByRole("button",{name:"放回大纲"}).click();
+  await edit.getByRole("button",{name:"保存大纲"}).click();
+  await outline.getByRole("button",{name:"跳到正文"}).click();
+  await expect(page.locator(".ql-editor")).toBeFocused();
+  await expect(page.locator(".ql-editor")).toContainText("先核对试验里的两组人。");
+});

@@ -7,14 +7,15 @@ import type Table from "quill/modules/table";
 import { Bold, Italic, Underline, Strikethrough, Code, Link, List, ListOrdered, ListChecks, Quote,
   Undo2, Redo2, Ellipsis, IndentIncrease, IndentDecrease, RemoveFormatting } from "lucide-react";
 import { DraftTitle, type useWriting } from "@/app/new-workspace/projects/[projectId]/writing";
+import { moveOutlineAnchors } from "@/lib/video-space/contract";
 import { draftContents, editorContents, editorFormats, moveEditorMarkers } from "@/lib/video-space/rich-text";
 import "quill/dist/quill.core.css";
 import "./rich-editor.css";
 
 type Writer = ReturnType<typeof useWriting>;
-type Props = { w: Writer; flush: () => void; status: string; openWriter: () => void; children: ReactNode };
+type Props = { bodyFocus?: { offset:number } | null; w: Writer; flush: () => void; status: string; openWriter: () => void; children: ReactNode };
 
-export default function RichEditor({ w, flush, status, openWriter, children }: Props) {
+export default function RichEditor({ w, bodyFocus, flush, status, openWriter, children }: Props) {
   const t = useTranslations("richEditor"), ui = useTranslations("ui"), intent = useTranslations("intent");
   const canvas = useRef<HTMLDivElement>(null);
   const editor = useRef<Quill | null>(null);
@@ -61,7 +62,10 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     function change(delta: Delta) {
       const updated = draftContents(q.getContents());
       const markers = moveEditorMarkers(latest.current.draft.markers, model.current!, updated, delta);
-      if (latest.current.type(updated.text, updated.formatting, markers)) model.current = updated;
+      const before = model.current!;
+      const outline = moveOutlineAnchors(latest.current.draft, updated.text, (pos, end) =>
+        updated.sourceIndex(delta.transformPosition(before.editorIndex(pos), end), end || pos===0 || before.text[pos-1]==="\n"));
+      if (latest.current.type(updated.text, updated.formatting, markers, outline)) model.current = updated;
       else {
         const accepted = editorContents(latest.current.draft);
         q.setContents(accepted, "silent");
@@ -99,6 +103,14 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     q.history.clear();
     setFormats({});
   }, [w.draft]);
+
+  useLayoutEffect(() => {
+    if (!bodyFocus || !editor.current || !model.current) return;
+    const index = model.current.editorIndex(Math.min(bodyFocus.offset, model.current.text.length));
+    editor.current.setSelection(index, 0, "silent");
+    editor.current.focus({preventScroll:true});
+    editor.current.scrollSelectionIntoView();
+  }, [bodyFocus]);
 
   function format(name: string, value: string | number | boolean) {
     const q = editor.current;

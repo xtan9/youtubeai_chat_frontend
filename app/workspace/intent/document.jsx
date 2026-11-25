@@ -42,6 +42,7 @@ export function paragraphRanges(text) {
 }
 
 export function Document({
+  bodyFocus,
   w,
   status,
   flush,
@@ -62,7 +63,7 @@ export function Document({
   const rt = useTranslations("richEditor");
   const formats = getFormats(t);
   const d = w.draft,
-    kind = formats[d.id.split("/")[0]],
+    kind = formats[d.outline ? "video" : d.id.split("/")[0]],
     chunks = paragraphRanges(d.text);
   const lastHeading = useRef(null);
   function addSection() {
@@ -145,7 +146,7 @@ export function Document({
       </div>
       {w.error && <p role="alert">{w.error}</p>}
       {view === "rich" ? (
-        <RichEditor key={d.id} w={w} flush={flush} status={status} openWriter={openWriter}>
+        <RichEditor key={d.id} bodyFocus={bodyFocus} w={w} flush={flush} status={status} openWriter={openWriter}>
           {markers(0, d.text.length)}
         </RichEditor>
       ) : view === "source" ? (

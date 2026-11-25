@@ -59,7 +59,11 @@ const marker = z.object({
   finding: z.uuid().optional(),
   material: materialCitation.optional(),
 }).refine(m => Boolean(m.finding) !== Boolean(m.material));
+export const maxOutlineSections = 24;
 const outlineSection = z.object({
+  id: z.uuid().optional(),
+  note: z.string().max(600).optional(),
+  bodyStart: z.number().int().min(0).max(80000).optional(),
   heading: z.string().trim().min(1).max(140),
   questionIds: z.array(z.uuid()).max(3),
 });
@@ -88,7 +92,8 @@ const draft = z.object({
   outline: z.object({
     interviewId: z.uuid(),
     angle: z.string().max(280).optional(),
-    sections: z.array(outlineSection).min(1).max(6),
+    sections: z.array(outlineSection).max(maxOutlineSections),
+    removed: z.array(outlineSection).max(300).optional(),
   }).optional(),
   id,
   version: z.uuid().optional(),
@@ -244,6 +249,22 @@ export function editDraft(draft: Draft, text: string, formatting?: FormatRange[]
   return replaceDraftRange(draft, text, start, oldEnd, end, formatting);
 }
 
+// Compare both ends of each linked passage. A fully deleted passage no longer
+// owns the next section's first character. Its outline beat can be written again.
+export function moveOutlineAnchors(draft: Draft, text: string, position: (offset: number, end: boolean) => number) {
+  const outline = draft.outline;
+  if (!outline) return undefined;
+  const starts = [...outline.sections, ...(outline.removed ?? [])].flatMap(s => s.bodyStart ?? []).sort((a,b) => a-b);
+  const move = (section: z.infer<typeof outlineSection>) => {
+    if (section.bodyStart === undefined) return section;
+    const start = section.bodyStart;
+    const end = starts.find(next => next > start) ?? draft.text.length;
+    const next = position(start, false);
+    return { ...section, bodyStart: text.trim() && next < position(end, true) ? next : undefined };
+  };
+  return { ...outline, sections: outline.sections.map(move), removed: outline.removed?.map(move) };
+}
+
 export function replaceDraftRange(draft: Draft, text: string, start: number, oldEnd: number, end: number, formatting?: FormatRange[]): Draft {
   const markers = draft.markers.flatMap((m) =>
     m.start + m.text.length <= start
@@ -261,5 +282,10 @@ export function replaceDraftRange(draft: Draft, text: string, start: number, old
       ...(stop > right ? [{ ...r, start: right + end - oldEnd, length: stop - right }] : []),
     ];
   });
-  return { ...draft, text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
+  const outline = moveOutlineAnchors(draft, text, (pos, atEnd) => {
+    if (pos < start || (pos === start && atEnd)) return pos;
+    if (pos >= oldEnd) return pos + end - oldEnd;
+    return start;
+  });
+  return { ...draft, ...(outline && {outline}), text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
 }

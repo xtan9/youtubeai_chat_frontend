@@ -324,7 +324,7 @@ export function QuestionSheet({
                 </button>
               ))}
             </div>
-            {archived || draft.outline ? null : written ? (
+            {archived || (draft.outline && !draft.text.trim()) ? null : written ? (
               <button className="secondary q-action" onClick={back}>
                 <Check size={14} />
                 {t("viewAnswerInDraft")}{" "}

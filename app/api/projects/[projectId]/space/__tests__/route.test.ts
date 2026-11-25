@@ -194,7 +194,7 @@ it("writes only the selected saved outline section using current question titles
   space.questions = [{ id: q, title: "Where is the original map?" }];
   space.drafts = [{ id: "outline/" + id, title: "History of the railway", text: "", markers: [], version,
     outline: { interviewId: id, sections: [
-      { heading: "Origin", questionIds: [q] }, { heading: "Today", questionIds: [] },
+      { heading: "Origin", note: "Compare the two editions.", questionIds: [q] }, { heading: "Today", questionIds: [] },
     ] } }];
   m.from.mockReturnValue({ select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
     maybeSingle: async () => ({ data: { document: space } }) });
@@ -209,6 +209,6 @@ it("writes only the selected saved outline section using current question titles
   expect(m.versions).toHaveBeenCalledWith(expect.anything(), id, undefined, space.questions[0]);
   expect(m.starter).toHaveBeenCalledWith(expect.objectContaining({
     format: "video", questions: ["Where is the original map?"],
-    outline: { title: "History of the railway", sections: [{ heading: "Origin", questions: [{ title: "Where is the original map?" }] }] },
+    outline: { title: "History of the railway", sections: [{ heading: "Origin", note: "Compare the two editions.", questions: [{ title: "Where is the original map?" }] }] },
   }), "History of the railway", "en", expect.anything(), true);
 });

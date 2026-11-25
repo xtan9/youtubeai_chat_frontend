@@ -1800,3 +1800,34 @@ body:has(.intent-shell) > :is(header, footer) {
 .intent-shell .outline-section li span { flex: 1; overflow-wrap: anywhere; }
 .intent-shell .outline-section .question-lead { display: block; font-size: .85em; opacity: .75; }
 .intent-shell .outline-section li small { opacity: .7; }
+
+.intent-shell .paper:has(> .manuscript-outline) {
+  overflow-y: auto;
+}
+.intent-shell .paper:has(> .manuscript-outline) > * {
+  flex: none;
+}
+.intent-shell .paper:has(> .manuscript-outline) :is(.paper-body, .rich-paper) {
+  overflow: visible;
+}
+.intent-shell .manuscript-outline {
+  margin: 16px clamp(12px, 3%, 28px); padding: 12px 16px;
+  border: 1px solid var(--rule); border-radius: 8px; background: var(--wash);
+  font-size: 14px; overflow-wrap: anywhere;
+}
+.intent-shell .outline-create { align-self: start; margin: 10px 16px; }
+.intent-shell .outline-bar, .intent-shell .outline-tools, .intent-shell .outline-actions,
+.intent-shell .outline-removed { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.intent-shell .outline-bar { justify-content: space-between; }
+.intent-shell .outline-bar button, .intent-shell .outline-create { display: inline-flex; align-items: center; gap: 6px; }
+.intent-shell .outline-bar button:first-child { font-weight: 650; }
+.intent-shell .manuscript-outline fieldset { border: 0; min-width: 0; margin: 0; padding: 0; }
+.intent-shell .manuscript-outline form label { display: block; font-size: 12px; margin: 9px 0; }
+.intent-shell .manuscript-outline form :is(input,textarea) {
+  display: block; box-sizing: border-box; width: 100%; margin-top: 4px; border: 1px solid var(--rule);
+  border-radius: 4px; padding: 7px 9px; font: inherit; font-size: 14px; background: var(--white); color: var(--ink);
+}
+.intent-shell .outline-tools { font-size: 12px; }
+.intent-shell .outline-tools b { margin-right: auto; }
+.intent-shell .outline-edit-row { margin: 12px 0; padding-top: 10px; border-top: 1px solid var(--rule); }
+.intent-shell .outline-actions, .intent-shell .outline-removed { margin: 10px 0 4px; }

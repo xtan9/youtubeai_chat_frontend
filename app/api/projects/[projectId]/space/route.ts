@@ -138,7 +138,10 @@ export async function POST(request: Request, context: Context) {
       const interview = space.interview;
       if (body.action === "draftOutline") {
         if (!outlineDraft?.outline || outlineDraft.version !== body.version ||
-            (body.section !== undefined && !outlineDraft.outline.sections[body.section])) return fail(409, "interviewChanged");
+            !outlineDraft.outline.sections.length ||
+            (body.section === undefined && outlineDraft.text.trim()) ||
+            (body.section !== undefined && (!outlineDraft.outline.sections[body.section] ||
+              outlineDraft.outline.sections[body.section].bodyStart !== undefined))) return fail(409, "interviewChanged");
       } else {
         if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
         if (body.action === "quickReplies") {
