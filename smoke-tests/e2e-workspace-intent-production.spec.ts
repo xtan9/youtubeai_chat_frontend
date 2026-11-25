@@ -114,7 +114,7 @@ test("published workspace from naming to independently cited manuscript @workspa
       const writing = waitForAction("draftOutline");
       await page.getByRole("button", { name: "写脚本初稿" }).click();
       expect((await writing).status()).toBe(200);
-      await expect(page.locator(".paper .block").first()).toBeVisible();
+      await expect(page.locator(".paper .ql-editor h2").first()).toBeVisible();
       continue;
     }
     expect(firstStage).toBe("ask");
@@ -144,7 +144,7 @@ test("published workspace from naming to independently cited manuscript @workspa
     await expect
       .poll(async () => (await read()).purpose, { timeout: 60000 })
       .toBe(kind);
-    await expect(page.locator(".paper .block")).not.toHaveCount(0);
+    await expect(page.locator(".paper .ql-editor h2")).not.toHaveCount(0);
     if (kind === "blog") {
       const before = (await read()).drafts.find((d) =>
         d.id.startsWith("blog/"),
@@ -178,6 +178,7 @@ test("published workspace from naming to independently cited manuscript @workspa
   }
   expect(new Set((await read()).drafts.filter(d => d.text).map((d) => d.text)).size).toBe(5);
   await page.screenshot({ path: folder + "/draft.png" });
+  await page.getByLabel("编辑视图").selectOption("sections");
   const lead = page.getByRole("textbox", { name: "文稿导语" });
   await lead.fill("这一段由作者在验收时写入。");
   await expect

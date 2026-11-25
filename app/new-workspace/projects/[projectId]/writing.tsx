@@ -5,9 +5,11 @@ import { BookOpen, Undo2 } from "lucide-react";
 import {
   defaultDraftTitle,
   editDraft,
+  replaceDraftRange,
   intentFormat,
   type Space,
   type Draft,
+  type FormatRange,
   type Message,
   type Passage,
 } from "@/lib/video-space/contract";
@@ -70,13 +72,18 @@ export function useWriting({
       }),
     }));
   }
-  function type(text: string) {
+  function type(text: string, formatting?: FormatRange[], markers?: Draft["markers"]) {
     if (text.length > 80000) {setError("scriptLengthLimitReached"); return false;}
     setError("");
     setPassage(undefined);
     return update((s) => ({
       ...s,
-      drafts: s.drafts.map((d) => (d.id === draft.id ? editDraft(d, text) : d)),
+      drafts: s.drafts.map((d) => {
+        if (d.id !== draft.id) return d;
+        const next = editDraft(d, text, formatting);
+        if (markers) next.markers = markers;
+        return next;
+      }),
     }));
   }
   function append(message: Message) {
@@ -109,11 +116,12 @@ export function useWriting({
       !suggestion.length && start && before.text[start - 1] !== "\n"
         ? "\n" + text
         : text;
-    const after = editDraft(
+    const after = replaceDraftRange(
       before,
       before.text.slice(0, start) +
         insert +
         before.text.slice(start + suggestion.length),
+      start, start + suggestion.length, start + insert.length,
     );
     if (after.text.length > 80000) {
       setError("scriptLengthLimitReached");
@@ -135,12 +143,12 @@ export function useWriting({
   function revert() {
     if (!undo || draft.version !== undo.after || draft.id !== undo.before.id)
       return;
-    const { text, markers } = undo.before;
+    const { text, markers, formatting } = undo.before;
     update((s) => ({
       ...s,
       drafts: s.drafts.map((d) =>
         d.id === draft.id
-          ? { ...d, text, markers, version: crypto.randomUUID() }
+          ? { ...d, text, markers, formatting, version: crypto.randomUUID() }
           : d,
       ),
     }));

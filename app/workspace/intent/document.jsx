@@ -1,9 +1,12 @@
+import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useLayoutEffect, useRef } from "react";
 import { BookOpen, Plus, Undo2 } from "lucide-react";
 import { DraftTitle, Script } from "@/app/new-workspace/projects/[projectId]/writing";
 import { InkIcon } from "./ink-icon";
 import { getFormats, questionPassages } from "./question-sources";
+const RichEditor = dynamic(() => import("./rich-editor"), { ssr: false });
+
 function Editable({ as: Tag = "p", value, label, onEdit, className, placeholder, elementRef }) {
   const t = useTranslations("intent");
   const localRef = useRef(null);
@@ -29,12 +32,13 @@ function Editable({ as: Tag = "p", value, label, onEdit, className, placeholder,
   );
 }
 export function paragraphRanges(text) {
+  const ranges = [];
   let start = 0;
-  return text.split(/\n\n(?=## )/).map((chunk) => {
-    const range = { chunk, start };
-    start += chunk.length + 2;
-    return range;
-  });
+  for (const match of text.matchAll(/\n{1,2}(?=## )/g)) {
+    ranges.push({ chunk: text.slice(start, match.index), start });
+    start = match.index + match[0].length;
+  }
+  return [...ranges, { chunk: text.slice(start), start }];
 }
 
 export function Document({
@@ -43,8 +47,9 @@ export function Document({
   flush,
   space,
   show,
-  full,
-  onFull,
+  view,
+  onView,
+  focusReturnedMarker,
   openWriter,
   onAngle,
   rooms,
@@ -54,6 +59,7 @@ export function Document({
   runs,
 }) {
   const t = useTranslations("intent");
+  const rt = useTranslations("richEditor");
   const formats = getFormats(t);
   const d = w.draft,
     kind = formats[d.id.split("/")[0]],
@@ -84,6 +90,7 @@ export function Document({
             className="q-draft-cites"
             key={m.start + "/" + m.finding}
             data-answer-id={m.finding}
+            ref={focusReturnedMarker}
             tabIndex={-1}
           >
             <BookOpen size={13} />
@@ -122,28 +129,26 @@ export function Document({
         <InkIcon name="page" />
         <span>{kind?.kind || t("draft")}</span>
         <div className="head-end meta">
-          {!full && w.canUndo && (
+          {view !== "source" && w.canUndo && (
             <button className="mini" onClick={w.revert}>
               <Undo2 size={13} />
               {t("undo")}{" "}
             </button>
           )}
-          <button
-            className="mode-link"
-            aria-label={full ? t("sectionEditor") : t("fullTextEditor")}
-            title={
-              full
-                ? t("sectionEditor")
-                : t("editTheFullTextAndSelectAPassageToDiscussOrRewrite")
-            }
-            onClick={() => onFull(!full)}
-          >
-            {full ? t("sectionEditor") : t("fullTextEditor")}
-          </button>
+          <select className="rich-view" aria-label={rt("view")} value={view}
+            onChange={e => onView(e.target.value)}>
+            <option value="rich">{rt("rich")}</option>
+            <option value="sections">{t("sectionEditor")}</option>
+            <option value="source">{rt("source")}</option>
+          </select>
         </div>
       </div>
       {w.error && <p role="alert">{w.error}</p>}
-      {full ? (
+      {view === "rich" ? (
+        <RichEditor key={d.id} w={w} flush={flush} status={status} openWriter={openWriter}>
+          {markers(0, d.text.length)}
+        </RichEditor>
+      ) : view === "source" ? (
         <div className="native vs native-script">
           <Script
             w={w}
