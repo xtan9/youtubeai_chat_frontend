@@ -1,0 +1,71 @@
+.intent-shell .rich-tools, .intent-shell .rich-footer {
+  flex: none;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.intent-shell .rich-tool-row, .intent-shell .rich-link, .intent-shell .rich-footer {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.intent-shell .rich-tool-row.extended, .intent-shell .rich-link {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+.intent-shell .rich-tool-row button, .intent-shell .rich-tools select, .intent-shell .rich-color,
+.intent-shell .rich-link button, .intent-shell .rich-footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+}
+.intent-shell .rich-tool-row button { min-width: 29px; }
+.intent-shell .rich-tools select, .intent-shell .rich-view {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+.intent-shell .rich-tool-row button:hover, .intent-shell .rich-tool-row button[aria-pressed=true],
+.intent-shell .rich-link button:hover, .intent-shell .rich-footer button:hover { background: var(--rule); }
+.intent-shell .rich-color input { width: 20px; height: 20px; padding: 0; border: 0; }
+.intent-shell .rich-link input { min-width: 5em; flex: 1; border: 1px solid var(--rule); border-radius: 4px; padding: 5px; }
+.intent-shell .rich-paper { padding-block: clamp(18px, 3vw, 44px); }
+.intent-shell .rich-canvas { margin-top: 20px; }
+.intent-shell .rich-canvas .ql-container { font: inherit; }
+.intent-shell .rich-canvas .ql-editor {
+  height: auto;
+  min-height: min(40vh, 360px);
+  padding: 0 1px 24px;
+  overflow: visible;
+  font-size: 16px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.intent-shell .rich-canvas .ql-editor.ql-blank::before { inset-inline: 1px; font-style: normal; color: var(--muted); }
+.intent-shell .ql-editor :is(h1,h2,h3,h4,h5,h6) { font-weight: 650; line-height: 1.4; margin: .7em 0 .25em; }
+.intent-shell .ql-editor h1 { font-size: 2em; }
+.intent-shell .ql-editor h2 { font-size: 1.5em; }
+.intent-shell .ql-editor h3 { font-size: 1.25em; }
+.intent-shell .ql-editor h4 { font-size: 1.1em; }
+.intent-shell .ql-editor h5 { font-size: 1em; }
+.intent-shell .ql-editor h6 { font-size: .9em; }
+.intent-shell .ql-editor blockquote { border-inline-start: 3px solid var(--rule); padding-inline-start: 1em; }
+.intent-shell .ql-editor a { text-decoration: underline; color: #376886; }
+.intent-shell .ql-editor code { font-family: monospace; background: var(--rule); padding-inline: .2em; }
+.intent-shell .ql-editor td { border: 1px solid var(--muted); padding: .2em .5em; }
+.intent-shell .rich-footer { min-height: 32px; color: var(--muted); border-top: 1px solid var(--rule); border-bottom: 0; font-size: 11px; }
+.intent-shell .rich-footer > span { margin-right: auto; }
+@media (max-width: 700px) {
+  .intent-shell .rich-tools { padding: 4px 8px; }
+  .intent-shell .rich-tool-row { gap: 1px; }
+  .intent-shell .rich-tool-row button { min-height: 36px; min-width: 30px; }
+}

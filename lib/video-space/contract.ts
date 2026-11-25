@@ -63,6 +63,27 @@ const outlineSection = z.object({
   heading: z.string().trim().min(1).max(140),
   questionIds: z.array(z.uuid()).max(3),
 });
+// Ranges use offsets in draft.text, including the editor's final newline.
+const color = z.string().regex(/^#[0-9a-f]{6}$/i);
+const formatRange = z.object({
+  start: z.number().int().min(0).max(80000),
+  length: z.number().int().min(1).max(80001),
+  attributes: z.object({
+    bold: z.literal(true).optional(), italic: z.literal(true).optional(),
+    underline: z.literal(true).optional(), strike: z.literal(true).optional(),
+    code: z.literal(true).optional(), blockquote: z.literal(true).optional(),
+    literalHeading: z.literal(true).optional(),
+    font: z.enum(["serif", "monospace"]).optional(),
+    size: z.enum(["small", "large", "huge"]).optional(),
+    color: color.optional(), background: color.optional(),
+    align: z.enum(["center", "right", "justify"]).optional(),
+    indent: z.number().int().min(1).max(8).optional(),
+    list: z.enum(["bullet", "ordered", "checked", "unchecked"]).optional(),
+    link: z.url({ protocol: /^(https?|mailto|tel)$/ }).max(3000).optional(),
+    table: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).optional(),
+  }),
+});
+export type FormatRange = z.infer<typeof formatRange>;
 const draft = z.object({
   outline: z.object({
     interviewId: z.uuid(),
@@ -78,7 +99,11 @@ const draft = z.object({
   title: z.string().min(1).max(140),
   text: z.string().max(80000),
   markers: z.array(marker).max(300),
-});
+  formatting: z.array(formatRange).max(80001).optional(),
+}).refine(d => !d.formatting || d.formatting.every((r, i, ranges) =>
+  r.start + r.length <= d.text.length + 1 &&
+  (!i || ranges[i - 1].start + ranges[i - 1].length <= r.start)
+));
 export const messageSchema = z.object({
   interviewId: z.uuid().optional(),
   suggestion: z
@@ -202,7 +227,7 @@ export const emptySpace = (): Space => ({
 });
 
 // Move intact references with their sentence. An edit through a citation removes it.
-export function editDraft(draft: Draft, text: string): Draft {
+export function editDraft(draft: Draft, text: string, formatting?: FormatRange[]): Draft {
   let start = 0,
     oldEnd = draft.text.length,
     end = text.length;
@@ -216,6 +241,10 @@ export function editDraft(draft: Draft, text: string): Draft {
     oldEnd--;
     end--;
   }
+  return replaceDraftRange(draft, text, start, oldEnd, end, formatting);
+}
+
+export function replaceDraftRange(draft: Draft, text: string, start: number, oldEnd: number, end: number, formatting?: FormatRange[]): Draft {
   const markers = draft.markers.flatMap((m) =>
     m.start + m.text.length <= start
       ? [m]
@@ -223,5 +252,14 @@ export function editDraft(draft: Draft, text: string): Draft {
         ? [{ ...m, start: m.start + end - oldEnd }]
         : [],
   );
-  return { ...draft, text, markers, version: crypto.randomUUID() };
+  const ranges = formatting ?? draft.formatting?.flatMap(r => {
+    const stop = r.start + r.length;
+    const left = Math.min(stop, start) - r.start;
+    const right = Math.max(r.start, oldEnd);
+    return [
+      ...(left > 0 ? [{ ...r, length: left }] : []),
+      ...(stop > right ? [{ ...r, start: right + end - oldEnd, length: stop - right }] : []),
+    ];
+  });
+  return { ...draft, text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
 }

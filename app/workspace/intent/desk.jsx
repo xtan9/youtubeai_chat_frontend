@@ -110,7 +110,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const [materials, setMaterials] = useState(true);
   const [changePurpose, setChoosing] = useState(false),
     [answer, setAnswer] = useState("");
-  const [full, setFull] = useState(false),
+  const [view, setView] = useState("rich"),
     [adding, setAdding] = useState(false),
     [showExcerpt, setShowExcerpt] = useState(false);
   const [questions, setQuestions] = useState({}),
@@ -406,7 +406,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
     if (q && target.markers.some((m) => m.finding === answerId(q))) {
       if (target.id !== w.draft.id) w.changeDraft(target.id);
       returnMarker.current = answerId(q);
-      setFull(false);
+      setView(current => current === "source" ? "rich" : current);
     }
     showRoute({});
   }
@@ -430,20 +430,15 @@ export function IntentDesk({ name, projectId, store, initial }) {
         return;
     }
     returnMarker.current = answerId(q);
-    setFull(false);
+    setView(current => current === "source" ? "rich" : current);
     showRoute({});
   }
-  useLayoutEffect(() => {
-    if (projectQuestion || !returnMarker.current) return;
-    const marker = document.querySelector(
-      '[data-answer-id="' + returnMarker.current + '"]',
-    );
-    if (marker) {
-      marker.focus({ preventScroll: true });
-      marker.scrollIntoView({ block: "nearest" });
-    }
+  function focusReturnedMarker(marker) {
+    if (!marker || !returnMarker.current || marker.dataset.answerId !== returnMarker.current) return;
+    marker.focus({ preventScroll: true });
+    marker.scrollIntoView({ block: "nearest" });
     returnMarker.current = null;
-  }, [projectQuestion]);
+  }
   function toChat() {
     if (inRoom) showRoute({});
     setFocus(null);
@@ -460,7 +455,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
     },
     onDraft(id) {
       w.changeDraft(id);
-      setFull(false);
+      setView("rich");
       setDestination(null);
       showRoute({});
     },
@@ -699,7 +694,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
               className="mini"
               onClick={() => {
                 if (!w.addDraft()) return;
-                setFull(false);
+                setView("rich");
                 showRoute({});
               }}
             >
@@ -713,7 +708,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                   className={"file" + (d.id === w.draft.id ? " active" : "")}
                   onClick={() => {
                     w.changeDraft(d.id);
-                    setFull(false);
+                    setView("rich");
                     showRoute({});
                   }}
                 >
@@ -1048,8 +1043,9 @@ export function IntentDesk({ name, projectId, store, initial }) {
               flush={flush}
               space={space}
               show={(finding, excerpt) => show(finding, excerpt, w.draft.id)}
-              full={full}
-              onFull={setFull}
+              view={view}
+              onView={setView}
+              focusReturnedMarker={focusReturnedMarker}
               rooms={inRoom ? [] : [...index.rooms.values()]}
               onResearch={openClaim}
               openQuestion={openQuestion}

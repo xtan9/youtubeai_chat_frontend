@@ -1,10 +1,11 @@
+import { richDraftJourney } from "./helpers/rich-draft-journey";
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import type { Space } from "../lib/video-space/contract";
 
 test.use({ trace: "off", video: "off", screenshot: "off" });
 
-test("handwritten title and sections survive production reload @workspace-manual-live @account-mutating", async ({ page, context }) => {
+test("rich text survives production reload @workspace-manual-live @account-mutating", async ({ page, context }) => {
   test.skip(process.env.RUN_WORKSPACE_INTENT_LIVE !== "1", "Uses the dedicated production smoke account.");
   const base = "https://www.youtubeai.chat";
   const folder = "test-results/workspace-intent";
@@ -38,30 +39,9 @@ test("handwritten title and sections survive production reload @workspace-manual
   };
   try {
     await page.goto(base + "/workspace/projects/" + project.id);
-    const title = page.getByRole("textbox", { name: "文稿标题", exact: true });
-    const heading = page.getByRole("textbox", { name: "段落标题" });
-    await title.fill("第一稿");
-    await page.getByRole("textbox", { name: "文稿导语" }).fill("这是手写的开头。");
-    await page.getByRole("button", { name: "添加小节" }).click();
-    await expect(heading).toBeFocused();
-    await heading.fill("第一节");
-    const body = page.getByRole("textbox", { name: "正文 · 第一节" });
-    await body.fill("这一段由作者填写。");
-    const text = "这是手写的开头。\n\n## 第一节\n这一段由作者填写。";
-    await expect.poll(readDraft).toMatchObject({ title: "第一稿", text });
-    await page.getByRole("region", { name: "当前文稿" }).screenshot({ path: folder + "/manual-desktop.png" });
-    await page.getByRole("button", { name: "全文编辑" }).click();
-    await expect(page.getByRole("textbox", { name: "脚本正文" })).toHaveValue(text);
-    await title.fill("手写的终稿标题");
-    await expect.poll(readDraft).toMatchObject({ title: "手写的终稿标题", text });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload();
-    await expect(title).toHaveValue("手写的终稿标题");
-    await expect(heading).toHaveText("第一节");
-    await expect(body).toHaveText("这一段由作者填写。");
-    await page.getByRole("region", { name: "当前文稿" }).screenshot({ path: folder + "/manual-mobile.png" });
+    await richDraftJourney(page, readDraft, name => folder + "/" + name + ".png");
     expect(assistantCalls).toEqual([]);
-    console.log("Verified persisted title, introduction, section heading and body, full-text rename, and mobile reload with zero assistant calls.");
+    console.log("Verified handwritten title, heading, bold, undo/redo, list, link, table, and mobile editing after reload with zero assistant calls.");
   } finally {
     expect((await page.request.delete(endpoint)).status()).toBe(204);
   }

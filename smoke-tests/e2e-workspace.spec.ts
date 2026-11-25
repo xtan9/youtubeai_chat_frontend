@@ -1,3 +1,4 @@
+import { richDraftJourney } from "./helpers/rich-draft-journey";
 import {videoSpaceJourney} from "./helpers/video-space-journey";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -5248,6 +5249,68 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   });
 }
 
+test("authors format a manuscript and reopen the rich text on mobile @projects-ga-critical", async ({ context, page }, info) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
+  const id = await createGroundedFixtureProject(context, "富文本写作", { sourceCount: 0 });
+  const spaceUrl = appUrl + "/api/projects/" + id + "/space";
+  const requests: string[] = [];
+  page.on("request", r => { if (r.url() === spaceUrl && r.method() === "POST") requests.push(r.postDataJSON().action); });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(appUrl + "/workspace/projects/" + id);
+  await richDraftJourney(page, async () => (await (await context.request.get(spaceUrl)).json()).document.drafts[0],
+    name => info.outputPath(name + ".png"));
+  expect(requests).toEqual([]);
+});
+
+test("rich paste, quoted rewrite and undo preserve surrounding formatting and citation offsets @projects-ga-critical", async ({ context, page }) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
+  const id = await createGroundedFixtureProject(context, "校订", { sourceCount: 0 });
+  const endpoint = appUrl + "/api/projects/" + id + "/space";
+  const read = async () => (await (await context.request.get(endpoint)).json()).document.drafts[0];
+  const text = "## 标题🙂\n请改写\n引文";
+  const source = { id: "book", title: "来源", location: "p.3", quote: "引文" };
+  await expect(await context.request.put(endpoint, { data: { revision: 0, document: {
+    drafts: [{ id: "opening", title: "作者的文章", text, markers: [{ material: source, start: text.indexOf("引文"), text: "引文" }],
+      formatting: [{ start: text.indexOf("引文"), length: 2, attributes: { bold: true } }] }],
+    messages: [], resources: [],
+  } } })).toBeOK();
+  let passage;
+  await page.route(endpoint, route => {
+    if (route.request().method() !== "POST") return route.continue();
+    passage = route.request().postDataJSON().passage;
+    return route.fulfill({ json: { mode: "edit", target: "passage", options: ["换一种写法"], reply: "已改写。" } });
+  });
+  await page.goto(appUrl + "/workspace/projects/" + id);
+  const body = page.getByRole("textbox", { name: "文稿正文" });
+  await body.locator("h2").click();
+  await body.press("End");
+  await body.evaluate(el => {
+    const data = new DataTransfer();
+    data.setData("text/html", "<em>补充</em>");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(body.locator("h2 em")).toHaveText("补充");
+  await body.getByText("请改写", { exact: true }).click();
+  await body.press("Home");
+  await body.press("Shift+End");
+  await page.getByRole("button", { name: "改写", exact: true }).click();
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const before = "## 标题🙂补充\n请改写\n引文";
+  const after = before.replace("请改写", "换一种写法");
+  await expect(body.getByText("换一种写法", { exact: true })).toBeVisible();
+  expect(passage).toMatchObject({ text: "请改写", start: before.indexOf("请改写") });
+  await expect.poll(read).toMatchObject({ text: after, markers: [{ material: source, text: "引文", start: after.indexOf("引文") }] });
+  await expect(body.locator("em")).toHaveText("补充");
+  await expect(body.locator("strong")).toHaveText("引文");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect.poll(read).toMatchObject({ text: before, markers: [{ start: before.indexOf("引文") }] });
+  await page.reload();
+  await expect(body.locator("strong")).toHaveText("引文");
+  await expect(body.locator("em")).toHaveText("补充");
+});
+
 test("authors can title and structure a blank draft without the assistant @projects-ga-critical", async ({ context, page }, info) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
@@ -5267,6 +5330,8 @@ test("authors can title and structure a blank draft without the assistant @proje
   const title = page.getByRole("textbox", { name: "文稿标题", exact: true });
   await expect(title).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
+  const view = page.getByLabel("编辑视图");
+  await view.selectOption("sections");
   await title.fill("手写的标题");
   await page.getByRole("textbox", { name: "文稿导语" }).fill("从这里写起。");
   const add = page.getByRole("button", { name: "添加小节" });
@@ -5276,7 +5341,7 @@ test("authors can title and structure a blank draft without the assistant @proje
   await heading.fill("第一个问题");
   await page.getByRole("textbox", { name: "正文 · 第一个问题" }).fill("这是我自己的段落。");
   await page.getByRole("region", { name: "当前文稿" }).screenshot({ path: info.outputPath("manual-editor.png") });
-  await page.getByRole("button", { name: "全文编辑" }).click();
+  await view.selectOption("source");
   const text = "从这里写起。\n\n## 第一个问题\n这是我自己的段落。";
   await expect(page.getByRole("textbox", { name: "脚本正文" })).toHaveValue(text);
   await title.fill("");
@@ -5287,11 +5352,13 @@ test("authors can title and structure a blank draft without the assistant @proje
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(title).toHaveValue("改过的标题");
+  await view.selectOption("sections");
   await expect(heading).toHaveText("第一个问题");
   await expect(page.getByRole("textbox", { name: "正文 · 第一个问题" })).toHaveText("这是我自己的段落。");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "文稿", exact: true }).click();
   await page.getByRole("button", { name: "新建文稿", exact: true }).click();
+  await view.selectOption("sections");
   await title.fill("Script 2");
   await add.click();
   await heading.fill("先从小节写起");
@@ -5301,8 +5368,10 @@ test("authors can title and structure a blank draft without the assistant @proje
   const list = page.getByRole("navigation", { name: "文稿列表" });
   await list.getByRole("button", { name: "改过的标题" }).click();
   await expect(title).toHaveValue("改过的标题");
+  await view.selectOption("sections");
   await expect(heading).toHaveText("第一个问题");
   await list.getByRole("button", { name: "Script 2" }).click();
+  await view.selectOption("sections");
   await expect(heading).toHaveText(["先从小节写起", "第二节"]);
   expect(assistantRequests).toEqual([]);
 });
@@ -5329,7 +5398,7 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   await page.reload();
   await expect(page.getByRole("textbox", { name: "Draft title" })).toHaveValue("我的手写标题", { timeout: 90000 });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("button",{name:"Full text editor"}).click();
+  await page.getByLabel("Editor view").selectOption("source");
   await page.getByRole("combobox", { name: "Current script" }).selectOption("opening");
   for (const [locale, opening, second] of [
     ["en", "Opening script", "Script 2"], ["zh-TW", "開場腳本", "腳本 2"], ["zh", "开场脚本", "脚本 2"],
@@ -5344,7 +5413,7 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   await editor.fill("厨房里的这瓶油，究竟改变了什么？");
   await expect(page.getByText("已保存",{exact:true})).toBeVisible();
   await page.reload();
-  await page.getByRole("button",{name:"全文编辑"}).click();
+  await page.getByLabel("编辑视图").selectOption("source");
   await expect(editor).toHaveValue("厨房里的这瓶油，究竟改变了什么？");
   await addSessionCookie(context,OTHER_ID,"other@example.test");
   expect((await context.request.get(appUrl+"/api/projects/"+projectId+"/space")).status()).toBe(404);
@@ -5376,7 +5445,7 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
     expect(seeded.ok()).toBeTruthy();
     expect((await page.request.post(target+"/conversations",{data:{}})).ok()).toBeTruthy();
     await page.goto(base+"/new-workspace/projects/"+id);
-    await page.getByRole("button",{name:/全文编辑|Full text editor|全文編輯/}).click();
+    await page.locator("select.rich-view").selectOption("source");
     const lang=page.locator("header:visible select").first();
     await lang.selectOption("en");
     await page.getByRole("button",{name:"Summary +",exact:true}).click();
