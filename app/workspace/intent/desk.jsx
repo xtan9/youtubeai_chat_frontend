@@ -33,6 +33,7 @@ import {
 import { Document, paragraphRanges } from "./document";
 import { InkIcon } from "./ink-icon";
 import { useIntentInterview } from "./use-intent-interview";
+import { reviseOutline, writeOutlineBody } from "@/lib/video-space/outline-manuscript";
 import { VideoOutline } from "./video-outline";
 import { ProjectChat } from "./project-chat";
 import { FindingList } from "./finding-list";
@@ -161,6 +162,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const left = useRef(null),
     deskReturn = useRef(null);
   const w = useWriting({ space, live, update, api, versions });
+  const [bodyFocus, setBodyFocus] = useState(null);
+  const [outlineError, setOutlineError] = useState("");
   const requiresPurpose = !space.interview && !w.draft.outline && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
   const choosing = changePurpose || requiresPurpose;
   const index = useMemo(
@@ -983,7 +986,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
         <section
           className="pane paper"
           aria-label={
-            projectQuestion ? t("questionResearch") : t(w.draft.outline ? "videoOutline" : "currentDraft")
+            projectQuestion ? t("questionResearch") : t(w.draft.outline && !w.draft.text ? "videoOutline" : "currentDraft")
           }
         >
           {projectQuestion ? (
@@ -1024,26 +1027,39 @@ export function IntentDesk({ name, projectId, store, initial }) {
               />
               {w.error && <p role="alert">{w.error}</p>}
             </>
-          ) : w.draft.outline ? (
-            <VideoOutline draft={w.draft} questions={projectQuestions}
-              rename={(section, heading) => update(s => ({
-                ...s, drafts: s.drafts.map(d => {
-                  if (d.id !== w.draft.id) return d;
-                  const version = crypto.randomUUID();
-                  if (section === undefined) return { ...d, version, title: heading };
-                  return { ...d, version, outline: { ...d.outline, sections: d.outline.sections.map(
-                    (entry, i) => i === section ? { ...entry, heading } : entry) } };
-                }),
-              }))}
-              busy={Boolean(interview.busy || space.interview || pending)}
-              writing={writingOutline} pending={pending} error={interview.error}
-              open={q => {
-                openQuestion(q);
-                if (!q.versionId && !q.gap && canStartQuestionResearch) void startResearch(q);
-              }}
-              write={section => interview.writeOutline(w.draft, section)} />
-          ) : (
+          ) : (<>
+            {(w.draft.outline || w.draft.id.startsWith("video/") || !w.draft.text && choosing) &&
+              <VideoOutline key={w.draft.id} draft={w.draft} questions={projectQuestions} flush={flush} status={status}
+                save={form => {
+                  const d = live.current.drafts.find(d => d.id === w.draft.id);
+                  if (!d || d.version !== form.version) return "interviewChanged";
+                  const sections = form.sections.map(s => ({...s, heading:s.heading.trim(), note:s.note.trim()}));
+                  const next = reviseOutline(d, sections, form.angle.trim(), form.interviewId);
+                  next.outline.removed = form.removed;
+                  if (next.outline.removed.length > 300) return "capacity";
+                  const ok = update(s => ({ ...s, purpose: s.purpose ?? "video", drafts: s.drafts.map(item =>
+                    item.id === d.id ? {...next, title:form.title.trim(), defaultTitle:null} : item) }));
+                  if (ok) {setChoosing(false);setOutlineError("")}
+                  return ok ? null : "capacity";
+                }}
+                busy={Boolean(interview.busy || space.interview || pending || w.busy)}
+                writing={writingOutline} pending={pending} error={outlineError || interview.error}
+                open={q => {
+                  openQuestion(q);
+                  if (!q.versionId && !q.gap && canStartQuestionResearch) void startResearch(q);
+                }}
+                write={section => interview.writeOutline(w.draft, section)}
+                jump={offset => {setView("rich");setBodyFocus({draft:w.draft.id,offset})}}
+                startSection={index => {
+                  try {
+                    const current = live.current.drafts.find(d => d.id === w.draft.id);
+                    const next = writeOutlineBody(current, index);
+                    if (!update(s => ({...s,drafts:s.drafts.map(d => d.id===next.id ? next : d)}))) throw Error("capacity");
+                    setView("rich");setBodyFocus({draft:next.id,offset:next.outline.sections[index].bodyStart+3+next.outline.sections[index].heading.length+1});
+                  } catch(e) {setOutlineError(tr.has(e.message)?tr(e.message):e.message)}
+                }} />}
             <Document
+              bodyFocus={bodyFocus?.draft===w.draft.id ? bodyFocus : null}
               w={w}
               status={status}
               flush={flush}
@@ -1065,7 +1081,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                 interview.ask(t("angle", { angle: heading }) + "\n" + body.slice(0, 4000), { format: "research" })
               }
             />
-          )}
+          </>)}
         </section>
         {!inRoom && (
           <aside className="pane chat">

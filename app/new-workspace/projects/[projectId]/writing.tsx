@@ -65,7 +65,7 @@ export function useWriting({
       ...s,
       drafts: s.drafts.map((old, i) => {
         if (old.id !== draft.id) return old;
-        if (title.trim()) return { ...old, title, defaultTitle: null };
+        if (title.trim()) return { ...old, title, defaultTitle: null, ...(old.outline && old.title !== title ? { version: crypto.randomUUID() } : {}) };
         if (old.id === "opening")
           return { ...old, title: "Opening script", defaultTitle: "opening" };
         return { ...old, ...numberedTitle(i + 1) };

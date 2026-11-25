@@ -11,6 +11,10 @@ const scenarios = [
     opening: "我要做一期给普通上班族看的科普视频，主问题是睡前六小时喝含咖啡因的饮料，对当晚总睡眠时间有什么影响？从成人随机对照研究的实验设计和结果讲起，再说明研究的局限。",
   },
   {
+    id: "seed-oil", name: "种子油",
+    opening: "给平常做饭的人做一期视频。只讨论家用玉米油换黄油是否更护心。先给三节大纲，比较明尼苏达试验中随机分组的结果和胆固醇变化的观察性分析，再谈结论对家庭用油的适用范围。不要凭空写数字。",
+  },
+  {
     id: "unclear", name: "咖啡",
     opening: "想做一个跟咖啡有关的 YouTube 视频，角度和观众我都还没想好。",
     answer: "给经常下午喝咖啡的上班族看。想查清摄入咖啡因的时间怎样影响当晚睡眠，只讲成人对照实验的结果和局限。",
@@ -87,9 +91,25 @@ for (const scenario of scenarios) {
         heading: s.heading, questions: s.questionIds.map(id => planned.questions!.find(q => q.id === id)!.title),
       })) };
       await outline.screenshot({ path: evidencePath + "-outline.png" });
+      if (scenario.id === "seed-oil") {
+        await outline.getByRole("button", {name:"编辑大纲"}).click();
+        const editor = outline.locator("form");
+        await editor.getByLabel("本节要点").first().fill("用随机分组和观察性分析的比较对象解释数字。");
+        await editor.getByRole("button", {name:"添加章节"}).click();
+        await editor.getByLabel("段落标题").last().fill("核对家庭用油的适用范围");
+        await editor.getByRole("button", {name:"上移"}).last().click();
+        await editor.getByRole("button", {name:"保存大纲"}).click();
+        await expect.poll(async () => (await read()).drafts.find(d => d.id === plan.id)?.outline?.sections.at(-2)?.heading)
+          .toBe("核对家庭用油的适用范围");
+        await page.reload();
+        await expect(outline).toContainText("用随机分组和观察性分析的比较对象解释数字。");
+        await page.screenshot({path:evidencePath+"-manual-edit.png"});
+      }
+      const savedOutline = (await read()).drafts.find(d => d.id === plan.id)!.outline!;
       const investigations = [];
       let selectedSection = 0;
-      for (const [index, section] of plan.outline!.sections.slice(0, 3).entries()) {
+      for (const [index, section] of savedOutline.sections.slice(0, 3).entries()) {
+        if (!section.questionIds.length) continue;
         const q = planned.questions!.find(q => q.id === section.questionIds[0])!;
         const button = outline.locator(".outline-section").nth(index).getByRole("button").filter({ hasText: q.title }).first();
         const [research] = await Promise.all([
@@ -128,11 +148,11 @@ for (const scenario of scenarios) {
       report.writingRequestsBeforeClick = [...writeCalls()];
       expect(report.manuscriptsBeforeClick).toBe(0);
       expect(writeCalls()).toEqual([]);
-      const sectionOnly = Boolean(scenario.answer);
+      const sectionOnly = Boolean(scenario.answer) || scenario.id === "seed-oil";
       const write = sectionOnly ? outline.locator(".outline-section").nth(selectedSection).getByRole("button", { name: "写这一段" })
         : outline.getByRole("button", { name: "写脚本初稿" });
       // Reopen the same question the author just researched while the real draft request runs.
-      const q = planned.questions!.find(q => q.id === plan.outline!.sections[selectedSection].questionIds[0])!;
+      const q = planned.questions!.find(q => q.id === savedOutline.sections[selectedSection].questionIds[0])!;
       const [draft] = await Promise.all([waitForAction("draftOutline"), (async () => {
         await write.click();
         if (!sectionOnly) {
@@ -152,10 +172,9 @@ for (const scenario of scenarios) {
         await page.getByRole("region", { name: "问题研究" }).screenshot({ path: evidencePath + "-question-after-drafting.png" });
         await page.getByRole("button", { name: "返回大纲" }).click();
         await expect(outline.getByLabel("大纲标题")).toHaveValue(plan.title);
-        await page.getByRole("button", { name: "文稿", exact: true }).click();
-        await page.getByRole("navigation", { name: "文稿列表" }).getByRole("button", { name: manuscript.title, exact: true }).last().click();
+
       }
-      await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue(manuscript.title);
+      await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue(plan.title);
       await expect.poll(async () => {
         const current = await read();
         return current.drafts.find(d => d.id === current.activeDraft)?.text;
@@ -164,6 +183,21 @@ for (const scenario of scenarios) {
       const script = saved.drafts.find(d => d.id === saved.activeDraft)!;
       expect(script.text).toContain(manuscript.lead);
       expect(saved.drafts.find(d => d.id === plan.id)?.outline).toBeDefined();
+      expect(script.id).toBe(plan.id);
+      if (scenario.id === "seed-oil") {
+        await outline.getByRole("button", {name:"编辑大纲"}).click();
+        await outline.getByRole("button", {name:"移除",exact:true}).nth(selectedSection).click();
+        await outline.getByRole("button", {name:"保存大纲"}).click();
+        await expect.poll(async () => (await read()).drafts.find(d => d.id===plan.id)?.outline?.removed?.length).toBe(1);
+        await page.reload();
+        await expect(outline).toContainText("已移出大纲");
+        expect((await read()).drafts.find(d => d.id===plan.id)?.text).toBe(script.text);
+        await outline.getByRole("button", {name:"编辑大纲"}).click();
+        await outline.getByRole("button", {name:"放回大纲"}).click();
+        await outline.getByRole("button", {name:"保存大纲"}).click();
+        await expect.poll(async () => (await read()).drafts.find(d => d.id===plan.id)?.outline?.removed?.length ?? 0).toBe(0);
+        report.manualEdit = {reloaded:true, removedAndRestored:true, manuscriptPreserved:true};
+      }
       expect(writeCalls()).toEqual(["draftOutline"]);
       report.script = { title: script.title, characters: script.text.length, citations: script.markers.length,
         sectionOnly, preview: script.text.slice(0, 180) };

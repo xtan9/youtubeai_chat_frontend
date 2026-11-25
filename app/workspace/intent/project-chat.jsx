@@ -56,7 +56,7 @@ export function ProjectChat({
         },
       ];
   const planning = space.interview;
-  const outline = w.draft.outline;
+  const outline = !w.draft.text.trim() ? w.draft.outline : undefined;
   const composing = choosing || Boolean(planning) || Boolean(outline);
   const busy = Boolean(interview.busy || w.busy);
   const awaitingDraft = interview.busy === "starter" && Boolean(planning);

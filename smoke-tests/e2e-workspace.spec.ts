@@ -5732,7 +5732,7 @@ for (const clear of [true, false]) {
       written++;
       if (clear) await draftGate.promise;
       return route.fulfill({ json: { format: "video", title: "读懂标签", lead: "从瓶身读起。",
-        sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }], reply: "写好了。",
+        sections: [{ heading: "原料", body: "原文列出了葵花籽油。" }, ...(clear ? [{heading:"背标", body:"观察标签。"}, {heading:"名称",body:"追溯名称。"}] : [])], reply: "写好了。",
         markers: [{start: "从瓶身读起。\n\n## 原料\n".length, text: "原文列出了葵花籽油。", finding: findingId}] } });
     });
     const source = "The bottle lists sunflower seed oil.";
@@ -5773,8 +5773,17 @@ for (const clear of [true, false]) {
     }
     const first = outline.locator(".outline-section").first();
     await expect(first.getByLabel("段落标题")).toHaveValue("读瓶身");
-    await first.getByLabel("段落标题").fill("从实物标签开始");
-    await first.getByLabel("段落标题").press("Enter");
+    await outline.getByRole("button", { name: "编辑大纲", exact: true }).click();
+    const edit = outline.locator("form");
+    await edit.getByLabel("段落标题").first().fill("从实物标签开始");
+    await edit.getByLabel("本节要点").first().fill("逐字比较植物名称");
+    await edit.getByRole("button", { name: "添加章节" }).click();
+    await edit.getByLabel("段落标题").last().fill("核对背标");
+    await edit.getByRole("button", { name: "上移" }).last().click();
+    await edit.getByRole("button", { name: "保存大纲" }).click();
+    await expect.poll(async () => (await read()).drafts.find(d => d.outline)?.outline?.sections.map(s => s.heading))
+      .toEqual(["从实物标签开始", "核对背标", "追溯名称"]);
+    const planId = (await read()).activeDraft;
     await first.getByRole("button", { name: new RegExp(question) }).click();
     if (clear) {
       try {
@@ -5812,14 +5821,14 @@ for (const clear of [true, false]) {
       } finally {
         draftGate.resolve();
       }
-      await expect.poll(async () => (await read()).drafts.some(d => d.title === "读懂标签")).toBe(true);
+      await expect.poll(async () => (await read()).drafts.find(d => d.id === planId)?.text).toContain("原文列出了葵花籽油。");
       await expect(page.locator(".q-sheet h2")).toHaveText(question);
       await page.getByRole("button", { name: "返回大纲" }).click();
       await expect(outline.getByLabel("大纲标题")).toBeVisible();
-      await page.getByRole("button", { name: "文稿", exact: true }).click();
-      await page.getByRole("button", { name: "读懂标签", exact: true }).click();
+
     }
-    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("读懂标签");
+    await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue("两瓶油的标签");
+    expect((await read()).activeDraft).toBe(planId);
     expect(written).toBe(1);
     expect((await read()).drafts.some(d => d.outline)).toBe(true);
     await page.locator(".q-draft-cites button").first().click();

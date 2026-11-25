@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { requestJson } from "@/app/new-workspace/projects/[projectId]/use-space";
 
+import { reviseOutline, writeOutlineBody } from "@/lib/video-space/outline-manuscript";
+
 function keepDraft(draft) {
   return draft.id !== "opening" || draft.text || draft.markers.length || !draft.defaultTitle;
 }
@@ -8,7 +10,9 @@ function keepDraft(draft) {
 // Keep a question's identity and research when a revised outline reuses it.
 function saveVideoOutline(space, interview, result) {
   const questions = [...(space.questions || [])];
-  const sections = result.sections.map(({ heading, questions: titles }) => {
+  const existing = space.drafts.find(d => d.outline?.interviewId === interview.id);
+  const remaining = new Set(existing?.outline.sections || []);
+  const sections = result.sections.map(({ id, heading, note, questions: titles }) => {
     const questionIds = titles.map(({ title, startingPoint }) => {
       let q = questions.find(item => item.title === title);
       if (!q) {
@@ -19,14 +23,14 @@ function saveVideoOutline(space, interview, result) {
       }
       return q.id;
     });
-    return { heading, questionIds: [...new Set(questionIds)] };
+    const old = [...remaining].find(s => id && s.id === id) ??
+      [...remaining].find(s => s.heading === heading);
+    if (old) remaining.delete(old);
+    return { ...old, id: old?.id ?? crypto.randomUUID(), heading, note: note ?? old?.note, questionIds: [...new Set(questionIds)] };
   });
   if (questions.length > 150) throw Error("capacity");
-  const id = "outline/" + interview.id;
-  const outline = {
-    id, title: result.title, text: "", markers: [], version: crypto.randomUUID(),
-    outline: { interviewId: interview.id, angle: result.angle, sections },
-  };
+  const id = existing?.id ?? "outline/" + interview.id;
+  const outline = reviseOutline(existing ?? { id, title: result.title, text: "", markers: [] }, sections, result.angle, interview.id);
   const drafts = space.drafts.filter(keepDraft);
   return { ...space, questions, purpose: "video", interview: undefined,
     drafts: drafts.some(d => d.id === id) ? drafts.map(d => d.id === id ? outline : d) : [...drafts, outline] };
@@ -77,13 +81,14 @@ export function useIntentInterview({
     setError("");
     try {
       const before = live.current;
+      const initialOutline = before.drafts.find(d => d.outline && (d.outline.interviewId === before.interview?.id || d.id === before.activeDraft));
       const writing = action !== "interview";
       const authorTurn = writing || Boolean(prepare);
       const purposePrompt = !before.messages.length && action === "interview" && authorTurn;
       const messagesNeeded = 1 + Number(authorTurn) + Number(purposePrompt);
       if (
         before.messages.length + messagesNeeded > 2000 ||
-        (writing && before.drafts.filter(keepDraft).length >= 50)
+        (writing && !outlineRequest && before.drafts.filter(keepDraft).length >= 50)
       )
         throw Error("capacity");
       if (prepare && !prepare()) throw Error("capacity");
@@ -109,12 +114,14 @@ export function useIntentInterview({
         interviewId: interview?.id,
       });
       if (action === "interview" && result.stage === "outline") {
+        const previous = live.current.drafts.find(d => d.outline?.interviewId === interview.id);
+        if (previous && previous.version !== initialOutline?.version) throw Error("interviewChanged");
         const accepted = update(s => ({
           ...saveVideoOutline(s, interview, result),
           messages: [...s.messages, message("assistant", t("outlineReady"))],
         }));
         if (!accepted) throw Error("capacity");
-        if (stillHere) onDraft("outline/" + interview.id);
+        if (stillHere) onDraft(previous?.id ?? "outline/" + interview.id);
         if (!(await flush())) throw Error("retrySave");
       } else if (action === "interview") {
         const brief = result.stage === "review" ? result.brief : undefined;
@@ -141,7 +148,7 @@ export function useIntentInterview({
             setError(tr("retrySave"));
         });
       } else {
-        const id = result.format + "/" + (outlineRequest ? crypto.randomUUID() : interview.id);
+        const id = outlineRequest?.outlineId ?? result.format + "/" + interview.id;
         const draft = {
           id,
           title: result.title,
@@ -157,7 +164,9 @@ export function useIntentInterview({
           ...s,
           interview: undefined,
           purpose: result.format,
-          drafts: [...s.drafts.filter(keepDraft), draft],
+          drafts: outlineRequest
+            ? s.drafts.map(d => d.id === id ? writeOutlineBody(d, outlineRequest.section, result) : d)
+            : [...s.drafts.filter(keepDraft), draft],
           messages: [
             ...s.messages,
             message("user", t(outlineRequest ? (outlineRequest.section === undefined ? "writeVideoScript" : "writeOutlineSection") : "confirmAndDraft")),

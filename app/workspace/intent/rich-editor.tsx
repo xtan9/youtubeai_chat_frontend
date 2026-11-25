@@ -12,9 +12,9 @@ import "quill/dist/quill.core.css";
 import "./rich-editor.css";
 
 type Writer = ReturnType<typeof useWriting>;
-type Props = { w: Writer; flush: () => void; status: string; openWriter: () => void; children: ReactNode };
+type Props = { bodyFocus?: { offset:number } | null; w: Writer; flush: () => void; status: string; openWriter: () => void; children: ReactNode };
 
-export default function RichEditor({ w, flush, status, openWriter, children }: Props) {
+export default function RichEditor({ w, bodyFocus, flush, status, openWriter, children }: Props) {
   const t = useTranslations("richEditor"), ui = useTranslations("ui"), intent = useTranslations("intent");
   const canvas = useRef<HTMLDivElement>(null);
   const editor = useRef<Quill | null>(null);
@@ -99,6 +99,14 @@ export default function RichEditor({ w, flush, status, openWriter, children }: P
     q.history.clear();
     setFormats({});
   }, [w.draft]);
+
+  useLayoutEffect(() => {
+    if (!bodyFocus || !editor.current || !model.current) return;
+    const index = model.current.editorIndex(Math.min(bodyFocus.offset, model.current.text.length));
+    editor.current.setSelection(index, 0, "silent");
+    editor.current.focus({preventScroll:true});
+    editor.current.scrollSelectionIntoView();
+  }, [bodyFocus]);
 
   function format(name: string, value: string | number | boolean) {
     const q = editor.current;

@@ -59,7 +59,11 @@ const marker = z.object({
   finding: z.uuid().optional(),
   material: materialCitation.optional(),
 }).refine(m => Boolean(m.finding) !== Boolean(m.material));
+export const maxOutlineSections = 24;
 const outlineSection = z.object({
+  id: z.uuid().optional(),
+  note: z.string().max(600).optional(),
+  bodyStart: z.number().int().min(0).max(80000).optional(),
   heading: z.string().trim().min(1).max(140),
   questionIds: z.array(z.uuid()).max(3),
 });
@@ -88,7 +92,8 @@ const draft = z.object({
   outline: z.object({
     interviewId: z.uuid(),
     angle: z.string().max(280).optional(),
-    sections: z.array(outlineSection).min(1).max(6),
+    sections: z.array(outlineSection).max(maxOutlineSections),
+    removed: z.array(outlineSection).max(300).optional(),
   }).optional(),
   id,
   version: z.uuid().optional(),
@@ -261,5 +266,16 @@ export function replaceDraftRange(draft: Draft, text: string, start: number, old
       ...(stop > right ? [{ ...r, start: right + end - oldEnd, length: stop - right }] : []),
     ];
   });
-  return { ...draft, text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
+  const moveAnchor = (section: z.infer<typeof outlineSection>) => {
+    const pos = section.bodyStart;
+    if (pos === undefined) return section;
+    if (!text.trim()) return { ...section, bodyStart: undefined };
+    if (pos < start) return section;
+    if (pos >= oldEnd) return { ...section, bodyStart: pos + end - oldEnd };
+    // Replacement through an anchor leaves it at the start of the replacement.
+    return { ...section, bodyStart: start };
+  };
+  const outline = draft.outline;
+  return { ...draft, ...(outline && { outline: { ...outline, sections: outline.sections.map(moveAnchor),
+    removed: outline.removed?.map(moveAnchor) } }), text, markers, formatting: ranges?.length ? ranges : undefined, version: crypto.randomUUID() };
 }
