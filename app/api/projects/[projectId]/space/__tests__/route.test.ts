@@ -159,12 +159,14 @@ it("generates only from the current saved brief after an explicit confirmation",
   expect(m.starter).not.toHaveBeenCalled();
   expect((await POST(req(confirm), context)).status).toBe(409);
   space.interview.confirmed = true;
+  expect((await POST(req(confirm), context)).status).toBe(409);
+  space.interview.format = "blog";
   m.sourceSet.mockResolvedValue({ kind: "resolved", value: { videos: [] } });
   m.versions.mockResolvedValue([]);
   m.starter.mockResolvedValue({ title: "Reading an oil label" });
   expect((await POST(req({ ...confirm, brief: "An unrelated client-supplied brief" }), context)).status).toBe(200);
   expect(m.starter).toHaveBeenCalledWith(
-    expect.objectContaining({ format: "video", turns: expect.arrayContaining([
+    expect.objectContaining({ format: "blog", turns: expect.arrayContaining([
       { role: "user", text: "Compare the plant names, without health claims." },
     ]) }), space.interview.brief, "en", expect.anything(),
   );
@@ -185,4 +187,28 @@ it("offers choices for the current saved question without starting another inter
   expect((await POST(req(body), context)).status).toBe(409);
   expect(m.replies).toHaveBeenCalledTimes(1);
   expect(m.starter).not.toHaveBeenCalled();
+});
+
+it("writes only the selected saved outline section using current question titles and rejects stale versions", async () => {
+  const space = emptySpace(), version = crypto.randomUUID(), q = crypto.randomUUID();
+  space.questions = [{ id: q, title: "Where is the original map?" }];
+  space.drafts = [{ id: "outline/" + id, title: "History of the railway", text: "", markers: [], version,
+    outline: { interviewId: id, sections: [
+      { heading: "Origin", questionIds: [q] }, { heading: "Today", questionIds: [] },
+    ] } }];
+  m.from.mockReturnValue({ select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+    maybeSingle: async () => ({ data: { document: space } }) });
+  m.sourceSet.mockResolvedValue({ kind: "resolved", value: { videos: [] } });
+  m.versions.mockResolvedValue([]);
+  const body = { action: "draftOutline", locale: "en", outlineId: space.drafts[0].id, version, section: 0 };
+  expect((await POST(req({ ...body, version: crypto.randomUUID() }), context)).status).toBe(409);
+  expect((await POST(req({ ...body, section: 2 }), context)).status).toBe(409);
+  expect(m.starter).not.toHaveBeenCalled();
+  m.starter.mockResolvedValue({ title: "Origin" });
+  expect((await POST(req(body), context)).status).toBe(200);
+  expect(m.versions).toHaveBeenCalledWith(expect.anything(), id, undefined, space.questions[0]);
+  expect(m.starter).toHaveBeenCalledWith(expect.objectContaining({
+    format: "video", questions: ["Where is the original map?"],
+    outline: { title: "History of the railway", sections: [{ heading: "Origin", questions: [{ title: "Where is the original map?" }] }] },
+  }), "History of the railway", "en", expect.anything(), true);
 });

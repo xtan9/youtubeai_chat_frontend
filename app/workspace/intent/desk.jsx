@@ -33,6 +33,7 @@ import {
 import { Document, paragraphRanges } from "./document";
 import { InkIcon } from "./ink-icon";
 import { useIntentInterview } from "./use-intent-interview";
+import { VideoOutline } from "./video-outline";
 import { ProjectChat } from "./project-chat";
 import { FindingList } from "./finding-list";
 import {
@@ -76,7 +77,21 @@ export function IntentDesk({ name, projectId, store, initial }) {
     return { ...q, versionId: version?.id };
   });
   function setProjectQuestions(change) {
-    return update((s) => ({ ...s, questions: change(s.questions || []) }));
+    return update(s => {
+      const previous = s.questions || [];
+      const questions = change(previous);
+      const current = new Map(questions.map(q => [q.id, q]));
+      const changed = new Set(previous.filter(q => current.get(q.id) !== q).map(q => q.id));
+      // A script in flight must still match the questions and findings the author sees.
+      const drafts = s.drafts.map(d => {
+        if (!d.outline?.sections.some(section => section.questionIds.some(id => changed.has(id)))) return d;
+        const sections = d.outline.sections.map(section => ({
+          ...section, questionIds: section.questionIds.filter(id => current.has(id)),
+        }));
+        return { ...d, version: crypto.randomUUID(), outline: { ...d.outline, sections } };
+      });
+      return { ...s, questions, drafts };
+    });
   }
   const libraryTitle = t("questionsAndSources");
   const returnMarker = useRef(null);
@@ -146,7 +161,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const left = useRef(null),
     deskReturn = useRef(null);
   const w = useWriting({ space, live, update, api, versions });
-  const requiresPurpose = !space.interview && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
+  const requiresPurpose = !space.interview && !w.draft.outline && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
   const choosing = changePurpose || requiresPurpose;
   const index = useMemo(
     () =>
@@ -257,7 +272,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       id
         ? items.map((q) =>
             q.id === id && q.title !== title
-              ? { ...q, title, revision: crypto.randomUUID(), gap: undefined }
+              ? { ...q, title, revision: crypto.randomUUID(), gap: undefined, startingPoint: undefined }
               : q,
           )
         : [...items, { id: key, title }],
@@ -968,7 +983,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
         <section
           className="pane paper"
           aria-label={
-            projectQuestion ? t("questionResearch") : t("currentDraft")
+            projectQuestion ? t("questionResearch") : t(w.draft.outline ? "videoOutline" : "currentDraft")
           }
         >
           {projectQuestion ? (
@@ -1008,6 +1023,24 @@ export function IntentDesk({ name, projectId, store, initial }) {
               />
               {w.error && <p role="alert">{w.error}</p>}
             </>
+          ) : w.draft.outline ? (
+            <VideoOutline draft={w.draft} questions={projectQuestions}
+              rename={(section, heading) => update(s => ({
+                ...s, drafts: s.drafts.map(d => {
+                  if (d.id !== w.draft.id) return d;
+                  const version = crypto.randomUUID();
+                  if (section === undefined) return { ...d, version, title: heading };
+                  return { ...d, version, outline: { ...d.outline, sections: d.outline.sections.map(
+                    (entry, i) => i === section ? { ...entry, heading } : entry) } };
+                }),
+              }))}
+              busy={Boolean(interview.busy || space.interview || pending)}
+              writing={interview.busy === "draftOutline"} error={interview.error}
+              open={q => {
+                openQuestion(q);
+                if (!q.versionId && !q.gap && initial.history !== null) void startResearch(q);
+              }}
+              write={section => interview.writeOutline(w.draft, section)} />
           ) : (
             <Document
               w={w}

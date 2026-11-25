@@ -49,12 +49,26 @@ export const passageSchema = z.object({
   start: z.number().int().nonnegative(),
   text: z.string().max(80000),
 });
+export const materialCitation = z.object({
+  id, title: z.string().min(1).max(1000), location: z.string().max(140),
+  quote: z.string().min(1).max(500), url: publicLink.optional(),
+});
 const marker = z.object({
   start: z.number().int().nonnegative(),
   text: z.string().max(12000),
-  finding: z.uuid(),
+  finding: z.uuid().optional(),
+  material: materialCitation.optional(),
+}).refine(m => Boolean(m.finding) !== Boolean(m.material));
+const outlineSection = z.object({
+  heading: z.string().trim().min(1).max(140),
+  questionIds: z.array(z.uuid()).max(3),
 });
 const draft = z.object({
+  outline: z.object({
+    interviewId: z.uuid(),
+    angle: z.string().max(280).optional(),
+    sections: z.array(outlineSection).min(1).max(6),
+  }).optional(),
   id,
   version: z.uuid().optional(),
   // null records an author-entered title, even when it matches a legacy UI label.
@@ -103,6 +117,7 @@ export const questionSchema = z.object({
   id: z.uuid(),
   revision: z.uuid().optional(),
   title: z.string().trim().min(3).max(500),
+  startingPoint: z.string().max(240).optional(),
   hypothesis: z.string().max(1000).optional(),
   gap: z.string().max(1000).optional(),
 });

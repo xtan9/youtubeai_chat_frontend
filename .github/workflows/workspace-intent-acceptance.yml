@@ -8,6 +8,7 @@ on:
         options:
           - research-and-writing
           - manual-drafting
+          - video-outline
         default: research-and-writing
 permissions:
   contents: read
@@ -54,7 +55,7 @@ jobs:
       - name: Walk the deployed project journey
         run: pnpm exec playwright test "$SPEC" --config playwright.production.config.ts --workers=1 --retries=0 --reporter=list
         env:
-          SPEC: ${{ inputs.journey == 'manual-drafting' && 'smoke-tests/e2e-manual-drafting-production.spec.ts' || 'smoke-tests/e2e-workspace-intent-production.spec.ts' }}
+          SPEC: ${{ inputs.journey == 'video-outline' && 'smoke-tests/e2e-video-outline-production.spec.ts' || inputs.journey == 'manual-drafting' && 'smoke-tests/e2e-manual-drafting-production.spec.ts' || 'smoke-tests/e2e-workspace-intent-production.spec.ts' }}
           BASE_URL: https://www.youtubeai.chat
           RUN_WORKSPACE_INTENT_LIVE: '1'
           TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
