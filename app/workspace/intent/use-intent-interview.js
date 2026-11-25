@@ -19,6 +19,29 @@ export function useIntentInterview({
   const lock = useRef(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [loadingReplies, setLoadingReplies] = useState("");
+
+  async function loadQuickReplies() {
+    const turnId = live.current.interview?.turnId;
+    if (!turnId || loadingReplies === turnId) return;
+    setLoadingReplies(turnId);
+    setError("");
+    try {
+      if (!(await flush())) throw Error("retrySave");
+      if (live.current.interview?.turnId !== turnId) return;
+      const { quickReplies } = await requestJson(api + "/space", "POST", {
+        action: "quickReplies", locale, turnId,
+      });
+      if (live.current.interview?.turnId === turnId) {
+        if (!update(s => ({ ...s, interview: { ...s.interview, quickReplies } }))) throw Error("capacity");
+      }
+    } catch (e) {
+      if (live.current.interview?.turnId === turnId)
+        setError(tr.has(e.message) ? tr(e.message) : e.message);
+    } finally {
+      setLoadingReplies(current => current === turnId ? "" : current);
+    }
+  }
 
   async function run(action, prepare) {
     if (lock.current) return;
@@ -59,6 +82,7 @@ export function useIntentInterview({
             format: result.format,
             pending: false,
             notes: brief || result.notes,
+            quickReplies: result.quickReplies,
             brief,
           },
           messages: [
@@ -139,6 +163,8 @@ export function useIntentInterview({
   }
   return {
     ask,
+    loadQuickReplies,
+    loadingReplies,
     busy,
     error,
     returnToDraft() {

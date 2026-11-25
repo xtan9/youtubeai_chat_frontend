@@ -22,6 +22,8 @@ import {
   writerRequest,
   starterRequest,
   interviewRequest,
+  quickRepliesRequest,
+  suggestQuickReplies,
   interviewContext,
   interviewAuthor,
   createStarter,
@@ -102,6 +104,7 @@ const action = z.discriminatedUnion("action", [
   writerRequest,
   starterRequest,
   interviewRequest,
+  quickRepliesRequest,
   discussionRequest,
   z.object({ action: z.literal("web"), url: publicLink }),
   z.object({ action: z.literal("video"), videoId: z.uuid() }),
@@ -124,13 +127,20 @@ export async function POST(request: Request, context: Context) {
     }
     const limit = await checkRateLimit(auth.subject.ownerId, false);
     if (!limit.allowed) return fail(429, "请求过于频繁，请稍后重试。");
-    if (body.action === "starter" || body.action === "interview") {
+    if (body.action === "starter" || body.action === "interview" || body.action === "quickReplies") {
       const row = await auth.client.from("video_spaces").select("document")
         .eq("project_id", auth.projectId).maybeSingle();
       if (row.error) return fail(503, "无法读取已保存的脚本，请重试。");
       const space = spaceSchema.parse(row.data?.document ?? emptySpace());
       const interview = space.interview;
       if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
+      if (body.action === "quickReplies") {
+        const last = space.messages.findLast(m => m.interviewId === interview.id);
+        if (interview.pending || interview.brief || last?.role !== "assistant") return fail(409, "interviewChanged");
+        return Response.json(interview.quickReplies !== undefined
+          ? { quickReplies: interview.quickReplies }
+          : await suggestQuickReplies(last.text, body.locale, request.signal));
+      }
       if (body.action === "starter" && (!interview.confirmed || interview.pending || !interview.brief || !interview.format))
         return fail(409, "reviewBriefFirst");
       if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
