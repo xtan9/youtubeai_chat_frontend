@@ -692,7 +692,7 @@ function Desk({
                 className="vs-jump-script"
                 onClick={() =>
                   document
-                    .querySelector<HTMLTextAreaElement>(".vs-script textarea")
+                    .querySelector<HTMLTextAreaElement>(".vs-script .vs-manuscript textarea")
                     ?.focus()
                 }
               >
