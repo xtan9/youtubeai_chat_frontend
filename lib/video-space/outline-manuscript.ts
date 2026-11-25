@@ -37,6 +37,7 @@ function orderWrittenSections(draft: Draft, outline: Outline): Draft {
   const physical = [...ordered].sort((a, b) => a.bodyStart! - b.bodyStart!);
   if (physical.every((s, i) => s === ordered[i])) return { ...draft, outline };
 
+  const sourceText = draft.text + "\n";
   const slices: Slice[] = [];
   let length = 0;
   function take(start: number, end: number) {
@@ -47,8 +48,11 @@ function orderWrittenSections(draft: Draft, outline: Outline): Draft {
   const blocks = new Map(
     physical.map((beat, i) => {
       const start = beat.bodyStart!,
-        end = physical[i + 1]?.bodyStart ?? draft.text.length;
-      const separator = draft.text.slice(start, end).match(/\n*$/)![0].length;
+        end = physical[i + 1]?.bodyStart ?? sourceText.length;
+      // The first terminating newline carries the last paragraph's Quill attributes.
+      // Only the extra blank lines separate sections.
+      const trailing = sourceText.slice(start, end).match(/\n*$/)![0].length;
+      const separator = Math.max(0, trailing - 1);
       return [beat, { start, contentEnd: end - separator, end }];
     }),
   );
@@ -61,9 +65,11 @@ function orderWrittenSections(draft: Draft, outline: Outline): Draft {
     take(source.start, source.contentEnd);
     take(slot.contentEnd, slot.end);
   });
-  // Keep the formatting of the editor's implicit final newline, too.
-  take(draft.text.length, draft.text.length + 1);
-  const text = slices.map((s) => draft.text.slice(s.start, s.end)).join("");
+  const reordered = slices
+    .map((s) => sourceText.slice(s.start, s.end))
+    .join("");
+  const text = reordered.endsWith("\n") ? reordered.slice(0, -1) : reordered;
+  if (text.length > 80000) throw Error("capacity");
   const formatting = slices.flatMap((s) =>
     (draft.formatting ?? []).flatMap((r) => {
       const start = Math.max(s.start, r.start),
@@ -128,6 +134,7 @@ export function writeOutlineBody(
       : (outline.sections
           .slice(section + 1)
           .find((s) => s.bodyStart !== undefined)?.bodyStart ??
+        outline.removed?.find((s) => s.bodyStart !== undefined)?.bodyStart ??
         draft.text.length);
   const before = draft.text.slice(0, start),
     after = draft.text.slice(start);

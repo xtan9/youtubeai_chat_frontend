@@ -73,3 +73,37 @@ it("keeps cited, formatted prose attached through manual outline edits, removal 
   ).toEqual(restored.outline);
   expect(() => writeOutlineBody(restored, 0)).toThrow();
 });
+
+it("moves the last paragraph's newline formatting and inserts new prose before archived prose", () => {
+  const a = {
+    id: crypto.randomUUID(),
+    heading: "A",
+    questionIds: [],
+    bodyStart: 0,
+  };
+  const b = {
+    id: crypto.randomUUID(),
+    heading: "B",
+    questionIds: [],
+    bodyStart: 7,
+  };
+  const interviewId = crypto.randomUUID();
+  const draft: Draft = {
+    id: "video",
+    title: "A and B",
+    text: "Quote\n\nPlain",
+    markers: [],
+    formatting: [{ start: 5, length: 1, attributes: { blockquote: true } }],
+    outline: { interviewId, sections: [a, b] },
+  };
+  const moved = reviseOutline(draft, [b, a], "", interviewId);
+  expect(moved.text).toBe("Plain\n\nQuote");
+  expect(moved.formatting).toEqual([
+    { start: 12, length: 1, attributes: { blockquote: true } },
+  ]);
+  const next = { id: crypto.randomUUID(), heading: "C", questionIds: [] };
+  const archived = reviseOutline(draft, [next], "", interviewId);
+  const written = writeOutlineBody(archived, 0);
+  expect(written.text).toBe("## C\n\n\nQuote\n\nPlain");
+  expect(written.outline?.removed?.[0].bodyStart).toBe(7);
+});
