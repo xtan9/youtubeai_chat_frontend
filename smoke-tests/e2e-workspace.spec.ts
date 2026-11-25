@@ -5248,7 +5248,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   });
 }
 
-test("authors can title and structure a blank draft without the assistant @projects-ga-critical", async ({ context, page }) => {
+test("authors can title and structure a blank draft without the assistant @projects-ga-critical", async ({ context, page }, info) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
   const id = await createGroundedFixtureProject(context, "手写文稿", { sourceCount: 0 });
@@ -5259,9 +5259,14 @@ test("authors can title and structure a blank draft without the assistant @proje
       assistantRequests.push(request.postDataJSON().action);
     }
   });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(appUrl + "/workspace/projects/" + id);
+  const editorTab = page.getByRole("button", { name: "编辑区", exact: true });
+  await expect(editorTab).toBeVisible({ timeout: 90000 });
+  await editorTab.click();
   const title = page.getByRole("textbox", { name: "文稿标题", exact: true });
   await expect(title).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
   await title.fill("手写的标题");
   await page.getByRole("textbox", { name: "文稿导语" }).fill("从这里写起。");
   const add = page.getByRole("button", { name: "添加小节" });
@@ -5270,6 +5275,7 @@ test("authors can title and structure a blank draft without the assistant @proje
   await expect(heading).toBeFocused();
   await heading.fill("第一个问题");
   await page.getByRole("textbox", { name: "正文 · 第一个问题" }).fill("这是我自己的段落。");
+  await page.getByRole("region", { name: "当前文稿" }).screenshot({ path: info.outputPath("manual-editor.png") });
   await page.getByRole("button", { name: "全文编辑" }).click();
   const text = "从这里写起。\n\n## 第一个问题\n这是我自己的段落。";
   await expect(page.getByRole("textbox", { name: "脚本正文" })).toHaveValue(text);
@@ -5306,6 +5312,7 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   const projectId = await createGroundedFixtureProject(context, "Seed oil，争议在哪里？", {sourceCount: 2});
   const legacy = await context.request.put(appUrl + "/api/projects/" + projectId + "/space", {
     data: {revision: 0, document: {
+      activeDraft: "custom",
       drafts: [
         {id: "opening", title: "开场脚本", text: "", markers: []},
         {id: "second", title: "脚本 2", text: "", markers: []},
@@ -5317,8 +5324,13 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   expect(legacy.ok()).toBeTruthy();
   await page.goto(appUrl + "/workspace");
   await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
-  await expect(page).toHaveURL(appUrl+"/workspace/projects/"+projectId);
+  await page.waitForURL(appUrl+"/workspace/projects/"+projectId);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "Draft title" })).toHaveValue("我的手写标题", { timeout: 90000 });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button",{name:"Full text editor"}).click();
+  await page.getByRole("combobox", { name: "Current script" }).selectOption("opening");
   for (const [locale, opening, second] of [
     ["en", "Opening script", "Script 2"], ["zh-TW", "開場腳本", "腳本 2"], ["zh", "开场脚本", "脚本 2"],
   ]) {

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { resourceSchema } from "@/lib/video-space/contract";
+import { defaultDraftTitle, resourceSchema } from "@/lib/video-space/contract";
 import { HighlightTranslation } from "@/app/summary/components/highlight-translation";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
 import { SUPPORTED_LANGUAGE_CODES } from "@/lib/constants/languages";
@@ -82,7 +82,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const returnMarker = useRef(null);
   const fresh =
     !space.interview && !space.purpose &&
-    !space.drafts.some((d) => d.text || d.defaultTitle === null);
+    !space.drafts.some((d, i) => d.text || defaultDraftTitle(d, i) === null);
   const [mobile, setMobile] = useState(
     route.claim || route.source !== undefined
       ? "room"

@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl";
 import { useRef, useState, type RefObject } from "react";
 import { BookOpen, Undo2 } from "lucide-react";
 import {
+  defaultDraftTitle,
   editDraft,
   intentFormat,
   type Space,
@@ -44,18 +45,12 @@ export function useWriting({
   const draft = space.drafts.find((d) => d.id === active) ?? space.drafts[0];
   function titleFor(id: string, title: string) {
     const index = space.drafts.findIndex(d => d.id === id);
-    const label = space.drafts[index]?.defaultTitle;
-    if (label === null) return title;
-    // Older saves persisted the UI label as text. Only match the opening ID
-    // or the exact numbered label at its original position.
-    if (label === "opening" || (id === "opening" && title === "开场脚本")) {
-      return tr("openingScript");
-    }
-    if (typeof label === "number") return tr("draftTitle", {n: label});
-    const n = index + 1;
-    if (n > 1 && [`Script ${n}`, `脚本 ${n}`, `腳本 ${n}`].includes(title)) {
-      return tr("draftTitle", {n});
-    }
+    const label = defaultDraftTitle(
+      { id, title, defaultTitle: space.drafts[index]?.defaultTitle },
+      index,
+    );
+    if (label === "opening") return tr("openingScript");
+    if (typeof label === "number") return tr("draftTitle", { n: label });
     return title;
   }
   function changeDraft(id: string) {
