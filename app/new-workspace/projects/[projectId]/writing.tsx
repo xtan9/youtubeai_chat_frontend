@@ -237,6 +237,7 @@ export function Script({
   const tr = useTranslations("ui");
   const editor = useRef<HTMLTextAreaElement>(null);
   const { draft } = w;
+  const [source, setSource] = useState<Draft["markers"][number]>();
   const pieces: React.ReactNode[] = [];
   let prev = 0;
   for (const m of [...draft.markers].sort((a, b) => a.start - b.start)) {
@@ -244,9 +245,9 @@ export function Script({
       draft.text.slice(prev, m.start + m.text.length),
       <button
         className="vs-marker"
-        key={m.start}
+        key={m.start + "/" + (m.finding ?? m.material?.id)}
         aria-label={tr("sourceSentence", {text: m.text})}
-        onClick={() => show(m.finding)}
+        onClick={() => m.finding ? show(m.finding) : setSource(m)}
       >
         <BookOpen size={13} />
       </button>,
@@ -263,6 +264,9 @@ export function Script({
           {tr("undoAiEdit")}
         </button>
       </div>
+      {source?.material && draft.markers.includes(source) && (
+        <blockquote>{source.material.quote} <cite>{source.material.title} · {source.material.location}</cite></blockquote>
+      )}
       <div className="vs-manuscript">
         <div className="vs-mirror">{pieces}</div>
         <textarea

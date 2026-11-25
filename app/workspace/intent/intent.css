@@ -1703,6 +1703,8 @@ body:has(.intent-shell) > :is(header, footer) {
 .intent-shell .video-outline .outline-heading {
   width: 100%;
   min-width: 0;
+  field-sizing: content;
+  resize: none;
   background: transparent;
   border: 0;
   color: inherit;
@@ -1710,6 +1712,7 @@ body:has(.intent-shell) > :is(header, footer) {
   font-weight: 600;
 }
 .intent-shell .video-outline > .outline-heading { font-size: 1.5rem; }
+.intent-shell .outline-next { margin-inline-end: .75rem; }
 .intent-shell .outline-section { margin: 1.5rem 0; }
 .intent-shell .outline-section ul { list-style: none; padding: 0; margin: .5rem 0; }
 .intent-shell .outline-section li button {

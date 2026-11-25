@@ -5572,6 +5572,7 @@ for (const clear of [true, false]) {
     await expect(page.getByRole("button", { name: "确认需求，开始起草" })).toHaveCount(0);
     await expect.poll(async () => (await read()).questions?.length).toBe(2);
     await page.reload();
+    await expect(outline.getByLabel("大纲标题")).toBeVisible();
     await page.screenshot({path: info.outputPath("outline-mobile.png")});
     if (clear) {
       await page.setViewportSize({width: 1440, height: 900});

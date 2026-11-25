@@ -152,7 +152,9 @@ export async function POST(request: Request, context: Context) {
           return fail(409, "reviewBriefFirst");
         if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
       }
-      const sections = outlineDraft?.outline?.sections;
+      const planningOutline = body.action === "interview" && interview?.format === "video"
+        ? space.drafts.find(d => d.outline?.interviewId === interview.id) : undefined;
+      const sections = (outlineDraft ?? planningOutline)?.outline?.sections;
       const selected = body.action === "draftOutline" && body.section !== undefined ? sections?.slice(body.section, body.section + 1) : sections;
       const questionIds = new Set(selected?.flatMap(section => section.questionIds));
       const [versions, sources] = await Promise.all([

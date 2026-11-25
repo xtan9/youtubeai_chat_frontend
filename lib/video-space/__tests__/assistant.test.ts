@@ -159,15 +159,19 @@ it("allows a clear video direction to go straight to an outline and ends clarifi
 it("anchors an outline's verified finding to the exact sentence in the editable script", async () => {
   const space = emptySpace(), id = crypto.randomUUID(), finding = crypto.randomUUID();
   space.interview = { id, turnId: crypto.randomUUID(), pending: false, notes: "", format: "video" };
+  space.resources = [resource];
   const context = interviewContext("The map", space, []);
   context.outline = { title: "The map", angle: "Read the label", sections: [{ heading: "Date", questions: [] }] };
   context.research = [{ id: finding, question: "When?", finding: "1902", limits: [], sources: [{ title: "Map", quote: "Issued in 1902." }] }];
   const sentence = "The map dates to 1902.";
   const answer = {title: "Map", lead: "Look at the map.", sections: [{heading: "Date", body: sentence}], reply: "Ready.",
-    citations: [{finding, text: sentence}]};
+    citations: [{finding, text: sentence}, {materialId: resource.id, text: "Look at the map."}]};
   const delta = (data: unknown) => [{type: "delta", text: JSON.stringify(data)}];
   stream.mockReturnValueOnce(delta({...answer, citations: [{finding: crypto.randomUUID(), text: sentence}]}))
     .mockReturnValueOnce(delta(answer));
   const result = await createStarter(context, "Map", "en", new AbortController().signal, true);
-  expect(result).toMatchObject({markers: [{start: "Look at the map.\n\n## Date\n".length, text: sentence, finding}]});
+  expect(result).toMatchObject({markers: [
+    {start: "Look at the map.\n\n## Date\n".length, text: sentence, finding},
+    {start: 0, material: {id: resource.id, location: "00:00", quote: resource.pages[0].text}},
+  ]});
 });

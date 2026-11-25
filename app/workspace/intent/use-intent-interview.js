@@ -14,7 +14,7 @@ function saveVideoOutline(space, interview, result) {
       if (!q) {
         q = { id: crypto.randomUUID(), title, startingPoint };
         questions.push(q);
-      } else if (!q.startingPoint) {
+      } else if (q.startingPoint !== startingPoint) {
         questions[questions.indexOf(q)] = { ...q, startingPoint };
       }
       return q.id;

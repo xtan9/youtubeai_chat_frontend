@@ -4,7 +4,7 @@ import { ThinkingDots } from "@/components/ui/thinking-dots";
 
 function EditableHeading({ value, label, disabled, save }) {
   return (
-    <input key={value} className="outline-heading" aria-label={label} maxLength={140}
+    <textarea rows={1} key={value} className="outline-heading" aria-label={label} maxLength={140}
       defaultValue={value} disabled={disabled}
       onKeyDown={e => {
         if (e.key === "Enter" && !e.nativeEvent.isComposing) e.currentTarget.blur();
@@ -20,6 +20,8 @@ function EditableHeading({ value, label, disabled, save }) {
 export function VideoOutline({ draft, questions, open, write, rename, busy, writing, error }) {
   const t = useTranslations("intent");
   const byId = new Map(questions.map(q => [q.id, q]));
+  const nextQuestion = draft.outline.sections.flatMap(s => s.questionIds).map(id => byId.get(id))
+    .find(q => q && !q.versionId && !q.gap);
   return (
     <>
       <h2 className="pane-head"><FileText size={16} />{t("videoOutline")}</h2>
@@ -43,7 +45,10 @@ export function VideoOutline({ draft, questions, open, write, rename, busy, writ
             <button className="link" disabled={busy} onClick={() => write(index)}>{t("writeOutlineSection")}</button>
           </section>
         ))}
-        <button className="primary" disabled={busy} onClick={() => write()}>{t("writeVideoScript")}</button>
+        {nextQuestion && <button className="primary outline-next" disabled={busy} onClick={() => open(nextQuestion)}>
+          {t("investigateNextQuestion")}
+        </button>}
+        <button className={nextQuestion ? "secondary" : "primary"} disabled={busy} onClick={() => write()}>{t("writeVideoScript")}</button>
         {writing && <ThinkingDots label={t("writingYourDraft")} />}
         {error && <p role="alert">{error}</p>}
       </article>
