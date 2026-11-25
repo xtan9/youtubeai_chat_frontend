@@ -5248,6 +5248,59 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   });
 }
 
+test("authors can title and structure a blank draft without the assistant @projects-ga-critical", async ({ context, page }) => {
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  await context.addCookies([{ name: "locale", value: "zh", url: appUrl }]);
+  const id = await createGroundedFixtureProject(context, "手写文稿", { sourceCount: 0 });
+  const spaceUrl = appUrl + "/api/projects/" + id + "/space";
+  const assistantRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url() === spaceUrl && request.method() === "POST") {
+      assistantRequests.push(request.postDataJSON().action);
+    }
+  });
+  await page.goto(appUrl + "/workspace/projects/" + id);
+  const title = page.getByRole("textbox", { name: "文稿标题", exact: true });
+  await expect(title).toBeVisible();
+  await title.fill("手写的标题");
+  await page.getByRole("textbox", { name: "文稿导语" }).fill("从这里写起。");
+  const add = page.getByRole("button", { name: "添加小节" });
+  await add.click();
+  const heading = page.getByRole("textbox", { name: "段落标题" });
+  await expect(heading).toBeFocused();
+  await heading.fill("第一个问题");
+  await page.getByRole("textbox", { name: "正文 · 第一个问题" }).fill("这是我自己的段落。");
+  await page.getByRole("button", { name: "全文编辑" }).click();
+  const text = "从这里写起。\n\n## 第一个问题\n这是我自己的段落。";
+  await expect(page.getByRole("textbox", { name: "脚本正文" })).toHaveValue(text);
+  await title.fill("");
+  await expect(title).toHaveValue("");
+  await title.fill("改过的标题");
+  await expect.poll(async () => (await (await context.request.get(spaceUrl)).json()).document.drafts[0])
+    .toMatchObject({ title: "改过的标题", text });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(title).toHaveValue("改过的标题");
+  await expect(heading).toHaveText("第一个问题");
+  await expect(page.getByRole("textbox", { name: "正文 · 第一个问题" })).toHaveText("这是我自己的段落。");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "文稿", exact: true }).click();
+  await page.getByRole("button", { name: "新建文稿", exact: true }).click();
+  await title.fill("Script 2");
+  await add.click();
+  await heading.fill("先从小节写起");
+  await add.click();
+  await expect(heading.nth(1)).toBeFocused();
+  await heading.nth(1).fill("第二节");
+  const list = page.getByRole("navigation", { name: "文稿列表" });
+  await list.getByRole("button", { name: "改过的标题" }).click();
+  await expect(title).toHaveValue("改过的标题");
+  await expect(heading).toHaveText("第一个问题");
+  await list.getByRole("button", { name: "Script 2" }).click();
+  await expect(heading).toHaveText(["先从小节写起", "第二节"]);
+  expect(assistantRequests).toEqual([]);
+});
+
 test("New Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   const projectId = await createGroundedFixtureProject(context, "Seed oil，争议在哪里？", {sourceCount: 2});
@@ -5265,12 +5318,12 @@ test("New Workspace opens an existing Video Space and saves a handwritten openin
   await page.goto(appUrl + "/workspace");
   await page.getByRole("link",{name:"Open Seed oil，争议在哪里？"}).click();
   await expect(page).toHaveURL(appUrl+"/workspace/projects/"+projectId);
-  await page.getByRole("button",{name:"Start writing"}).click();
+  await page.getByRole("button",{name:"Full text editor"}).click();
   for (const [locale, opening, second] of [
     ["en", "Opening script", "Script 2"], ["zh-TW", "開場腳本", "腳本 2"], ["zh", "开场脚本", "脚本 2"],
   ]) {
     await page.locator("header:visible select").selectOption(locale);
-    await expect(page.getByRole("heading", {name: opening, exact: true})).toBeVisible();
+    await expect(page.locator(".native-script textarea.doc-title")).toHaveValue(opening);
     await expect(page.locator(".vs-meta option:checked")).toHaveText(opening);
     await expect(page.locator('.vs-meta option[value="second"]')).toHaveText(second);
     await expect(page.locator('.vs-meta option[value="custom"]')).toHaveText("我的手写标题");
@@ -5323,7 +5376,7 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
       ["zh-TW","開場腳本","第 4 頁","已提取 1 頁文字摘錄 · 原文共 7 頁"],
     ]){
       await lang.selectOption(locale);
-      await expect(page.getByRole("heading",{name:opening,exact:true})).toBeVisible();
+      await expect(page.locator(".native-script textarea.doc-title")).toHaveValue(opening);
       await expect(page.getByText(coverage,{exact:true})).toBeVisible();
       await expect(page.locator(".vs-digest b")).toHaveText(loc);
       await expect(page.locator(".vs-digest small")).toHaveText(loc);
@@ -5467,7 +5520,7 @@ test("named project preserves research citations after a question changes @proje
   expect(drafts).toBe(0);
   await confirm.click();
   await page.setViewportSize({width:1440,height:900});
-  await expect(page.getByRole("textbox",{name:"文稿标题"})).toHaveText("今晚炒菜，要换掉这瓶油吗？");
+  await expect(page.getByRole("textbox",{name:"文稿标题"})).toHaveValue("今晚炒菜，要换掉这瓶油吗？");
   const titles=["种子油都有哪些？","为什么叫种子油？","他们有哪些共同特征？","种子油是什么时候开始被用在家庭里的？"];
   for(const title of titles){
     await page.getByRole("button",{name:"新增问题",exact:true}).click();
@@ -5499,6 +5552,15 @@ test("named project preserves research citations after a question changes @proje
   await page.getByLabel("写入位置").selectOption({index:0});
   await page.getByRole("button",{name:"带出处写入文稿"}).click();
   const marker=page.locator(".q-draft-cites button");
+  await expect(marker).toContainText("Oilseed report");
+  const draftTitle = page.getByRole("textbox", { name: "文稿标题", exact: true });
+  await draftTitle.fill("我的视频标题");
+  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(draftTitle).toHaveValue("我的视频标题");
+  await expect(marker).toHaveCount(0);
+  await page.getByRole("button",{name:titles[0],exact:true}).click();
+  await page.getByLabel("写入位置").selectOption({index:0});
+  await page.getByRole("button",{name:"带出处写入文稿"}).click();
   await expect(marker).toContainText("Oilseed report");
   await page.getByRole("button",{name:"编辑「"+titles[0]+"」"}).click();
   await page.getByLabel("问题标题").fill("改名后的研究问题");

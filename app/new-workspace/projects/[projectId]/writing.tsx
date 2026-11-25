@@ -14,6 +14,10 @@ import type { ResearchVersion } from "@/lib/projects/project-research-contract";
 import { requestJson } from "./use-space";
 
 type Suggestion = NonNullable<Message["suggestion"]>;
+function numberedTitle(n: number) {
+  return { title: `Script ${n}`, defaultTitle: n };
+}
+
 export function useWriting({
   space,
   live,
@@ -41,6 +45,7 @@ export function useWriting({
   function titleFor(id: string, title: string) {
     const index = space.drafts.findIndex(d => d.id === id);
     const label = space.drafts[index]?.defaultTitle;
+    if (label === null) return title;
     // Older saves persisted the UI label as text. Only match the opening ID
     // or the exact numbered label at its original position.
     if (label === "opening" || (id === "opening" && title === "开场脚本")) {
@@ -58,6 +63,18 @@ export function useWriting({
     setActive(id);
     setPassage(undefined);
   }
+  function rename(title: string) {
+    return update((s) => ({
+      ...s,
+      drafts: s.drafts.map((old, i) => {
+        if (old.id !== draft.id) return old;
+        if (title.trim()) return { ...old, title, defaultTitle: null };
+        if (old.id === "opening")
+          return { ...old, title: "Opening script", defaultTitle: "opening" };
+        return { ...old, ...numberedTitle(i + 1) };
+      }),
+    }));
+  }
   function type(text: string) {
     if (text.length > 80000) {setError("scriptLengthLimitReached"); return false;}
     setError("");
@@ -74,12 +91,17 @@ export function useWriting({
     const id = crypto.randomUUID();
     const added = update((s) => ({
       ...s,
+      activeDraft: id,
       drafts: [
         ...s.drafts,
-        { id, title: `Script ${s.drafts.length + 1}`, defaultTitle: s.drafts.length + 1, text: "", markers: [] },
+        { id, ...numberedTitle(s.drafts.length + 1), text: "", markers: [] },
       ],
     }));
-    if (added) changeDraft(id);
+    if (added) {
+      setActive(id);
+      setPassage(undefined);
+    }
+    return added;
   }
   function apply(suggestion: Suggestion, text: string, finding?: string) {
     const before = live.current?.drafts.find((d) => d.id === suggestion.draft);
@@ -118,11 +140,12 @@ export function useWriting({
   function revert() {
     if (!undo || draft.version !== undo.after || draft.id !== undo.before.id)
       return;
+    const { text, markers } = undo.before;
     update((s) => ({
       ...s,
       drafts: s.drafts.map((d) =>
         d.id === draft.id
-          ? { ...undo.before, version: crypto.randomUUID() }
+          ? { ...d, text, markers, version: crypto.randomUUID() }
           : d,
       ),
     }));
@@ -206,6 +229,7 @@ export function useWriting({
     busy,
     error: error && tr.has(error) ? tr(error) : error,
     changeDraft,
+    rename,
     type,
     append,
     addDraft,
@@ -219,6 +243,29 @@ export function useWriting({
   };
 }
 type Writer = ReturnType<typeof useWriting>;
+export function DraftTitle({ w, flush }: { w: Writer; flush: () => void }) {
+  const t = useTranslations("intent");
+  const { draft } = w;
+  const title = w.titleFor(draft.id, draft.title);
+  return (
+    <label className="draft-title-field">
+      <span>{t("draftTitle")}</span>
+      <textarea
+        className="doc-title"
+        rows={1}
+        maxLength={140}
+        value={draft.defaultTitle == null ? title : ""}
+        placeholder={draft.defaultTitle == null ? t("draftTitle") : title}
+        onChange={(e) => w.rename(e.currentTarget.value.replace(/\n/g, " "))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault();
+        }}
+        onBlur={flush}
+      />
+    </label>
+  );
+}
+
 export function Script({
   w,
   space,
@@ -257,7 +304,7 @@ export function Script({
   return (
     <>
       <div className="vs-row">
-        <h2>{w.titleFor(draft.id, draft.title)}</h2>
+        <DraftTitle w={w} flush={flush} />
         <button disabled={!w.canUndo} onClick={w.revert}>
           <Undo2 size={13} />
           {tr("undoAiEdit")}

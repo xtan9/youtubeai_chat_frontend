@@ -57,9 +57,10 @@ const marker = z.object({
 const draft = z.object({
   id,
   version: z.uuid().optional(),
+  // null records an author-entered title, even when it matches a legacy UI label.
   defaultTitle: z
     .union([z.literal("opening"), z.number().int().min(1).max(50)])
-    .optional(),
+    .nullish(),
   title: z.string().min(1).max(140),
   text: z.string().max(80000),
   markers: z.array(marker).max(300),

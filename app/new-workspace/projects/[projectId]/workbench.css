@@ -214,6 +214,32 @@
   font: inherit;
   resize: vertical;
 }
+.draft-title-field {
+  display: block;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.draft-title-field > span {
+  display: block;
+  color: var(--soft, var(--muted));
+  font-size: 12px;
+}
+:is(.vs, .intent-shell) .draft-title-field textarea.doc-title {
+  display: block;
+  field-sizing: content;
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  resize: none;
+}
+.vs .draft-title-field textarea.doc-title {
+  font-size: var(--vs-panel-size);
+  font-weight: 600;
+  line-height: 1.45;
+}
 .vs-library {
   position: relative;
 }
