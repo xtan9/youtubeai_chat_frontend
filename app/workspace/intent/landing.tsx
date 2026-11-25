@@ -23,7 +23,7 @@ function RecentProjects({ projects }: { projects: PersonalWorkspace["projects"] 
           {t("manageProjects")} <ArrowRight aria-hidden="true" />
         </Link>
       </div>
-      <ul className="recent-grid">
+      <ul className="recent-grid" role="list">
         {projects.map((project) => {
           const activeAt = new Date(project.lastActiveAt);
           const validDate = Number.isFinite(activeAt.getTime());
