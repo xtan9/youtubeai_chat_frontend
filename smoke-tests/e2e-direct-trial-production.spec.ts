@@ -84,7 +84,13 @@ for (const scenario of cases) {
         expect(excerpts).toMatch(/total sleep time/i);
         expect(judgment.text).toMatch(/(?:6|六)\s*(?:个)?小时/);
       }
-      await expect(page.locator(".q-results")).toContainText(judgment.text);
+      await expect(page.locator(".q-answer")).toContainText(judgment.text);
+      const citation = page.locator(".q-result").filter({ hasText: matched[0].title }).first();
+      const toggle = citation.getByRole("button");
+      if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+      await expect(citation.locator("blockquote")).toHaveText(matched[0].quote);
+      const original = await citation.getByRole("link").getAttribute("href");
+      expect(original?.split("#")[0]).toBe(matched[0].url.split("#")[0]);
       await page.locator(".q-sheet").screenshot({ path: folder + "/" + scenario.id + ".png" });
       const state = await page.request.get(endpoint + "/space");
       expect(state.ok()).toBe(true);
