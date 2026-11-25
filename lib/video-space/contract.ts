@@ -54,7 +54,15 @@ const marker = z.object({
   text: z.string().max(12000),
   finding: z.uuid(),
 });
+const outlineSection = z.object({
+  heading: z.string().trim().min(1).max(140),
+  questionIds: z.array(z.uuid()).max(3),
+});
 const draft = z.object({
+  outline: z.object({
+    interviewId: z.uuid(),
+    sections: z.array(outlineSection).min(1).max(6),
+  }).optional(),
   id,
   version: z.uuid().optional(),
   defaultTitle: z

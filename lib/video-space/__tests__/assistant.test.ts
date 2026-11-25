@@ -123,8 +123,8 @@ it("asks on format selection even if the model prematurely offers a brief", asyn
   const ask = { stage: "ask", format: "video", notes: "Video selected", reply: "Who should see this?", quickReplies: [] };
   const delta = (reply: object) => [{ type: "delta", text: JSON.stringify(reply) }];
   stream.mockReturnValueOnce(delta({ stage: "review", format: "video", brief: "A generic script." }))
-    .mockReturnValueOnce(delta(ask));
-  expect(await interviewAuthor(context, "en", new AbortController().signal)).toEqual(ask);
+    .mockReturnValueOnce(delta({ ...ask, prompts: [{question: "Who should see this?", recommendation: "First-time cooks."}] }));
+  expect(await interviewAuthor(context, "en", new AbortController().signal)).toEqual({ ...ask, reply: "Who should see this? First-time cooks." });
 });
 
 it("repairs the specific missing manuscript field and keeps the approved format", async () => {
@@ -137,4 +137,21 @@ it("repairs the specific missing manuscript field and keeps the approved format"
   const result = await createStarter(interviewContext("Labels", space, []), "Compare the two plants.", "en", new AbortController().signal);
   expect(result).toEqual({ ...draft, format: "blog" });
   expect(stream.mock.lastCall![0].messages[0].content).toContain("sections.0.body");
+});
+
+it("allows a clear video direction to go straight to an outline and ends clarification after one round", async () => {
+  const space = emptySpace(), id = crypto.randomUUID();
+  space.interview = { id, turnId: crypto.randomUUID(), pending: true, notes: "", format: "video" };
+  space.messages = [{ role: "user", interviewId: id, text: "Trace the original railway map on camera." }];
+  const outline = { stage: "outline", format: "video", title: "Tracing the railway map",
+    sections: [{ heading: "Find the first map", questions: ["Which archive holds the first edition?"] }] };
+  const delta = (value: unknown) => [{ type: "delta", text: JSON.stringify(value) }];
+  stream.mockReturnValue(delta(outline));
+  const plan = () => interviewAuthor(interviewContext("Railways", space, []), "en", new AbortController().signal);
+  expect(await plan()).toEqual(outline);
+  space.messages.push({ role: "assistant", interviewId: id, text: "Which angle?" },
+    { role: "user", interviewId: id, text: "Your recommendation." });
+  stream.mockReturnValueOnce(delta({ stage: "ask", format: "video", notes: "", reply: "Anything else?" }))
+    .mockReturnValueOnce(delta(outline));
+  expect(await plan()).toEqual(outline);
 });

@@ -1699,3 +1699,27 @@ body:has(.intent-shell) > :is(header, footer) {
   font: 12px/1.65 var(--sans);
   color: var(--muted);
 }
+
+.intent-shell .video-outline .outline-heading {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+}
+.intent-shell .video-outline > .outline-heading { font-size: 1.5rem; }
+.intent-shell .outline-section { margin: 1.5rem 0; }
+.intent-shell .outline-section ul { list-style: none; padding: 0; margin: .5rem 0; }
+.intent-shell .outline-section li button {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  width: 100%;
+  padding: .5rem 0;
+  text-align: start;
+}
+.intent-shell .outline-section li svg { flex-shrink: 0; align-self: center; }
+.intent-shell .outline-section li span { flex: 1; overflow-wrap: anywhere; }
+.intent-shell .outline-section li small { opacity: .7; }

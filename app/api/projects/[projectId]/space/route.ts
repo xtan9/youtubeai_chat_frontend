@@ -23,6 +23,7 @@ import {
   starterRequest,
   interviewRequest,
   quickRepliesRequest,
+  outlineDraftRequest,
   suggestQuickReplies,
   interviewContext,
   interviewAuthor,
@@ -106,6 +107,7 @@ const action = z.discriminatedUnion("action", [
   interviewRequest,
   quickRepliesRequest,
   discussionRequest,
+  outlineDraftRequest,
   z.object({ action: z.literal("web"), url: publicLink }),
   z.object({ action: z.literal("video"), videoId: z.uuid() }),
   z.object({ action: z.literal("summary"), resource: resourceSchema }),
@@ -127,23 +129,29 @@ export async function POST(request: Request, context: Context) {
     }
     const limit = await checkRateLimit(auth.subject.ownerId, false);
     if (!limit.allowed) return fail(429, "请求过于频繁，请稍后重试。");
-    if (body.action === "starter" || body.action === "interview" || body.action === "quickReplies") {
+    if (body.action === "starter" || body.action === "interview" || body.action === "quickReplies" || body.action === "draftOutline") {
       const row = await auth.client.from("video_spaces").select("document")
         .eq("project_id", auth.projectId).maybeSingle();
       if (row.error) return fail(503, "无法读取已保存的脚本，请重试。");
       const space = spaceSchema.parse(row.data?.document ?? emptySpace());
+      const outlineDraft = body.action === "draftOutline" ? space.drafts.find(d => d.id === body.outlineId) : undefined;
       const interview = space.interview;
-      if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
-      if (body.action === "quickReplies") {
-        const last = space.messages.findLast(m => m.interviewId === interview.id);
-        if (interview.pending || interview.brief || last?.role !== "assistant") return fail(409, "interviewChanged");
-        return Response.json(interview.quickReplies !== undefined
-          ? { quickReplies: interview.quickReplies }
-          : await suggestQuickReplies(last.text, body.locale, request.signal));
+      if (body.action === "draftOutline") {
+        if (!outlineDraft?.outline || outlineDraft.version !== body.version ||
+            (body.section !== undefined && !outlineDraft.outline.sections[body.section])) return fail(409, "interviewChanged");
+      } else {
+        if (!interview || interview.turnId !== body.turnId) return fail(409, "interviewChanged");
+        if (body.action === "quickReplies") {
+          const last = space.messages.findLast(m => m.interviewId === interview.id);
+          if (interview.pending || interview.brief || last?.role !== "assistant") return fail(409, "interviewChanged");
+          return Response.json(interview.quickReplies !== undefined
+            ? { quickReplies: interview.quickReplies }
+            : await suggestQuickReplies(last.text, body.locale, request.signal));
+        }
+        if (body.action === "starter" && (interview.format === "video" || !interview.confirmed || interview.pending || !interview.brief || !interview.format))
+          return fail(409, "reviewBriefFirst");
+        if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
       }
-      if (body.action === "starter" && (!interview.confirmed || interview.pending || !interview.brief || !interview.format))
-        return fail(409, "reviewBriefFirst");
-      if (body.action === "interview" && !interview.pending) return fail(409, "interviewChanged");
       const [versions, sources] = await Promise.all([
         loadResearchVersions(auth.client, auth.projectId),
         loadProjectSourceSet(auth.client, auth.subject),
@@ -155,10 +163,17 @@ export async function POST(request: Request, context: Context) {
         .map(readVideo));
       const context = interviewContext(auth.subject.name, {
         ...space, resources: [...linkedVideos, ...space.resources],
-      }, versions);
+      }, versions, outlineDraft?.outline
+        ? { id: outlineDraft.outline.interviewId, notes: "", format: "video" } : interview);
+      if (body.action === "draftOutline") {
+        if (!context.outline) return fail(409, "interviewChanged");
+        if (body.section !== undefined) context.outline.sections = [context.outline.sections[body.section]];
+        context.questions = context.outline.sections.flatMap(section => section.questions);
+        return Response.json(await createStarter(context, context.outline.title, body.locale, request.signal, body.section !== undefined));
+      }
       return Response.json(body.action === "interview"
         ? await interviewAuthor(context, body.locale, request.signal)
-        : await createStarter(context, interview.brief!, body.locale, request.signal));
+        : await createStarter(context, interview!.brief!, body.locale, request.signal));
     }
     if (body.action === "web")
       return Response.json(await readWebPage(body.url, request.signal));

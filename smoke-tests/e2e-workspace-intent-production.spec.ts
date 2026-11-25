@@ -96,36 +96,28 @@ test("published workspace from naming to independently cited manuscript @workspa
     }
     const first = await opening;
     expect(first.status()).toBe(200);
-    expect((await first.json()).stage).toBe("ask");
+    const firstStage = (await first.json()).stage;
     const confirm = page.getByRole("button", { name: "确认需求，开始起草" });
     await expect(confirm).toHaveCount(0);
     if (kind === "video") {
-      const followUp = waitForAction("interview");
-      await page.getByRole("textbox", { name: "消息", exact: true }).fill("还没想好，我只是先选了视频这个形式。");
-      await page.getByRole("button", { name: "发送消息" }).click();
-      await expect(page.locator(".chat-log .user-text").filter({ hasText: "还没想好，我只是先选了视频这个形式。" })
-        .locator("+ .chat-pending")).toBeInViewport({ ratio: 1 });
-      await page.locator(".pane.chat").screenshot({ path: folder + "/interview-thinking.png" });
-      const reply = await followUp;
-      expect(reply.status()).toBe(200);
-      expect((await reply.json()).stage).toBe("ask");
-      await expect(confirm).toHaveCount(0);
-      const topic = waitForAction("interview");
-      await page.getByRole("textbox", { name: "消息", exact: true }).fill(
-        "内容深度我还没定。请让我在两个方向中选：以制油过程、油的组成和人体代谢为主，或把煎炒、油炸和反复加热也列为重点。"
-      );
-      await page.getByRole("button", { name: "发送消息" }).click();
-      expect((await topic).status()).toBe(200);
-      const choices = page.getByRole("group", { name: "快捷回答" });
-      const cooking = choices.getByRole("button", { name: /煎炒|油炸|加热/ }).first();
-      await expect(cooking).toBeVisible();
-      await page.locator(".pane.chat").screenshot({ path: folder + "/quick-replies.png" });
-      const picked = await cooking.innerText();
-      const next = waitForAction("interview");
-      await cooking.click();
-      await expect(page.locator(".user-text").last()).toHaveText(picked);
-      expect((await next).status()).toBe(200);
+      if (firstStage === "ask") {
+        const next = waitForAction("interview");
+        await page.getByRole("textbox", { name: "消息", exact: true }).fill("比较葵花籽油和菜籽油瓶身标签上的原料名称，给第一次独自做饭的人看。");
+        await page.getByRole("button", { name: "发送消息" }).click();
+        const result = await next;
+        expect(result.status()).toBe(200);
+        expect((await result.json()).stage).toBe("outline");
+      } else expect(firstStage).toBe("outline");
+      await expect(page.getByLabel("大纲标题")).toBeVisible();
+      await expect(page.locator(".outline-section li button").first()).toBeVisible();
+      expect((await read()).drafts.filter(d => d.text)).toHaveLength(beforeDrafts);
+      const writing = waitForAction("draftOutline");
+      await page.getByRole("button", { name: "写脚本初稿" }).click();
+      expect((await writing).status()).toBe(200);
+      await expect(page.locator(".paper .block").first()).toBeVisible();
+      continue;
     }
+    expect(firstStage).toBe("ask");
     const answers = [
       "我想从厨房里的两瓶油出发，比较葵花籽油和菜籽油的标签。给第一次独自做饭的人看，看完能说出名称各自指哪种植物。用我在厨房翻看标签的场景开头，口吻平实，中文，约300字，分两段。只讲名称和原料，不推断哪种更健康；缺资料就标为待核查。这些是我确定的需求，其他编辑选择交给你。",
       "接受你这一轮的建议。保留两瓶油的标签作为唯一例子。没有实物照片和逐字标签，其余资料均待核查；避免品牌、价格、具体营养数字或编造场景细节。篇幅、顺序和细节由你按刚才讨论的用途决定。",
@@ -141,7 +133,6 @@ test("published workspace from naming to independently cited manuscript @workspa
     }
     await expect(confirm).toBeVisible();
     await expect(page.locator(".chat-log .turn").last()).toContainText(/葵花|菜籽/);
-    if (kind === "video") await page.locator(".pane.chat").screenshot({ path: folder + "/interview-brief.png" });
     expect((await read()).drafts.filter(d => d.text)).toHaveLength(beforeDrafts);
     const response = waitForAction("starter");
     await confirm.click();
@@ -185,7 +176,7 @@ test("published workspace from naming to independently cited manuscript @workspa
     }
     console.log("Saved editable " + kind + " draft.");
   }
-  expect(new Set((await read()).drafts.map((d) => d.text)).size).toBe(5);
+  expect(new Set((await read()).drafts.filter(d => d.text).map((d) => d.text)).size).toBe(5);
   await page.screenshot({ path: folder + "/draft.png" });
   const lead = page.getByRole("textbox", { name: "文稿导语" });
   await lead.fill("这一段由作者在验收时写入。");
@@ -209,9 +200,10 @@ test("published workspace from naming to independently cited manuscript @workspa
       .click();
     await expect(page.locator(".q-sheet h2")).toHaveText(title);
   }
+  const priorQuestions = (await read()).questions?.length ?? 0;
   for (const question of questions) await add(question);
   await page.getByRole("button", { name: questions[0], exact: true }).click();
-  await expect.poll(async () => (await read()).questions?.length).toBe(4);
+  await expect.poll(async () => (await read()).questions?.length).toBe(priorQuestions + questions.length);
   await page.screenshot({ path: folder + "/desktop.png" });
   const grid = page.locator(".integrated");
   const geometry = await grid.evaluate((el) => ({

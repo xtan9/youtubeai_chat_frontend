@@ -260,7 +260,7 @@ export function QuestionSheet({
           {archived ? t("citedResearchVersion") : t("questionResearch")}
         </span>
         <button className="meta mode-link" onClick={back}>
-          <ArrowLeft size={12} /> {t("backToDraft")}{" "}
+          <ArrowLeft size={12} /> {t(draft.outline ? "backToOutline" : "backToDraft")}{" "}
         </button>
       </div>
       <article className="paper-body q-sheet" ref={body}>
@@ -323,7 +323,7 @@ export function QuestionSheet({
                 </button>
               ))}
             </div>
-            {archived ? null : written ? (
+            {archived || draft.outline ? null : written ? (
               <button className="secondary q-action" onClick={back}>
                 <Check size={14} />
                 {t("viewAnswerInDraft")}{" "}

@@ -33,6 +33,7 @@ import {
 import { Document, paragraphRanges } from "./document";
 import { InkIcon } from "./ink-icon";
 import { useIntentInterview } from "./use-intent-interview";
+import { VideoOutline } from "./video-outline";
 import { ProjectChat } from "./project-chat";
 import { FindingList } from "./finding-list";
 import {
@@ -146,7 +147,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const left = useRef(null),
     deskReturn = useRef(null);
   const w = useWriting({ space, live, update, api, versions });
-  const requiresPurpose = !space.interview && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
+  const requiresPurpose = !space.interview && !w.draft.outline && !w.draft.text.trim() && !formats[w.draft.id.split("/")[0]];
   const choosing = changePurpose || requiresPurpose;
   const index = useMemo(
     () =>
@@ -968,7 +969,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
         <section
           className="pane paper"
           aria-label={
-            projectQuestion ? t("questionResearch") : t("currentDraft")
+            projectQuestion ? t("questionResearch") : t(w.draft.outline ? "videoOutline" : "currentDraft")
           }
         >
           {projectQuestion ? (
@@ -1008,6 +1009,24 @@ export function IntentDesk({ name, projectId, store, initial }) {
               />
               {w.error && <p role="alert">{w.error}</p>}
             </>
+          ) : w.draft.outline ? (
+            <VideoOutline draft={w.draft} questions={projectQuestions}
+              rename={(section, heading) => update(s => ({
+                ...s, drafts: s.drafts.map(d => {
+                  if (d.id !== w.draft.id) return d;
+                  const version = crypto.randomUUID();
+                  if (section === undefined) return { ...d, version, title: heading };
+                  return { ...d, version, outline: { ...d.outline, sections: d.outline.sections.map(
+                    (entry, i) => i === section ? { ...entry, heading } : entry) } };
+                }),
+              }))}
+              busy={Boolean(interview.busy || space.interview || pending)}
+              writing={interview.busy === "draftOutline"} error={interview.error}
+              open={q => {
+                openQuestion(q);
+                if (!q.versionId && !q.gap && initial.history !== null) void startResearch(q);
+              }}
+              write={section => interview.writeOutline(w.draft, section)} />
           ) : !w.draft.text && !full ? (
             <>
               <h2 className="pane-head">
