@@ -17,7 +17,7 @@ function EditableHeading({ value, label, disabled, save }) {
   );
 }
 
-export function VideoOutline({ draft, questions, open, write, rename, busy, writing, error }) {
+export function VideoOutline({ draft, questions, open, write, rename, busy, writing, pending, error }) {
   const t = useTranslations("intent");
   const byId = new Map(questions.map(q => [q.id, q]));
   const nextQuestion = draft.outline.sections.flatMap(s => s.questionIds).map(id => byId.get(id))
@@ -36,16 +36,16 @@ export function VideoOutline({ draft, questions, open, write, rename, busy, writ
             <ul>
               {section.questionIds.map(id => {
                 const q = byId.get(id);
-                return q && <li key={id}><button disabled={busy} onClick={() => open(q)}>
+                return q && <li key={id}><button onClick={() => open(q)}>
                   <Search size={14} /><span>{q.title}{q.startingPoint && <span className="question-lead">{q.startingPoint}</span>}</span>
-                  <small>{t(q.gap ? "needsVerification" : q.versionId ? "answerReady" : "toResearch")}</small>
+                  <small>{t(q.id === pending ? "researchingQuestion" : q.gap ? "needsVerification" : q.versionId ? "answerReady" : "toResearch")}</small>
                 </button></li>;
               })}
             </ul>
             <button className="link" disabled={busy} onClick={() => write(index)}>{t("writeOutlineSection")}</button>
           </section>
         ))}
-        {nextQuestion && <button className="primary outline-next" disabled={busy} onClick={() => open(nextQuestion)}>
+        {nextQuestion && <button className="primary outline-next" onClick={() => open(nextQuestion)}>
           {t("investigateNextQuestion")}
         </button>}
         <button className={nextQuestion ? "secondary" : "primary"} disabled={busy} onClick={() => write()}>{t("writeVideoScript")}</button>

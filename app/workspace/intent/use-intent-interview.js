@@ -28,7 +28,7 @@ function saveVideoOutline(space, interview, result) {
     outline: { interviewId: interview.id, angle: result.angle, sections },
   };
   const drafts = space.drafts.filter(keepDraft);
-  return { ...space, questions, purpose: "video", interview: undefined, activeDraft: id,
+  return { ...space, questions, purpose: "video", interview: undefined,
     drafts: drafts.some(d => d.id === id) ? drafts.map(d => d.id === id ? outline : d) : [...drafts, outline] };
 }
 
@@ -87,6 +87,7 @@ export function useIntentInterview({
       )
         throw Error("capacity");
       if (prepare && !prepare()) throw Error("capacity");
+      const startUrl = window.location.href;
       if (!(await flush())) throw Error("retrySave");
       const interview = live.current.interview;
       const result = await requestJson(api + "/space", "POST", {
@@ -99,6 +100,9 @@ export function useIntentInterview({
         const current = live.current.drafts.find(d => d.id === outlineRequest.outlineId);
         if (current?.version !== outlineRequest.version) throw Error("interviewChanged");
       } else if (live.current.interview?.turnId !== interview.turnId) return;
+      // Save a completed draft even if the author has since opened a question or another draft.
+      // changeDraft records the new active draft only when we also reveal it on screen.
+      const stillHere = window.location.href === startUrl && live.current.activeDraft === before.activeDraft;
       const message = (role, text) => ({
         role,
         text,
@@ -110,7 +114,7 @@ export function useIntentInterview({
           messages: [...s.messages, message("assistant", t("outlineReady"))],
         }));
         if (!accepted) throw Error("capacity");
-        onDraft("outline/" + interview.id);
+        if (stillHere) onDraft("outline/" + interview.id);
         if (!(await flush())) throw Error("retrySave");
       } else if (action === "interview") {
         const brief = result.stage === "review" ? result.brief : undefined;
@@ -153,7 +157,6 @@ export function useIntentInterview({
           ...s,
           interview: undefined,
           purpose: result.format,
-          activeDraft: id,
           drafts: [...s.drafts.filter(keepDraft), draft],
           messages: [
             ...s.messages,
@@ -162,7 +165,7 @@ export function useIntentInterview({
           ],
         }));
         if (!accepted) throw Error("capacity");
-        onDraft(id);
+        if (stillHere) onDraft(id);
         if (!(await flush())) throw Error("retrySave");
       }
     } catch (e) {

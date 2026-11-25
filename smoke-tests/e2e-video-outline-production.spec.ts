@@ -131,13 +131,35 @@ for (const scenario of scenarios) {
       const sectionOnly = Boolean(scenario.answer);
       const write = sectionOnly ? outline.locator(".outline-section").nth(selectedSection).getByRole("button", { name: "写这一段" })
         : outline.getByRole("button", { name: "写脚本初稿" });
-      const [draft] = await Promise.all([waitForAction("draftOutline"), write.click()]);
+      // Reopen the same question the author just researched while the real draft request runs.
+      const q = planned.questions!.find(q => q.id === plan.outline!.sections[selectedSection].questionIds[0])!;
+      const [draft] = await Promise.all([waitForAction("draftOutline"), (async () => {
+        await write.click();
+        if (!sectionOnly) {
+          await expect(write).toBeDisabled();
+          await outline.locator(".outline-section").nth(selectedSection).getByRole("button").filter({ hasText: q.title }).first().click();
+          await expect(page.locator(".q-sheet h2")).toHaveText(q.title);
+        }
+      })()]);
       report.writeStatus = draft.status();
       expect(draft.status()).toBe(200);
       expect(draft.request().postDataJSON().section).toBe(sectionOnly ? selectedSection : undefined);
       const manuscript = await draft.json();
-      await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue(manuscript.title);
       await expect.poll(async () => (await read()).drafts.filter(d => d.text.trim()).length).toBe(1);
+      if (!sectionOnly) {
+        expect((await read()).activeDraft).toBe(plan.id);
+        await expect(page.locator(".q-sheet h2")).toHaveText(q.title);
+        await page.getByRole("region", { name: "问题研究" }).screenshot({ path: evidencePath + "-question-after-drafting.png" });
+        await page.getByRole("button", { name: "返回大纲" }).click();
+        await expect(outline.getByLabel("大纲标题")).toHaveValue(plan.title);
+        await page.getByRole("button", { name: "文稿", exact: true }).click();
+        await page.getByRole("navigation", { name: "文稿列表" }).getByRole("button", { name: manuscript.title, exact: true }).last().click();
+      }
+      await expect(page.getByRole("textbox", { name: "文稿标题" })).toHaveValue(manuscript.title);
+      await expect.poll(async () => {
+        const current = await read();
+        return current.drafts.find(d => d.id === current.activeDraft)?.text;
+      }).toContain(manuscript.lead);
       const saved = await read();
       const script = saved.drafts.find(d => d.id === saved.activeDraft)!;
       expect(script.text).toContain(manuscript.lead);
