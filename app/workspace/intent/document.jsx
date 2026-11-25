@@ -1,16 +1,17 @@
 import { useTranslations } from "next-intl";
 import { useLayoutEffect, useRef } from "react";
-import { BookOpen, Undo2 } from "lucide-react";
-import { Script } from "@/app/new-workspace/projects/[projectId]/writing";
+import { BookOpen, Plus, Undo2 } from "lucide-react";
+import { DraftTitle, Script } from "@/app/new-workspace/projects/[projectId]/writing";
 import { InkIcon } from "./ink-icon";
 import { getFormats, questionPassages } from "./question-sources";
-function Editable({ as: Tag = "p", value, label, onEdit, className }) {
+function Editable({ as: Tag = "p", value, label, onEdit, className, placeholder, elementRef }) {
   const t = useTranslations("intent");
-  const element = useRef(null);
+  const localRef = useRef(null);
+  const element = elementRef ?? localRef;
   useLayoutEffect(() => {
     if (element.current.innerText !== value)
       element.current.textContent = value;
-  }, [value]);
+  }, [element, value]);
   return (
     <Tag
       ref={element}
@@ -19,7 +20,7 @@ function Editable({ as: Tag = "p", value, label, onEdit, className }) {
       suppressContentEditableWarning
       role="textbox"
       aria-label={label}
-      data-placeholder={t("writeYourIdeasHere")}
+      data-placeholder={placeholder ?? t("writeYourIdeasHere")}
       onInput={(e) => {
         if (onEdit(e.currentTarget.innerText) === false)
           e.currentTarget.textContent = value;
@@ -41,7 +42,6 @@ export function Document({
   status,
   flush,
   space,
-  update,
   show,
   full,
   onFull,
@@ -58,21 +58,11 @@ export function Document({
   const d = w.draft,
     kind = formats[d.id.split("/")[0]],
     chunks = paragraphRanges(d.text);
-  const rename = (title) =>
-    !!title.trim() &&
-    title.length <= 140 &&
-    update((s) => ({
-      ...s,
-      drafts: s.drafts.map((old) =>
-        old.id === d.id
-          ? {
-              ...old,
-              defaultTitle: undefined,
-              title,
-            }
-          : old,
-      ),
-    }));
+  const lastHeading = useRef(null);
+  function addSection() {
+    if (w.type(d.text + "\n\n## \n"))
+      requestAnimationFrame(() => lastHeading.current?.focus());
+  }
   const patch = (start, old, text) =>
     w.type(d.text.slice(0, start) + text + d.text.slice(start + old.length));
   const markers = (start, end) => {
@@ -141,7 +131,7 @@ export function Document({
             }
             onClick={() => onFull(!full)}
           >
-            {full ? t("sectionEditor") : t("editFullText")}
+            {full ? t("sectionEditor") : t("fullTextEditor")}
           </button>
         </div>
       </div>
@@ -160,13 +150,7 @@ export function Document({
       ) : (
         <div className="paper-body">
           <article className={kind?.style}>
-            <Editable
-              as="h2"
-              className="doc-title"
-              value={w.titleFor(d.id, d.title)}
-              label={t("draftTitle")}
-              onEdit={rename}
-            />
+            <DraftTitle w={w} flush={flush} />
             {chunks.map(({ chunk, start }, i) => {
               if (!chunk.startsWith("## "))
                 return (
@@ -196,6 +180,8 @@ export function Document({
                       as="span"
                       value={sectionTitle}
                       label={t("sectionHeading")}
+                      placeholder={t("sectionHeading")}
+                      elementRef={i === chunks.length - 1 ? lastHeading : undefined}
                       onEdit={(t) =>
                         patch(start + 3 + (stamp ? 6 : 0), sectionTitle, t)
                       }
@@ -271,6 +257,9 @@ export function Document({
                 </section>
               );
             })}
+            <button type="button" className="mini" onClick={addSection}>
+              <Plus size={14} /> {t("addSection")}
+            </button>
           </article>
         </div>
       )}

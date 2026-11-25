@@ -19,15 +19,15 @@ export async function generateMetadata() {
     robots: { index: false, follow: false },
   };
 }
-export default async function Page({
-  params,
-  searchParams,
-  base = "/new-workspace",
-}: {
-  base?: string;
+export type ProjectPageProps = {
   params: Promise<{ projectId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+};
+
+export default async function ProjectScreen(
+  { params, searchParams }: ProjectPageProps,
+  base: "/workspace" | "/new-workspace",
+) {
   const { projectId } = await params;
   const owner = await resolveRequestPrincipal({ source: "project" });
   if (owner.kind === "unavailable")

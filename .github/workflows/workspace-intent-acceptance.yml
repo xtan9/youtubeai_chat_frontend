@@ -1,5 +1,14 @@
 name: Workspace production acceptance
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      journey:
+        description: Workspace journey to verify
+        type: choice
+        options:
+          - research-and-writing
+          - manual-drafting
+        default: research-and-writing
 permissions:
   contents: read
 concurrency:
@@ -43,8 +52,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
       - name: Walk the deployed project journey
-        run: pnpm exec playwright test smoke-tests/e2e-workspace-intent-production.spec.ts --config playwright.production.config.ts --workers=1 --retries=0 --reporter=list
+        run: pnpm exec playwright test "$SPEC" --config playwright.production.config.ts --workers=1 --retries=0 --reporter=list
         env:
+          SPEC: ${{ inputs.journey == 'manual-drafting' && 'smoke-tests/e2e-manual-drafting-production.spec.ts' || 'smoke-tests/e2e-workspace-intent-production.spec.ts' }}
           BASE_URL: https://www.youtubeai.chat
           RUN_WORKSPACE_INTENT_LIVE: '1'
           TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
