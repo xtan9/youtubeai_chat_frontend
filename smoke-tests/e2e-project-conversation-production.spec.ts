@@ -28,7 +28,7 @@ test("real Project Conversation completes the production grounded-answer path @p
   ]);
 
   const response = await page.goto(
-    `${PROD_URL}/workspace/projects/${projectId}/materials`,
+    `${PROD_URL}/workspace/projects/${projectId}?panel=conversation`,
   );
   expect(response?.status()).toBe(200);
   await expect(
@@ -56,7 +56,7 @@ test("signed-in video workspace remembers its interface language @project-ground
   await page.locator("#password").fill(password!);
   await page.getByRole("button", {name: "Login", exact: true}).click();
   await page.waitForURL(url => ["/", "/dashboard"].includes(url.pathname));
-  await page.goto(PROD_URL + "/new-workspace/projects/" + projectId);
+  await page.goto(PROD_URL + "/workspace/projects/" + projectId);
   const picker = page.getByRole("combobox", {name: "Interface language"});
   await expect(page.getByRole("heading", {name: "Project assistant"})).toBeVisible();
   await picker.selectOption("zh-TW");

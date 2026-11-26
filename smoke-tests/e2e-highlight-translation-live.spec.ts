@@ -72,7 +72,7 @@ test("paid researcher translates a saved Project claim with real AI @live-claim-
   await page.goto(PROD_URL + "/dashboard");
   await page.locator("header select").selectOption("zh");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh");
-  await page.goto(PROD_URL + "/new-workspace/projects/" + encodeURIComponent(projectId!) + "?claim=" + encodeURIComponent(claimId!));
+  await page.goto(PROD_URL + "/workspace/projects/" + encodeURIComponent(projectId!) + "?claim=" + encodeURIComponent(claimId!));
   await page.getByRole("button", { name: "划词翻译设置" }).click();
   const settings = page.getByRole("dialog", { name: "划词翻译设置" });
   await settings.getByRole("switch", { name: "划词翻译" }).check();

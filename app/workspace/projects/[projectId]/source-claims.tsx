@@ -53,7 +53,7 @@ export function ClaimLinks({
 }
 
 // A sticky source title occupies the first part of the directory's viewport.
-export function revealDirectoryItem(row: HTMLElement) {
+function revealDirectoryItem(row: HTMLElement) {
   const tree = row.closest("nav");
   if (!tree?.clientHeight) return;
   const heading = row

@@ -15,6 +15,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  async redirects() {
+    return [
+      { source: "/new-workspace", destination: "/workspace", permanent: true },
+      { source: "/new-workspace/projects/:projectId", destination: "/workspace/projects/:projectId", permanent: true },
+      { source: "/workspace/projects/:projectId/materials", destination: "/workspace/projects/:projectId", permanent: true },
+      { source: "/workspace/manage", destination: "/workspace", permanent: true },
+    ];
+  },
   async rewrites() {
     return [
       {

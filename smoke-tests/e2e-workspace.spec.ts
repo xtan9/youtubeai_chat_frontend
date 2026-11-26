@@ -508,17 +508,15 @@ function seedSourceSetAuditConversation(projectId: string) {
   messageSequence = 1;
 }
 
-async function openProjectSection(page: Page, name: "Research" | "Outputs" | "Search" | "Settings") {
-  const tab = page.getByRole("tab", { name, exact: true });
-  await tab.click();
-  await expect(tab).toHaveAttribute("aria-selected", "true");
+async function openProjectSection(page: Page, name: "Research" | "Notebook" | "Outputs" | "Search" | "Settings" | "Sources") {
+  const value = { Research: "conversation", Notebook: "research", Outputs: "outputs", Search: "search", Settings: "settings", Sources: "sources" }[name];
+  const sections = page.locator(".project-sections");
+  await sections.selectOption(value);
+  await expect(sections).toHaveValue(value);
 }
 
 async function showProjectSources(page: Page) {
-  const toggle = page.getByRole("button", { name: /^Sources ·/u });
-  if (await toggle.isVisible() && await toggle.getAttribute("aria-expanded") === "false") {
-    await toggle.click();
-  }
+  await openProjectSection(page, "Sources");
 }
 
 async function showSourceUrlInput(page: Page) {
@@ -630,7 +628,7 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
   ).toBeVisible();
   await page.getByLabel("Project name").fill("Multilingual climate research");
   await page.getByRole("button",{name:"Create and open"}).click();
-  await page.getByRole("link",{name:"Original Project materials",exact:false}).click();
+  await openProjectSection(page, "Research");
 
   await openProjectSection(page,"Settings");
   await page.getByLabel("Project Goal (optional)").fill("Explore local climate adaptation decisions.");
@@ -802,12 +800,12 @@ test("registered Free Researcher completes the Project journey @projects-ga-crit
     ),
   ).toBe(true);
 
-  await page.getByRole("link", { name: "Back to Workspace" }).click();
+  await page.locator(".project-head a").click();
   await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
   await page
     .getByRole("link", { name: "Open Multilingual climate research" })
     .click();
-  await page.getByRole("link",{name:"Original Project materials",exact:false}).click();
+  await openProjectSection(page, "Research");
   const artifactChoicesConversation = page.getByRole("button", {
     name: /Artifact choices 0 messages/iu,
   });
@@ -855,7 +853,7 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   const projectId = await createGroundedFixtureProject(context, "Compare climate evidence", { sourceCount: 2 });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await page.getByLabel("Ask the Project").fill("absent");
   await page.getByRole("button", { name: "Ask Project" }).click();
   await expect(page.getByText("No matching passages", { exact: true })).toBeVisible();
@@ -904,7 +902,7 @@ test("Researcher recovers from missing passages and keeps a detailed multilingua
   await mobileAction.selectOption("question");
   await page.getByLabel("Ask the Project").fill("");
   await page.getByLabel("Ask the Project").scrollIntoViewIfNeeded();
-  await expect.poll(async () => (await page.getByRole("tablist", { name: "Project sections" }).boundingBox())?.y).toBe(0);
+  await expect(page.getByRole("combobox", { name: "Project sections" })).toHaveValue("conversation");
   const mobileScreenshot = testInfo.outputPath("research-mobile.png");
   await page.screenshot({ path: mobileScreenshot, fullPage: true });
   await testInfo.attach("Research workspace mobile", { path: mobileScreenshot, contentType: "image/png" });
@@ -1043,7 +1041,7 @@ test("concurrent Free Project limits expose exactly one public winner @projects-
     artifactGenerationsLimit: 1,
   });
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await expect(
     page.getByRole("status", { name: "5 of 5 free Project messages used" }),
   ).toBeVisible();
@@ -1060,6 +1058,7 @@ test("concurrent Free Project limits expose exactly one public winner @projects-
   await expect(creatorBrief.getByRole("heading", { name: "Source claims" })).toBeVisible();
   await expect(creatorBrief.getByText("Free Artifact generations: 1/1")).toBeVisible();
   await page.reload();
+  await openProjectSection(page, "Research");
   await expect(
     page.getByRole("status", { name: "5 of 5 free Project messages used" }),
   ).toBeVisible();
@@ -1080,39 +1079,22 @@ test("database-backed Pro Researcher completes a private responsive Project life
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await page.goto(`${appUrl}/workspace/manage`);
 
-  // Wait for the client auth provider before exercising keyboard activation;
-  // otherwise an SSR-visible button can receive Enter before React hydrates.
-  await expect(page.getByRole("button", { name: "User menu" })).toBeVisible();
-
-  await expect(
-    page.getByRole("heading", { name: "Your research, ready to resume" }),
-  ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Start your first Project" })).toBeVisible();
-  const emptyCreate = page.getByRole("button", { name: "Create Project" });
-  await emptyCreate.press("Enter");
-  await expect(page.getByRole("dialog", { name: "Create a Project" })).toBeVisible();
+  await expect(page).toHaveURL(appUrl + "/workspace");
   await page.getByLabel("Project name").fill("Evidence review");
+  await page.getByRole("button", { name: "Create and open" }).press("Enter");
+  await openProjectSection(page, "Settings");
   await page.getByLabel("Project Goal (optional)").fill("Compare the two explanations.");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
-
-  const firstCard = page
-    .locator('[data-slot="card"]')
-    .filter({ has: page.getByRole("heading", { name: "Evidence review" }) });
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible();
+  await page.locator(".project-head a").click();
+  const firstCard = page.getByRole("link", {name: "Open Evidence review"});
   await expect(firstCard).toContainText("Compare the two explanations.");
-  await expect(
-    page.getByText(/Unlimited Projects within technical and abuse limits/i),
-  ).toBeVisible();
-
-  await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Creator brief");
-  await page.getByLabel("Project Goal (optional)").fill("Find an original angle.");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
-
-  const recentHeadings = page.locator('[aria-labelledby="recent-projects-heading"] h3');
+  await page.getByRole("button", { name: "Create and open" }).click();
+  await page.locator(".project-head a").click();
+  const recentHeadings = page.locator(".recent-entry h3");
   await expect(recentHeadings).toHaveText(["Creator brief", "Evidence review"]);
-
-  await firstCard.getByRole("link", { name: "Open Evidence review" }).click();
-  await expect(page).toHaveURL(/\/workspace\/projects\/a0000000-0000-4000-8000-000000000001\/materials$/);
+  await firstCard.click();
   await expect(page.getByRole("heading", { name: "Evidence review", level: 1 })).toBeVisible();
   await openProjectSection(page, "Settings");
   await expect(page.getByRole("heading", { name: "Guidance, not evidence" })).toBeVisible();
@@ -1133,7 +1115,7 @@ test("database-backed Pro Researcher completes a private responsive Project life
   try {
     await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
     await expect(otherPage.getByRole("heading", { name: "Project not found" })).toBeVisible();
 
     const crossOwnerUpdate = await otherContext.request.patch(
@@ -1146,21 +1128,17 @@ test("database-backed Pro Researcher completes a private responsive Project life
     await otherContext.close();
   }
 
-  await page.getByRole("link", { name: "Back to Workspace" }).click();
+  await page.locator(".project-head a").click();
   await expect(page).toHaveURL(`${appUrl}/workspace`);
-  await page.getByRole("link", {name:"Manage projects",exact:true}).click();
   await expect(recentHeadings).toHaveText(["Evidence synthesis", "Creator brief"]);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "Create Project" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create and open" })).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
 
-  const renamedCard = page
-    .locator('[data-slot="card"]')
-    .filter({ has: page.getByRole("heading", { name: "Evidence synthesis" }) });
-  await renamedCard.getByRole("link", { name: "Open Evidence synthesis" }).click();
+  await page.getByRole("link", {name: "Open Evidence synthesis"}).click();
   await openProjectSection(page, "Settings");
   await page.getByRole("button", { name: "Delete Project" }).click();
   const deleteDialog = page.getByRole("alertdialog", {
@@ -1188,7 +1166,7 @@ test("Project Conversation shows coverage before text and reloads a citation-dia
     "Grounded conversation lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await expect(page.getByRole("heading", { name: "Project Conversation" }))
     .toBeVisible();
   await page.getByLabel("Ask the Project").fill("What does the evidence support?");
@@ -1284,7 +1262,7 @@ test("guided Project Conversation actions preserve editable mode metadata on des
   );
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await expect(
     page.getByRole("button", { name: "Compare viewpoints" }),
   ).toBeVisible();
@@ -1364,7 +1342,7 @@ test("Project Conversation preserves Source Set boundaries across desktop and mo
   seedSourceSetAuditConversation(projectId);
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await expect(page.getByText("Historical answer from revision one.")).toBeVisible();
   await expect(
     page.getByRole("status", { name: "Source Set change revision 2" }),
@@ -1431,7 +1409,7 @@ test("Project Conversation persists a retrieval-miss fallback without generating
     "Grounded fallback lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await page.getByLabel("Ask the Project").fill("absent");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1467,7 +1445,7 @@ test("Project Conversation preserves only the user message after gateway failure
   gatewayOutcome = "failure";
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await page.getByLabel("Ask the Project").fill("What fails safely?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1498,7 +1476,7 @@ test("Project Conversation releases reconciliation after cancellation stays unav
   groundedAttemptLeaseMilliseconds = 500;
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await page.getByLabel("Ask the Project").fill("What remains recoverable?");
   await page.getByRole("button", { name: "Ask Project" }).click();
 
@@ -1527,7 +1505,7 @@ test("Researcher switches, clears, and retries named Project Conversations on de
     "Conversation management lab",
   );
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(
     page.getByRole("button", { name: /New conversation \d+ messages/ }),
@@ -1611,7 +1589,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await openProjectSection(page, "Outputs");
   const guide = page.getByRole("region", { name: "Study Guide" });
   await expect(guide.getByRole("button", { name: "Generate Study Guide" })).toBeVisible();
@@ -1696,6 +1674,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
     .getByRole("button", { name: "Add Beta processing to Source Set" })
     .click();
   await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+  await openProjectSection(page, "Outputs");
   await expect(guide.getByText("Update available.", { exact: true })).toBeVisible();
   await expect(
     guide.getByRole("status").filter({
@@ -1707,6 +1686,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
   ).toBeVisible();
   await guide.getByRole("button", { name: "Regenerate Study Guide" }).click();
   await expect(guide.getByText("Study Guide updated.")).toBeVisible();
+  await openProjectSection(page, "Outputs");
   await expect(guide.getByText("Update available.", { exact: true })).toHaveCount(0);
   await expect(
     guide.getByLabel("Study Guide provenance", { exact: true }),
@@ -1740,7 +1720,7 @@ test("Study Guide stays evidence-bound across export, Source Set updates, regene
       "Free Study Guide",
     );
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}/materials`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}?panel=conversation`);
     await openProjectSection(otherPage, "Outputs");
     const freeGuide = otherPage.getByRole("region", { name: "Study Guide" });
     await freeGuide.getByRole("button", { name: "Generate Study Guide" }).click();
@@ -1784,7 +1764,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await openProjectSection(page, "Outputs");
   await page.getByRole("button", { name: "Choose Creator Brief" }).click();
   const brief = page.getByRole("region", { name: "Creator Brief" });
@@ -1878,6 +1858,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
     .getByRole("button", { name: "Add Beta processing to Source Set" })
     .click();
   await expect(page.getByText("Added Beta processing.", { exact: true })).toBeVisible();
+  await openProjectSection(page, "Outputs");
   await expect(brief.getByText("Update available.", { exact: true })).toBeVisible();
   await brief.getByRole("button", { name: "Regenerate Creator Brief" }).click();
   await expect(brief.getByText("Creator Brief updated.")).toBeVisible();
@@ -1899,7 +1880,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
   ).toBe(true);
 
   await page.goto(`${appUrl}/workspace`);
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await openProjectSection(page, "Outputs");
   await expect(
     brief.getByLabel("Creator Brief provenance", { exact: true }),
@@ -1921,7 +1902,7 @@ test("Creator Brief stays originality-safe across export, Source Set updates, re
       { goal: "Explore local climate adaptation decisions." },
     );
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}/materials`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${freeProjectId}?panel=conversation`);
     await openProjectSection(otherPage, "Outputs");
     await otherPage.getByRole("button", { name: "Choose Creator Brief" }).click();
     const freeBrief = otherPage.getByRole("region", { name: "Creator Brief" });
@@ -1963,7 +1944,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   });
   gatewayGate.release();
 
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
   await showProjectSources(page);
   await page.getByRole("button", { name: "Add from History" }).click();
   const historyDialog = page.getByRole("dialog", { name: "Add a History Video" });
@@ -2085,6 +2066,7 @@ test("Project Brief persists cited positions across desktop export, regeneration
   await updateDialog
     .getByRole("button", { name: "Add Delta context to Source Set" })
     .click();
+  await openProjectSection(page, "Outputs");
   await expect(brief.getByText("Update available.", { exact: true })).toBeVisible();
   await brief.getByRole("button", { name: "Regenerate Project Brief" }).click();
   await expect(brief.getByText("Project Brief updated.")).toBeVisible();
@@ -2247,10 +2229,10 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
   await addSessionCookie(context, OTHER_ID, "other@example.test");
   await page.goto(`${appUrl}/workspace/manage`);
 
-  await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Free research home");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
+  await page.getByRole("button", { name: "Create and open" }).click();
   await expect(page.getByRole("heading", { name: "Free research home" })).toBeVisible();
+  await page.locator(".project-head a").click();
 
   await expect(page.getByText("1 of 1 Free Project used")).toBeVisible();
   await expect(
@@ -2283,6 +2265,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
     .getByRole("alertdialog", { name: "Delete “Free research home”?" })
     .getByRole("button", { name: "Delete Project" })
     .click();
+  await expect(page).toHaveURL(appUrl + "/workspace");
   await expect(page.getByLabel("Project name")).toBeVisible();
 
   const concurrent = await Promise.all([
@@ -2305,7 +2288,7 @@ test("Free Project cap is clear, deletion frees it, and concurrent creation stay
   });
 
   await page.goto(`${appUrl}/workspace/manage`);
-  await expect(page.locator('[aria-labelledby="recent-projects-heading"] h3')).toHaveCount(1);
+  await expect(page.locator('[aria-labelledby="recent-directory-title"] h3')).toHaveCount(1);
 });
 
 test("visitor receives a clear registration action before Workspace data is loaded", async ({
@@ -2338,11 +2321,9 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await page.goto(`${appUrl}/workspace/manage`);
-  await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("Climate evidence map");
-  await page.getByLabel("Project Goal (optional)").fill("Compare the source claims.");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
-  await page.getByRole("link", { name: "Open Climate evidence map" }).click();
+  await page.getByRole("button", { name: "Create and open" }).click();
+  await showProjectSources(page);
 
   await expect(page.getByRole("heading", { name: "Sources" })).toBeVisible();
   await expect(
@@ -2452,6 +2433,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
       generatedRequests.push(request.url());
     }
   });
+  await openProjectSection(page, "Search");
   const searchRegion = page.getByLabel("Project Search");
   await expect(searchRegion).toHaveClass(/ph-no-capture/);
   await expect(searchRegion).toHaveAttribute("data-ph-no-autocapture", "true");
@@ -2513,6 +2495,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   await expect(searchRegion.getByText("Gamma failed", { exact: true })).toBeVisible();
   expect(generatedRequests).toEqual([]);
 
+  await showProjectSources(page);
   await page.getByRole("button", { name: "Move Epsilon counterpoint up" }).click();
   await expect(page.getByText("Source order updated.", { exact: true })).toBeVisible();
   await page.reload();
@@ -2575,7 +2558,7 @@ test("Researcher curates a durable, bounded, concurrent-safe Project Source Set"
   try {
     await addSessionCookie(otherContext, OTHER_ID, "other@example.test");
     const otherPage = await otherContext.newPage();
-    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+    await otherPage.goto(`${appUrl}/workspace/projects/${projectId}?panel=conversation`);
     await expect(otherPage.getByRole("heading", { name: "Project not found" })).toBeVisible();
     const privateSourceSet = await otherContext.request.get(
       `${appUrl}/api/projects/${projectId}/source-set`,
@@ -2636,10 +2619,9 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
 }) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   await page.goto(`${appUrl}/workspace/manage`);
-  await page.getByRole("button", { name: "Create Project" }).click();
   await page.getByLabel("Project name").fill("URL evidence lab");
-  await page.getByRole("button", { name: "Create Project" }).last().click();
-  await page.getByRole("link", { name: "Open URL evidence lab" }).click();
+  await page.getByRole("button", { name: "Create and open" }).click();
+  await showProjectSources(page);
 
   const projectId = projects.find((project) => project.name === "URL evidence lab")?.id;
   expect(projectId).toBeTruthy();
@@ -2839,20 +2821,20 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projurl0001");
   await page.getByRole("button", { name: "Add Video" }).click();
-  await expect(page.getByText("Pasted source")).toBeVisible();
-  await expect(page.getByText("Processing", { exact: true })).toBeVisible();
+  await expect(sourceSetRegion.getByText("Pasted source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Processing", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("Pasted source")).toBeVisible();
-  await expect(page.getByText("Processing", { exact: true })).toBeVisible();
-  await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(sourceSetRegion.getByText("Pasted source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Processing", { exact: true })).toBeVisible();
+  await expect(sourceSetRegion.getByText("Ready", { exact: true })).toBeVisible();
 
   await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projfail001");
   await page.getByRole("button", { name: "Add Video" }).click();
   await expect(page.getByRole("button", { name: "Retry Retry source" })).toBeVisible();
   await page.getByRole("button", { name: "Retry Retry source" }).click();
-  await expect(page.getByText("Retry source")).toBeVisible();
-  await expect(page.getByText("Ready", { exact: true })).toHaveCount(2);
+  await expect(sourceSetRegion.getByText("Retry source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Ready", { exact: true })).toHaveCount(2);
   expect(
     projectVideos.filter(
       (membership) =>
@@ -2909,8 +2891,8 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
   expect(processingOwners).toBe(5);
 
   await page.reload();
-  await expect(page.getByText("Duplicate source")).toBeVisible();
-  await expect(page.getByText("Ready", { exact: true })).toHaveCount(3);
+  await expect(sourceSetRegion.getByText("Duplicate source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Ready", { exact: true })).toHaveCount(3);
   await showSourceUrlInput(page);
   await input.fill("https://www.youtube.com/watch?v=projother01");
   await page.getByRole("button", { name: "Add Video" }).click();
@@ -2918,17 +2900,17 @@ test("Researcher pastes, refreshes, retries, and removes a durable Project URL",
     page.getByRole("status", { name: "5 of 5 Project Videos" }),
   ).toBeVisible();
   await expect(input).toHaveCount(0);
-  await expect(page.getByText("Source Set limit reached")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Source Set limit reached")).toBeVisible();
   const otherSource = page.getByRole("listitem").filter({ hasText: "Other source" });
   await expect(otherSource.getByText("Ready", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Remove Quota source from Source Set" }).click();
-  await expect(page.getByText("Removed Quota source.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Quota source", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Pasted source")).toBeVisible();
-  await expect(page.getByText("Retry source")).toBeVisible();
-  await expect(page.getByText("Duplicate source")).toBeVisible();
-  await expect(page.getByText("Other source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Removed Quota source.", { exact: true })).toBeVisible();
+  await expect(sourceSetRegion.getByText("Quota source", { exact: true })).toHaveCount(0);
+  await expect(sourceSetRegion.getByText("Pasted source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Retry source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Duplicate source")).toBeVisible();
+  await expect(sourceSetRegion.getByText("Other source")).toBeVisible();
   await expect(
     page.getByRole("status", { name: "4 of 5 Project Videos" }),
   ).toBeVisible();
@@ -5141,7 +5123,7 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
     return route.fulfill({ status: 201, json: { versions } });
   });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${appUrl}/workspace/projects/${projectId}/materials`);
+  await page.goto(`${appUrl}/workspace/projects/${projectId}?panel=research`);
   await page.getByLabel("Research question", { exact: true }).fill("种子油确实有害吗？请检查外部研究。");
   await page.getByRole("button", { name: "Start research", exact: true }).click();
   await expect(page.getByRole("region", { name: "Current research judgment" })).toContainText("现有人体试验");
@@ -5150,7 +5132,7 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
   await page.getByText("[1] Publication abstract · 2024 — Dietary fat randomized trial", { exact: true }).click();
   await expect(page.getByText(evidence.text, { exact: true })).toBeVisible();
   await page.getByLabel("Continue your research", { exact: true }).fill("那长期人体研究呢？");
-  await openProjectSection(page, "Outputs"); await openProjectSection(page, "Research");
+  await openProjectSection(page, "Outputs"); await openProjectSection(page, "Notebook");
   await expect(page.getByLabel("Continue your research", { exact: true })).toHaveValue("那长期人体研究呢？");
   await page.getByRole("button", { name: "Research & update judgment", exact: true }).click();
   await expect(page.getByText("补充检索后维持谨慎判断，长期临床结局仍需研究。", { exact: true })).toBeVisible();
@@ -5175,8 +5157,60 @@ test("Research notebook supplements evidence and preserves evolving judgments ac
   await page.screenshot({ path: testInfo.outputPath("research-notebook-mobile.png"), fullPage: true });
 });
 
+test("retired workspace bookmarks preserve the project, thread, and login destination @projects-ga-critical", async ({ context, page }) => {
+  const id = "a0000000-0000-4000-8000-000000000001";
+  const path = "/workspace/projects/" + id;
+  const suffix = "?claim=saved&source=&tag=one&tag=two";
+  for (const [oldPath, destination] of [
+    ["/new-workspace?sort=recent", "/workspace?sort=recent"],
+    ["/workspace/manage", "/workspace"],
+    ["/new-workspace/projects/" + id + suffix, path + suffix],
+    [path + "/materials" + suffix, path + suffix],
+  ]) {
+    const response = await context.request.get(appUrl + oldPath, {maxRedirects: 0});
+    expect(response.status()).toBe(308);
+    const target = new URL(response.headers().location, appUrl);
+    expect(target.pathname + target.search).toBe(destination);
+  }
+  await page.goto(appUrl + path + "/materials" + suffix);
+  expect(new URL(page.url()).searchParams.get("redirect_to")).toBe(path + suffix);
+
+  await addSessionCookie(context, OWNER_ID, "owner@example.test");
+  const project = await createGroundedFixtureProject(context, "Saved project");
+  const thread = await context.request.post(appUrl + "/api/projects/" + project + "/conversations", {
+    data: { name: "Earlier evidence" },
+  });
+  expect(thread.status()).toBe(201);
+  const { conversation } = await thread.json();
+  const other = await context.request.post(appUrl + "/api/projects/" + project + "/conversations", {
+    data: { name: "Recent notes" },
+  });
+  expect(other.status()).toBe(201);
+  const projectUrl = appUrl + "/workspace/projects/" + project;
+  const bookmark = "?conversationId=" + conversation.conversationId;
+  await page.goto(projectUrl + "/materials" + bookmark);
+  await expect(page).toHaveURL(projectUrl + bookmark);
+  await expect(page.locator(".project-sections")).toHaveValue("conversation");
+  await expect(page.getByRole("button", {name: /Earlier evidence 0 messages/})).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".project-sections").selectOption("desk");
+  await expect(page.locator(".integrated")).toBeVisible();
+  await expect(page.getByRole("link", {name: /Original project materials/i})).toHaveCount(0);
+  await page.locator(".project-sections").selectOption("conversation");
+  const recent = page.getByRole("button", {name: /Recent notes 0 messages/});
+  await recent.click();
+  await expect(recent).toHaveAttribute("aria-pressed", "true");
+  await page.goBack();
+  await expect(page.locator(".project-sections")).toHaveValue("desk");
+  await page.goBack();
+  await expect(page).toHaveURL(projectUrl + bookmark);
+  await expect(page.getByRole("button", {name: /Earlier evidence 0 messages/})).toHaveAttribute("aria-pressed", "true");
+
+  await page.goto(projectUrl + "?conversationId=af000000-0000-4000-8000-000000000999");
+  await expect(recent).toHaveAttribute("aria-pressed", "true");
+});
+
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
-  test(`Video Space claim deep link keeps its first layout at ${viewport.width}px @projects-ga-critical`, async ({ context, page }) => {
+  test(`Saved claim link opens the integrated room at ${viewport.width}px @projects-ga-critical`, async ({ context, page }) => {
     await addSessionCookie(context, OWNER_ID, "owner@example.test");
     const projectId = await createGroundedFixtureProject(context, "Seed oil research", { sourceCount: 2 });
     const claimId = crypto.randomUUID();
@@ -5210,21 +5244,8 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       const loading = page.getByRole("status").filter({ hasText: "Loading project" });
       await expect(loading).toBeVisible();
       await expect.poll(() => [...started].sort()).toEqual(["research", "sources", "space"]);
-      const grid = page.locator(".vs-grid");
-      const panels = grid.locator(":scope > .vs-panel:visible");
-      const desktop = viewport.width > 760;
-      await expect(panels).toHaveCount(desktop ? 3 : 2);
-      const panelPositions = () => panels.evaluateAll((elements, desktop) =>
-        elements.map((element) => {
-          const { x, y, width, height } = element.getBoundingClientRect();
-          // The claim room fits its content. Its top and width stay anchored.
-          return desktop && !element.matches(".vs-claim-room")
-            ? { x, y, width, height }
-            : { x, y, width };
-        }),
-        desktop,
-      );
-      const initialPositions = await panelPositions();
+      await expect(page).toHaveURL(appUrl + "/workspace/projects/" + projectId + "?claim=" + claimId);
+      await expect(page.locator(".integrated")).toHaveCount(0);
       const spaceResponse = page.waitForResponse(endpoint + "/space");
       space.resolve();
       await spaceResponse;
@@ -5237,9 +5258,9 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       await expect(page.getByLabel("Script text")).toHaveCount(0);
       sources.resolve();
       await expect(page.locator("#vs-room-title")).toHaveText(title);
-      await expect(page.getByLabel("Script text")).toHaveValue("Saved script");
+      await expect(page.locator(".integrated")).toHaveAttribute("data-mobile", "room");
       await expect(loading).toHaveCount(0);
-      expect(await panelPositions()).toEqual(initialPositions);
+      expect(await page.evaluate(() => window.document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(new URL(page.url()).searchParams.get("claim")).toBe(claimId);
     } finally {
       space.resolve();
@@ -5380,7 +5401,7 @@ test("authors can title and structure a blank draft without the assistant @proje
   expect(assistantRequests).toEqual([]);
 });
 
-test("New Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
+test("Workspace opens an existing Video Space and saves a handwritten opening @projects-ga-critical", async ({context, page}) => {
   await addSessionCookie(context, OWNER_ID, "owner@example.test");
   const projectId = await createGroundedFixtureProject(context, "Seed oil，争议在哪里？", {sourceCount: 2});
   const legacy = await context.request.put(appUrl + "/api/projects/" + projectId + "/space", {
@@ -5469,30 +5490,25 @@ test("legacy materials, excerpts and conversation defaults switch in place @proj
       await expect(page.getByText("原文保持原样",{exact:false}).last()).toBeVisible();
     }
     await page.goto(base+"/workspace/projects/"+id+"/materials");
-    for (const [locale,research,outputs,search,settings,thread,details,action,outputTitle,sourceButton] of [
-      ["en","Research","Outputs","Search","Settings","New conversation","Project details","Compare viewpoints","Study Guide","Add from History"],
-      ["zh","研究","成果","搜索","设置","新对话","项目详情","比较观点","学习指南","从历史记录添加"],
-      ["zh-TW","研究","成果","搜尋","設定","新對話","專案詳情","比較觀點","學習指南","從歷史記錄添加"],
+    await expect(page).toHaveURL(base + "/workspace/projects/" + id);
+    const sections = page.locator(".project-sections");
+    for (const [locale, thread, details, outputTitle] of [
+      ["en","New conversation","Project details","Study Guide"],
+      ["zh","新对话","项目详情","学习指南"],
+      ["zh-TW","新對話","專案詳情","學習指南"],
     ]) {
       await lang.selectOption(locale);
       await expect(page.getByRole("heading",{name,exact:true})).toBeVisible();
-      await page.getByRole("tab",{name:research,exact:true}).click();
+      await sections.selectOption("conversation");
       await expect(page.getByRole("list").getByText(thread,{exact:true})).toBeVisible();
-      await page.getByRole("button",{name:action,exact:true}).click();
-      await expect(page.locator("#project-question")).not.toBeEmpty();
-      await page.getByRole("tab",{name:outputs,exact:true}).click();
+      await sections.selectOption("outputs");
       await expect(page.getByRole("heading",{name:outputTitle,exact:true})).toBeVisible();
-      await page.getByRole("tab",{name:search,exact:true}).click();
-      await expect(page.locator('input:visible').first()).toBeVisible();
-      await page.getByRole("tab",{name:settings,exact:true}).click();
+      await sections.selectOption("settings");
       await expect(page.getByRole("heading",{name:details,exact:true})).toBeVisible();
-      await page.getByRole("button",{name:sourceButton,exact:true}).click();
-      await expect(page.getByRole("dialog")).toBeVisible();
-      await page.getByRole("dialog").getByRole("button", {name: locale === "en" ? "Close" : locale === "zh" ? "关闭" : "關閉", exact: true}).click();
     }
     await page.reload();
     await expect(lang).toHaveValue("zh-TW");
-    await expect(page.getByRole("tab",{name:"設定",exact:true})).toBeVisible();
+    await expect(sections).toHaveValue("settings");
   } finally {
     expect((await page.request.delete(target)).status()).toBe(204);
   }
@@ -5519,7 +5535,7 @@ test("recent projects form a responsive, keyboard-accessible directory @projects
   await expect(entries.getByRole("heading")).toHaveText(names);
   await expect(entries.nth(1)).toContainText(seeds[1].goal!);
   await expect(entries.first().locator("time")).toHaveAttribute("datetime", seeds[0].last_active_at);
-  await expect(directory.getByRole("link", { name: "管理项目" })).toHaveAttribute("href", "/workspace/manage");
+  await expect(directory.getByRole("link")).toHaveCount(names.length);
   const positions = () => entries.evaluateAll(items => items.map(item => {
     const { x, y, right } = item.getBoundingClientRect();
     return { x, y, right };

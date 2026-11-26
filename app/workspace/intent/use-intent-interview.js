@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { requestJson } from "@/app/new-workspace/projects/[projectId]/use-space";
+import { requestJson } from "@/app/workspace/projects/[projectId]/use-space";
 
 import { reviseOutline, writeOutlineBody } from "@/lib/video-space/outline-manuscript";
 

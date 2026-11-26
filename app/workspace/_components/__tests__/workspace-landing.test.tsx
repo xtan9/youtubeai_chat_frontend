@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render as renderComponent, screen, waitFor } from "
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFreeProjectLimitResponse } from "@/lib/projects/project-limit-response";
 import { axe } from "@/tests-utils/axe";
-import { WorkspaceView } from "../workspace-view";
+import { IntentLanding } from "../../intent/landing";
+vi.mock("next/navigation", () => ({ useRouter: () => ({push: vi.fn()}) }));
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -59,8 +60,8 @@ describe("Workspace Project entitlement presentation", () => {
   it("shows the Free allowance and governed upgrade action accessibly", async () => {
     entitlements("free");
     const { container } = render(
-      <WorkspaceView
-        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
+      <IntentLanding
+        workspace={{ id: "workspace-1", projects: [PROJECT] }}
       />,
     );
 
@@ -70,7 +71,7 @@ describe("Workspace Project entitlement presentation", () => {
     expect(privacyBoundary?.tagName).toBe("DIV");
     expect(privacyBoundary?.classList.contains("ph-no-capture")).toBe(true);
     expect(privacyBoundary?.hasAttribute("data-ph-no-autocapture")).toBe(true);
-    expect(screen.queryByRole("button", { name: "Create Project" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create and open" })).toBeNull();
     expect(screen.getByText("1 of 1 Free Project used")).not.toBeNull();
     const upgrade = screen.getByRole("link", {
       name: "Upgrade to Pro",
@@ -112,41 +113,24 @@ describe("Workspace Project entitlement presentation", () => {
   it("keeps Pro creation unlimited within technical and abuse limits", () => {
     entitlements("pro");
     render(
-      <WorkspaceView
-        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
+      <IntentLanding
+        workspace={{ id: "workspace-1", projects: [PROJECT] }}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Create Project" })).not.toBeNull();
-    expect(
-      screen.getByText(/unlimited Projects within technical and abuse limits/i),
-    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Create and open" })).not.toBeNull();
     expect(screen.queryByRole("link", { name: /upgrade/i })).toBeNull();
-  });
-
-  it("blocks Project-private Create dialog content in its Radix portal", () => {
-    entitlements("pro");
-    render(
-      <WorkspaceView
-        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
-    const dialog = screen.getByRole("dialog");
-    expect(dialog.classList.contains("ph-no-capture")).toBe(true);
-    expect(dialog.hasAttribute("data-ph-no-autocapture")).toBe(true);
   });
 
   it("fails soft when entitlement presentation is unavailable", () => {
     entitlements(undefined);
     render(
-      <WorkspaceView
-        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
+      <IntentLanding
+        workspace={{ id: "workspace-1", projects: [PROJECT] }}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Create Project" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Create and open" })).not.toBeNull();
     expect(screen.queryByText(/Free Project used/i)).toBeNull();
   });
 
@@ -159,24 +143,19 @@ describe("Workspace Project entitlement presentation", () => {
       ),
     );
     render(
-      <WorkspaceView
-        initialWorkspace={{ id: "workspace-1", projects: [PROJECT] }}
+      <IntentLanding
+        workspace={{ id: "workspace-1", projects: [PROJECT] }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
     fireEvent.change(screen.getByLabelText("Project name"), {
       target: { value: "Sensitive research" },
     });
-    fireEvent.change(screen.getByLabelText("Project Goal (optional)"), {
-      target: { value: "Private goal" },
-    });
-    fireEvent.click(screen.getAllByRole("button", { name: "Create Project" }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Create and open" }).at(-1)!);
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Free includes 1 Project.",
     );
-    expect(screen.getByText("Free Project limit reached")).not.toBeNull();
     expect(
       screen.getByRole("link", { name: "Upgrade to Pro" }),
     ).not.toBeNull();

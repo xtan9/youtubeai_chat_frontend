@@ -1,27 +1,24 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { ArrowRight, ChevronRight, Clock3 } from "lucide-react";
 import type { PersonalWorkspace } from "@/lib/projects/project-subject";
 import { decodeProjectLimitResponse } from "@/lib/projects/project-limit-response";
 import { useEntitlements } from "@/lib/hooks/useEntitlements";
 import { captureAnalyticsEvent } from "@/lib/analytics/client";
-import { ProjectLimitUpgrade } from "../_components/workspace-view";
+import { ProjectLimitUpgrade } from "../_components/project-limit-upgrade";
 import { IntentShell } from "./shell";
 
 function RecentProjects({ projects }: { projects: PersonalWorkspace["projects"] }) {
-  const ui = useTranslations("ui"), t = useTranslations("intent");
+  const ui = useTranslations("ui");
   const format = useFormatter();
   const now = useNow({ updateInterval: 60_000 });
   return (
     <section className="recent-projects" aria-labelledby="recent-directory-title">
       <div className="recent-heading">
         <h2 id="recent-directory-title">{ui("recentlyActive")}</h2>
-        <Link className="manage-projects" href="/workspace/manage">
-          {t("manageProjects")} <ArrowRight aria-hidden="true" />
-        </Link>
       </div>
       <ul className="recent-grid" role="list">
         {projects.map((project) => {
@@ -66,6 +63,14 @@ export function IntentLanding({ workspace }: { workspace: PersonalWorkspace }) {
   const [used, setUsed] = useState(0);
   const limited =
     used || (entitlements.data?.tier === "free" && workspace.projects.length);
+  const capReported = useRef(false);
+  useEffect(() => {
+    if (used || !limited || capReported.current) return;
+    capReported.current = true;
+    captureAnalyticsEvent("project_limit_reached", {
+      source_surface: "workspace_header", tier: "free", projects_used: Number(limited), projects_limit: 1,
+    });
+  }, [limited, used]);
   async function create(e: FormEvent) {
     e.preventDefault();
     if (!name.trim() || pending) return;

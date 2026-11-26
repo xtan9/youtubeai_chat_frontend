@@ -182,6 +182,7 @@ describe("Header navigation", () => {
     expect(screen.getByRole("link", { name: "Workspace" }).getAttribute("href"))
       .toBe("/workspace");
     openDropdown(screen.getByRole("button", { name: /open navigation menu/i }));
+    expect(screen.queryByRole("link", { name: "New Workspace" })).toBeNull();
     expect(screen.getAllByRole("link", { name: "Workspace" })).toHaveLength(2);
     expect(
       screen.getAllByRole("link", { name: "Workspace" })[1].getAttribute("href"),

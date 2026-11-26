@@ -104,9 +104,13 @@ export function useProjectGroundedConversation(args: {
 
   const persistConversationUrl = useCallback((conversationId: string) => {
     const url = new URL(window.location.href);
+    if (url.pathname !== `/workspace/projects/${args.projectId}`) return;
+    const panel = url.searchParams.get("panel");
+    if (panel ? panel !== "conversation" : !url.searchParams.has("conversationId")) return;
+    url.searchParams.delete("panel");
     url.searchParams.set("conversationId", conversationId);
-    window.history.replaceState(window.history.state, "", url);
-  }, []);
+    window.history.replaceState(null, "", url);
+  }, [args.projectId]);
 
   const reload = useCallback(
     async (

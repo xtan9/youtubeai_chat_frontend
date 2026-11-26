@@ -6,7 +6,7 @@ import type Delta from "quill-delta";
 import type Table from "quill/modules/table";
 import { Bold, Italic, Underline, Strikethrough, Code, Link, List, ListOrdered, ListChecks, Quote,
   Undo2, Redo2, Ellipsis, IndentIncrease, IndentDecrease, RemoveFormatting } from "lucide-react";
-import { DraftTitle, type useWriting } from "@/app/new-workspace/projects/[projectId]/writing";
+import { DraftTitle, type useWriting } from "@/app/workspace/projects/[projectId]/writing";
 import { moveOutlineAnchors } from "@/lib/video-space/contract";
 import { draftContents, editorContents, editorFormats, moveEditorMarkers } from "@/lib/video-space/rich-text";
 import "quill/dist/quill.core.css";

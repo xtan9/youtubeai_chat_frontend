@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { defaultDraftTitle, resourceSchema } from "@/lib/video-space/contract";
 import { HighlightTranslation } from "@/app/summary/components/highlight-translation";
 import { pickDefaultLanguage } from "@/lib/utils/browser-locale";
@@ -16,20 +15,20 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
-import { Library } from "@/app/new-workspace/projects/[projectId]/library";
-import { ClaimLinks } from "@/app/new-workspace/projects/[projectId]/source-claims";
+import { Library } from "@/app/workspace/projects/[projectId]/library";
+import { ClaimLinks } from "@/app/workspace/projects/[projectId]/source-claims";
 import {
   ClaimRoom,
   ClaimRoomHeader,
-} from "@/app/new-workspace/projects/[projectId]/claim-room";
-import { useWriting } from "@/app/new-workspace/projects/[projectId]/writing";
+} from "@/app/workspace/projects/[projectId]/claim-room";
+import { useWriting } from "@/app/workspace/projects/[projectId]/writing";
 import { groupClaimSpaces } from "@/lib/video-space/claim-spaces";
 
 import { getFormats, answerId, researchRecords } from "./question-sources";
 import {
   requestJson,
   SpaceRequestError,
-} from "@/app/new-workspace/projects/[projectId]/use-space";
+} from "@/app/workspace/projects/[projectId]/use-space";
 import { Document, paragraphRanges } from "./document";
 import { InkIcon } from "./ink-icon";
 import { useIntentInterview } from "./use-intent-interview";
@@ -44,7 +43,9 @@ import {
   ResearchSourceList,
 } from "./question-research";
 
-export function IntentDesk({ name, projectId, store, initial }) {
+const EMPTY_HISTORY = [];
+
+export function IntentDesk({ name, projectId, store, initial, onSourcesChange, onResearch }) {
   const t = useTranslations("intent");
   const formats = getFormats(t);
   const activeTabName = {
@@ -60,7 +61,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
   const tr = useTranslations("ui");
   const params = useSearchParams();
   const route = Object.fromEntries(params.entries());
-  const [versions, setVersions] = useState(initial.history || []);
+  const versions = initial.history ?? EMPTY_HISTORY;
   const [pending, setPending] = useState("");
   const [failure, setFailure] = useState({});
   const lock = useRef(false);
@@ -103,7 +104,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
     !space.interview && !space.purpose &&
     !space.drafts.some((d, i) => d.text || defaultDraftTitle(d, i) === null);
   const [mobile, setMobile] = useState(
-    route.claim || route.source !== undefined
+    route.claim || route.source !== undefined || (route.finding && !route.question)
       ? "room"
       : route.question
         ? "paper"
@@ -190,7 +191,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
       (!route.question && !route.source
         ? index.byFinding.get(route.finding)
         : undefined),
-    inRoom = !!room || route.source !== undefined,
+    inRoom = !!room || !!route.claim || (!!route.finding && !route.question) || route.source !== undefined,
     selected = room?.versions.find((v) => v.id === route.finding);
   const currentQuestion = projectQuestions.find((q) => q.id === route.question);
   const historicRun = route.question && runs[route.finding];
@@ -234,17 +235,18 @@ export function IntentDesk({ name, projectId, store, initial }) {
       url.searchParams.delete(k);
       if (next[k] !== undefined) url.searchParams.set(k, next[k]);
     }
-    url.searchParams.set("intent", "1");
+    url.searchParams.delete("intent");
+    url.searchParams.delete("view");
     if (url.href !== location.href) history[method](null, "", url);
     setFocus(null);
 
-    setMobile(next.claim || next.source !== undefined ? "room" : "paper");
+    setMobile(next.claim || next.source !== undefined || (next.finding && !next.question) ? "room" : "paper");
   }
   useEffect(() => {
     function readRoute() {
       const next = Object.fromEntries(new URLSearchParams(location.search));
 
-      setMobile(next.claim || next.source !== undefined ? "room" : "paper");
+      setMobile(next.claim || next.source !== undefined || (next.finding && !next.question) ? "room" : "paper");
     }
     window.addEventListener("popstate", readRoute);
     return () => window.removeEventListener("popstate", readRoute);
@@ -305,10 +307,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
         baseVersionId: versions[0]?.id || null,
         space: context,
       });
-      setVersions((old) => [
-        result.versions[0],
-        ...old.filter((v) => v.id !== result.versions[0].id),
-      ]);
+      onResearch(result.versions[0]);
       if (context.questionId)
         setProjectQuestions((items) =>
           items.map((q) =>
@@ -626,22 +625,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
     : ["side", "paper", "chat"];
   return (
     <>
-      <div className="project-head">
-        <div>
-          <div className="crumb">
-            <Link href="/workspace">{t("myWorkspace")}</Link> <span>/</span>{" "}
-            {t("project")}{" "}
-            {status === tr("saving") && <small role="status">{status}</small>}
-          </div>
-          <h1>{name}</h1>
-        </div>
-        <Link
-          className="secondary"
-          href={"/workspace/projects/" + projectId + "/materials"}
-        >
-          {tr("originalProjectMaterials")}
-        </Link>
-      </div>
       {initial.history === null && (
         <p role="alert">{tr("researchHistoryCouldNotBeLoadedPleaseReload")}</p>
       )}
@@ -863,7 +846,8 @@ export function IntentDesk({ name, projectId, store, initial }) {
                   setAdding={setAdding}
                   show={show}
                   openClaim={openClaim}
-                  initialSources={initial.sources}
+                  sources={initial.sources}
+                  onSourcesChange={onSourcesChange}
                 />
               </div>
             </section>
@@ -911,7 +895,6 @@ export function IntentDesk({ name, projectId, store, initial }) {
                       showRoute({ source: room.origin?.id ?? "" })
                     }
                     onBack={() => showRoute({})}
-                    directoryToggle={null}
                   >
                     <HighlightTranslation
                       key={room.id}
@@ -963,7 +946,7 @@ export function IntentDesk({ name, projectId, store, initial }) {
                   <button className="link" onClick={() => showRoute({})}>
                     {t("backToWorkspace")}{" "}
                   </button>
-                  {researchSource ? (
+                  {route.source === undefined ? <p role="status">{tr("missingClaim")}</p> : researchSource ? (
                     <ResearchSource source={researchSource} show={show} />
                   ) : (
                     <>

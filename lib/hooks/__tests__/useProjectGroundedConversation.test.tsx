@@ -910,7 +910,7 @@ describe("useProjectGroundedConversation canonical persistence", () => {
   });
 
   it("switches, creates, renames, and clears through the management boundaries", async () => {
-    window.history.replaceState({}, "", `/workspace/projects/${PROJECT_ID}`);
+    window.history.replaceState({}, "", `/workspace/projects/${PROJECT_ID}?panel=conversation`);
     const firstId = "40000000-0000-4000-8000-000000000001";
     const secondId = "40000000-0000-4000-8000-000000000002";
     const createdId = "40000000-0000-4000-8000-000000000003";

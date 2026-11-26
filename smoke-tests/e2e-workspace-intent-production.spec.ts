@@ -41,11 +41,8 @@ test("published workspace from naming to independently cited manuscript @workspa
   if (previous) {
     await page.goto(base + "/workspace/projects/" + previous);
     await expect(page.locator(".intent-shell .integrated")).toBeVisible();
-    await page.getByRole("link", { name: /原项目资料/ }).click();
-    await expect(
-      page.getByRole("tab", { name: "研究", exact: true }),
-    ).toBeVisible();
-    console.log("Existing smoke-owned project and original materials opened.");
+    await expect(page.getByRole("navigation", {name: "素材列表"})).toBeVisible();
+    await expect(page.getByRole("link", {name: /原项目资料/})).toHaveCount(0);
   } else {
     console.log("The dedicated smoke account had no pre-existing project.");
   }

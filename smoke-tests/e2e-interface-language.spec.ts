@@ -5,7 +5,7 @@ const base = process.env.BASE_URL || "http://localhost:3000";
 test.use({ viewport: { width: 320, height: 720 } });
 
 test("localized account pages fit a narrow phone and retain the project return link", async ({page}) => {
-  const destination = "/new-workspace/projects/00000000-0000-4000-8000-000000000000?claim=example";
+  const destination = "/workspace/projects/00000000-0000-4000-8000-000000000000?claim=example";
   await page.goto(base + destination);
   expect(new URL(page.url()).searchParams.get("redirect_to")).toBe(destination);
   for (const [locale, forgot, reset, thanks] of [

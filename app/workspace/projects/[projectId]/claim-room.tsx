@@ -17,22 +17,19 @@ import {
 } from "@/lib/video-space/claim-spaces";
 import { Finding } from "./research";
 
-export function RoomToolbar({
+function RoomToolbar({
   title,
   onBack,
-  directoryToggle,
   children,
 }: {
   title: string;
   onBack: () => void;
-  directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
   const tr = useTranslations("ui");
   return (
     <div className="vs-room-toolbar">
       <small>{title}</small>
-      {directoryToggle}
       <div className="vs-room-actions">
         {children}
         <button
@@ -52,13 +49,11 @@ export function ClaimRoomHeader({
   room,
   onParent,
   onBack,
-  directoryToggle,
   children,
 }: {
   room?: ClaimSpace;
   onParent: () => void;
   onBack: () => void;
-  directoryToggle: ReactNode;
   children?: ReactNode;
 }) {
   const tr = useTranslations("ui");
@@ -92,7 +87,6 @@ export function ClaimRoomHeader({
       <RoomToolbar
         title={tr("claimRoom")}
         onBack={onBack}
-        directoryToggle={directoryToggle}
       >
         {children}
       </RoomToolbar>

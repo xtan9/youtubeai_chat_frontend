@@ -5,9 +5,8 @@ import { listWorkspaceProjects } from "@/lib/projects/project-subject";
 import { createClient } from "@/lib/supabase/server";
 import { ProjectOutcomeState } from "./project-outcome-state";
 import {IntentLanding} from "../intent/landing";
-import { WorkspaceView } from "./workspace-view";
 
-export async function WorkspaceListing({ videoSpace = false, manage = false } = {}) {
+export async function WorkspaceListing() {
   const principalResult = await resolveRequestPrincipal({ source: "workspace_projects" });
   if (principalResult.kind === "unavailable") {
     return <ProjectOutcomeState kind="unavailable" />;
@@ -26,12 +25,9 @@ export async function WorkspaceListing({ videoSpace = false, manage = false } = 
     return <ProjectOutcomeState kind="unavailable" />;
   }
 
-  if (!manage) {
-    return (
-      <NextIntlClientProvider now={await getNow()}>
-        <IntentLanding workspace={result.value} />
-      </NextIntlClientProvider>
-    );
-  }
-  return <WorkspaceView manage={manage} initialWorkspace={result.value} videoSpace={videoSpace} />;
+  return (
+    <NextIntlClientProvider now={await getNow()}>
+      <IntentLanding workspace={result.value} />
+    </NextIntlClientProvider>
+  );
 }
