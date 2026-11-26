@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 export async function checkClaimHighlightTranslation(page: Page, projectId: string, versionId: string) {
-  const room = page.getByRole("region", { name: "观点空间", exact: true });
+  const room = page.getByRole("region", { name: "观点研究", exact: true });
   const card = page.getByRole("region", { name: "划词翻译", exact: true });
   const settingsButton = room.locator("header").getByRole("button", { name: "划词翻译设置" });
   const settings = page.getByRole("dialog", { name: "划词翻译设置" });
@@ -24,11 +24,13 @@ export async function checkClaimHighlightTranslation(page: Page, projectId: stri
   await expect(settingsButton).toBeFocused();
 
   async function highlight(block: Locator, word: string, sourceVersion?: string, touch = false) {
+    await expect(block).toBeVisible();
     await block.scrollIntoViewIfNeeded();
+    await expect(block).toBeInViewport({ ratio: 1 });
     const context = await block.innerText();
     const previous = requests.length;
-    if (touch) await block.dispatchEvent("pointerdown", { pointerType: "touch" });
-    await block.evaluate((el, word) => {
+    await block.evaluate((el, { word, touch }) => {
+      if (touch) el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
       const text = el.firstChild!;
       const offset = text.textContent!.indexOf(word);
       const range = document.createRange();
@@ -37,9 +39,9 @@ export async function checkClaimHighlightTranslation(page: Page, projectId: stri
       const selection = window.getSelection()!;
       selection.removeAllRanges();
       selection.addRange(range);
-    }, word);
+      if (touch) el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" }));
+    }, { word, touch });
     if (touch) {
-      await block.dispatchEvent("pointerup", { pointerType: "touch" });
       const translate = card.getByRole("button", { name: "翻译", exact: true });
       await expect(translate).toBeVisible();
       expect(requests).toHaveLength(previous);

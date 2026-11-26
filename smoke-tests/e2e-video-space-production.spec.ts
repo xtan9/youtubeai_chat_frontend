@@ -22,21 +22,20 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
     page.getByRole("button", { name: /^login$/i }).click(),
   ]);
   await page.context().addCookies([{name: "locale", value: "zh", url: base}]);
-  await page.goto(base + "/new-workspace/projects/" + id+"?view=investigations");
-  const left = page.getByRole("region", { name: "研究台", exact: true }),
-    right = page.getByRole("region", { name: "创作搭档", exact: true });
+  await page.goto(base + "/workspace/projects/" + id);
+  const left = page.getByRole("navigation", { name: "素材列表" });
+  await page.locator("select.rich-view").selectOption("source");
   await page.getByRole("button", { name: "新建脚本" }).click();
   const draft = await page.getByLabel("当前脚本").inputValue();
   const editor = page.getByLabel("脚本正文");
   const opening = "两个视频都在讲种子油。它们在比较同一件事吗？";
   await editor.fill(opening);
-  const claims = left.getByText(/^关键观点 ·/).first();
-  await expect(claims).toBeVisible({ timeout: 90000 });
-  const details = claims.locator("..");
-  if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open)))
-    await claims.click();
-  await details.getByRole("button").first().click();
-  const room = page.getByRole("region", { name: "观点空间" });
+  const source = left.locator(".vs-source").filter({ has: page.locator(".vs-source-toggle") }).first();
+  const toggle = source.getByRole("heading").getByRole("button");
+  await expect(toggle).toBeVisible({ timeout: 90000 });
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+  await source.locator(".vs-claim-link").first().click();
+  const room = page.getByRole("region", { name: "观点研究" });
   const [research] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().endsWith("/research") && r.request().method() === "POST",
@@ -76,13 +75,13 @@ test("creator investigates and writes in the deployed Video Space @video-space-l
     room.getByText("这份摘要里的证据能回答原观点的哪一部分？", { exact: true }),
   ).toBeVisible();
   await room.getByRole("button", { name: "交给创作搭档" }).click();
-  await page.getByRole("button", { name: "返回项目工作台" }).click();
-  await right.getByRole("button", { name: "写进开场" }).last().click();
+  await page.getByRole("button", { name: "写入当前文稿" }).last().click();
   await expect(editor).not.toHaveValue(opening, { timeout: 90000 });
   const script = await editor.inputValue();
   expect(script.startsWith(opening)).toBeTruthy();
   await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.reload();
+  await page.locator("select.rich-view").selectOption("source");
   await page.getByLabel("当前脚本").selectOption(draft);
   await expect(editor).toHaveValue(script);
 });

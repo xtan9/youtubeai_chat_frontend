@@ -162,10 +162,14 @@ function Judgment({ document }: { document: ResearchDocument }) {
 }
 export function ProjectResearchNotebook({
   projectId,
+  deskRevision,
+  onPublished,
   currentSourceSetRevision,
 }: {
   projectId: string;
   currentSourceSetRevision: number;
+  deskRevision?: string;
+  onPublished: (version: ResearchVersion) => void;
 }) {
   const locale = useLocale();
   const t = useTranslations("project");
@@ -207,7 +211,7 @@ export function ProjectResearchNotebook({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [projectId, loadKey]);
+  }, [projectId, loadKey, deskRevision]);
   async function loadOlder() {
     if (!historyCursor || loading || loadingOlder || pending) return;
     setLoadingOlder(true);
@@ -264,6 +268,7 @@ export function ProjectResearchNotebook({
       }
       const parsed = VersionsSchema.parse(payload);
       setVersions(parsed.versions);
+      if (parsed.versions[0]) onPublished(parsed.versions[0]);
       setHistoryCursor(parsed.nextCursor);
       setSelectedId(null);
       setQuestion("");

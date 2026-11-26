@@ -34,7 +34,7 @@ test("signed-in route copy follows the selected locale across the full visible p
     }
     return [...result].filter(Boolean);
   });
-  for(const path of ["/","/dashboard","/workspace","/new-workspace","/history","/account","/account/billing","/auth/update-password","/billing/success","/billing/canceled","/pricing","/summary?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DjNQXAC9IVRw"]){
+  for(const path of ["/","/dashboard","/workspace","/history","/account","/account/billing","/auth/update-password","/billing/success","/billing/canceled","/pricing","/summary?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DjNQXAC9IVRw"]){
     await page.goto(base+path);
     const language=page.locator("header select").first();
     const switchTo=async(locale:string)=>{

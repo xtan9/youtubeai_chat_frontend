@@ -2,7 +2,7 @@ import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useLayoutEffect, useRef } from "react";
 import { BookOpen, Plus, Undo2 } from "lucide-react";
-import { DraftTitle, Script } from "@/app/new-workspace/projects/[projectId]/writing";
+import { DraftTitle, Script } from "@/app/workspace/projects/[projectId]/writing";
 import { InkIcon } from "./ink-icon";
 import { getFormats, questionPassages } from "./question-sources";
 const RichEditor = dynamic(() => import("./rich-editor"), { ssr: false });

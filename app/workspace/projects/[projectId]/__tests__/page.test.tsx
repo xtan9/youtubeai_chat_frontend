@@ -1,20 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
-import type { ProjectArtifactLoadResolution } from "@/lib/projects/project-artifact-contract";
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const mocks = vi.hoisted(() => ({
   principal: vi.fn(),
   createClient: vi.fn(),
-  resolveSubject: vi.fn(),
   openProject: vi.fn(),
-  loadSourceSet: vi.fn(),
-  loadCandidates: vi.fn(),
-  reconcile: vi.fn(),
-  loadConversation: vi.fn(),
-  listConversations: vi.fn(),
-  loadArtifact: vi.fn(),
-  projectView: vi.fn(() => null),
   scheduleAnalytics: vi.fn(),
   captureProjectActivity: vi.fn(),
 }));
@@ -33,185 +24,48 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: mocks.createClient,
 }));
 vi.mock("@/lib/projects/project-subject", () => ({
-  resolveProjectSubject: mocks.resolveSubject,
-  openResolvedProject: mocks.openProject,
+  openProject: mocks.openProject,
 }));
-vi.mock("@/lib/projects/project-source-set", () => ({
-  loadProjectSourceSet: mocks.loadSourceSet,
-  loadProjectHistoryCandidates: mocks.loadCandidates,
-}));
-vi.mock("@/lib/projects/project-video-processing", () => ({
-  reconcileStaleProjectVideoProcessing: mocks.reconcile,
-}));
-vi.mock("../project-view", () => ({
-  ProjectView: mocks.projectView,
-}));
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn((path: string) => {
-    throw new Error(`redirect:${path}`);
-  }),
-}));
+vi.mock("../workbench", () => ({ Workbench: () => null }));
+import ProjectPage from "../page";
+import { Workbench } from "../workbench";
 
-import ProjectPage from "../materials-page";
-
-const studyGuide: Extract<
-  ProjectArtifactLoadResolution,
-  { status: "ready" }
-> = {
-  status: "ready",
-  currentSourceSetRevision: 2,
-  current: null,
-  history: [],
-  tier: "free",
-  generationsUsed: 0,
-  generationsLimit: 1,
-};
-
-const SELECTED_ID = "40000000-0000-4000-8000-000000000002";
-const DEFAULT_ID = "40000000-0000-4000-8000-000000000001";
-
-function conversation(conversationId: string) {
-  return {
-    status: "ready" as const,
-    conversation: {
-      conversationId,
-      messages: [],
-      sourceSetEvents: [],
-      nextCursor: null,
-      nextEventCursor: null,
-      messagesUsed: 0,
-      messagesLimit: 5 as const,
-      tier: "free" as const,
-    },
-  };
-}
-
-describe("Project page Artifact composition", () => {
+describe("canonical project page", () => {
+  const params = Promise.resolve({ projectId: PROJECT_ID });
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.principal.mockResolvedValue({
       kind: "resolved",
-      principal: {
-        userId: "90000000-0000-4000-8000-000000000001",
-        isAnonymous: false,
-        smokeProEntitled: false,
-        businessAnalyticsSuppressed: false,
-      },
-    });
-    mocks.createClient.mockResolvedValue({});
-    mocks.loadConversation.mockResolvedValue({
-      status: "ready",
-      conversation: {
-        conversationId: null,
-        messages: [],
-        messagesUsed: 0,
-        messagesLimit: 5,
-        tier: "free",
-      },
-    });
-    mocks.listConversations.mockResolvedValue({
-      status: "ready",
-      conversations: [],
-    });
-    mocks.loadArtifact.mockResolvedValue(studyGuide);
-    mocks.resolveSubject.mockResolvedValue({
-      kind: "resolved",
-      value: {
-        projectId: PROJECT_ID,
-        groundedAnswers: { load: mocks.loadConversation },
-        conversations: { list: mocks.listConversations },
-        artifacts: { load: mocks.loadArtifact },
-      },
+      principal: { userId: "owner" },
     });
     mocks.openProject.mockResolvedValue({
       kind: "resolved",
-      value: {
-        id: PROJECT_ID,
-        name: "Launch research",
-        goal: null,
-        createdAt: "2026-08-09T12:00:00.000Z",
-        updatedAt: "2026-08-09T12:00:00.000Z",
-        lastActiveAt: "2026-08-09T12:00:00.000Z",
-      },
+      value: { id: PROJECT_ID, name: "Research" },
     });
-    mocks.loadSourceSet.mockResolvedValue({
-      kind: "resolved",
-      value: { revision: 2, videos: [] },
-    });
-    mocks.loadCandidates.mockResolvedValue({
-      kind: "resolved",
-      value: { candidates: [], nextCursor: null },
-    });
-    mocks.reconcile.mockResolvedValue(undefined);
   });
-
-  it("loads all Artifact kinds on the server and supplies them with the Project view", async () => {
-    const output = (await ProjectPage({
-      params: Promise.resolve({ projectId: PROJECT_ID }),
-      searchParams: Promise.resolve({}),
-    })) as ReactElement<{
-      initialStudyGuide: ProjectArtifactLoadResolution;
-      initialCreatorBrief: ProjectArtifactLoadResolution;
-      initialProjectBrief: ProjectArtifactLoadResolution;
-    }>;
-
-    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(1, "study_guide");
-    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(2, "creator_brief");
-    expect(mocks.loadArtifact).toHaveBeenNthCalledWith(3, "project_brief");
-    expect(output.props.initialStudyGuide).toEqual(studyGuide);
-    expect(output.props.initialCreatorBrief).toEqual(studyGuide);
-    expect(output.props.initialProjectBrief).toEqual(studyGuide);
-  });
-
-  it("uses the trusted Smoke Account marker when stale processing is reconciled", async () => {
-    mocks.principal.mockResolvedValue({
-      kind: "resolved",
-      principal: {
-        userId: "90000000-0000-4000-8000-000000000001",
-        isAnonymous: false,
-        smokeProEntitled: false,
-        businessAnalyticsSuppressed: true,
-      },
+  it.each([{}, { view: "investigations" }, { conversationId: "saved-thread" }])(
+    "opens the same workbench for saved links",
+    async (search) => {
+      const page = (await ProjectPage({
+        params,
+        searchParams: Promise.resolve(search),
+      })) as ReactElement;
+      expect(page.type).toBe(Workbench);
+      expect(mocks.openProject).toHaveBeenCalledOnce();
+      expect(mocks.scheduleAnalytics).toHaveBeenCalledOnce();
+    },
+  );
+  it("preserves a signed-out reader’s destination", async () => {
+    mocks.principal.mockResolvedValue({ kind: "missing" });
+    const path = "/workspace/projects/" + PROJECT_ID + "?claim=selected";
+    await expect(
+      ProjectPage({
+        params,
+        searchParams: Promise.resolve({ claim: "selected" }),
+      }),
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining(encodeURIComponent(path)),
     });
-
-    await ProjectPage({
-      params: Promise.resolve({ projectId: PROJECT_ID }),
-      searchParams: Promise.resolve({}),
-    });
-
-    expect(mocks.reconcile).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: PROJECT_ID }),
-      true,
-    );
-  });
-
-  it("loads the owned conversation named by the URL query", async () => {
-    mocks.loadConversation.mockResolvedValue(conversation(SELECTED_ID));
-
-    const output = (await ProjectPage({
-      params: Promise.resolve({ projectId: PROJECT_ID }),
-      searchParams: Promise.resolve({ conversationId: SELECTED_ID }),
-    })) as ReactElement<{
-      initialConversation: { conversationId: string | null };
-    }>;
-
-    expect(mocks.loadConversation).toHaveBeenCalledWith(SELECTED_ID);
-    expect(output.props.initialConversation.conversationId).toBe(SELECTED_ID);
-  });
-
-  it("falls back without disclosing a missing or foreign conversation", async () => {
-    mocks.loadConversation
-      .mockResolvedValueOnce({ status: "missing" })
-      .mockResolvedValueOnce(conversation(DEFAULT_ID));
-
-    const output = (await ProjectPage({
-      params: Promise.resolve({ projectId: PROJECT_ID }),
-      searchParams: Promise.resolve({ conversationId: SELECTED_ID }),
-    })) as ReactElement<{
-      initialConversation: { conversationId: string | null };
-    }>;
-
-    expect(mocks.loadConversation.mock.calls).toEqual([[SELECTED_ID], []]);
-    expect(output.props.initialConversation.conversationId).toBe(DEFAULT_ID);
+    expect(mocks.openProject).not.toHaveBeenCalled();
   });
 });

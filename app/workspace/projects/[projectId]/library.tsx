@@ -19,7 +19,8 @@ import type { ClaimSpace } from "@/lib/video-space/claim-spaces";
 
 type Props = {
   emptyHint?:string;
-  initialSources: ProjectSourceSet | null;
+  sources: ProjectSourceSet | null;
+  onSourcesChange: (sources: ProjectSourceSet) => void;
   bySource: Map<string, ClaimSpace[]>;
   selected?: string;
   activeSource?: string;
@@ -243,7 +244,8 @@ function SourceCard({
 }
 export function Library({
   emptyHint,
-  initialSources,
+  sources,
+  onSourcesChange,
   adding,
   setAdding,
   api,
@@ -259,8 +261,7 @@ export function Library({
   show,
 }: Props) {
   const tr = useTranslations("ui");
-  const [sources, setSources] = useState(initialSources),
-    [url, setUrl] = useState(""),
+  const [url, setUrl] = useState(""),
     [file, setFile] = useState<File | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -271,7 +272,7 @@ export function Library({
     const load = () =>
       requestJson<{ sourceSet: ProjectSourceSet }>(api + "/source-set")
         .then((r) => {
-          if (active) setSources(r.sourceSet);
+          if (active) onSourcesChange(r.sourceSet);
         })
         .catch(() => {
           if (active) setError("couldNotLoadVideoSources");
@@ -281,7 +282,7 @@ export function Library({
       active = false;
       clearInterval(id);
     };
-  }, [api, pending]);
+  }, [api, pending, onSourcesChange]);
   function save(r: Resource) {
     const added = update((s) => ({
       ...s,
@@ -311,7 +312,7 @@ export function Library({
           youtubeUrl: normalizeYouTubeVideoInput(url),
           expectedRevision: sources.revision,
         });
-        setSources(
+        onSourcesChange(
           (
             await requestJson<{ sourceSet: ProjectSourceSet }>(
               api + "/source-set",
