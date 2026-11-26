@@ -195,7 +195,7 @@ export async function videoSpaceJourney(
   expect(seed.ok()).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(appUrl + "/new-workspace/projects/" + projectId + "?view=investigations");
-  await expect(page).toHaveURL(appUrl + "/workspace/projects/" + projectId + "?view=investigations");
+  await expect(page).toHaveURL(appUrl + "/workspace/projects/" + projectId);
   const left = page.getByRole("navigation", {name: "素材列表"});
   await page.locator("select.rich-view").selectOption("source");
   const editor = page.getByRole("textbox", {name: "脚本正文"});

@@ -43,6 +43,7 @@ test("published workspace from naming to independently cited manuscript @workspa
     await expect(page.locator(".intent-shell .integrated")).toBeVisible();
     await expect(page.getByRole("navigation", {name: "素材列表"})).toBeVisible();
     await expect(page.getByRole("link", {name: /原项目资料/})).toHaveCount(0);
+    await expect(page.locator(".project-head select, [data-project-action]")).toHaveCount(0);
   } else {
     console.log("The dedicated smoke account had no pre-existing project.");
   }

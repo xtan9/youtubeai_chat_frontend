@@ -1338,11 +1338,6 @@
     "MISSING_ORIGIN": "摘要數據無效。請重試。"
   },
   "intent": {
-    "editProject": "編輯專案",
-    "projectReports": "專案報告",
-    "manageVideoSources": "管理影片素材",
-    "sourceConversations": "素材問答",
-    "researchNotebook": "研究筆記",
     "dashboard": "控制台",
     "workspace": "我的工作區",
     "newProject": "新項目",

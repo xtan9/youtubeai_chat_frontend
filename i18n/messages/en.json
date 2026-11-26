@@ -1318,11 +1318,6 @@
     "MISSING_ORIGIN": "The summary stream was invalid. Please try again."
   },
   "intent": {
-    "editProject": "Edit project",
-    "projectReports": "Project reports",
-    "manageVideoSources": "Manage video sources",
-    "sourceConversations": "Source conversations",
-    "researchNotebook": "Research notebook",
     "dashboard": "Dashboard",
     "workspace": "My workspace",
     "newProject": "New project",
