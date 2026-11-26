@@ -197,8 +197,7 @@ type FixtureGatewayGate = {
   release: () => void;
 };
 
-
-
+const videoSpaceRows = new Map<string, { revision: number; document: unknown }>();
 const projects: FixtureProject[] = [];
 const canonicalVideos: FixtureVideo[] = [];
 const historyRows: FixtureHistory[] = [];
