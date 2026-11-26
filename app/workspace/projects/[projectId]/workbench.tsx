@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ProjectSectionContent } from "./project-section";
+import { currentProjectSection, ProjectSectionContent, ProjectSectionLink } from "./project-section";
 import { IntentShell } from "../../intent/shell";
 import { IntentDesk } from "../../intent/desk";
 import type { Project } from "@/lib/projects/project-subject";
@@ -16,17 +17,6 @@ import { requestJson, SpaceRequestError, useSpace } from "./use-space";
 import "./workbench.css";
 
 const ProjectTools = dynamic(() => import("./project-tools"));
-const sections = {
-  desk: "workspace",
-  sources: "projectSources",
-  conversation: "projectConversation",
-  research: "projectResearch",
-  outputs: "outputs",
-  search: "search",
-  settings: "settings",
-} as const;
-export type ProjectSection = keyof typeof sections;
-
 async function loadResearchHistory(api: string, signal: AbortSignal) {
   let cursor: string | null = null;
   const versions: ResearchVersion[] = [];
@@ -90,21 +80,13 @@ function Editor({
 }
 
 export function Workbench({ project: initialProject }: { project: Project }) {
-  const ui = useTranslations("ui");
-  const t = useTranslations("project");
   const intent = useTranslations("intent");
   const [project, setProject] = useState(initialProject);
   const projectId = project.id;
   const api = "/api/projects/" + projectId;
   const client = useQueryClient();
   const params = useSearchParams();
-  const requested = params.get("panel");
-  const section =
-    requested && Object.hasOwn(sections, requested)
-      ? (requested as ProjectSection)
-      : params.has("conversationId")
-        ? "conversation"
-        : "desk";
+  const section = currentProjectSection(params);
   const [deskRevision, setDeskRevision] = useState<string>();
   const sourceSet = useQuery({
     queryKey: ["project-source-set", api],
@@ -143,16 +125,6 @@ export function Workbench({ project: initialProject }: { project: Project }) {
     );
   }
 
-  function selectSection(next: string) {
-    const url = new URL(location.href);
-    const defaultSection = url.searchParams.has("conversationId")
-      ? "conversation"
-      : "desk";
-    if (next === defaultSection) url.searchParams.delete("panel");
-    else url.searchParams.set("panel", next);
-    window.history.pushState(null, "", url);
-  }
-
   return (
     <>
       <IntentShell compact={section !== "desk"}>
@@ -163,20 +135,20 @@ export function Workbench({ project: initialProject }: { project: Project }) {
                 <Link href="/workspace">{intent("myWorkspace")}</Link>{" "}
                 <span>/</span> {intent("project")}
               </div>
-              <h1>{project.name}</h1>
+              <div className="project-title">
+                <h1>{project.name}</h1>
+                {section === "desk" && (
+                  <ProjectSectionLink to="settings" className="project-edit" label={intent("editProject")}>
+                    <Pencil aria-hidden="true" />
+                  </ProjectSectionLink>
+                )}
+              </div>
             </div>
-            <select
-              aria-label={t("projectSections")}
-              className="project-sections"
-              value={section}
-              onChange={(event) => selectSection(event.target.value)}
-            >
-              {Object.entries(sections).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {value === "desk" ? ui("workspace") : t(label)}
-                </option>
-              ))}
-            </select>
+            {section !== "desk" && (
+              <ProjectSectionLink className="link project-return" to="desk">
+                {intent("backToWorkspace")}
+              </ProjectSectionLink>
+            )}
           </div>
           <ProjectSectionContent active={section === "desk"}>
             <Editor
