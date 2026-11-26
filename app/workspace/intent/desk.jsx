@@ -15,6 +15,7 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
+import { ProjectSectionLink } from "@/app/workspace/projects/[projectId]/project-section";
 import { Library } from "@/app/workspace/projects/[projectId]/library";
 import { ClaimLinks } from "@/app/workspace/projects/[projectId]/source-claims";
 import {
@@ -640,6 +641,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
         {tabNames.map((tab) => (
           <button
             key={tab}
+            aria-controls={"project-pane-" + tab}
             aria-pressed={mobile === tab}
             onClick={() => setMobile(tab)}
           >
@@ -658,7 +660,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
         data-fold-chat={!inRoom && fold.chat}
         data-focus={!inRoom ? focus : undefined}
       >
-        <aside className="pane side">
+        <aside id="project-pane-side" className="pane side">
           <div className="pane-head directory-heading">
             <InkIcon name="folder" />
             {inRoom ? (
@@ -666,12 +668,14 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
             ) : (
               <nav className="side-tabs" aria-label={t("projectDirectory")}>
                 <button
+                  aria-controls="project-materials-list"
                   onClick={() => setMaterials(true)}
                   aria-pressed={showMaterials}
                 >
                   {libraryTitle}
                 </button>
                 <button
+                  aria-controls="project-drafts-list"
                   onClick={() => setMaterials(false)}
                   aria-pressed={!showMaterials}
                 >
@@ -683,7 +687,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
           </div>
           <nav
             className="side-scroll"
-            aria-label={t("draftList")}
+            id="project-drafts-list" aria-label={t("draftList")}
             hidden={showMaterials}
           >
             <button
@@ -697,6 +701,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
               <Plus size={12} />
               {t("newDraft")}
             </button>
+            <ProjectSectionLink to="outputs" className="desk-tool">{t("projectReports")}</ProjectSectionLink>
             {docs.length ? (
               docs.map((d) => (
                 <button
@@ -719,7 +724,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
           <nav
             className="side-scroll material-nav"
             ref={left}
-            aria-label={t("sourceDirectory")}
+            id="project-materials-list" aria-label={t("sourceDirectory")}
             hidden={!showMaterials}
           >
             <QuestionList
@@ -830,6 +835,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
                   </button>
                 </form>
               )}
+              <ProjectSectionLink to="sources" className="desk-tool">{t("manageVideoSources")}</ProjectSectionLink>
               <div className="native vs native-library">
                 <Library
                   emptyHint={t("optionalMaterial")}
@@ -880,7 +886,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
                 ? room.versions[0]?.id
                 : undefined
             }
-            className="pane room"
+            id="project-pane-room" className="pane room"
             aria-label={t("claimResearch")}
           >
             <div
@@ -972,7 +978,7 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
           </section>
         )}
         <section
-          className="pane paper"
+          id="project-pane-paper" className="pane paper"
           aria-label={
             projectQuestion ? t("questionResearch") : t(w.draft.outline && !w.draft.text ? "videoOutline" : "currentDraft")
           }
@@ -1071,12 +1077,13 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
           </>)}
         </section>
         {!inRoom && (
-          <aside className="pane chat">
+          <aside id="project-pane-chat" className="pane chat">
             <h2 className="pane-head">
               <InkIcon name="chat" />
               <span>{t("projectAssistant")}</span>
               {panelControls("chat")}
             </h2>
+            <ProjectSectionLink to="conversation" className="desk-tool chat-source-link">{t("sourceConversations")}</ProjectSectionLink>
             <ProjectChat
               name={name}
               w={w}

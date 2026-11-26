@@ -27,6 +27,7 @@ import {
   type ProjectSourceSet as ProjectSourceSetValue,
   type ProjectVideo,
 } from "@/lib/projects/project-source-set-contract";
+import { ProjectSectionLink } from "./project-section";
 import { VideoThumbnail, ProjectSourceList } from "./project-source-list";
 
 type ProjectSourceSetProps = {
@@ -409,6 +410,11 @@ export function ProjectSourceSet({
                     {sourceSet.videos.length} {t("of")} {PROJECT_VIDEO_LIMIT}
                   </span>
                 </Badge>
+                {compact && (
+                  <ProjectSectionLink to="search" className="ms-auto inline-flex items-center gap-1 text-body-sm text-text-secondary hover:underline">
+                    <Search size={15} aria-hidden="true" />{t("searchTranscripts")}
+                  </ProjectSectionLink>
+                )}
               </div>
               <p className="max-w-prose text-body-sm text-text-secondary">
                 {compact ? t("openAVideoToInspectItsTranscriptAnd") : t("orderTheVideosThisProjectCanUseAs")}

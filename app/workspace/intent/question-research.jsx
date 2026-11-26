@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
 } from "lucide-react";
+import { ProjectSectionLink } from "@/app/workspace/projects/[projectId]/project-section";
 import { answerId, questionPassages } from "./question-sources";
 
 export function QuestionList({
@@ -143,6 +144,7 @@ export function QuestionList({
           {t("addTheFirstQuestionYouWantToInvestigate")}
         </p>
       )}
+      <ProjectSectionLink to="research" className="desk-tool">{t("researchNotebook")}</ProjectSectionLink>
     </section>
   );
 }

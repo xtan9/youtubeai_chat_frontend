@@ -18,9 +18,8 @@ import { ProjectSearch } from "./project-search";
 import { ProjectSettings } from "./project-settings";
 import { ProjectSourceSet } from "./project-source-set";
 import { requestJson, SpaceRequestError } from "./use-space";
-import { ProjectSectionContent as Section } from "./project-section";
+import { ProjectSectionContent as Section, type ProjectSection } from "./project-section";
 import type { ResearchVersion } from "@/lib/projects/project-research-contract";
-import type { ProjectSection } from "./workbench";
 
 type Artifact = Extract<ProjectArtifactLoadResolution, { status: "ready" }>;
 

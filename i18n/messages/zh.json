@@ -1220,7 +1220,6 @@
     "hide": "收起",
     "show": "展开",
     "projectSources": "项目素材",
-    "projectSections": "项目分区",
     "research": "研究",
     "outputs": "成果",
     "settings": "设置",
@@ -1339,6 +1338,11 @@
     "MISSING_ORIGIN": "摘要数据无效。请重试。"
   },
   "intent": {
+    "editProject": "编辑项目",
+    "projectReports": "项目报告",
+    "manageVideoSources": "管理视频素材",
+    "sourceConversations": "素材问答",
+    "researchNotebook": "研究笔记",
     "dashboard": "控制台",
     "workspace": "我的工作区",
     "newProject": "新项目",
