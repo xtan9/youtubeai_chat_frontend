@@ -170,19 +170,19 @@ jobs:
           --grep-invert "@session-policy|@account-mutating|@account-recovery|@live-summary|@payment-e2e"
           --workers=1
           --retries=0
-      - name: Run Project Conversation production smoke
+      - name: Run project workspace production smoke
         if: ${{ !cancelled() }}
         env:
           TEST_LIVE_SUMMARY_EMAIL: ${{ secrets.TEST_LIVE_SUMMARY_EMAIL }}
           TEST_LIVE_SUMMARY_PASSWORD: ${{ secrets.TEST_LIVE_SUMMARY_PASSWORD }}
           TEST_PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
         run: |
-          : "${TEST_LIVE_SUMMARY_EMAIL:?TEST_LIVE_SUMMARY_EMAIL is required for Project Conversation smoke}"
-          : "${TEST_LIVE_SUMMARY_PASSWORD:?TEST_LIVE_SUMMARY_PASSWORD is required for Project Conversation smoke}"
-          : "${TEST_PROJECT_ID:?TEST_PROJECT_ID is required for Project Conversation smoke}"
+          : "${TEST_LIVE_SUMMARY_EMAIL:?TEST_LIVE_SUMMARY_EMAIL is required for project workspace smoke}"
+          : "${TEST_LIVE_SUMMARY_PASSWORD:?TEST_LIVE_SUMMARY_PASSWORD is required for project workspace smoke}"
+          : "${TEST_PROJECT_ID:?TEST_PROJECT_ID is required for project workspace smoke}"
           pnpm exec playwright test \
-          smoke-tests/e2e-project-conversation-production.spec.ts \
-          --grep "@project-grounded" \
+          smoke-tests/e2e-project-workspace-production.spec.ts \
+          --grep "@project-workspace" \
           --workers=1 \
           --retries=0
       - name: Run bounded Anonymous Trial rollout probe

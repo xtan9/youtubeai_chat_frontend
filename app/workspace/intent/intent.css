@@ -3,7 +3,6 @@ body:has(.intent-shell) > :is(header, footer) {
 }
 .intent-shell {
   min-height: 100dvh;
-  &[data-compact] { min-height: auto; }
 
   & {
     color-scheme: light;
@@ -275,14 +274,6 @@ body:has(.intent-shell) > :is(header, footer) {
     margin-bottom: 17px;
     gap: 12px;
   }
-  .project-title { display: flex; align-items: center; gap: 6px; }
-  .project-edit { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; color: var(--muted); border-radius: 4px; }
-  .project-edit svg { width: 14px; height: 14px; }
-  .project-edit:hover { background: var(--rule); color: var(--ink); }
-  .project-return { flex: none; }
-  .desk-tool { display: inline-flex; align-items: center; min-height: 30px; padding: 2px 4px; font-size: 12px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
-  .desk-tool:hover { color: var(--ink); }
-  .chat-source-link { align-self: flex-start; margin-inline-start: 12px; }
   .project-head .crumb {
     margin: 0 0 3px;
   }

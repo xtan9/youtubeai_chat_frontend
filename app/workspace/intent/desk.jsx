@@ -15,7 +15,6 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
-import { ProjectSectionLink } from "@/app/workspace/projects/[projectId]/project-section";
 import { Library } from "@/app/workspace/projects/[projectId]/library";
 import { ClaimLinks } from "@/app/workspace/projects/[projectId]/source-claims";
 import {
@@ -236,8 +235,6 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
       url.searchParams.delete(k);
       if (next[k] !== undefined) url.searchParams.set(k, next[k]);
     }
-    url.searchParams.delete("intent");
-    url.searchParams.delete("view");
     if (url.href !== location.href) history[method](null, "", url);
     setFocus(null);
 
@@ -701,7 +698,6 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
               <Plus size={12} />
               {t("newDraft")}
             </button>
-            <ProjectSectionLink to="outputs" className="desk-tool">{t("projectReports")}</ProjectSectionLink>
             {docs.length ? (
               docs.map((d) => (
                 <button
@@ -835,7 +831,6 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
                   </button>
                 </form>
               )}
-              <ProjectSectionLink to="sources" className="desk-tool">{t("manageVideoSources")}</ProjectSectionLink>
               <div className="native vs native-library">
                 <Library
                   emptyHint={t("optionalMaterial")}
@@ -1083,7 +1078,6 @@ export function IntentDesk({ name, projectId, store, initial, onSourcesChange, o
               <span>{t("projectAssistant")}</span>
               {panelControls("chat")}
             </h2>
-            <ProjectSectionLink to="conversation" className="desk-tool chat-source-link">{t("sourceConversations")}</ProjectSectionLink>
             <ProjectChat
               name={name}
               w={w}

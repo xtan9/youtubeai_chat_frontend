@@ -28,20 +28,27 @@ export default async function ProjectPage({
   searchParams,
 }: ProjectPageProps) {
   const { projectId } = await params;
+  const path = "/workspace/projects/" + encodeURIComponent(projectId);
+  const original = await searchParams;
+  const query = new URLSearchParams();
+  let hasRetiredView = false;
+  for (const [key, value] of Object.entries(original)) {
+    if (["panel", "conversationId", "view", "intent"].includes(key)) {
+      hasRetiredView = true;
+      continue;
+    }
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined) query.append(key, item);
+    }
+  }
+  const destination = query.size ? path + "?" + query : path;
+  if (hasRetiredView) redirect(destination);
+
   const owner = await resolveRequestPrincipal({ source: "project" });
   if (owner.kind === "unavailable")
     return <ProjectOutcomeState kind="unavailable" />;
   if (owner.kind === "missing" || owner.principal.isAnonymous) {
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(await searchParams)) {
-      for (const item of Array.isArray(value) ? value : [value]) {
-        if (item !== undefined) query.append(key, item);
-      }
-    }
-    const path = "/workspace/projects/" + encodeURIComponent(projectId);
-    redirect(
-      buildAuthPageHref("/auth/login", query.size ? path + "?" + query : path),
-    );
+    redirect(buildAuthPageHref("/auth/login", destination));
   }
   let opened: Awaited<ReturnType<typeof openProject>>;
   try {

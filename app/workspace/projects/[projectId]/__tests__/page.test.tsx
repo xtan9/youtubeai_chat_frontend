@@ -43,7 +43,7 @@ describe("canonical project page", () => {
       value: { id: PROJECT_ID, name: "Research" },
     });
   });
-  it.each([{}, { view: "investigations" }, { conversationId: "saved-thread" }])(
+  it.each([{}, { claim: "selected" }, { question: "saved-question", finding: "version" }])(
     "opens the same workbench for saved links",
     async (search) => {
       const page = (await ProjectPage({
@@ -55,6 +55,15 @@ describe("canonical project page", () => {
       expect(mocks.scheduleAnalytics).toHaveBeenCalledOnce();
     },
   );
+  it.each(["panel", "conversationId", "view", "intent"])("strips the retired %s switch and preserves evidence links", async (key) => {
+    await expect(ProjectPage({
+      params,
+      searchParams: Promise.resolve({ [key]: "old", claim: "saved", tag: ["one", "two"] }),
+    })).rejects.toMatchObject({
+      digest: expect.stringContaining("/workspace/projects/" + PROJECT_ID + "?claim=saved&tag=one&tag=two;"),
+    });
+    expect(mocks.openProject).not.toHaveBeenCalled();
+  });
   it("preserves a signed-out reader’s destination", async () => {
     mocks.principal.mockResolvedValue({ kind: "missing" });
     const path = "/workspace/projects/" + PROJECT_ID + "?claim=selected";

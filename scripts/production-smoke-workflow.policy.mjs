@@ -113,7 +113,7 @@ test("defaults production browser smoke to an explicit critical allowlist", () =
   const fullStep = sectionBetween(
     browserJob,
     "      - name: Run full non-mutating browser smoke",
-    "\n      - name: Run Project Conversation production smoke",
+    "\n      - name: Run project workspace production smoke",
   );
 
   assert.match(
@@ -277,18 +277,18 @@ test("isolates live Summary checks with a bounded retry budget", () => {
     "the broad serial suite must not own or delay the live detector",
   );
 
-  const projectConversationStep = sectionBetween(
+  const projectWorkspaceStep = sectionBetween(
     browserJob,
-    "      - name: Run Project Conversation production smoke",
+    "      - name: Run project workspace production smoke",
     "\n      - uses: actions/upload-artifact@v6",
   );
   assert.match(
-    projectConversationStep,
-    /smoke-tests\/e2e-project-conversation-production\.spec\.ts/,
+    projectWorkspaceStep,
+    /smoke-tests\/e2e-project-workspace-production\.spec\.ts/,
   );
   assert.match(
-    projectConversationStep,
-    /--grep "@project-grounded"/,
+    projectWorkspaceStep,
+    /--grep "@project-workspace"/,
   );
 });
 
@@ -310,7 +310,7 @@ test("production browser smoke excludes local fixtures and development prototype
   assert.match(productionPlaywrightConfig, /webServer:\s*undefined/);
 });
 
-test("gives the Project Conversation smoke its required account only for that step", () => {
+test("gives the project workspace smoke its required account only for that step", () => {
   const browserJob = sectionBetween(
     workflow,
     "  e2e-smoke:",
@@ -318,7 +318,7 @@ test("gives the Project Conversation smoke its required account only for that st
   );
   const projectStep = sectionBetween(
     browserJob,
-    "      - name: Run Project Conversation production smoke",
+    "      - name: Run project workspace production smoke",
     "\n      - name: Run bounded Anonymous Trial rollout probe",
   );
   const precedingSteps = browserJob.slice(0, browserJob.indexOf(projectStep));
@@ -335,9 +335,9 @@ test("gives the Project Conversation smoke its required account only for that st
   ]) {
     assert.ok(
       projectStep.includes(`${name}: \${{ secrets.${name} }}`),
-      `the Project Conversation step requires the dedicated ${name} secret`,
+      `the project workspace step requires the dedicated ${name} secret`,
     );
-    const requiredConfig = `: "\${${name}:?${name} is required for Project Conversation smoke}"`;
+    const requiredConfig = `: "\${${name}:?${name} is required for project workspace smoke}"`;
     assert.ok(
       projectStep.includes(requiredConfig),
       `${name} must fail before Playwright can silently skip the required journey`,
